@@ -1,0 +1,3428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brutus-Powder Indexing</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
+   <script src="worker-logic.js"></script>
+    <script src="webgpu-engine.js"></script>
+
+
+
+    <style>
+        :root {
+            --dark-bg: #111827;
+            --medium-bg: #1f2937;
+            --light-bg: #374151;
+            --border-color: #4b5563;
+            --primary-accent: #1a73e8;
+            --primary-accent-hover: #1765cc;
+            --text-light: #e5e7eb;
+            --text-medium: #d1d5db;
+            --text-dark: #9ca3af;
+            --success-green: #16a34a;
+            --error-red: #dc2626;
+            --led-gray: #6b7280;
+        }
+
+        body { font-family: 'Inter', sans-serif; margin: 0; background-color: #f9fafb; display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+        #app-container { display: flex; width: 100%; flex-grow: 1; min-height: 0; }
+        
+        #controls-panel { 
+            width: 400px; min-width: 300px; max-width: 700px; flex-shrink: 0; 
+            padding: 24px; background-color: var(--dark-bg); border-right: 1px solid var(--light-bg); 
+            overflow-y: visible; color: var(--text-medium); display: flex; flex-direction: column;
+            position: relative;
+            z-index: 20;
+        }
+        
+        #drag-handle { width: 6px; cursor: col-resize; background-color: var(--light-bg); flex-shrink: 0; transition: background-color: 0.2s; }
+        #drag-handle:hover, #drag-handle:active { background-color: var(--primary-accent); }
+        
+        #results-area { 
+            flex-grow: 1; position: relative; background-color: #ffffff; 
+            min-width: 0; display: flex; flex-direction: column; 
+            padding: 1.5rem; color: var(--medium-bg);
+            z-index: 10;
+        }
+
+        .control-group { margin-bottom: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--light-bg); }
+        .control-group:first-child { border-top: none; padding-top: 0; }
+        .control-label { display: block; margin-bottom: 8px; font-weight: 500; color: var(--text-dark); font-size: 0.875rem; }
+        .control-input, .control-select { width: 100%; background-color: var(--light-bg); border: 1px solid var(--border-color); color: var(--text-light); border-radius: 0.35rem; padding: 0.5rem 0.75rem; transition: all 0.2s ease; box-sizing: border-box; }
+        .control-input:focus, .control-select:focus { outline: none; border-color: var(--primary-accent); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4); }
+        .control-input:read-only { background-color: var(--medium-bg); opacity: 0.7; }
+ 
+        .btn-like {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.6rem 1rem;
+            border-radius: 0.375rem;
+            font-weight: 600;
+            font-size: 1rem;
+            text-align: center;
+            cursor: pointer;
+            border: none;
+            transition: background-color 0.2s;
+        }
+
+        .btn {
+            transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+        }
+
+        .btn-primary { background-color: var(--primary-accent); color: white; }
+        .btn-primary:hover:not(:disabled) { background-color: var(--primary-accent-hover); }
+        .btn-secondary { background-color: var(--light-bg); color: var(--text-light); border-color: var(--border-color); }
+        .btn-secondary:hover:not(:disabled) { background-color: #4a5568; }
+        .btn:disabled { background-color: var(--border-color); cursor: not-allowed; opacity: 0.7; }
+
+        .file-input-label {
+            background-color: var(--border-color);
+            color: var(--text-medium);
+        }
+        .file-input-label:hover { background-color: #6b7280; }
+        .file-input-label.error { border: 1px solid var(--error-red); color: var(--error-red); }
+        .parameter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+        .checkbox-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: var(--text-medium); cursor: pointer;}
+        .checkbox-label input:disabled + span { opacity: 0.5; cursor: not-allowed; }
+        .checkbox-label input:disabled { cursor: not-allowed; }
+
+
+        input[type="checkbox"] {
+            accent-color: var(--primary-accent);
+            transform: scale(1.1);
+            vertical-align: middle; 
+        }
+        .hidden { display: none !important; }
+
+        /* Tab Styles */
+        .tab-buttons { display: flex; border-bottom: 1px solid var(--border-color); margin-bottom: 1rem; }
+        .tab-btn { flex: 1; padding: 0.75rem 0.5rem; background: none; border: none; color: var(--text-dark); font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; gap: 8px;}
+        .tab-btn:hover { color: var(--text-light); }
+        .tab-btn.active { color: var(--primary-accent); border-bottom-color: var(--primary-accent); }
+        .tab-content-panels { flex-grow: 1; min-height: 0; position: relative; }
+        .tab-content-panel { display: none; flex-direction: column; height: 100%; overflow-y: auto; padding-right: 8px; margin-right: -8px;}
+        .tab-content-panel.active { display: flex; }
+        .tab-content-panel::-webkit-scrollbar { width: 6px; }
+        .tab-content-panel::-webkit-scrollbar-track { background: var(--dark-bg); }
+        .tab-content-panel::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+        .tab-content-panel::-webkit-scrollbar-thumb:hover { background: var(--light-bg); }
+        #solutions-tab-content .control-group { flex-grow: 1; display: flex; flex-direction: column; margin-bottom: 0;}
+        #solutions-table-container { flex-grow: 1; overflow-y: auto; background-color: var(--medium-bg); border-radius: 0.375rem; border: 1px solid var(--border-color); }
+
+        /* --- LED pour solutions --- */
+        .led-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            transition: background-color 0.3s ease;
+        }
+        .led-indicator.gray { background-color: var(--led-gray); }
+        .led-indicator.green { background-color: var(--success-green); box-shadow: 0 0 5px var(--success-green);}
+        .led-indicator.red { background-color: var(--error-red); box-shadow: 0 0 5px var(--error-red); }
+
+        #peak-table-container {
+            overflow-y: auto;
+            background-color: var(--medium-bg);
+            border-radius: 0.375rem;
+            border: 1px solid var(--border-color);
+            margin-top: 1rem;
+        }
+        .peak-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+        .peak-table th, .peak-table td { padding: 0.5rem; text-align: right; border-bottom: 1px solid var(--border-color); }
+        .peak-table th { background-color: #2a3547; font-weight: 600; text-align: center; position: sticky; top: 0; }
+        .peak-table input { width: 100%; background: transparent; border: none; color: var(--text-light); text-align: right; padding: 2px; border-radius: 2px; }
+        .peak-table input:focus { background-color: var(--light-bg); outline: 1px solid var(--primary-accent); }
+        .peak-table th, .peak-table td, .peak-table input { text-align: center; }
+        .delete-peak-btn { background: none; border: none; color: var(--text-dark); cursor: pointer; font-weight: bold; }
+        .delete-peak-btn:hover { color: var(--error-red); }
+
+        .solutions-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+        .solutions-table th, .solutions-table td { padding: 0.5rem; text-align: left; border-bottom: 1px solid var(--border-color); vertical-align: middle;}
+        .solutions-table th { background-color: #2a3547; font-weight: 600; position: sticky; top: 0;}
+        .solutions-table th[data-sort] { cursor: pointer; } 
+        .solutions-table th[data-sort]:hover { background-color: var(--light-bg); }
+        .solutions-table th.sort-asc::after,
+        .solutions-table th.sort-desc::after {
+            content: ''; display: inline-block; margin-left: 5px; width: 0; height: 0;
+            border-left: 4px solid transparent; border-right: 4px solid transparent;
+        }
+        .solutions-table th.sort-asc::after { border-bottom: 4px solid var(--text-light); }
+        .solutions-table th.sort-desc::after { border-top: 4px solid var(--text-light); }
+        .solutions-table td:nth-child(4), .solutions-table td:nth-child(5) { text-align: right; } /* Align Vol and M20 right */
+
+        .solutions-table tbody tr { cursor: pointer; transition: background-color: 0.2s; }
+        .solutions-table tbody tr:hover { background-color: var(--light-bg); }
+        .solutions-table tbody tr.selected { background-color: var(--primary-accent); color: white;}
+
+        .bottom-actions { margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--light-bg); }
+
+        #status-box {
+            position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 6px;
+            color: white; font-size: 0.8rem; font-weight: 500; z-index: 1000;
+            opacity: 0; visibility: hidden; transform: translateY(20px);
+            transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        #status-box.show { opacity: 1; visibility: visible; transform: translateY(0); }
+        #status-box.success { background-color: var(--success-green); }
+        #status-box.error { background-color: var(--error-red); }
+        #status-box.info { background-color: var(--border-color); }
+
+        /* --- Help Tooltip Styles --- */
+        .help-tooltip-container { position: relative; display: inline-block; }
+        .help-icon {
+            display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+            background-color: var(--border-color); color: var(--text-light); border-radius: 50%;
+            font-weight: bold; font-size: 1rem; cursor: help; transition: background-color: 0.2s;
+        }
+        .help-icon:hover { background-color: #6b7280; }
+
+
+        .tooltip-content {
+    visibility: hidden;
+    opacity: 0;
+    width: 400px;
+    background-color: var(--light-bg);
+    color: var(--text-medium);
+    text-align: left;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    position: absolute;
+    z-index: 1001;
+    top: -15px;
+    left: 115%;
+    margin-left: 10px;
+    transition: opacity 0.3s;
+    transition-delay: 2s;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}
+
+.help-tooltip-container:hover .tooltip-content {
+     visibility: visible;
+     opacity: 1;
+     transition-delay: 0s;
+}
+
+.help-tooltip-container::after {
+    content: '';
+    position: absolute;
+    left: 100%;
+    width: 10px; 
+    top: 0;
+    bottom: 0;
+}
+
+
+        .tooltip-content::after {
+            content: ""; position: absolute;
+            top: 20px; 
+            right: 100%;
+            margin-top: -5px; 
+            border-width: 5px; border-style: solid;
+            border-color: transparent var(--light-bg) transparent transparent;
+        }
+        
+        .tooltip-content h4 { color: var(--text-light); font-size: 0.9rem; margin-top: 0; margin-bottom: 0.5rem; font-weight: 600; }
+        .tooltip-content p { margin-top: 0; margin-bottom: 0.75rem; line-height: 1.4; }
+        .tooltip-content p:last-child { margin-bottom: 0; }
+        .tooltip-content hr { border: none; border-top: 1px solid var(--border-color); margin: 0.75rem 0; }
+
+        #app-footer {
+    position: fixed;   /* Keeps it on the screen even if you scroll */
+    bottom: 8px;      
+    right: 15px;      
+    font-size: 0.6rem; 
+    color: var(--text-dark); 
+    z-index: 1001;     
+}
+
+        /* --- Compact Slider Styles --- */
+        .slider-group {
+            display: grid;
+            grid-template-columns: minmax(100px, auto) 1fr;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .slider-group:last-child {
+            margin-bottom: 0;
+        }
+        .slider-group > .control-label {
+            margin-bottom: 0;
+            font-size: 0.875rem;
+            white-space: nowrap;
+        }
+        .slider-value-track {
+            grid-column: 2;
+            display: grid;
+            grid-template-columns: 1fr;
+            grid-template-rows: 1fr;
+            align-items: center;
+        }
+        .slider-value-track > * {
+            grid-column: 1;
+            grid-row: 1;
+        }
+        .slider-value-display {
+            text-align: center;
+            color: var(--text-dark);
+            font-weight: 500;
+            font-size: 0.8rem;
+            pointer-events: none;
+        }
+        input[type="range"].custom-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 32px;
+            background: var(--medium-bg);
+            border-radius: 6px;
+            outline: none;
+            padding: 0;
+            margin: 0;
+        }
+        input[type="range"].custom-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 15px;
+            height: 15px;
+            background: var(--primary-accent);
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid var(--text-light);
+            box-sizing: border-box;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+        }
+        input[type="range"].custom-slider::-moz-range-thumb {
+            width: 15px;
+            height: 15px;
+            background: var(--primary-accent);
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid var(--text-light);
+            box-sizing: border-box;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+        }
+        input[type="range"].custom-slider:disabled {
+            background: var(--light-bg);
+        }
+        input[type="range"].custom-slider:disabled::-webkit-slider-thumb {
+            background: var(--border-color);
+        }
+        input[type="range"].custom-slider:disabled::-moz-range-thumb {
+            background: var(--border-color);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <div id="controls-panel">
+
+            <div class="control-group">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <label for="file-input" class="file-input-label btn-like" style="flex-grow: 1;">
+                        <span id="file-name">Select Data File</span>
+                    </label>
+                     <div class="help-tooltip-container">
+                        <span class="help-icon" aria-label="Help and usage information">?</span>
+
+                        
+
+                        <div class="tooltip-content">
+    <h4>Brutus - Powder XRD Indexing</h4>
+    <p>This program uses a system-specific, exhaustive search to find potential unit cells based on the first 20 peaks.</p>
+    <ul>
+        <li style="margin-bottom: 5px;"><b>Cubic:</b> Tests single peaks.</li>
+        <li style="margin-bottom: 5px;"><b>Tetra/Hexa:</b> Solves using peak pairs.</li>
+        <li style="margin-bottom: 5px;"><b>Ortho:</b> Solves using peak triplets.</li>
+        <li style="margin-bottom: 5px;"><b>Monoclinic:</b> Solves using peak quadruplets (GPU).</li>
+        <li style="margin-bottom: 5px;"><b>Triclinic:</b> Solves using peak sextuplets (GPU).</li>
+    </ul>
+    <p>All trial cells are refined, scored (M(20)), and analyzed for space groups. For a full breakdown, <a href="brutus_help.html" target="_blank" style="color: #6495ED;">read the technical guide.</a></p>
+    <hr>
+    <h4>Supported File Formats:</h4>
+    <p>Generic 2-column (2&theta; intensity), .xrdml, .brml, .ras, .uxd, .udf, GSAS .esd</p>
+    <hr>
+    <h4>Chart Interaction:</h4>
+    <p><b>Zoom:</b> Use the mouse wheel over the plot, X-axis, or Y-axis. Right-click to reset zoom.</p>
+    <p><b>Pan:</b> Click and drag the chart to pan.</p>
+    <p><b>Add Peak:</b> Hold <b>Ctrl</b> and click on the chart to manually add a peak at that position.</p>
+</div>
+
+                    </div>
+                </div>
+                <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.xrdml,.brml,.ras,.esd,.std,.udf,.xra,.gsa">
+            </div>
+
+            <div class="tab-buttons">
+                <button class="tab-btn active" data-tab="peaks">Peaks</button>
+                <button class="tab-btn" data-tab="parameters">Parameters</button>
+                <button class="tab-btn" data-tab="solutions">
+                    Solutions
+                    <span id="solutions-led" class="led-indicator gray" aria-label="Solutions status indicator"></span>
+                </button>
+            </div>
+
+            <div class="tab-content-panels">
+                <div id="peaks-tab-content" class="tab-content-panel active">
+                     <div class="control-group" style="width: 100%; flex-grow: 1; display: flex; flex-direction: column;">
+                        <div id="peak-controls" class="hidden" style="display: flex; flex-direction: column; flex-grow: 1;">
+                            
+                            <div class="slider-group">
+                                <label class="control-label">Min peak (%)</label>
+                                <div class="slider-value-track">
+                                    <input type="range" id="peak-threshold-slider" class="custom-slider" min="0" max="100" value="56">
+                                    <span id="peak-threshold-value" class="slider-value-display">2.0</span>
+                                </div>
+                            </div>
+                            
+                            <div class="slider-group">
+                                <label class="control-label">Radius (pts)</label>
+                                <div class="slider-value-track">
+                                    <input type="range" id="ball-radius-slider" class="custom-slider" min="1" max="200" value="40" step="1">
+                                    <span id="ball-radius-value" class="slider-value-display">40</span>
+                                </div>
+                            </div>
+                            
+                            <div class="slider-group">
+                                <label class="control-label">Points</label>
+                                <div class="slider-value-track">
+                                    <input type="range" id="smoothing-width-slider" class="custom-slider" min="1" max="100" value="10" step="1">
+                                    <span id="smoothing-width-value" class="slider-value-display">10</span>
+                                </div>
+                            </div>
+
+                            <div style="border-top: 1px solid var(--border-color); margin: 1.5rem 0;"></div>
+
+                            <div class="slider-group">
+                                <label class="control-label">2θ Min</label>
+                                <div class="slider-value-track">
+                                    <input type="range" id="tth-min-slider" class="custom-slider" disabled>
+                                    <span id="tth-min-value" class="slider-value-display">-</span>
+                                </div>
+                            </div>
+                            <div class="slider-group">
+                                <label class="control-label">2θ Max</label>
+                                <div class="slider-value-track">
+                                    <input type="range" id="tth-max-slider" class="custom-slider" disabled>
+                                    <span id="tth-max-value" class="slider-value-display">-</span>
+                                </div>
+                            </div>
+                            
+                            <div id="peak-table-container" class="hidden" style="flex-grow: 1; min-height: 0;">
+                                <table class="peak-table">
+                                    <thead><tr><th>#</th><th>2θ Obs (°)</th><th>d (Å)</th><th>Del</th></tr></thead>
+                                    <tbody id="peak-list-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+
+                <div id="parameters-tab-content" class="tab-content-panel">
+                    <div class="control-group" style="width: 100%;">
+                        <div class="parameter-grid">
+                            <div>
+                                <label for="wavelength-preset" class="control-label">Radiation Preset</label>
+                         <select id="wavelength-preset" class="control-select">
+                            <option value="Cu">Cu Ka</option>
+                            <option value="Co">Co Ka</option>
+                            <option value="Fe">Fe Ka</option>
+                            <option value="Cr">Cr Ka</option>
+                            <option value="Mo">Mo Ka</option>
+                            <option value="custom">Custom (Monochromatic)</option>
+                        </select>
+                            </div>
+                             <div>
+                                <label for="wavelength" class="control-label">Ka1 Wavelength (Å)</label>
+                                <input type="number" id="wavelength" value="1.54056" step="0.00001" min="0.1" class="control-input" readonly>
+                            </div>
+                        </div>
+                        
+                        <label class="checkbox-label" style="margin-top: 1rem; margin-bottom: 0.5rem;">
+                            <input type="checkbox" id="strip-ka2-checkbox">
+                            <span>Strip K-alpha2</span>
+                        </label>
+                    </div>
+
+                    <div class="control-group" style="width: 100%; border-top: 1px solid var(--light-bg); padding-top: 1.5rem;">
+                        <div id="indexing-controls" class="hidden">
+                            <div class="parameter-grid">
+                                <div>
+                                    <label for="max-volume" class="control-label">Max Volume (Å³)</label>
+                                    <input type="number" id="max-volume" value="4000" step="100" min="25" max="12500" class="control-input">
+                                </div>
+                                <div>
+                                    <label for="impurity-peaks" class="control-label">Impurity Peaks</label>
+                                    <input type="number" id="impurity-peaks" value="0" min="0" max="3" step="1" class="control-input">
+                                </div>
+                            </div>
+                            
+                            <div class="parameter-grid" style="margin-top: 1rem; align-items: end;">
+                                <div>
+                                    <label for="tth-error" class="control-label">2θ Error (°)</label>
+                                    <input type="number" id="tth-error" value="0.06" step="0.002" min="0.0001" class="control-input">
+                                </div>
+                                <label class="checkbox-label" style="padding-bottom: 0.5rem;">
+                                    <input type="checkbox" id="refine-zero-checkbox" checked> 
+                                    <span>Refine Zero Error</span>
+                                </label>
+                            </div>
+                            
+<label class="control-label" style="margin-top: 1.5rem; margin-bottom: 1rem;">Crystal Systems to Search:</label>
+<div class="parameter-grid">
+    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="cubic" checked> <span>Cubic</span></label>
+    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="tetragonal" checked> <span>Tetragonal</span></label>
+    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="hexagonal" checked> <span>Hexagonal</span></label>
+    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="orthorhombic"> <span>Orthorhombic</span></label>
+    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="monoclinic"> <span>Monoclinic</span></label>
+    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="triclinic"> <span>Triclinic</span></label>
+</div>
+
+
+
+                        </div>
+                    </div>
+                </div>
+
+                <div id="solutions-tab-content" class="tab-content-panel">
+                    <div class="control-group" style="width: 100%;">
+                         <div id="solutions-table-container">
+                            <table class="solutions-table">
+                                <thead><tr>
+                                    <th data-sort="system">Sys.</th>
+                                    <th>Parameters (Å)</th>
+                                    <th>Angles (°)</th>
+                                    <th data-sort="volume">Vol</th>
+                                    <th data-sort="m20">M(20)</th>
+                                </tr></thead>
+                                <tbody id="solutions-table-body"></tbody>
+                            </table>
+                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bottom-actions">
+                <div id="progress-bar-container" class="hidden" style="width: 100%; background-color: var(--light-bg); border-radius: 9999px; height: 0.625rem; margin-bottom: 0.5rem;">
+                    <div id="progress-bar" style="background-color: var(--primary-accent); height: 0.625rem; border-radius: 9999px; width: 0%; transition: width 0.2s;"></div>
+                </div>
+                <p id="status-text" style="text-align: center; font-size: 0.8rem; color: var(--text-dark); margin: 0 0 0.5rem 0; height: 1.2em;"></p>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button id="start-indexing-button" class="btn btn-primary btn-like" style="flex: 1;" disabled>Find Peaks to Start</button>
+                    <button id="report-button" class="btn btn-secondary btn-like" style="flex: 1;" disabled>Generate PDF Report</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="drag-handle"></div>
+
+        <div id="results-area">
+             <div id="placeholder" style="width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #6b7280;">
+                <svg xmlns="http://www.w3.org/2000/svg" style="width: 4rem; height: 4rem; margin-bottom: 1rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                <h2 style="font-size: 1.5rem; font-weight: 600;">Awaiting Data</h2>
+                <p>Load a data file to begin indexing.</p>
+            </div>
+            <div id="results-container" style="width: 100%; height: 100%; display: none; flex-direction: column; position: relative;">
+                <canvas id="xrd-chart"></canvas>
+            </div>
+
+        </div>
+    </div>
+
+    <div id="status-box"></div>
+
+    <script>
+
+document.addEventListener('DOMContentLoaded', () => {
+
+const WAVELENGTH_PRESETS = {
+        'Cu': { ka1: 1.54056, ka2: 1.54439, ka_avg: 1.54183, ratio: 0.497 },
+        'Co': { ka1: 1.78897, ka2: 1.79285, ka_avg: 1.79012, ratio: 0.497 },
+        'Fe': { ka1: 1.93604, ka2: 1.93998, ka_avg: 1.93741, ratio: 0.497 },
+        'Cr': { ka1: 2.28970, ka2: 2.29361, ka_avg: 2.29100, ratio: 0.497 },
+        'Mo': { ka1: 0.70930, ka2: 0.71359, ka_avg: 0.71072, ratio: 0.497 },
+        'custom': { ka1: null, ka2: null, ka_avg: null, ratio: 0.5 } // 'null' indicates user-defined
+    };
+
+
+    const ui = {
+        fileInput: document.getElementById('file-input'),
+        fileInputLabel: document.querySelector('.file-input-label'),
+        fileName: document.getElementById('file-name'),
+        peakControls: document.getElementById('peak-controls'),
+        peakThresholdSlider: document.getElementById('peak-threshold-slider'),
+        peakThresholdValue: document.getElementById('peak-threshold-value'),
+        peakTableContainer: document.getElementById('peak-table-container'),
+        peakListBody: document.getElementById('peak-list-body'),
+        indexingControls: document.getElementById('indexing-controls'),
+        
+        // --- Wavelength Controls  ---
+        wavelengthPreset: document.getElementById('wavelength-preset'),
+        stripKa2Checkbox: document.getElementById('strip-ka2-checkbox'),
+        wavelength: document.getElementById('wavelength'), // This is the K-alpha1 input
+        
+        tthError: document.getElementById('tth-error'),
+        maxVolume: document.getElementById('max-volume'),
+        impurityPeaksInput: document.getElementById('impurity-peaks'),
+        refineZeroCheckbox: document.getElementById('refine-zero-checkbox'),
+        systemCheckboxes: document.querySelectorAll('.system-checkbox'),
+        startIndexingButton: document.getElementById('start-indexing-button'),
+        reportButton: document.getElementById('report-button'),
+        progressBar: document.getElementById('progress-bar'),
+        progressBarContainer: document.getElementById('progress-bar-container'),
+        solutionsTableBody: document.getElementById('solutions-table-body'),
+        solutionsTableHeaders: document.querySelectorAll('#solutions-table-container th'),
+        solutionsLed: document.getElementById('solutions-led'),
+        chartCanvas: document.getElementById('xrd-chart'),
+        placeholder: document.getElementById('placeholder'),
+        resultsContainer: document.getElementById('results-container'),
+        tthMinSlider: document.getElementById('tth-min-slider'),
+        tthMaxSlider: document.getElementById('tth-max-slider'),
+        tthMinValue: document.getElementById('tth-min-value'),
+        tthMaxValue: document.getElementById('tth-max-value'),
+        ballRadiusSlider: document.getElementById('ball-radius-slider'),
+        ballRadiusValue: document.getElementById('ball-radius-value'),
+        smoothingWidthSlider: document.getElementById('smoothing-width-slider'),
+        smoothingWidthValue: document.getElementById('smoothing-width-value'),
+        statusBar: document.getElementById('status-box'),
+        tabButtonsContainer: document.querySelector('.tab-buttons'),
+        tabButtons: document.querySelectorAll('.tab-btn'),
+        tabPanels: document.querySelectorAll('.tab-content-panel')
+    };
+    
+    const statusTextElement = document.getElementById('status-text');
+
+
+    /**
+     * Asynchronously checks WebGPU compute capabilities on page load.
+     * Disables and grays out Monoclinic/Triclinic checkboxes if support is absent.
+     */
+    async function checkWebGPUCapabilities() {
+        // Find the checkboxes and their parent <label> elements
+        const monoCheckbox = document.querySelector('.system-checkbox[value="monoclinic"]');
+        const triCheckbox = document.querySelector('.system-checkbox[value="triclinic"]');
+        const monoLabel = monoCheckbox ? monoCheckbox.parentElement : null;
+        const triLabel = triCheckbox ? triCheckbox.parentElement : null;
+
+        try {
+            if ('gpu' in navigator) {
+                const engine = new WebGPUEngine();
+                await engine.init(); //  critical test
+                // If this line is reached, GPU is fine.
+                webGPUSupportsCompute = true;
+                console.log("WebGPU compute capabilities verified.");
+            } else {
+                throw new Error("WebGPU not found in navigator.");
+            }
+        } catch (err) {
+            console.warn("WebGPU initialization failed:", err.message);
+            
+            webGPUSupportsCompute = false; 
+            
+            // error message, 10 secondes
+            showStatus("WebGPU init failed. Monoclinic and Triclinic searches are disabled.", "error", 10000); 
+            
+            // Disable and gray out the monoclinic checkbox
+            if (monoCheckbox) {
+                monoCheckbox.disabled = true;
+                monoCheckbox.checked = false;
+            }
+            if (monoLabel) {
+                monoLabel.style.opacity = '0.5';
+                monoLabel.style.cursor = 'not-allowed';
+            }
+            
+            // Disable and gray out the triclinic checkbox
+            if (triCheckbox) {
+                triCheckbox.disabled = true;
+                triCheckbox.checked = false;
+            }
+            if (triLabel) {
+                triLabel.style.opacity = '0.5';
+                triLabel.style.cursor = 'not-allowed';
+            }
+        }
+    }
+
+    // --- space group, fichier crée avec Gemmi, je mets le script aussi sur git
+    let spaceGroupData = null;
+    let webGPUSupportsCompute = true; 
+  
+   // Function to load space group JSON data, error if not found, ..
+    async function loadSpaceGroupData() {
+        try {
+            const response = await fetch('space_groups_all_settings.json');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            spaceGroupData = await response.json();
+            console.log("Space group data (all settings) loaded successfully.");
+        } catch (error) {
+            console.error("Could not load space group data:", error);
+            showStatus("Warning: Could not load space_groups_all_settings.json. Space group analysis will be disabled.", "error", 8000);
+        }
+    }
+    
+    // --Load data on startup, add message to console, see file event 
+    loadSpaceGroupData();
+    checkWebGPUCapabilities(); //check webGPU
+    
+// Make Monoclinic and Triclinic mutually exclusive, they use the same GPU engine
+    const monoCheckbox = document.querySelector('.system-checkbox[value="monoclinic"]');
+    const triCheckbox = document.querySelector('.system-checkbox[value="triclinic"]');
+
+    if (monoCheckbox && triCheckbox) {
+        
+        monoCheckbox.addEventListener('change', () => {
+            // If the user checks monoclinic, uncheck triclinic
+            if (monoCheckbox.checked) {
+                triCheckbox.checked = false;
+            }
+        });
+
+        triCheckbox.addEventListener('change', () => {
+            // If the user checks triclinic, uncheck monoclinic
+            if (triCheckbox.checked) {
+                monoCheckbox.checked = false;
+            }
+        });
+    }
+
+
+    ui.solutionsTableHeaders.forEach(header => {
+        header.addEventListener('click', () => {
+            const column = header.dataset.sort;
+            if (!column) return;
+
+            if (sortState.column === column) {
+                sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortState.column = column;
+                sortState.direction = (column === 'm20' || column === 'volume') ? 'desc' : 'asc';
+            }
+
+            sortSolutions();
+            const selectedSystems = Array.from(ui.systemCheckboxes)
+                                         .filter(cb => cb.checked)
+                                         .map(cb => cb.value);
+            displayedSolutions = solutions.filter(sol => selectedSystems.includes(sol.system));
+            updateSolutionsTable();
+        });
+    });
+
+    ui.systemCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', () => {
+            const selectedSystems = Array.from(ui.systemCheckboxes)
+                                         .filter(cb => cb.checked)
+                                         .map(cb => cb.value);
+            displayedSolutions = solutions.filter(sol => selectedSystems.includes(sol.system));
+            updateSolutionsTable();
+        });
+    });
+
+    // ---echelle log, 0.1% c'est suffisant ?
+    const minPeak = 0.1;
+    const maxPeak = 20;
+    const minLog = Math.log(minPeak);
+    const maxLog = Math.log(maxPeak);
+    const scale = (maxLog - minLog) / 100;
+
+    function valueToLogSlider(value) {
+        if (value <= 0) return 0;
+        return (Math.log(value) - minLog) / scale;
+    }
+
+    function logSliderToValue(position) {
+        return Math.exp(minLog + scale * position);
+    }
+
+    // --- DEBOUNCE 
+    const debounce = (func, delay) => {
+        let timeout;
+        return function(...args) {
+            const context = this;
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(context, args), delay);
+        };
+    };
+    const debouncedFindPeaks = debounce(findPeaks, 250);
+    
+    const debouncedUpdateAndRedraw = debounce(() => {
+        updateWorkingData();
+        if (xrdChart) {
+            const experimentalPoints = workingExperimentalData.tth.map((t, i) => ({ x: t, y: Math.max(0, workingExperimentalData.intensity[i]) }));
+            xrdChart.data.datasets[0].data = experimentalPoints;
+            xrdChart.update('none'); // pas d'animation, sinon c'est trop lent
+        }
+        findPeaks();
+    }, 250);
+
+
+    // --- log slider, 
+    const initialPeakThreshold = 2.0;
+    ui.peakThresholdSlider.value = valueToLogSlider(initialPeakThreshold);
+    ui.peakThresholdValue.textContent = initialPeakThreshold.toFixed(1);
+
+    // --- TAB SWITCHING --
+    ui.tabButtonsContainer.addEventListener('click', (e) => {
+        const clickedTab = e.target.closest('.tab-btn');
+        if (!clickedTab || clickedTab.disabled) return;
+        const tabTarget = clickedTab.dataset.tab;
+        ui.tabButtons.forEach(btn => btn.classList.remove('active'));
+        ui.tabPanels.forEach(panel => panel.classList.remove('active'));
+        clickedTab.classList.add('active');
+        document.getElementById(`${tabTarget}-tab-content`).classList.add('active');
+    });
+
+    let statusTimeout;
+
+
+    const showStatus = (message, type = 'info', duration = 4000) => {
+        if (!ui.statusBar) {
+            console.warn(`Status bar element (#status-box) not found. Message: "${message}"`);
+            return;
+        }
+        if (statusTimeout) clearTimeout(statusTimeout);
+        ui.statusBar.textContent = message;
+        ui.statusBar.className = `show ${type}`;
+        statusTimeout = setTimeout(() => {
+            if (ui.statusBar) {
+                ui.statusBar.classList.remove('show');
+            }
+        }, duration);
+    };
+
+const getOrthogonalityScore = (cell) => {
+        const alpha = cell.alpha ?? 90;
+        const beta = cell.beta ?? 90;
+        const gamma = cell.gamma ?? 90;
+        
+        return Math.abs(alpha - 90) + Math.abs(beta - 90) + Math.abs(gamma - 90);
+    };
+
+
+    // --- data, si Ka stripped ou pas, on copie les données
+    let fullExperimentalData = { tth: [], intensity: [] }; // The original, unmodified data
+    let workingExperimentalData = { tth: [], intensity: [] }; // The data to be plotted and analyzed (raw or stripped)
+
+    let pickedPeaks = [];
+    let solutions = [];
+    let displayedSolutions = [];
+    let selectedSolution = null;
+    let currentHklList = [];
+    let foundSolutionMap = new Map();
+    let xrdChart;
+    let isIndexing = false;
+    
+    let gpuStopSignal = { stop: false };
+
+    let lastIndexingStats = ''; // Stores the final trial count and speed
+    let cumulativeTrials = 0;
+    let indexingStartTime = 0;
+    
+    let activeWorkers = [];
+    let resolveWorkerTask = null;
+    let sortState = { column: 'm20', direction: 'desc' };
+    let workerURL = null;    
+    const MAX_SOLUTIONS_BEFORE_PRUNING = 50;
+    const PRUNE_TO_COUNT = 40; // Prune down to this many
+
+    /**
+     * Dynamically prunes the global 'solutions' list if it exceeds the max count.
+     * It sorts by M(20) descending and keeps only the best ones.
+     */
+    const pruneSolutions = () => {
+        // Only run if we are over the limit
+        if (solutions.length <= MAX_SOLUTIONS_BEFORE_PRUNING) return;
+
+        // Sort by m20 descending to find the best ones; this is after "beautify", see sort
+        solutions.sort((a, b) => b.m20 - a.m20);
+        
+        // Keep only the top PRUNE_TO_COUNT solutions
+        solutions = solutions.slice(0, PRUNE_TO_COUNT);
+
+    };
+
+
+const setupWorker = () => {
+    try {
+        workerURL = 'indexing-worker.js'; 
+    } catch (error) {
+        console.error("Failed to set up worker URL:", error);
+        showStatus("Critical error: Could not initialize indexing engine.", "error", 10000);
+    }
+};
+
+
+    setupWorker(); 
+
+    // --- systematic absences
+    const max_hkl_analysis = 10;
+
+
+    /**
+     * 15 nov, replaces stripRachinger with a stable iterative deconvolution (Van Cittert).
+     */
+    const stripVanCittert = (tth, intensity, ka1, ka2, ratio) => {
+        const n = tth.length;
+        if (n === 0) return [];
+
+        const numIterations = 24; // Iterations. More = better, but slower. 15 is a good balance.
+        const relaxation = 1.0;  // Relaxation factor (1.0 is standard Van Cittert)
+
+
+        const getInterpolatedValue = (targetTthDeg, tthArray, intensityArray) => {
+            const len = tthArray.length;
+            if (targetTthDeg <= tthArray[0]) return intensityArray[0];
+            if (targetTthDeg >= tthArray[len - 1]) return intensityArray[len - 1];
+
+            let low = 0, high = len - 1, j = 0;
+            while (low <= high) {
+                const mid = Math.floor((low + high) / 2);
+                if (tthArray[mid] <= targetTthDeg) {
+                    j = mid;
+                    low = mid + 1;
+                } else {
+                    high = mid - 1;
+                }
+            }
+            if (j >= len - 1) return intensityArray[len - 1]; // At the end
+
+            const x1 = tthArray[j], y1 = intensityArray[j];
+            const x2 = tthArray[j + 1], y2 = intensityArray[j + 1];
+            const x = targetTthDeg;
+
+            if (Math.abs(x2 - x1) < 1e-6) return y1; // Avoid division by zero
+            
+            return y1 + (x - x1) * (y2 - y1) / (x2 - x1);
+        };
+        // --- End of helper ---
+
+        // Pre-calculate 2-theta in radians and the lambda ratio
+        const tthRad = tth.map(t => t * Math.PI / 180);
+        const lambdaRatio_12 = ka1 / ka2; // e.g., 1.54056 / 1.54439
+
+        // g_k: our current guess for the K-alpha1-only spectrum.
+        // Start with g_0 = f (the observed intensity)
+        let g_k = [...intensity];
+        
+        // Arrays to be re-used in the loop
+        let convolved_g = new Array(n); // This will hold (g_k * h)
+        let residual = new Array(n);    // This will hold (f - (g_k * h))
+
+        for (let iter = 0; iter < numIterations; iter++) {
+            
+            // 1. Calculate convolved_g = (g_k * h)
+            // This loop calculates the "re-convolved" spectrum from our current guess (g_k)
+            for (let i = 0; i < n; i++) {
+                
+                // The K-alpha1 component at this position i is just g_k[i]
+                const g_i = g_k[i];
+                
+                // Find the K-alpha2 contribution *at this position i*
+                // This contribution is caused by a K-alpha1 peak (g_k[j]) at an earlier position j
+                const sinTh_i = Math.sin(tthRad[i] / 2);
+                const sinTh_j_arg = sinTh_i * lambdaRatio_12;
+                
+                let ka2_contribution = 0;
+                if (sinTh_j_arg < 1 && sinTh_j_arg > 0) {
+                    const ka1_pos_rad = 2 * Math.asin(sinTh_j_arg);
+                    const ka1_pos_deg = ka1_pos_rad * 180 / Math.PI;
+                    
+                    // Interpolate from the *previous* iteration's guess (g_k)
+                    // This is the key difference from Rachinger, which interpolates on its *own output*
+                    const ka1_at_j = getInterpolatedValue(ka1_pos_deg, tth, g_k);
+                    
+                    ka2_contribution = ka1_at_j * ratio;
+                }
+                
+                // The total "simulated" observed intensity is the K-alpha1 peak + its K-alpha2 ghost
+                convolved_g[i] = g_i + ka2_contribution;
+            }
+            
+            // 2. Calculate residual = f - convolved_g
+            // 3. Calculate g_{k+1} = g_k + relaxation * residual
+            let hasConverged = true;
+            for (let i = 0; i < n; i++) {
+                // f - (g_k * h)
+                residual[i] = intensity[i] - convolved_g[i];
+                
+                // g_{k+1} = g_k + relaxation * residual
+                const correction = relaxation * residual[i];
+                const newValue = g_k[i] + correction;
+                
+                // Enforce non-negativity constraint (crucial for stability)
+                g_k[i] = Math.max(0, newValue);
+                
+                // Check for convergence (if correction is very small)
+                if (hasConverged && Math.abs(correction) > 1e-3 * Math.max(1, intensity[i])) {
+                    hasConverged = false;
+                }
+            }
+            
+            // Exit loop early if converged
+            if (hasConverged && iter > 2) { 
+                // console.log(`Van Cittert converged in ${iter + 1} iterations.`);
+                break;
+            }
+        } // end iteration loop
+
+        // g_k is now our final, stripped K-alpha1 spectrum
+        return g_k;
+    };
+
+    /**
+     * Populates `workingExperimentalData` based on stripping checkbox.
+     */
+    const updateWorkingData = () => {
+        if (fullExperimentalData.tth.length === 0) {
+            workingExperimentalData = { tth: [], intensity: [] };
+            return;
+        }
+
+        if (ui.stripKa2Checkbox.checked && ui.wavelengthPreset.value !== 'custom') {
+            const preset = WAVELENGTH_PRESETS[ui.wavelengthPreset.value];
+            const { tth, intensity } = fullExperimentalData;
+            
+  //          console.log(`Stripping Ka2 for ${ui.wavelengthPreset.value}...`);
+            const strippedIntensity = stripVanCittert(tth, intensity, preset.ka1, preset.ka2, preset.ratio);
+            workingExperimentalData = { tth: [...tth], intensity: strippedIntensity };
+  //          console.log("Stripping complete.");
+
+        } else {
+            // No stripping, just copy
+  //          console.log("Using raw data (no stripping).");
+            workingExperimentalData = { 
+                tth: [...fullExperimentalData.tth], 
+                intensity: [...fullExperimentalData.intensity] 
+            };
+        }
+    };
+
+    /**
+     * Handles changes to the wavelength preset dropdown.
+     */
+    const handleWavelengthPresetChange = () => {
+        const presetKey = ui.wavelengthPreset.value;
+        if (presetKey === 'custom') {
+            ui.wavelength.readOnly = false;
+            ui.stripKa2Checkbox.checked = false;
+            ui.stripKa2Checkbox.disabled = true;
+        } else {
+            const preset = WAVELENGTH_PRESETS[presetKey];
+            ui.wavelength.readOnly = true;
+            ui.stripKa2Checkbox.disabled = false;
+            
+            // Set wavelength based on checkbox
+            if (ui.stripKa2Checkbox.checked) {
+                ui.wavelength.value = preset.ka1.toFixed(5);
+            } else {
+                ui.wavelength.value = preset.ka_avg.toFixed(5);
+            }
+        }
+        
+        // Trigger a debounced update 
+        debouncedUpdateAndRedraw();
+        recalculatePeakValues();
+        updatePeakTable();
+    };
+
+    // --- Add event listeners 
+    ui.wavelengthPreset.addEventListener('change', handleWavelengthPresetChange);
+
+    ui.stripKa2Checkbox.addEventListener('change', () => {
+        
+        const presetKey = ui.wavelengthPreset.value;
+        
+        // Only update wavelength if we are NOT in custom mode
+        if (presetKey !== 'custom') {
+            const preset = WAVELENGTH_PRESETS[presetKey];
+            
+            // Update wavelength value based on new checkbox state
+            if (ui.stripKa2Checkbox.checked) {
+                ui.wavelength.value = preset.ka1.toFixed(5);
+            } else {
+                ui.wavelength.value = preset.ka_avg.toFixed(5);
+            }
+            
+            // Wavelength changed, so recalculate d-spacings and q-values
+            recalculatePeakValues();
+            updatePeakTable();
+        }
+        
+        //  trigger a chart redraw (to add/remove stripping)
+        debouncedUpdateAndRedraw();
+    });
+
+    // --- Validation and Wavelength Listener ---
+    const inputsToValidate = [
+        { id: 'max-volume', el: ui.maxVolume, default: 1000 },
+        { id: 'tth-error', el: ui.tthError, default: 0.05 },
+        { id: 'impurity-peaks', el: ui.impurityPeaksInput, default: 0 },
+    ];
+
+    inputsToValidate.forEach(({ id, el, default: defaultValue }) => {
+        if (el) {
+            el.addEventListener('blur', () => {
+                const min = parseFloat(el.min);
+                const max = parseFloat(el.max);
+                let value = parseFloat(el.value);
+                if (isNaN(value)) { el.value = defaultValue; return; }
+                if (!isNaN(min) && value < min) el.value = min;
+                if (!isNaN(max) && value > max) el.value = max;
+            });
+        } else {
+            console.error(`Initialization Error: The element with id="${id}" was not found.`);
+        }
+    });
+
+    if (ui.wavelength) {
+        // if stripped, Ka1
+        ui.wavelength.addEventListener('change', () => {
+            if (pickedPeaks.length > 0) {
+                recalculatePeakValues();
+                updatePeakTable();
+            }
+        });
+    }
+
+/**
+         * Smart file detector. It checks for known headers and extensions
+         * and falls back to a generic 2-column parser.
+         */
+        const detectAndParseFile = (fileName, fileContent) => {
+            const name = fileName.toLowerCase();
+            const lines = fileContent.trim().split(/\r?\n/);
+            const firstLine = lines.length > 0 ? lines[0].trim() : '';
+            const upperContent = fileContent.substring(0, 500).toUpperCase(); // Check first 500 chars
+
+            // --- Parser Registry ---
+            const PARSER_REGISTRY = [
+                { // XRDML
+                    test: (name, content) => name.endsWith('.xrdml') || (content.includes('<?xml') && content.includes('<xrdMeasurement')),
+                    parser: parseXrdmlFile
+                },
+                { // BRML
+                    test: (name, content) => name.endsWith('.brml') || (content.includes('<?xml') && content.includes('<RawDataFile')),
+                    parser: parseBrukerBrmlFile
+                },
+                { // Rigaku RASX (try brml parser)
+                    test: (name, content) => name.endsWith('.rasx') && content.includes('<?xml'),
+                    parser: parseBrukerBrmlFile
+                },
+                { // UXD
+                    test: (name, content, firstLine) => name.endsWith('.uxd') || firstLine.startsWith('_FILEVERSION'),
+                    parser: parseUxdFile
+                },
+                { // Rigaku RAS
+                    test: (name, content, firstLine, upper) => name.endsWith('.ras') || upper.includes('*RAS_HEADER_START'),
+                    parser: parseRigakuRasFile
+                },
+                { // Philips UDF/RD/SD
+                    test: (name) => name.endsWith('.udf') || name.endsWith('.rd') || name.endsWith('.sd'),
+                    parser: parsePhilipsUdfFile
+                },
+                { // GSAS ESD/XRA
+                    test: (name, content, firstLine, upper, allLines) => allLines.some(line => line.trim().toUpperCase().startsWith('BANK')),
+                    parser: (content, allLines) => {
+                        const bankLine = allLines.find(line => line.trim().toUpperCase().startsWith('BANK'));
+                        if (bankLine.toUpperCase().includes('STD')) {
+                            return parseGsasXraFile(content);
+                        }
+                        return parseGsasEsdFile(content);
+                    }
+                },
+                { // Jade MDI (treat as 2-column)
+                     test: (name, content, firstLine, upper) => name.endsWith('.mdi') && (upper.includes('2-THETA, INTENSITY') || upper.startsWith('(SAMPLE')),
+                     parser: parseDataFile
+                }
+            ];
+            
+            // --- Iterate Registry ---
+            for (const rule of PARSER_REGISTRY) {
+                try {
+                    if (rule.test(name, fileContent, firstLine, upperContent, lines)) {
+                        // Pass 'content' to parser, but 'lines' to the special GSAS one
+                        if (rule.parser.length > 1) {
+                             return rule.parser(fileContent, lines); // For GSAS parser
+                        }
+                        return rule.parser(fileContent);
+                    }
+                } catch (e) {
+                    console.warn(`Parser ${rule.parser.name} failed, trying next...`, e.message);
+                }
+            }
+
+            // --- Fallback for all other 2-column-like formats ---
+            // This will attempt to parse: .xy, .csv, .txt, .dat, .asc, etc.... à revoir les fichiers type dans Convert 2
+            return parseDataFile(fileContent, fileName);
+        };
+    
+        /**
+         * Generic 2-column parser. This is the fallback for most text files.
+         * Includes validation logic for 2-theta (X) and step size (dX).
+         */
+        const parseDataFile = (text, fileName = "") => {
+            const lines = text.trim().split(/\r?\n/);
+            const tth = [], intensity = [];
+            let last_x = -Infinity;
+            let suspicious_steps = 0;
+            let positive_x_values = 0;
+            let negative_steps = 0;
+            let headerLines = 0;
+            let dataStarted = false;
+
+            lines.forEach(line => {
+                // Skip commented or empty lines
+                if (line.startsWith('#') || line.startsWith('//') || line.startsWith('!') || line.startsWith(';') || line.trim() === '') {
+                    if (!dataStarted) headerLines++;
+                    return;
+                }
+                
+                // Skip non-commented header lines (that contain letters)
+                if (!dataStarted) {
+                    if (/[a-zA-Z]/.test(line)) { 
+                        headerLines++;
+                        return;
+                    }
+                }
+
+                const parts = line.trim().split(/[\s,;]+/);
+                if (parts.length < 2) return;
+
+                const x = parseFloat(parts[0]);
+                const y = parseFloat(parts[1]);
+
+                // If we get non-numeric data, it's either a header or a bad line
+                if (isNaN(x) || isNaN(y)) {
+                    if (!dataStarted) headerLines++; // Still in the header
+                    return;
+                }
+                
+                dataStarted = true; // First valid numeric pair found
+
+                // --- vérif
+                if (x > 0) positive_x_values++;
+
+                if (last_x !== -Infinity) {
+                    const dX = x - last_x;
+                    if (dX < 0) {
+                        negative_steps++; // Data is descending
+                    } else if (dX > 0 && (dX < 0.0001 || dX > 0.2)) { 
+                        suspicious_steps++; // Step size is weird
+                    }
+                }
+                last_x = x;
+                
+
+                tth.push(x);
+                intensity.push(y);
+            });
+
+            // --- Final checks (log warnings to console) 
+            if (tth.length > 10) { 
+                if (positive_x_values / tth.length < 0.5) {
+                    console.warn(`Data File (${fileName}) Warning: Most 2-theta (X) values are zero or negative. This is unusual for XRD data.`);
+                }
+                if (negative_steps / tth.length > 0.8) {
+                     console.warn(`Data File (${fileName}) Warning: Data appears to be sorted in descending 2-theta order.`);
+                }
+                if (suspicious_steps / tth.length > 0.2) {
+                    console.warn(`Data File (${fileName}) Warning: Many data points have a step size outside the typical range (0.0001° - 0.2°). Check file format.`);
+                }
+            } else if (tth.length === 0) {
+                 throw new Error(`Could not parse any 2-column data from ${fileName}. File may be binary or have an unknown header.`);
+            }
+
+            return { tth, intensity };
+        };
+
+        const parseXrdmlFile = (xmlString) => { const parser = new DOMParser(); const xmlDoc = parser.parseFromString(xmlString, "application/xml"); if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing XRDML file."); } let wavelength = null; const kAlpha1Node = xmlDoc.querySelector("kAlpha1"); if (kAlpha1Node?.textContent) wavelength = parseFloat(kAlpha1Node.textContent); const intensityNode = xmlDoc.querySelector("intensities") || xmlDoc.querySelector("counts"); if (!intensityNode) throw new Error("Could not find <intensities> or <counts> in XRDML file."); const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number); const positionsNode = xmlDoc.querySelector('positions[axis="2Theta"]'); if (!positionsNode) throw new Error("Could not find <positions> in XRDML file."); const startPosNode = positionsNode.querySelector("startPosition"); const endPosNode = positionsNode.querySelector("endPosition"); if (!startPosNode || !endPosNode) throw new Error("Could not find start/end positions in XRDML."); const startPos = parseFloat(startPosNode.textContent); const endPos = parseFloat(endPosNode.textContent); const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * (endPos - startPos) / (intensity.length - 1)); return { tth, intensity, wavelength }; };
+        const parseBrukerBrmlFile = (xmlString) => { const parser = new DOMParser(); const xmlDoc = parser.parseFromString(xmlString, "application/xml"); if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing BRML file."); } let wavelength = null; const wlNode = xmlDoc.querySelector('usedWavelength'); if (wlNode) { const kAlpha1 = wlNode.getAttribute('kAlpha1'); if (kAlpha1) wavelength = parseFloat(kAlpha1); } const intensityNode = xmlDoc.querySelector("dataPoints > counts"); if (!intensityNode) throw new Error("No <counts> data found in BRML file."); const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number); const startPosNode = xmlDoc.querySelector('startPosition[axis="TwoTheta"]'); const stepSizeNode = xmlDoc.querySelector('increment[axis="TwoTheta"]'); if (!startPosNode || !stepSizeNode) throw new Error("Could not find scan parameters in BRML file."); const startPos = parseFloat(startPosNode.textContent); const stepSize = parseFloat(stepSizeNode.textContent); const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * stepSize); return { tth, intensity, wavelength }; };
+        const parseRigakuRasFile = (text) => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; let inDataSection = false; let wavelength = null; for (const line of lines) { const upperLine = line.toUpperCase(); if (upperLine.startsWith('*WAVE_LENGTH') || upperLine.startsWith('*MEAS_COND_XG_WAVE_LENGTH')) { const parts = line.trim().split(/\s+/); if (parts.length > 1) { const wl = parseFloat(parts[1]); if (!isNaN(wl)) wavelength = wl; } } if (upperLine.startsWith('*RAS_INT_START')) { inDataSection = true; continue; } if (upperLine.startsWith('*RAS_INT_END')) break; if (inDataSection) { const parts = line.trim().split(/[\s,]+/); if (parts.length >= 2) { const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); } } } } if (tth.length === 0) throw new Error("No data found in RAS file data section."); return { tth, intensity, wavelength }; };
+        const parseGsasEsdFile = (text) => { const lines = text.trim().split(/\r?\n/); let wavelength = null; let startTth, stepSize; let dataStartIndex = -1; lines.forEach((line, index) => { const upperLine = line.toUpperCase(); if (upperLine.includes('WAVELENGTH')) { const match = line.match(/wavelength\s+([0-9.]+)/i); if (match && match[1]) wavelength = parseFloat(match[1]); } if (upperLine.startsWith('BANK')) { const parts = line.trim().split(/\s+/); if (parts.length >= 6 && parts[4].toUpperCase() === 'CONST') { startTth = parseFloat(parts[5]) / 100.0; stepSize = parseFloat(parts[6]) / 100.0; dataStartIndex = index + 1; } } }); if (startTth === undefined || stepSize === undefined) throw new Error("GSAS Parse Error: Could not find a valid 'BANK' line with CONST scan parameters."); if (dataStartIndex !== -1 && lines[dataStartIndex]?.toUpperCase().includes('STD')) dataStartIndex++; if (dataStartIndex === -1 || dataStartIndex >= lines.length) throw new Error("GSAS Parse Error: Found scan parameters but no subsequent data lines."); const intensity = []; for (let i = dataStartIndex; i < lines.length; i++) { const parts = lines[i].trim().split(/\s+/); for (let j = 1; j < parts.length; j += 2) { const val = parseFloat(parts[j]); if (!isNaN(val)) intensity.push(val); } } if (intensity.length === 0) throw new Error("GSAS Parse Error: No intensity data could be parsed."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
+        
+        const parseGsasXraFile = (text) => {
+    const lines = text.trim().split(/\r?\n/);
+    let wavelength = null;
+    let startTth, stepSize;
+    let dataStartIndex = -1;
+    lines.forEach((line, index) => {
+        const upperLine = line.toUpperCase();
+        if (upperLine.includes('WAVELENGTH')) {
+            const match = line.match(/wavelength\s+([0-9.]+)/i);
+            if (match && match[1]) wavelength = parseFloat(match[1]);
+        }
+        if (upperLine.startsWith('BANK')) {
+            const parts = line.trim().split(/\s+/);
+            if (parts.length >= 7 && parts[4].toUpperCase() === 'CONST') {
+                startTth = parseFloat(parts[5]) / 100.0;
+                stepSize = parseFloat(parts[6]) / 100.0;
+                dataStartIndex = index + 1;
+            }
+        }
+    });
+
+    if (startTth === undefined || stepSize === undefined) throw new Error("GSAS XRA Parse Error: Could not find a valid 'BANK' line with CONST scan parameters.");
+    if (dataStartIndex === -1 || dataStartIndex >= lines.length) throw new Error("GSAS XRA Parse Error: Found scan parameters but no subsequent data lines.");
+
+    const intensity = [];
+    for (let i = dataStartIndex; i < lines.length; i++) {
+        if (lines[i].trim() === '') continue;
+        const parts = lines[i].trim().split(/\s+/);
+        for (let j = 0; j < parts.length; j++) {
+            const val = parseFloat(parts[j]);
+            if (!isNaN(val)) intensity.push(val);
+        }
+    }
+    if (intensity.length === 0) throw new Error("GSAS XRA Parse Error: No intensity data could be parsed.");
+    const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize);
+    return { tth, intensity, wavelength };
+};
+        
+        const parseUxdFile = (text) => { const lines = text.trim().split(/\r?\n/); const intensity = []; let startTth, stepSize, wavelength; let inDataSection = false; for (const line of lines) { const trimmedLine = line.trim(); if (inDataSection) { const parts = trimmedLine.split(/\s+/); parts.forEach(part => { const val = parseFloat(part); if (!isNaN(val)) intensity.push(val); }); } else { if (trimmedLine.toUpperCase().startsWith('_START=')) startTth = parseFloat(trimmedLine.substring(7)); else if (trimmedLine.toUpperCase().startsWith('_STEPSIZE=')) stepSize = parseFloat(trimmedLine.substring(10)); else if (trimmedLine.toUpperCase().startsWith('_WL1=')) wavelength = parseFloat(trimmedLine.substring(5)); else if (trimmedLine.toUpperCase() === '_COUNTS') inDataSection = true; } } if (startTth === undefined || stepSize === undefined) throw new Error("Could not find _START and _STEPSIZE in UXD file."); if (intensity.length === 0) throw new Error("No intensity data found after _COUNTS in UXD file."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
+        const parsePhilipsUdfFile = (text) => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; let inDataSection = false; let wavelength = null; for (const line of lines) { const trimmedLine = line.trim(); if (trimmedLine.toUpperCase().startsWith('LAMBDA')) { const parts = trimmedLine.split('='); if (parts.length > 1) wavelength = parseFloat(parts[1]); } if (trimmedLine.toUpperCase() === '[DATA]') { inDataSection = true; continue; } if (trimmedLine.startsWith('[') && trimmedLine.toUpperCase() !== '[DATA]') inDataSection = false; if (inDataSection) { const parts = trimmedLine.split(/,/).map(p => p.trim()); if(parts.length >= 2) { const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); } } } } if (tth.length === 0) throw new Error("No [Data] section found in UDF file."); return { tth, intensity, wavelength }; };
+
+
+    ui.fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const MAX_FILE_SIZE_MB = 50;
+        if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+            showStatus(`Error: File is too large (>${MAX_FILE_SIZE_MB} MB).`, "error");
+            ui.fileInputLabel.classList.add('error');
+            e.target.value = null; // Clear the input
+            return;
+        }
+
+        ui.fileName.textContent = file.name;
+
+        // --- Clear previous state 
+        pickedPeaks = [];
+        solutions = [];
+        displayedSolutions = [];
+        selectedSolution = null;
+        currentHklList = [];
+        updatePeakTable();
+        updateSolutionsTable();
+        foundSolutionMap.clear();
+        updateStartIndexingButtonState();
+        ui.solutionsLed.className = 'led-indicator gray';
+        
+
+        const text = await file.text();
+        let parsed;
+        try {
+            parsed = detectAndParseFile(file.name, text);
+        } catch (error) {
+            showStatus(`Error parsing file: ${error.message}`, "error");
+            console.error(error);
+            ui.fileInputLabel.classList.add('error');
+            return;
+        }
+        
+        ui.fileInputLabel.classList.remove('error');
+
+        if (!parsed || !parsed.tth || parsed.tth.length === 0) {
+            showStatus("Could not read data from file.", "error");
+            return;
+        }
+
+        // --- Handle wavelength from file, if any
+        if (parsed.wavelength) {
+            // This is a monochromatic, known wavelength from the file
+            ui.wavelengthPreset.value = 'custom';
+            ui.wavelength.value = parsed.wavelength.toFixed(5);
+            ui.wavelength.readOnly = false; // Allow user to override
+            ui.stripKa2Checkbox.checked = false;
+            ui.stripKa2Checkbox.disabled = true;
+            showStatus(`Loaded custom wavelength from file: ${parsed.wavelength.toFixed(5)} Å`, 'info');
+        } else {
+            // File has no wavelength, default to Cu
+            ui.wavelengthPreset.value = 'Cu';
+            handleWavelengthPresetChange(); // Apply the 'Cu' preset
+        }
+        
+        // Store full dataset
+        fullExperimentalData = { tth: parsed.tth, intensity: parsed.intensity };
+        updateWorkingData(); // This will apply stripping if needed
+
+        // Build experimental points for Chart.js
+        const experimentalPoints = workingExperimentalData.tth.map((t, i) => ({
+            x: t,
+            y: Math.max(0, workingExperimentalData.intensity[i])
+        }));
+
+        // Hide placeholder, show chart, custom cursor (depuis sept 2025)
+        ui.placeholder.style.display = 'none';
+        ui.resultsContainer.style.display = 'flex';
+        
+        const yMax = Math.max(...workingExperimentalData.intensity) || 1000;
+
+        // Initialize chart if not already created
+        if (!xrdChart) {
+            initializeChart(); // Use the dedicated function
+            xrdChart.data.datasets[0].data = experimentalPoints;
+            xrdChart.options.scales.y.min = -yMax * 0.05;
+            xrdChart.options.scales.y.max = yMax * 1.1;
+            xrdChart.update('none');
+        } else {
+            // Just update existing chart
+            xrdChart.data.datasets[0].data = experimentalPoints;
+            xrdChart.options.scales.y.min = -yMax * 0.05;
+            xrdChart.options.scales.y.max = yMax * 1.1;
+            xrdChart.resetZoom('none'); // Reset zoom on new file
+            xrdChart.update('none');
+        }
+
+        // Enable peak controls
+        ui.peakControls.classList.remove('hidden');
+        ui.indexingControls.classList.remove('hidden');
+
+              
+        setupTthSliders();
+        findPeaks();
+        
+    });
+
+    // ---   setupTthSliders *** ---
+    const setupTthSliders = () => {
+        // Now uses workingExperimentalData, depuis 22 oct 2025, Ka2 stripping, le 15 nov vanCittert
+        if (workingExperimentalData.tth.length === 0) return;
+        const min = workingExperimentalData.tth[0];
+        const max = workingExperimentalData.tth[workingExperimentalData.tth.length - 1];
+        const step = (max - min) / 2000;
+        [ui.tthMinSlider, ui.tthMaxSlider].forEach(el => { el.disabled = false; Object.assign(el, { min, max, step }); });
+        const initialMin = Math.floor(min);
+        const initialMax = Math.ceil(max);
+        ui.tthMinSlider.value = initialMin;
+        ui.tthMaxSlider.value = initialMax;
+        ui.tthMinValue.textContent = initialMin.toFixed(2);
+        ui.tthMaxValue.textContent = initialMax.toFixed(2);
+        updatePlotRange(true);
+    };
+
+    const updatePlotRange = (updateYScale = false) => {
+        if(!xrdChart) return;
+        const min = parseFloat(ui.tthMinSlider.value);
+        const max = parseFloat(ui.tthMaxSlider.value);
+        xrdChart.options.scales.x.min = min;
+        xrdChart.options.scales.x.max = max;
+        if (updateYScale) {
+            // Now uses workingExperimentalData
+            const visibleIntensities = workingExperimentalData.intensity.filter((_, index) => {
+                const tth = workingExperimentalData.tth[index];
+                return tth >= min && tth <= max;
+            });
+            if (visibleIntensities.length > 0) {
+                const yMaxInRange = Math.max(...visibleIntensities);
+                xrdChart.options.scales.y.min = -yMaxInRange * 0.05;
+                xrdChart.options.scales.y.max = yMaxInRange * 1.1;
+            } else {
+                const yMax = Math.max(...workingExperimentalData.intensity) || 1000;
+                xrdChart.options.scales.y.min = -yMax * 0.05;
+                xrdChart.options.scales.y.max = yMax * 1.1;
+            }
+        }
+        xrdChart.update('none');
+        updateAllMarkers();
+    };
+
+
+ui.tthMinSlider.addEventListener('input', () => {
+        let minVal = parseFloat(ui.tthMinSlider.value);
+        let maxVal = parseFloat(ui.tthMaxSlider.value);
+        if (minVal >= maxVal) { minVal = maxVal - parseFloat(ui.tthMinSlider.step); ui.tthMinSlider.value = minVal; }
+        ui.tthMinValue.textContent = minVal.toFixed(2);
+        updatePlotRange();
+        debouncedFindPeaks(); // 
+    });
+     ui.tthMaxSlider.addEventListener('input', () => {
+        let minVal = parseFloat(ui.tthMinSlider.value);
+        let maxVal = parseFloat(ui.tthMaxSlider.value);
+        if (maxVal <= minVal) { maxVal = minVal + parseFloat(ui.tthMaxSlider.step); ui.tthMaxSlider.value = maxVal; }
+        ui.tthMaxValue.textContent = maxVal.toFixed(2);
+        updatePlotRange();
+        debouncedFindPeaks(); // v114
+    });
+
+    ui.ballRadiusSlider.addEventListener('input', () => { ui.ballRadiusValue.textContent = ui.ballRadiusSlider.value; debouncedFindPeaks(); });
+    ui.smoothingWidthSlider.addEventListener('input', () => { ui.smoothingWidthValue.textContent = ui.smoothingWidthSlider.value; debouncedFindPeaks(); });
+    ui.peakThresholdSlider.addEventListener('input', () => { const value = logSliderToValue(parseFloat(ui.peakThresholdSlider.value)); ui.peakThresholdValue.textContent = value.toFixed(1); debouncedFindPeaks(); });
+
+    const rollingBallBackground = (y, radius, smoothingWidth) => {
+        const n = y.length;
+        if (n === 0 || radius <= 0) return new Array(n).fill(0);
+        let smoothed_y = y;
+        if (smoothingWidth > 1) {
+            smoothed_y = new Array(n);
+            const halfWidth = Math.floor(smoothingWidth / 2);
+            for (let i = 0; i < n; i++) {
+                const start = Math.max(0, i - halfWidth);
+                const end = Math.min(n, i + halfWidth + 1);
+                let sum = 0;
+                for (let j = start; j < end; j++) sum += y[j];
+                smoothed_y[i] = sum / (end - start);
+            }
+        }
+        const eroded = new Array(n);
+        for (let i = 0; i < n; i++) {
+            const start = Math.max(0, i - radius);
+            const end = Math.min(n, i + radius + 1);
+            let min = Infinity;
+            for (let j = start; j < end; j++) if (smoothed_y[j] < min) min = smoothed_y[j];
+            eroded[i] = min;
+        }
+        const background = new Array(n);
+        for (let i = 0; i < n; i++) {
+            const start = Math.max(0, i - radius);
+            const end = Math.min(n, i + radius + 1);
+            let max = -Infinity;
+            for (let j = start; j < end; j++) if (eroded[j] > max) max = eroded[j];
+            background[i] = max;
+        }
+        return background;
+    };
+
+    const savitzkyGolay = (data, windowSize = 9, polyOrder = 2) => {
+        const n = data.length; if (n === 0) return [];
+        windowSize = Math.max(3, windowSize); if (windowSize % 2 === 0) windowSize += 1; windowSize = Math.min(windowSize, n);
+        const halfWindow = Math.floor(windowSize / 2);
+        const result = new Array(n);
+        const coefficients = (windowSize === 9 && polyOrder === 2) ? [-0.0909, 0.0606, 0.1687, 0.2333, 0.2545, 0.2333, 0.1687, 0.0606, -0.0909] : (() => { const weights = []; for (let i = -halfWindow; i <= halfWindow; i++) weights.push(1 - Math.abs(i) / (halfWindow + 1)); const sum = weights.reduce((a, b) => a + b, 0); return weights.map(w => w / sum); })();
+        for (let i = 0; i < n; i++) {
+            let smoothedValue = 0;
+            for (let j = -halfWindow; j <= halfWindow; j++) {
+                let idx = i + j;
+                if (idx < 0) idx = Math.abs(idx);
+                else if (idx >= n) idx = n - 1 - (idx - (n - 1));
+                smoothedValue += data[idx] * coefficients[j + halfWindow];
+            }
+            result[i] = smoothedValue;
+        }
+        return result;
+    };
+
+
+
+    function findPeaks() {
+        // Now uses workingExperimentalData
+        if (!workingExperimentalData || !workingExperimentalData.intensity || workingExperimentalData.intensity.length < 5) return;
+        
+        const { intensity, tth } = workingExperimentalData; const n = tth.length;
+        const minTth = parseFloat(ui.tthMinSlider.value) || tth[0];
+        const maxTth = parseFloat(ui.tthMaxSlider.value) || tth[n - 1];
+        const minHeightPercent = logSliderToValue(parseFloat(ui.peakThresholdSlider.value)) || 2;
+        const ballRadius = parseInt(ui.ballRadiusSlider.value, 10);
+        const smoothingWidth = parseInt(ui.smoothingWidthSlider.value, 10);
+        const background = rollingBallBackground(intensity, ballRadius, smoothingWidth);
+        const backgroundCorrected = intensity.map((y, i) => Math.max(0, y - background[i]));
+        const windowSize = Math.max(5, Math.min(11, Math.floor(n / 100)));
+        const smoothed = savitzkyGolay(backgroundCorrected, windowSize, 2);
+        const maxCorrectedIntensity = Math.max(...backgroundCorrected) || 1;
+        const minAbsoluteHeight = (minHeightPercent / 100) * maxCorrectedIntensity;
+        const calculateNoiseLevel = (data) => { const n_s = data.length; if (n_s < 10) return 0; const sample = []; for (let i = 0; i < n_s; i += Math.max(1, Math.floor(n_s / 100))) sample.push(data[i]); sample.sort((a, b) => a - b); const median = sample[Math.floor(sample.length / 2)]; const deviations = sample.map(x => Math.abs(x - median)); deviations.sort((a, b) => a - b); return deviations[Math.floor(deviations.length / 2)] * 1.4826; };
+        const adaptiveThreshold = Math.max(minAbsoluteHeight, calculateNoiseLevel(backgroundCorrected) * 3);
+        const localMaxIndices = [];
+        for (let i = 1; i < n - 1; i++) {
+            const current = smoothed[i]; if (current < adaptiveThreshold) continue;
+            if (current > smoothed[i - 1] && current > smoothed[i + 1]) localMaxIndices.push(i);
+            else if (current === smoothed[i + 1] && current > smoothed[i - 1]) { let plateauEnd = i + 1; while (plateauEnd < n - 1 && Math.abs(smoothed[plateauEnd] - current) < maxCorrectedIntensity * 0.001) plateauEnd++; if (plateauEnd < n && smoothed[plateauEnd] < current) localMaxIndices.push(Math.round((i + plateauEnd - 1) / 2)); i = plateauEnd - 1; }
+        }
+        const candidates = localMaxIndices.filter(idx => tth[idx] >= minTth && tth[idx] <= maxTth && backgroundCorrected[idx] >= adaptiveThreshold)
+            .map(idx => ({ idx, tth: tth[idx], height: smoothed[idx], backgroundCorrectedHeight: backgroundCorrected[idx] }));
+        
+        // --- Refinement Loop (with 5-point and 3-point logic) ---
+        const refinedPeaks = [];
+        for (const peak of candidates) {
+            const { idx } = peak; let refinedTth = peak.tth;
+
+            // Calculate a robust average step size around the peak
+            const avgStep = (idx > 0 && idx < n - 1) 
+                ? (tth[idx+1] - tth[idx-1]) / 2.0 
+                : (idx > 0 ? tth[idx] - tth[idx-1] : (idx < n-1 ? tth[idx+1] - tth[idx] : 0.01));
+
+            // --- Try 5-point parabola first (more accurate) ---
+            if (idx > 1 && idx < n - 2) { 
+                const y1 = smoothed[idx - 2];
+                const y2 = smoothed[idx - 1];
+                const y3 = smoothed[idx];
+                const y4 = smoothed[idx + 1];
+                const y5 = smoothed[idx + 2];
+
+                // 5-point least-squares quadratic fit (Savitzky-Golay coefficients)
+                // Parabola y = ax^2 + bx + c, centered at x=0 (idx)
+                const a = (2*y1 - y2 - 2*y3 - y4 + 2*y5) / 7.0;
+                const b = (-2*y1 - y2 + 0*y3 + y4 + 2*y5) / 10.0;
+                
+                // Check for valid maximum (downward parabola, a < 0)
+                if (a < -1e-10) { 
+                    const delta = -b / (2 * a); // Vertex x = -b / (2a)
+                    
+                    // delta should be within the 5-point window
+                    if (Math.abs(delta) < 2.0) { 
+                        refinedTth = tth[idx] + delta * avgStep;
+                    }
+                }
+            // --- FALLBACK: Use 3-point fit if 5-point fails or is near edge ---
+            } else if (idx > 0 && idx < n - 1) { 
+                const y1 = smoothed[idx - 1], y2 = smoothed[idx], y3 = smoothed[idx + 1]; 
+                const denominator = 2 * (y1 - 2 * y2 + y3); 
+                
+                // Check for valid maximum (denominator < 0)
+                if (denominator < -1e-10) { 
+                    const delta = (y1 - y3) / denominator; 
+                    if (Math.abs(delta) < 1.0) { // Sanity check: delta must be within -1 to 1
+                        refinedTth = tth[idx] + delta * avgStep; 
+                    } 
+                } 
+            } 
+            
+            refinedPeaks.push({ ...peak, tth: refinedTth });
+        }
+        
+        // --- Continue 
+        refinedPeaks.sort((a, b) => a.tth - b.tth);
+        const finalPeaks = []; const mergeThreshold = 0.02;
+        for (const peak of refinedPeaks) {
+            if (finalPeaks.length === 0 || Math.abs(peak.tth - finalPeaks[finalPeaks.length - 1].tth) >= mergeThreshold) finalPeaks.push(peak);
+            else if (peak.height > finalPeaks[finalPeaks.length - 1].height) finalPeaks[finalPeaks.length - 1] = peak;
+        }
+        const lambda = parseFloat(ui.wavelength.value) || 1.54178;
+        pickedPeaks = finalPeaks.map(p => { const d = lambda / (2 * Math.sin(p.tth * Math.PI / 360)); return { tth: p.tth, d: d, q: 1 / (d * d) }; });
+        updatePeakTable(); updateStartIndexingButtonState();
+    };
+
+
+    const recalculatePeakValues = () => {
+        const lambda = parseFloat(ui.wavelength.value);
+        pickedPeaks.forEach(peak => { peak.d = lambda / (2 * Math.sin(peak.tth * Math.PI / 360)); peak.q = 1 / (peak.d * peak.d); });
+    };
+
+    const updatePeakTable = () => {
+        ui.peakListBody.innerHTML = '';
+        pickedPeaks.forEach((peak, index) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `<td>${index + 1}</td><td><input type="number" class="peak-tth-input" value="${peak.tth.toFixed(4)}" data-index="${index}" step="0.0001"></td><td><input type="number" class="peak-d-input" value="${peak.d.toFixed(5)}" data-index="${index}" disabled></td><td><button class="delete-peak-btn" data-index="${index}">X</button></td>`;
+            ui.peakListBody.appendChild(row);
+        });
+        ui.peakTableContainer.classList.toggle('hidden', pickedPeaks.length === 0);
+        updateAllMarkers();
+    };
+    
+    const updateStartIndexingButtonState = () => {
+        const needed = 4 - pickedPeaks.length;
+        if (needed > 0) { ui.startIndexingButton.disabled = true; ui.startIndexingButton.textContent = `Need ${needed} more peak${needed > 1 ? 's' : ''}`; } 
+        else { ui.startIndexingButton.disabled = false; ui.startIndexingButton.textContent = 'Start Indexing'; }
+    };
+
+    ui.peakListBody.addEventListener('change', (e) => {
+        if (e.target.classList.contains('peak-tth-input')) {
+            const index = parseInt(e.target.dataset.index); const tth = parseFloat(e.target.value); const lambda = parseFloat(ui.wavelength.value);
+            const d = lambda / (2 * Math.sin(tth * Math.PI / 360)); const q = 1 / (d*d);
+            pickedPeaks[index] = {tth, d, q};
+            e.target.closest('tr').querySelector('.peak-d-input').value = d.toFixed(5);
+            updateAllMarkers(); updateStartIndexingButtonState();
+        }
+    });
+     ui.peakListBody.addEventListener('click', (e) => {
+        if (e.target.classList.contains('delete-peak-btn')) { const index = parseInt(e.target.dataset.index); pickedPeaks.splice(index, 1); updatePeakTable(); updateStartIndexingButtonState(); }
+    });
+    
+    const setUIState = (indexing) => {
+        isIndexing = indexing; 
+        document.body.style.cursor = indexing ? 'wait' : 'default';
+        
+        const controlsToDisable = [ 
+            ui.fileInput, ui.peakThresholdSlider, ui.tthMinSlider, ui.tthMaxSlider, 
+            ui.ballRadiusSlider, ui.smoothingWidthSlider, ui.wavelength, ui.tthError, 
+            ui.maxVolume, ui.impurityPeaksInput, ui.refineZeroCheckbox, 
+            // ...ui.systemCheckboxes, modif nov 25
+            ...ui.tabButtons, ui.wavelengthPreset, ui.stripKa2Checkbox 
+        ];
+        
+        controlsToDisable.forEach(el => { if (el) el.disabled = indexing; });
+        
+        //  Manually handle checkboxes based on GPU support, if WebGPU error disable mono and tric
+        ui.systemCheckboxes.forEach(cb => {
+            if (indexing) {
+                // When indexing starts, disable all
+                cb.disabled = true; 
+            } else {
+                // When indexing stops, re-enable based on GPU support
+                if (webGPUSupportsCompute) {
+                    cb.disabled = false; // Re-enable all
+                } else {
+                    // Only re-enable non-GPU ones
+                    if (cb.value === 'monoclinic' || cb.value === 'triclinic') {
+                        cb.disabled = true; 
+                        cb.checked = false; 
+                    } else {
+                        cb.disabled = false;
+                    }
+                }
+            }
+        });
+        
+
+        ui.peakListBody.querySelectorAll('input, button').forEach(el => { el.disabled = indexing; });
+        ui.fileInputLabel.style.pointerEvents = indexing ? 'none' : 'auto'; 
+        ui.fileInputLabel.style.opacity = indexing ? '0.7' : '1';
+        
+        if (indexing) {
+            ui.startIndexingButton.disabled = true;
+            ui.reportButton.textContent = 'Stop'; 
+            ui.reportButton.disabled = false;
+            ui.progressBarContainer.classList.remove('hidden'); 
+            ui.progressBar.style.width = '0%';
+        } else {
+            updateStartIndexingButtonState(); 
+            ui.reportButton.textContent = 'Generate PDF Report'; 
+            ui.reportButton.disabled = (solutions.length === 0);
+            ui.progressBarContainer.classList.add('hidden'); 
+            ui.progressBar.style.width = '0%';
+            
+            // Re-enable controls based on state
+            if (fullExperimentalData.tth.length > 0) { 
+                ui.tthMinSlider.disabled = false; 
+                ui.tthMaxSlider.disabled = false; 
+                ui.wavelengthPreset.disabled = false;
+                if (ui.wavelengthPreset.value !== 'custom') {
+                    ui.stripKa2Checkbox.disabled = false;
+                }
+                if (ui.wavelengthPreset.value === 'custom') {
+                    ui.wavelength.disabled = false;
+                }
+            }
+        }
+    };
+
+
+    const applyFinalSieve = (solutions) => {
+    
+    
+    // filter strange entries
+    const validSolutions = solutions.filter(s => s && s.volume && s.m20);
+
+    if (validSolutions.length <= 1) return validSolutions;
+    
+    showStatus('Applying final sieve to results...', 'info', 2000);
+    const symmetryOrder = { 'cubic': 5, 'hexagonal': 4, 'tetragonal': 4, 'orthorhombic': 3, 'monoclinic': 2 };
+    
+    // Sort the *filtered* array
+    validSolutions.sort((a, b) => a.volume - b.volume);
+    
+    const toKeep = new Array(validSolutions.length).fill(true);
+    
+    for (let i = 0; i < validSolutions.length; i++) {
+        if (!toKeep[i]) continue;
+        for (let j = i + 1; j < validSolutions.length; j++) {
+            if (!toKeep[j]) continue;
+            
+            // Use the filtered array for all comparisons
+            const vol_i = validSolutions[i].volume; const vol_j = validSolutions[j].volume;
+            
+            // Break if volumes are different by more than 1%
+            if (vol_j > vol_i * 1.01) break;
+            
+            const sym_i = symmetryOrder[validSolutions[i].system]; 
+            const sym_j = symmetryOrder[validSolutions[j].system];
+            
+            if (sym_i > sym_j) {
+                toKeep[j] = false; // i has higher symmetry
+            } else if (sym_j > sym_i) {
+                toKeep[i] = false; // j has higher symmetry
+                break;
+            } else { 
+                // Symmetries are equal
+                const m20_i = validSolutions[i].m20;
+                const m20_j = validSolutions[j].m20;
+                
+                const m20_percent_tolerance = 0.02;
+
+                // Check if i is significantly better than j
+                if (m20_i > (m20_j * (1.0 + m20_percent_tolerance))) {
+                    toKeep[j] = false; // i is clearly better
+                
+                // Check if j is significantly better than i
+                } else if (m20_j > (m20_i * (1.0 + m20_percent_tolerance))) {
+                    toKeep[i] = false; // j is clearly better
+                    break;
+                
+                } else {
+                    // M(20) are "equal", check for monoclinic beta convention
+                    if (validSolutions[i].system === 'monoclinic') {
+                        const beta_i = validSolutions[i].beta || 90;
+                        const beta_j = validSolutions[j].beta || 90;
+                        
+                        const conventional_i = Math.abs(beta_i - 90);
+                        const conventional_j = Math.abs(beta_j - 90);
+
+                        if (conventional_i <= conventional_j) {
+                             toKeep[j] = false; // i is more conventional (or equal), keep i
+                        } else {
+                             toKeep[i] = false; // j is more conventional, keep j
+                             break;
+                        }
+                    } else {
+                        // For other systems with a tie, just keep the first one
+                        toKeep[j] = false;
+                    }
+                }
+            }
+        }
+    }
+    
+    const filteredSolutions = validSolutions.filter((_, index) => toKeep[index]);
+    const numDiscarded = validSolutions.length - filteredSolutions.length;
+    if (numDiscarded > 0) showStatus(`Sieve discarded ${numDiscarded} redundant solution(s).`, 'success');
+    return filteredSolutions.slice(0, 50);
+};
+
+const formatWithError = (value, error) => {
+        if (error === undefined || error === null || !isFinite(error) || error <= 0) {
+            const places = Math.abs(value) > 10 ? 3 : 4;
+            return value.toFixed(places);
+        }
+        const errorMagnitude = Math.floor(Math.log10(error));
+        const firstSigDigit = Math.floor(error / Math.pow(10, errorMagnitude));
+
+        let decimalPlaces;
+        if (firstSigDigit >= 3) {
+            // Use 1 significant figure for error 
+            decimalPlaces = -errorMagnitude;
+        } else {
+            decimalPlaces = -errorMagnitude + 1;
+        }
+        
+        // Ensure decimalPlaces is reasonable and non-negative
+        decimalPlaces = Math.max(0, Math.min(8, decimalPlaces));
+        const multiplier = Math.pow(10, decimalPlaces);
+        const roundedValue = (Math.round(value * multiplier) / multiplier).toFixed(decimalPlaces);
+        const errorInLastDigits = Math.round(error * multiplier);
+        return `${roundedValue}(${errorInLastDigits})`;
+    };
+
+
+//8 nov, major modif, chunks, needed if parameters changes in TASKS 2 and 3 in StartIndexing
+/**
+ * Creates an efficient generator for C(n, k) combinations.
+ * This function is memory-efficient and yields combinations one by one
+ * without storing them all in memory.
+ *
+ * @param {number} n - The number of items to choose from (e.g., 80 for C(80, 6)).
+ * @param {number} k - The number of items to choose (e.g., 6 for C(80, 6)).
+ * @returns {Generator<Uint32Array, void, void>} A generator that yields a Uint32Array.
+ */
+function* createCombinationGenerator(n, k) {
+    // 1. Initialize the first combination: [0, 1, 2, ..., k-1]
+    // We use Uint32Array because that's what the GPU buffer expects.
+    const combo = new Uint32Array(k);
+    for (let i = 0; i < k; i++) {
+        combo[i] = i;
+    }
+
+    while (true) {
+        // 2. Yield the current combination array.
+        // The calling loop will copy this array's values into the GPU buffer.
+        yield combo;
+
+        // 3. Find the rightmost element (i) that can be incremented.
+        let i = k - 1;
+        
+        // We check i >= 0.
+        // The max value for combo[i] is (n - k + i).
+        // We look for the first element from the right that is *not*
+        // at its maximum value.
+        while (i >= 0 && combo[i] === (n - k + i)) {
+            i--;
+        }
+
+        // 4. If i < 0, all elements are at their max.
+        // e.g., for C(80, 6), this would be [74, 75, 76, 77, 78, 79].
+        // We are done.
+        if (i < 0) {
+            return;
+        }
+
+        // 5. Increment the element we found.
+        combo[i]++;
+
+        for (let j = i + 1; j < k; j++) {
+            combo[j] = combo[j - 1] + 1;
+        }
+    }
+}
+
+
+
+let lastThrottleTime = 0;
+    /**
+     * Throttles a function call to only execute once every `delay` milliseconds.
+     * @param {function} func The function to throttle.
+     * @param {number} delay The delay in milliseconds.
+     */
+    const throttle = (func, delay) => {
+        return (...args) => {
+            const now = new Date().getTime();
+            if (now - lastThrottleTime < delay) {
+                return;
+            }
+            lastThrottleTime = now;
+            func(...args);
+        };
+    };
+
+    // This creates a throttled version of the status text update.
+    // It will update at most 4 times per second (every 250ms).
+    // It can now see the global 'statusTextElement'
+    const throttledSetStatusText = throttle((message) => {
+        if (statusTextElement) {
+            statusTextElement.textContent = message;
+        }
+    }, 250); // 250ms delay
+
+
+//
+ /* Calculates combinations C(n, k) = "n choose k"
+ * Uses the stable multiplicative formula: (n/1) * ((n-1)/2) * ... * ((n-k+1)/k)
+ */
+function combinations(n, k) {
+    if (k < 0 || k > n) {
+        return 0;
+    }
+    if (k === 0 || k === n) {
+        return 1;
+    }
+    // Use the identity C(n, k) == C(n, n-k) for efficiency
+    if (k > n / 2) {
+        k = n - k;
+    }
+    
+    let res = 1;
+    for (let i = 1; i <= k; i++) {
+        // (n - i + 1) is equivalent to (n, n-1, n-2, ...)
+        res = res * (n - i + 1) / i;
+    }
+    
+    return Math.round(res);
+}
+
+
+
+
+const startIndexing = async () => { 
+    const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
+    if (systemsToSearch.length === 0) {
+        showStatus("Please select at least one crystal system to search.", "error");
+        return;
+    }
+
+    const needsWebGPU = systemsToSearch.includes('monoclinic') || systemsToSearch.includes('triclinic');
+    let webgpuEngine = null;
+
+    if (needsWebGPU) {
+        try {
+            const engine = new WebGPUEngine();
+            await engine.init();
+            webgpuEngine = engine;
+        } catch (err) {
+            console.warn("WebGPU initialization failed:", err.message);
+            showStatus("WebGPU failed unexpectedly. Monoclinic/Triclinic searches are disabled.", "error", 8000);
+            webGPUSupportsCompute = false;
+            setUIState(false);
+            return;
+        }
+    }
+
+    const tthMinVal = parseFloat(ui.tthMinSlider.value);
+    const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
+    const filteredPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
+
+    if (filteredPeaks.length < 4) {
+        showStatus("Please find at least 4 peaks before starting indexing.", 'error');
+        return;
+    }
+
+    const webgpuSystems = [];
+    const workerSystems = [];
+    gpuStopSignal.stop = false;
+
+    systemsToSearch.forEach(system => {
+        if (system === 'triclinic' || system === 'monoclinic') {
+            if (webgpuEngine && webGPUSupportsCompute) {
+                webgpuSystems.push(system);
+            }
+        } else {
+            workerSystems.push(system);
+        }
+    });
+
+    if (needsWebGPU && webgpuSystems.length === 0) {
+        ui.systemCheckboxes.forEach(cb => {
+            if (cb.value === 'monoclinic' || cb.value === 'triclinic') cb.checked = false;
+        });
+    }
+    
+    if (workerSystems.length === 0 && webgpuSystems.length === 0) {
+        showStatus("No tasks to run. GPU-dependent tasks were skipped or deselected.", "info");
+        return;
+    }
+    
+    setUIState(true); // Disable UI
+
+    // --- Clear previous state ---
+    ui.tabButtons.forEach(btn => btn.classList.remove('active'));
+    ui.tabPanels.forEach(panel => panel.classList.remove('active'));
+    document.querySelector('.tab-btn[data-tab="solutions"]').classList.add('active');
+    document.getElementById('solutions-tab-content').classList.add('active');
+    
+    solutions = []; 
+    displayedSolutions = [];
+    selectedSolution = null; 
+    currentHklList = []; 
+    activeWorkers = [];
+    foundSolutionMap.clear(); 
+    updateSolutionsTable(); 
+    updateAllMarkers();
+    showStatus(`Indexing started...`, 'info');
+
+    cumulativeTrials = 0;
+    indexingStartTime = performance.now();
+    if (statusTextElement) statusTextElement.textContent = 'Trials: 0 (0/s)';
+
+    const baseParams = {
+        peaks: filteredPeaks,
+        wavelength: parseFloat(ui.wavelength.value),
+        tth_error: parseFloat(ui.tthError.value),
+        max_volume: parseFloat(ui.maxVolume.value),
+        impurity_peaks: parseInt(ui.impurityPeaksInput.value, 10),
+        refineZero: ui.refineZeroCheckbox.checked,
+    };
+    
+    const taskPromises = [];
+
+    // --- TASK 1: CPU WORKERS ---
+    if (workerSystems.length > 0) {
+        const workerTask = new Promise((resolve) => {
+            resolveWorkerTask = resolve;
+            if (!workerURL) {
+                showStatus("Error: Indexing engine is not available.", "error");
+                resolve();
+                return;
+            }
+
+            let workersRemaining = workerSystems.length;
+            const workerProgress = new Array(workersRemaining).fill(0);
+            
+            workerSystems.forEach((system, workerIndex) => {
+                const worker = new Worker(workerURL);
+                activeWorkers.push(worker);
+
+                worker.onmessage = (e) => {
+                    const { type, payload } = e.data;
+                    if (type === 'trials_completed_batch') {
+                        cumulativeTrials += payload;
+                        const elapsedTimeSeconds = (performance.now() - indexingStartTime) / 1000;
+                        const trialsPerSecond = (elapsedTimeSeconds > 0.1) ? cumulativeTrials / elapsedTimeSeconds : 0;
+                        const message = `Trials: ${cumulativeTrials.toLocaleString()} (${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
+                        throttledSetStatusText(message);
+                        
+                    } else if (type === 'solution') {
+                        solutions.push(payload);
+                        pruneSolutions();
+                        if (solutions.length === 1) ui.solutionsLed.className = 'led-indicator green';
+                        sortSolutions();
+                        displayedSolutions = solutions.filter(sol => systemsToSearch.includes(sol.system));
+                        updateSolutionsTable();
+                    } else if (type === 'progress') {
+                        workerProgress[workerIndex] = payload;
+                        const progressScale = (webgpuSystems.length > 0) ? 50 : 100;
+                        const totalWorkerProgress = workerProgress.reduce((sum, p) => sum + p, 0) / workersRemaining;
+                        ui.progressBar.style.width = `${Math.min(100, totalWorkerProgress * (progressScale / 100))}%`;
+                    } else if (type === 'done') {
+                        worker.terminate();
+                        activeWorkers = activeWorkers.filter(w => w !== worker);
+                        workersRemaining--;
+                        if (workersRemaining === 0) {
+                            resolveWorkerTask = null;
+                            resolve(); // All workers in this group are done
+                        }
+                    }
+                };
+                worker.onerror = (err) => { 
+                    console.error(`Worker for ${system} crashed:`, err.message, err);
+                    showStatus(`Error in ${system} worker. See console.`, "error", 8000);
+                    worker.terminate();
+                    activeWorkers = activeWorkers.filter(w => w !== worker);
+                    workersRemaining--;
+                    if (workersRemaining === 0) {
+                        resolveWorkerTask = null;
+                        resolve(); // Resolve even on error
+                    }
+                };
+                
+                worker.postMessage({ ...baseParams, systemToSearch: system, allowedSystems: workerSystems });
+            });
+        });
+        taskPromises.push(workerTask);
+    }
+
+
+    // --- TASK 2: MONOCLINIC (GPU) ---
+    if (webgpuSystems.includes('monoclinic')) {
+        const monoTask = (async () => {
+            if (filteredPeaks.length < 5) {
+                showStatus("Monoclinic search requires at least 5 peaks. Skipping.", "error");
+                return; // Resolves this task's promise
+            } 
+            
+            try {
+                showStatus('Initializing WebGPU for monoclinic (4-Peak Direct Solve)...', 'info');
+                const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(filteredPeaks, baseParams.wavelength);
+                
+                const n_peaks_for_fom = Math.min(q_obs.length, 20); // Must match config.n_peaks_for_fom in WGSL
+                const qTolerancesArray = new Float32Array(n_peaks_for_fom);
+                
+                for (let i = 0; i < n_peaks_for_fom; i++) {
+                    // get_q_tolerance and tth_obs_rad are globally available from worker-logic.js
+                    qTolerancesArray[i] = get_q_tolerance(
+                        peaks_sorted_by_q[i].original_index, // The original index of the i-th sorted peak
+                        tth_obs_rad,                         // The full, original-order 2theta-rad array
+                        baseParams.wavelength,
+                        baseParams.tth_error
+                    ) + 1e-9; // safety epsilon
+                }
+                
+
+                
+                const N_FOR_M20 = Math.min(20, filteredPeaks.length);
+                const min_m20 = 2.0; 
+                const d_min = baseParams.wavelength / (2 * Math.sin(Math.max(...filteredPeaks.map(p => p.tth)) * Math.PI / 360));
+                const q_max = 1 / (d_min * d_min);
+                const engine = webgpuEngine; 
+                
+                await engine.loadShader('monoclinic_solver.wgsl');
+                engine.createPipeline('main_4p');
+                const qObsArray = new Float32Array(q_obs);
+                
+                const hkl_basis_raw = get_hkl_search_list('monoclinic').slice(0, 80);
+                const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
+                hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
+
+                const max_p = Math.min(7, q_obs.length);
+                const peak_combos_raw = [];
+                for (let i=0; i<max_p-3; i++)
+                 for (let j=i+1; j<max_p-2; j++)
+                  for (let k=j+1; k<max_p-1; k++)
+                   for (let l=k+1; l<max_p; l++) {
+                        peak_combos_raw.push(i,j,k,l);
+                }
+                const peakCombos = new Uint32Array(peak_combos_raw);
+                if (peakCombos.length === 0) throw new Error("Not enough peaks to generate 4-peak combinations.");
+
+                const num_hkls = hkl_basis_raw.length;
+                const K_VALUE = 4;
+                const BYTES_PER_COMBO = K_VALUE * 4;
+                const userMaxBuffer = engine.device.limits.maxStorageBufferBindingSize;
+                const combosPerChunk = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
+                const TOTAL_EXHAUSTIVE_COMBOS = combinations(num_hkls, K_VALUE);
+                const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
+                if (TOTAL_EXHAUSTIVE_COMBOS === 0) throw new Error("Not enough HKLs.");
+
+                console.log(`Monoclinic 4-Peak Direct Solve Config:`);
+                console.log(`  Peak Combos: ${peakCombos.length / K_VALUE}`);
+                console.log(`  Total HKL Combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()}`);
+                console.log(`  Chunks: ${numChunks} (Size: ${combosPerChunk.toLocaleString()})`);
+
+                const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
+
+                for (let chunk = 0; chunk < numChunks; chunk++) {
+                    if (gpuStopSignal.stop) {
+                        console.log("Monoclinic GPU run stopped by user.");
+                        break;
+                    }
+                    const combosThisChunk = (chunk === numChunks - 1) ? (TOTAL_EXHAUSTIVE_COMBOS % combosPerChunk || combosPerChunk) : combosPerChunk;
+                    const totalIndices = combosThisChunk * K_VALUE;
+                    const hklCombos = new Uint32Array(totalIndices);
+                    let offset = 0;
+                    for (let i = 0; i < combosThisChunk; i++) {
+                        const arr = hklComboGenerator.next().value;
+                        if (!arr) break; 
+                        hklCombos.set(arr, offset);
+                        offset += K_VALUE;
+                    }
+                    const progressCallback = (chunkProgress, numFound) => {
+                        const totalPercent = ((chunk + chunkProgress) / numChunks) * 100;
+                        let workerPortion = (workerSystems.length > 0) ? 50 : 0;
+                        let currentWorkerProgress = 0;
+                        if (workerSystems.length > 0) {
+                            currentWorkerProgress = parseFloat(ui.progressBar.style.width) || 0;
+                            if (activeWorkers.length === 0 && currentWorkerProgress < workerPortion) {
+                                currentWorkerProgress = workerPortion;
+                            }
+                        }
+                        const gpuPortion = 100 - workerPortion;
+                        const progressPerGpuSystem = gpuPortion / webgpuSystems.length;
+                        let gpuSystemIndex = 0;
+                        if (webgpuSystems.includes('triclinic') && webgpuSystems.indexOf('monoclinic') > webgpuSystems.indexOf('triclinic')) {
+                            gpuSystemIndex = 1;
+                        }
+                        const gpuProgress = (gpuSystemIndex * progressPerGpuSystem) + (totalPercent / 100 * progressPerGpuSystem);
+                        const totalBarPercent = currentWorkerProgress + gpuProgress;
+                        ui.progressBar.style.width = `${Math.min(100, totalBarPercent)}%`;
+                        const message = `GPU (Monoclinic): ${totalPercent.toFixed(1)}%... ${numFound} candidates`;
+                        throttledSetStatusText(message);
+                    };
+
+                    const { potentialCells, stoppedEarly } = await engine.runMonoclinicSolver(
+                        qObsArray, hklBasisArray, peakCombos, hklCombos,
+                        qTolerancesArray, // même ordre que dans le webgpu
+                        progressCallback, gpuStopSignal, baseParams
+                    );
+                    
+                   
+                    // Create an array of new promises, one for each refinement
+                    const refinementPromises = potentialCells.map((cell) => {
+                        // This creates one new Promise for EACH cell
+                        return new Promise((resolveCellRefine) => {
+                            const cpuRefineState = {
+                                q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q,
+                                N_FOR_M20, min_m20, q_max, d_min,
+                                foundSolutions: solutions, 
+                                foundSolutionMap: foundSolutionMap 
+                            };
+                            
+                            // Call the worker function. Pass our *own* callback.
+                            refineAndTestSolution(
+                                cell, 
+                                baseParams, 
+                                cpuRefineState,
+                                (msg) => { // 'postMessage_func'
+                                    if (msg.type === 'solution') {
+                                        
+                                        solutions.push(msg.payload);
+                                        pruneSolutions(); 
+                                        if (solutions.length === 1) ui.solutionsLed.className = 'led-indicator green';
+                                        sortSolutions();
+                                        displayedSolutions = solutions.filter(sol => systemsToSearch.includes(sol.system));
+                                        updateSolutionsTable();
+                                    }
+                                    
+
+                                    resolveCellRefine();
+                                }
+                            ); 
+                        });
+                    });
+                    
+                    // wait for all refinements in this batch to finish
+                    await Promise.all(refinementPromises); 
+                    
+                    if (stoppedEarly) {
+                        console.log("Stopping brutus.html chunk loop due to max solutions.");
+                        break; 
+                    }
+                } 
+            } catch (err) {
+                console.error("WebGPU Error (Monoclinic):", err);
+                showStatus(`WebGPU Error: ${err.message}`, 'error');
+            }
+        })(); 
+        taskPromises.push(monoTask);
+    }
+
+
+    // --- TASK 3: TRICLINIC (GPU) ---
+    if (webgpuSystems.includes('triclinic')) {
+        const triTask = (async () => {
+            try {
+                showStatus('Initializing WebGPU for triclinic (Exhaustive)...', 'info');
+                
+                const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(filteredPeaks, baseParams.wavelength);
+               
+                const n_peaks_for_fom = Math.min(q_obs.length, 20);
+                const qTolerancesArray = new Float32Array(n_peaks_for_fom);
+                for (let i = 0; i < n_peaks_for_fom; i++) {
+                    qTolerancesArray[i] = get_q_tolerance(
+                        peaks_sorted_by_q[i].original_index,
+                        tth_obs_rad,
+                        baseParams.wavelength,
+                        baseParams.tth_error
+                    ) + 1e-9;
+                }
+               
+                const N_FOR_M20 = Math.min(20, filteredPeaks.length);
+                const min_m20 = 2.0; 
+                const d_min = baseParams.wavelength / (2 * Math.sin(Math.max(...filteredPeaks.map(p => p.tth)) * Math.PI / 360));
+                const q_max = 1 / (d_min * d_min);
+
+                const engine = webgpuEngine;
+                await engine.loadShader('triclinic_solver.wgsl');
+                engine.createPipeline('main');
+                
+                const qObsArray = new Float32Array(q_obs);
+                
+                const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, 40); // 40 est petit et rapide, n'est pas suffisant pour d'autres symétries
+                const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
+                hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
+
+                const max_p = Math.min(8, q_obs.length); // Use first 10 peaks ?
+                const peak_combos_raw = [];
+                for (let i=0; i<max_p-5; i++) for (let j=i+1; j<max_p-4; j++)
+                for (let k=j+1; k<max_p-3; k++) for (let l=k+1; l<max_p-2; l++)
+                for (let m=l+1; m<max_p-1; m++) for (let n=m+1; n<max_p; n++) {
+                    peak_combos_raw.push(i,j,k,l,m,n);
+                }
+                const peakCombos = new Uint32Array(peak_combos_raw);
+                if (peakCombos.length === 0) throw new Error("Not enough peaks for triclinic 6-peak solve.");
+                
+                const num_hkls = hkl_basis_raw.length;
+                const K_VALUE = 6;
+                const userMaxBuffer = engine.device.limits.maxStorageBufferBindingSize;
+                const BYTES_PER_COMBO = K_VALUE * 4;
+                const combosPerChunk = Math.floor((userMaxBuffer * 0.99) / BYTES_PER_COMBO);
+                
+                const TOTAL_EXHAUSTIVE_COMBOS = combinations(num_hkls, K_VALUE);
+                const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
+                
+                console.log(`Triclinic Config: n=${num_hkls}, k=${K_VALUE}`);
+                console.log(`Total exhaustive combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()}`);
+                console.log(`Dynamically calculated chunks: ${numChunks}`);
+
+                const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
+                
+                for (let chunk = 0; chunk < numChunks; chunk++) {
+                    if (gpuStopSignal.stop) break;
+
+                    const combosThisChunk = (chunk === numChunks - 1)
+                        ? (TOTAL_EXHAUSTIVE_COMBOS % combosPerChunk || combosPerChunk)
+                        : combosPerChunk;
+
+                    const totalIndices = combosThisChunk * 6;
+                    const hklCombos = new Uint32Array(totalIndices);
+                    
+                    let offset = 0;
+                    for (let i = 0; i < combosThisChunk; i++) {
+                        const arr = hklComboGenerator.next().value;
+                        if (!arr) break;
+                        hklCombos.set(arr, offset);
+                        offset += 6;
+                    }
+
+                    const progressCallback = (chunkProgress, numFound) => {
+                        const totalProgress = ((chunk + chunkProgress) / numChunks) * 100;
+                        
+                        let workerPortion = (workerSystems.length > 0) ? 50 : 0;
+                        let currentWorkerProgress = 0;
+                        if (workerSystems.length > 0) {
+                            currentWorkerProgress = parseFloat(ui.progressBar.style.width) || 0;
+                            if (activeWorkers.length === 0 && currentWorkerProgress < workerPortion) {
+                                currentWorkerProgress = workerPortion;
+                            }
+                        }
+                        const gpuPortion = 100 - workerPortion;
+                        const progressPerGpuSystem = gpuPortion / webgpuSystems.length;
+
+                        let gpuSystemIndex = 0;
+                        if (webgpuSystems.includes('monoclinic') && webgpuSystems.indexOf('triclinic') > webgpuSystems.indexOf('monoclinic')) {
+                            gpuSystemIndex = 1;
+                        }
+
+                        const gpuProgress = (gpuSystemIndex * progressPerGpuSystem) + (totalProgress / 100 * progressPerGpuSystem);
+                        const totalBarPercent = currentWorkerProgress + gpuProgress;
+                        ui.progressBar.style.width = `${Math.min(100, totalBarPercent)}%`;
+                        
+                        const message = `GPU (Triclinic): ${totalProgress.toFixed(1)}%... ${numFound} candidates`;
+                        throttledSetStatusText(message);
+                    };
+                    
+
+                    const { potentialCells, stoppedEarly } = await engine.runTriclinicSolver(
+                        qObsArray, hklBasisArray, peakCombos, hklCombos,
+                        qTolerancesArray,
+                        progressCallback, gpuStopSignal, baseParams
+                    );
+
+                    // Create an array of new promises, one for each refinement
+                    const refinementPromises = potentialCells.map((cell) => {
+                            return new Promise((resolveCellRefine) => {
+                            const cpuRefineState = {
+                                q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q,
+                                N_FOR_M20, min_m20, q_max, d_min,
+                                foundSolutions: solutions, 
+                                foundSolutionMap: foundSolutionMap 
+                            };
+                            
+                            // Call the worker function. 
+                            refineAndTestSolution( 
+                                cell, baseParams, cpuRefineState,
+                                (msg) => { // 'postMessage_func', copié du monoclinique
+                                    if (msg.type === 'solution') {
+                                        solutions.push(msg.payload);
+                                        pruneSolutions();
+                                        if (solutions.length === 1) ui.solutionsLed.className = 'led-indicator green';
+                                        sortSolutions();
+                                        displayedSolutions = solutions.filter(sol => systemsToSearch.includes(sol.system));
+                                        updateSolutionsTable();
+                                    }
+
+                                    resolveCellRefine();
+                                }
+                            ); 
+                        });
+                    });
+                    
+                    await Promise.all(refinementPromises);
+                    
+                    if (stoppedEarly) {
+                        console.log("Stopping brutus.html (Triclinic) chunk loop due to max solutions.");
+                        break;
+                    }
+                }
+                
+            } catch (err) {
+                console.error("WebGPU Error (Triclinic):", err);
+                showStatus(`WebGPU Error: ${err.message}`, 'error');
+            }
+        })();
+        taskPromises.push(triTask);
+    }
+
+
+    // --- PART 4: FINALIZE ---
+    await Promise.all(taskPromises);
+    
+    // small delay to settle, was 100 msec, changet to 250 on nov 15
+    await new Promise(resolve => setTimeout(resolve, 250));
+    
+    finalizeIndexing(gpuStopSignal.stop);
+};
+
+    const finalizeIndexing = (stoppedByUser = false) => {
+    const statusTextElement = document.getElementById('status-text');
+
+    const elapsedTimeSeconds = (performance.now() - indexingStartTime) / 1000;
+    const trialsPerSecond = (elapsedTimeSeconds > 0.1) ? cumulativeTrials / elapsedTimeSeconds : 0;
+    const finalStatus = `Trials: ${cumulativeTrials.toLocaleString()} (Avg: ${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
+    
+    lastIndexingStats = finalStatus;
+    
+    if (statusTextElement) {
+        statusTextElement.textContent = finalStatus; // Display it
+    }
+
+    if (statusTextElement) statusTextElement.textContent = 'Applying final sieve...';
+    solutions = applyFinalSieve(solutions); 
+    
+ 
+    // niceness test, cherche proche de ortho
+    if (statusTextElement) statusTextElement.textContent = 'Standardizing Niggli cells...';
+    
+    const symmetryOrder = { 
+        'triclinic': 0, 
+        'monoclinic': 1, 
+        'orthorhombic': 2, 
+        'tetragonal': 3, 
+        'hexagonal': 4, 
+        'cubic': 5 
+    };
+
+    solutions.forEach(sol => {
+        // We only check systems that can be "ugly"
+        if (sol.system === 'monoclinic' || sol.system === 'triclinic') {
+            try {
+                // 1. Get the Niggli-reduced cell
+                const niggliResult = reduceToNiggliCell(sol);
+                const nCell = niggliResult.cell;
+                
+                // 2. Find its "true" symmetry
+                const trueSymmetry = getSymmetry(nCell.a, nCell.b, nCell.c, nCell.alpha, nCell.beta, nCell.gamma, 0.05);
+
+                const originalSymmetryRank = symmetryOrder[sol.system];
+                const newSymmetryRank = symmetryOrder[trueSymmetry];
+
+                let keepOriginal = true; // Default to keeping the original
+
+                // --- 3. Apply Niceness Logic ---
+                if (newSymmetryRank > originalSymmetryRank) {
+                    // Rule 1: The new cell has a higher symmetry. This is ALWAYS better.
+                    keepOriginal = false;
+                } else if (newSymmetryRank === originalSymmetryRank) {
+                    // Rule 2: Same symmetry. Check if the new cell is more orthogonal.
+                    const originalScore = getOrthogonalityScore(sol);
+                    const newScore = getOrthogonalityScore(nCell);
+                    
+                    // oops...need to prefer the original cell in a tie.
+                    if (newScore < originalScore) {
+                        keepOriginal = false;
+                    }
+                }
+
+                // --- 4. Overwrite solution if we found a better one ---
+                if (!keepOriginal) {
+                    sol.a = nCell.a;
+                    sol.b = nCell.b;
+                    sol.c = nCell.c;
+                    sol.alpha = nCell.alpha;
+                    sol.beta = nCell.beta;
+                    sol.gamma = nCell.gamma;
+                    sol.system = trueSymmetry; 
+                    sol.volume = getVolume(sol); // Recalculate volume
+                }
+                // (If keepOriginal is true, we do nothing)
+
+            } catch (e) {
+                // Robustness: If reduction fails, just keep the original cell.
+                console.warn("Niggli reduction failed for a solution, retaining original:", e, sol);
+            }
+        }
+    });
+    // toute cette partie de Niceness peut etre supprimée
+    
+    if (statusTextElement) statusTextElement.textContent = 'Analyzing space groups...';
+
+    // Get the 2-theta range from the sliders 
+    const tthMinVal = parseFloat(ui.tthMinSlider.value);
+    const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
+
+    // Pre-filter the peaks list based on the slider range
+    const filteredPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
+
+    if (spaceGroupData) {
+        solutions.forEach(sol => {
+            sol.analysis = analyzeSystematicAbsences(
+                sol, 
+                filteredPeaks, 
+                spaceGroupData,
+                parseFloat(ui.wavelength.value),     
+                parseFloat(ui.tthError.value),
+                tthMaxVal 
+            );
+        });
+    } else {
+        console.warn('Space group data not available');
+        solutions.forEach(sol => {
+            sol.analysis = {
+                centering: 'Unknown (data not loaded)',
+                rankedSpaceGroups: [],
+                detectedExtinctions: []
+            };
+        });
+    }
+                                
+    if (statusTextElement) statusTextElement.textContent = '';
+    
+    setUIState(false);    
+    
+    // Set default sort back to M(20)
+    sortState = { column: 'm20', direction: 'desc' };
+    sortSolutions(); // This will sort using the new standardized parameters
+    
+    displayedSolutions = [...solutions]; 
+    updateSolutionsTable(); // This will display the new standardized parameters
+
+    if (solutions.length > 0) {
+        const message = stoppedByUser ? 
+            'Indexing stopped by user.' : 
+            'Indexing complete.';
+        showStatus(`${message} Found ${solutions.length} potential solution(s).`, 'success');
+        ui.solutionsLed.className = 'led-indicator green';
+    } else {
+        const message = stoppedByUser ? 'Indexing stopped by user.' : 'Indexing finished.';
+        showStatus(`${message} No valid solutions were found.`, 'info');
+        if (solutions.length === 0) {
+            ui.solutionsLed.className = 'led-indicator red';
+        }
+    }
+};
+
+ 
+    ui.startIndexingButton.addEventListener('click', startIndexing);
+    ui.reportButton.addEventListener('click', () => {
+        if (isIndexing) {
+            // Kill all running workers
+            activeWorkers.forEach(w => w.terminate()); 
+            activeWorkers = [];
+            gpuStopSignal.stop = true;
+
+            if (typeof resolveWorkerTask === 'function') {
+                console.log("Manually resolving stuck worker task...");
+                resolveWorkerTask(); // Manually resolve the promise
+                resolveWorkerTask = null; // Clear it
+            }
+
+document.body.style.cursor = 'wait';
+showStatus("Indexing stopped, please wait…", "info", 60000);
+
+
+        } else { 
+            // If not indexing, just generate the report
+            generatePDFReport(); 
+        }
+    });
+    const sortSolutions = () => {
+        const { column, direction } = sortState;
+        const dir = direction === 'asc' ? 1 : -1;
+        solutions.sort((a, b) => {
+            if (column === 'system') {
+                return (a.system || '').localeCompare(b.system || '') * dir;
+            } else {
+                let valA = a[column]; let valB = b[column];
+                if (isNaN(valA) || valA == null) valA = -Infinity;
+                if (isNaN(valB) || valB == null) valB = -Infinity;
+                return (valA - valB) * dir;
+            }
+        });
+    };
+    const updateSolutionsTable = () => {
+        ui.solutionsTableBody.innerHTML = '';
+        displayedSolutions.forEach((sol, index) => {
+            const row = document.createElement('tr'); row.dataset.index = index; 
+            let paramsCell = '', anglesCell = '';
+            switch(sol.system) {
+                case 'cubic': paramsCell = `a = ${sol.a.toFixed(4)}`; anglesCell = `90, 90, 90`; break;
+                case 'tetragonal': paramsCell = `a = ${sol.a.toFixed(4)}, c = ${sol.c.toFixed(4)}`; anglesCell = `90, 90, 90`; break;
+                case 'hexagonal': paramsCell = `a = ${sol.a.toFixed(4)}, c = ${sol.c.toFixed(4)}`; anglesCell = `90, 90, 120`; break;
+                case 'orthorhombic': paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; anglesCell = `90, 90, 90`; break;
+                case 'monoclinic': paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; anglesCell = `90, ${sol.beta.toFixed(3)}, 90`; break;
+                // depuis 5 nov 25
+                case 'triclinic': 
+                    paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; 
+                    anglesCell = `&alpha; = ${sol.alpha.toFixed(3)}<br>&beta; = ${sol.beta.toFixed(3)}<br>&gamma; = ${sol.gamma.toFixed(3)}`; 
+                    break;
+                default: paramsCell = `${sol.a.toFixed(4)}`; anglesCell = `-`;
+            }
+            if (sol.zero_correction) {
+                anglesCell += `<br><span style="font-size:0.9em; color: var(--text-dark);">(Z=${sol.zero_correction.toFixed(4)}°)</span>`;
+            }
+            row.innerHTML = `<td>${sol.system.substring(0,4)}</td><td>${paramsCell}</td><td>${anglesCell}</td><td>${sol.volume.toFixed(2)}</td><td>${sol.m20.toFixed(2)}</td>`;
+            ui.solutionsTableBody.appendChild(row);
+        });
+        
+        ui.solutionsTableHeaders.forEach(h => {
+            h.classList.remove('sort-asc', 'sort-desc');
+            if (h.dataset.sort === sortState.column) {
+               h.classList.add(sortState.direction === 'asc' ? 'sort-asc' : 'sort-desc');
+            }
+        });
+    };
+
+    ui.solutionsTableBody.addEventListener('click', (e) => {
+        const row = e.target.closest('tr'); if (!row) return;
+        document.querySelectorAll('#solutions-table-body tr').forEach(r => r.classList.remove('selected'));
+        row.classList.add('selected');
+        const index = parseInt(row.dataset.index);
+        selectedSolution = displayedSolutions[index];
+        const lambda = parseFloat(ui.wavelength.value);
+        const maxTth = xrdChart.options.scales.x.max || Math.max(...pickedPeaks.map(p => p.tth));
+        currentHklList = generateHKL(maxTth, {...selectedSolution, lambda}, selectedSolution.system);
+        updateAllMarkers();
+    });
+
+    Chart.register({ id: 'verticalCursorLine', afterDraw: chart => { if (chart.tooltip?._active?.length) { let x = chart.tooltip._active[0].element.x; let yAxis = chart.scales.y; let ctx = chart.ctx; ctx.save(); ctx.beginPath(); ctx.moveTo(x, yAxis.top); ctx.lineTo(x, yAxis.bottom); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(156, 163, 175, 0.7)'; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.restore(); } } });
+    Chart.register({ id: 'legendMargin', beforeInit(chart) { const originalFit = chart.legend.fit; chart.legend.fit = function() { originalFit.bind(chart.legend)(); this.height += 15; }; } });
+
+    //  initializeChart
+    const initializeChart = () => {
+        if (xrdChart) xrdChart.destroy();
+        
+        // Now uses workingExperimentalData, depuis 22 oct 2025, 
+        const experimentalPoints = workingExperimentalData.tth.map((t, i) => ({ x: t, y: Math.max(0, workingExperimentalData.intensity[i]) }));
+        const yMax = Math.max(...workingExperimentalData.intensity) || 1000;
+        
+        xrdChart = new Chart(ui.chartCanvas, {
+            type: 'line',
+            data: {
+                datasets: [
+                    { label: 'Intensity', data: experimentalPoints, borderColor: 'rgba(107, 114, 128, 0.7)', showLine: true, borderWidth: 0.75, pointRadius: 1.5, pointHoverRadius: 4, pointBackgroundColor: 'rgba(107, 114, 128, 0.7)' },
+                    { type: 'bar', label: 'Observed Peaks', data: [], backgroundColor: 'rgba(239, 68, 68, 0.7)', barThickness: 1 },
+                    { type: 'bar', label: 'Calculated Peaks', data: [], backgroundColor: 'rgba(59, 130, 246, 0.9)', barThickness: 1 }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false, animation: false,
+/* echelle par défaut, changée le 6 nov pour éviter affichage de 10 chiffres 
+  scales: {
+                    x: { type: 'linear', title: { display: true, text: '2-theta (degrees)' } },
+                    y: { title: { display: true, text: 'Intensity (a.u.)' }, min: -yMax * 0.05, max: yMax * 1.1, suggestedMin: 0 }
+                }, */
+
+scales: {
+    x: { 
+        type: 'linear', 
+        title: { display: true, text: '2-theta (degrees)' },
+        offset: false,
+        ticks: {
+            includeBounds: false, 
+            callback: function(value, index, ticks) {
+                // Formats 2-theta labels to a max of 3 decimal places
+                return value.toLocaleString(undefined, { 
+                    maximumFractionDigits: 3 
+                });
+            }
+        },
+        grid: {
+            drawTicks: true,  
+            drawBorder: true  
+        }
+    },
+    y: { 
+        title: { display: true, text: 'Intensity (a.u.)' }, 
+        min: -yMax * 0.05, 
+        max: yMax * 1.1, 
+        suggestedMin: 0,
+        offset: false, 
+        ticks: {
+            includeBounds: false, 
+            callback: function(value, index, ticks) {
+                // Formats Intensity labels to a max of 2 decimal places
+                return value.toLocaleString(undefined, { 
+                    maximumFractionDigits: 2 
+                });
+            }
+        },
+        grid: {
+            drawTicks: true,  
+            drawBorder: true  
+        }
+    }
+},
+
+                plugins: {
+                    zoom: {
+                        pan: { enabled: true, mode: 'xy', threshold: 5, onPanComplete: () => { updateAllMarkers(); } },
+                        zoom: { wheel: { enabled: false }, pinch: { enabled: true }, drag: { enabled: false }, onZoomComplete: () => { updateAllMarkers(); } }
+                    },
+                    legend: { position: 'top' },
+                    tooltip: {
+                        callbacks: {
+
+
+
+
+
+                            title: function(tooltipItems) {
+                                if (!tooltipItems.length) return '';
+                                
+                                const item = tooltipItems[0];
+                                const tth = item.parsed.x;
+                                const datasetIndex = item.datasetIndex;
+                                const lambda = parseFloat(document.getElementById('wavelength').value) || 1.54056;
+
+                                // 1. Always show the 2-theta of the hovered item
+                                let title = `2θ: ${tth.toFixed(4)}°`;
+
+                                // 2. Always calculate d-spacing from THAT 2-theta
+                                const d_spacing = lambda / (2 * Math.sin(tth * Math.PI / 360));
+                                title += `, d: ${d_spacing.toFixed(5)} Å`;
+
+                                // 3. Add HKL info depending on what is hovered
+                                // --- Logic for CALCULATED (blue) peaks ---
+                                if (datasetIndex === 2 && currentHklList && currentHklList.length > 0) {
+                                    // Find the HKL for this calculated peak
+                                    let closestPeak = null;
+                                    let minDiff = Infinity;
+                                    for (const hkl of currentHklList) {
+                                        const diff = Math.abs(tth - hkl.tth);
+                                        if (diff < minDiff) {
+                                            minDiff = diff;
+                                            closestPeak = hkl;
+                                        }
+                                    }
+                                    // For a calculated peak, it should be a near-perfect match
+                                    if (closestPeak && minDiff < 1e-4) {
+                                        title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l})`;
+                                    }
+                                
+                                // --- Logic for OBSERVED (red) peaks ---
+                                } else if (datasetIndex === 1 && currentHklList && currentHklList.length > 0) {
+                                    // Find the NEAREST calculated HKL to this observed peak
+                                    let closestPeak = null;
+                                    let minDiff = Infinity;
+                                    for (const hkl of currentHklList) {
+                                        const diff = Math.abs(tth - hkl.tth);
+                                        if (diff < minDiff) {
+                                            minDiff = diff;
+                                            closestPeak = hkl;
+                                        }
+                                    }
+                                    const tolerance = parseFloat(ui.tthError.value) || 0.05;
+                                    if (closestPeak && minDiff < tolerance) {
+                                        // Show the nearest HKL for context
+                                        title += ` (Nearest Calc: ${closestPeak.tth.toFixed(4)}°, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}))`;
+                                    }
+                                }
+                                return title;
+                            },
+
+                            label: function(context) {
+                                const datasetLabel = context.dataset.label || '';
+                                if (datasetLabel === 'Observed Peaks' || datasetLabel === 'Calculated Peaks') return null;
+                                let label = datasetLabel ? `${datasetLabel}: ` : '';
+                                if (context.parsed.y !== null) { label += Math.round(context.parsed.y); }
+                                return label;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    };
+
+    ui.chartCanvas.addEventListener('wheel', e => {
+        e.preventDefault();
+        if (!xrdChart || !xrdChart.chartArea) return;
+        const { left, right, top, bottom } = xrdChart.chartArea;
+        const zoomDirection = e.deltaY < 0 ? 1.1 : 0.9;
+        const zoomOptions = { x: 1, y: 1 };
+        if (e.offsetY > bottom && e.offsetX > left && e.offsetX < right) {
+            zoomOptions.x = zoomDirection;
+        } else if (e.offsetX < left && e.offsetY > top && e.offsetY < bottom) {
+            zoomOptions.y = zoomDirection;
+        } else if (e.offsetX >= left && e.offsetX <= right && e.offsetY >= top && e.offsetY <= bottom) {
+            zoomOptions.x = zoomDirection;
+            zoomOptions.y = zoomDirection;
+        } else {
+            return;
+        }
+        xrdChart.zoom(zoomOptions, 'none');
+        updateAllMarkers();
+    });
+
+    const updateAllMarkers = () => {
+        if (!xrdChart) return;
+        const xMin = xrdChart.scales.x.min; const xMax = xrdChart.scales.x.max;
+        const yMin = xrdChart.scales.y.min; const yMax = xrdChart.scales.y.max;
+        const yRange = yMax - yMin;
+        const markerHeight = yRange * 0.02;
+        const visibleObsPeaks = pickedPeaks.filter(p => p.tth >= xMin && p.tth <= xMax);
+        xrdChart.data.datasets[1].data = visibleObsPeaks.map(p => ({ x: p.tth, y: [yMin, yMin + markerHeight] }));
+        if (selectedSolution) {
+            const calculatedBottom = yMin + markerHeight * 1.2;
+            const calculatedTop = calculatedBottom + markerHeight;
+            const visibleCalcPeaks = currentHklList.filter(hkl => hkl.tth >= xMin && hkl.tth <= xMax);
+            xrdChart.data.datasets[2].data = visibleCalcPeaks.map(hkl => ({ x: hkl.tth, y: [calculatedBottom, calculatedTop] }));
+        } else {
+            xrdChart.data.datasets[2].data = [];
+        }
+        xrdChart.update('none');
+    };
+
+    const resizer = document.getElementById('drag-handle'); const leftPanel = document.getElementById('controls-panel');
+    resizer.addEventListener('mousedown', (e) => { e.preventDefault(); document.body.style.cursor = 'col-resize';
+        const moveHandler = (moveEvent) => { if (moveEvent.clientX > 350 && moveEvent.clientX < window.innerWidth - 350) { leftPanel.style.width = `${moveEvent.clientX}px`; } };
+        const upHandler = () => { document.body.style.cursor = 'default'; window.removeEventListener('mousemove', moveHandler); window.removeEventListener('mouseup', upHandler); };
+        window.addEventListener('mousemove', moveHandler); window.addEventListener('mouseup', upHandler);
+    });
+    
+    ui.chartCanvas.addEventListener('contextmenu', e => { e.preventDefault(); if (xrdChart) { xrdChart.resetZoom('none'); updateAllMarkers(); } });
+    ui.chartCanvas.addEventListener('click', (e) => {
+        if (!e.ctrlKey || !xrdChart) return;
+        const rect = xrdChart.canvas.getBoundingClientRect(); const x = e.clientX - rect.left;
+        if (x < xrdChart.chartArea.left || x > xrdChart.chartArea.right) return;
+        const tth = xrdChart.scales.x.getValueForPixel(x); if (!tth) return;
+        const lambda = parseFloat(ui.wavelength.value); if (isNaN(lambda)) { showStatus('Wavelength is not a valid number.', 'error'); return; }
+        const sin_theta = Math.sin(tth * Math.PI / 360); if (sin_theta <= 0) return;
+        const d = lambda / (2 * sin_theta); const q = 1 / (d * d);
+        pickedPeaks.push({ tth, d, q }); pickedPeaks.sort((a, b) => a.tth - b.tth);
+        updatePeakTable(); updateStartIndexingButtonState(); showStatus(`Peak added at ${tth.toFixed(3)}°`, 'success', 2000);
+    });
+
+
+//main report function, on peut optimiser...
+const generatePDFReport = async () => {
+        if (displayedSolutions.length === 0) {
+            showStatus("No solutions found to generate a report.", 'info');
+            return;
+        }
+
+        const tthMinVal = parseFloat(ui.tthMinSlider.value);
+        const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
+        const reportPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
+
+        if (reportPeaks.length === 0) {
+             showStatus("No peaks selected in the current 2-theta range for the report.", 'info');
+             return;
+        }
+
+        ui.reportButton.textContent = 'Generating...';
+        ui.reportButton.disabled = true;
+        document.body.style.cursor = 'wait';
+    
+        try {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({
+                orientation: 'p',
+                unit: 'mm',
+                format: 'a4'
+            });
+    
+            const margin = 15;
+            let yPos = 20;
+            const pdfWidth = doc.internal.pageSize.getWidth();
+            const lambda = parseFloat(ui.wavelength.value);
+            const tthError = parseFloat(ui.tthError.value);
+            
+            // --- fonts and sizes, see later, this is esthetics, osef
+            const FONT = {
+                TITLE: 'helvetica',
+                LABEL: 'helvetica',
+                DATA: 'courier'
+            };
+            const SIZE = {
+                TITLE: 18,
+                H1: 14,
+                H2: 12,
+                BODY: 9,
+                TABLE_HEADER: 8,
+                TABLE_BODY: 8,
+                SMALL: 7
+            };
+    
+            // --- Page Header & Chart ---
+            const now = new Date();
+            const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 15 nov 2025';
+          	const programURL = window.location.href;
+            
+    
+          	doc.setFont(FONT.TITLE, 'bold').setFontSize(SIZE.TITLE).text('Brutus - Powder Indexing Report', pdfWidth / 2, yPos, { align: 'center' });
+          	yPos += 10;
+            
+          	doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
+          	doc.text(`Generated:`, margin, yPos);
+          	doc.setFont(FONT.DATA, 'normal').text(timestamp, margin + 25, yPos);
+          	yPos += 5;
+    
+          	// --- Add URL and Version lines
+          	doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
+          	doc.text(`URL:`, margin, yPos);
+          	doc.setFont(FONT.DATA, 'normal').text(programURL, margin + 25, yPos);
+  	yPos += 5;
+    
+  	doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
+  	doc.text(`Version:`, margin, yPos);
+  	doc.setFont(FONT.DATA, 'normal').text(versionInfo, margin + 25, yPos);
+  	yPos += 5;
+            
+  	doc.setFont(FONT.LABEL, 'normal').text(`Data File:`, margin, yPos);
+  	doc.setFont(FONT.DATA, 'normal').text(ui.fileName.textContent, margin + 25, yPos);
+  	yPos += 10;
+            
+  	const canvas = await html2canvas(ui.chartCanvas, { backgroundColor: '#ffffff', scale: 2 });
+  	const imgData = canvas.toDataURL('image/png');
+  	const imgProps = doc.getImageProperties(imgData);
+  	const availableWidth = pdfWidth - 2 * margin;
+  	let imgHeight = (imgProps.height * availableWidth) / imgProps.width;
+  	doc.addImage(imgData, 'PNG', margin, yPos, availableWidth, imgHeight);
+    
+  	// --- Parameters & Summary Table Page ---
+  	doc.addPage();
+  	yPos = 20;
+    
+  	// --- Indexing Parameters Section ---
+  	doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1).text('Indexing Parameters', margin, yPos);
+  	yPos += 8;
+    
+  	// --- modif le 21 oct avec Ka2 strip
+  	const presetText = ui.wavelengthPreset.options[ui.wavelengthPreset.selectedIndex].text;
+  	const paramData = [
+      	{ label: 'Radiation:', value: presetText },
+      	{ label: 'Max Volume (A^3):', value: ui.maxVolume.value },
+      	{ label: 'Ka1 Wavelength (A):', value: parseFloat(ui.wavelength.value).toFixed(5) },
+      	{ label: 'Tolerance (2theta):', value: ui.tthError.value },
+      	{ label: 'Ka2 Stripped:', value: ui.stripKa2Checkbox.checked ? 'True' : 'False' },
+      	{ label: 'Impurity Peaks:', value: ui.impurityPeaksInput.value },
+      	{ label: 'Min Peak (%):', value: ui.peakThresholdValue.textContent },
+      	{ label: 'Refine Zero:', value: ui.refineZeroCheckbox.checked ? 'True' : 'False' },
+      	{ label: '2theta Min (deg):', value: tthMinVal.toFixed(2) },
+      	{ label: '2theta Max (deg):', value: tthMaxVal.toFixed(2) },
+  	];
+    
+  	const col1X = margin;
+  	const col2X = margin + 85;
+  	const labelWidth = 35;
+    
+  	paramData.forEach((item, index) => {
+      	const isCol1 = index % 2 === 0;
+      	const x = isCol1 ? col1X : col2X;
+      	if (isCol1) yPos += 5;
+      	
+      	doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text(item.label, x, yPos);
+      	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(String(item.value), x + labelWidth, yPos);
+  	});
+  	yPos += 7;
+          	
+  	doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text('Systems Searched:', margin, yPos);
+  	const systems = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value.charAt(0).toUpperCase() + cb.value.slice(1));
+  	const systemsText = systems.join(', ');
+  	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(systemsText, margin + labelWidth, yPos);
+  	yPos += 8;
+    
+  	doc.setDrawColor(200); doc.line(margin, yPos, pdfWidth - margin, yPos); yPos += 8;
+    
+  	// --- Indexing Solutions Summary Section ---
+  	doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1).text('Indexing Solutions Summary', margin, yPos); yPos += 8;
+          	
+  	if (lastIndexingStats) {
+      	// "Translate" the string:
+      	// 1. Replace all non-breaking spaces (U+00A0) with regular spaces
+      	// 2. Replace multiple spaces with a single space
+      	const cleanedStats = lastIndexingStats
+          	.replace(/\u00A0/g, ' ')
+          	.replace(/\s+/g, ' ');
+
+      	// Now print the clean string using the data font and matching table size
+      	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+      	doc.text(cleanedStats, margin, yPos);
+      	yPos += 7; // Add some space after
+  	}
+          	
+
+  	doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
+  	doc.text('Sys', margin, yPos);
+  	// Get N from the *first* solution, or fall back to peak count
+  	const first_sol_n_20 = (displayedSolutions.length > 0 && displayedSolutions[0].n_20) ? displayedSolutions[0].n_20 : Math.min(20, reportPeaks.length);
+  	doc.text(`M(${first_sol_n_20})`, margin + 15, yPos);
+  	doc.text(`F(${first_sol_n_20})`, margin + 30, yPos);
+  	doc.text('Volume(A^3)', margin + 45, yPos);
+  	doc.text('Parameters', margin + 75, yPos);
+  	yPos += 5;
+    
+  	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+  	displayedSolutions.slice(0, 30).forEach(sol => {
+      	if (yPos > 280) { doc.addPage(); yPos = 20; }
+      	let paramStr = '';
+      	const p = sol.errors || {};
+      	switch (sol.system) {
+          	 case 'cubic': paramStr = `a=${formatWithError(sol.a, p.s_a)}`; break;
+          	 case 'tetragonal': paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`; break;
+          	 case 'hexagonal': paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`; break;
+          	 case 'orthorhombic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`; break;
+          	 case 'monoclinic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}, beta=${formatWithError(sol.beta, p.s_beta)}`; break;
+          	 // --- [ADDED TRICLINIC] ---
+          	 case 'triclinic': 
+            	 	paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`;
+            	 	doc.text(sol.system.substring(0,4), margin, yPos);
+            	 	doc.text(sol.m20.toFixed(2), margin + 15, yPos);
+            	 	doc.text((sol.fN_20 || 0).toFixed(2), margin + 30, yPos);
+            	 	doc.text(sol.volume.toFixed(2), margin + 45, yPos);
+            	 	doc.text(paramStr, margin + 75, yPos);
+            	 	yPos += 5; // Move to next line for angles
+            	 	paramStr = `al=${formatWithError(sol.alpha, p.s_alpha)}, be=${formatWithError(sol.beta, p.s_beta)}, ga=${formatWithError(sol.gamma, p.s_gamma)}`;
+            	 	doc.text(paramStr, margin + 75, yPos); // Angles on new line
+            	 	yPos += 5;
+            	 	return; // Skip the default doc.text
+      	}
+      	doc.text(sol.system.substring(0,4), margin, yPos);
+      	doc.text(sol.m20.toFixed(2), margin + 15, yPos);
+      	doc.text((sol.fN_20 || 0).toFixed(2), margin + 30, yPos);
+      	doc.text(sol.volume.toFixed(2), margin + 45, yPos);
+      	doc.text(paramStr, margin + 75, yPos);
+      	yPos += 5;
+  	});
+    
+  	// --- Detailed Solution Pages ---
+  	displayedSolutions.forEach((sol, solIndex) => {
+      	doc.addPage(); yPos = 20;
+      	
+      	// --- 1. MAIN TITLE (Large, Bold) ---
+      	doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1); // Changed to SIZE.H1
+      	doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}`, margin, yPos); 
+      	yPos += 8; // Increased spacing after main title
+      	
+      	
+      	// --- 2. PARAMETERS AND VOLUME (REFACTORED FOR ALIGNMENT) ---
+      	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); // Use Monospace for alignment
+      	const p = sol.errors || {};
+      	
+      	// Create a list of all parameters to print
+      	const paramLines = [];
+      	
+      	switch (sol.system) {
+          	case 'cubic':
+            	 	paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
+            	 	break;
+          	case 'tetragonal':
+            	 	paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
+            	 	paramLines.push({ label: 'c', value: `= ${formatWithError(sol.c, p.s_c)} A` });
+            	 	break;
+          	case 'hexagonal':
+            	 	paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
+            	 	paramLines.push({ label: 'c', value: `= ${formatWithError(sol.c, p.s_c)} A` });
+            	 	break;
+          	case 'orthorhombic':
+            	 	paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
+            	 	paramLines.push({ label: 'b', value: `= ${formatWithError(sol.b, p.s_b)} A` });
+            	 	paramLines.push({ label: 'c', value: `= ${formatWithError(sol.c, p.s_c)} A` });
+            	 	break;
+          	case 'monoclinic':
+            	 	paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
+            	 	paramLines.push({ label: 'b', value: `= ${formatWithError(sol.b, p.s_b)} A` });
+            	 	paramLines.push({ label: 'c', value: `= ${formatWithError(sol.c, p.s_c)} A` });
+            	 	paramLines.push({ label: 'beta', value: `= ${formatWithError(sol.beta, p.s_beta)} deg` });
+            	 	break;
+          	case 'triclinic':
+            	 	paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
+            	 	paramLines.push({ label: 'b', value: `= ${formatWithError(sol.b, p.s_b)} A` });
+            	 	paramLines.push({ label: 'c', value: `= ${formatWithError(sol.c, p.s_c)} A` });
+            	 	paramLines.push({ label: 'alpha', value: `= ${formatWithError(sol.alpha, p.s_alpha)} deg` });
+            	 	paramLines.push({ label: 'beta', value: `= ${formatWithError(sol.beta, p.s_beta)} deg` });
+            	 	paramLines.push({ label: 'gamma', value: `= ${formatWithError(sol.gamma, p.s_gamma)} deg` });
+            	 	break;
+      	}
+      	
+      	// Add Volume
+      	paramLines.push({ label: 'Volume', value: `= ${sol.volume.toFixed(2)} A^3` });
+    
+      	// Add Zero Error
+      	if (sol.zero_correction !== undefined) { 
+          	paramLines.push({ label: 'Zero Error (2theta)', value: `= ${formatWithError(sol.zero_correction, p.s_zero)} deg` });
+      	}
+      	
+      	// Add Figures of Merit
+      	const n_20_pdf = sol.n_20 || Math.min(20, reportPeaks.length);
+      	paramLines.push({ label: `M(${n_20_pdf})`, value: `= ${sol.m20.toFixed(2)}` });
+       	paramLines.push({ label: `F(${n_20_pdf})`, value: `= ${(sol.fN_20 || 0).toFixed(2)}` });
+
+      	const n_all_pdf = sol.n_all || reportPeaks.length;
+      	paramLines.push({ label: `M(${n_all_pdf})`, value: `= ${(sol.m_all || 0).toFixed(2)}` });
+      	paramLines.push({ label: `F(${n_all_pdf})`, value: `= ${(sol.fN_all || 0).toFixed(2)}` });
+      	     	
+      	// 1. Find the width of the longest label
+      	const longestLabelWidth = Math.max(...paramLines.map(line => doc.getTextWidth(line.label)));
+      	
+      	// 2. Define coordinates based on that width
+      	const labelEndX = margin + longestLabelWidth;
+  	const dataStartX = labelEndX + 2; // Start data 2mm after longest label
+    
+  	// 3. Loop and print
+  	paramLines.forEach(line => {
+    		// Right-align the label
+    		doc.text(line.label, labelEndX, yPos, { align: 'right' });
+    		// Left-align the data
+    		doc.text(line.value, dataStartX, yPos);
+    		yPos += 4;
+  	});
+    
+  	yPos += 3; // Add back spacing after the block
+  	
+  	// --- 3. NIGGLI REDUCED CELL 
+  	// --- Do not show for triclinic (it's already reduced)
+  	if (sol.system !== 'triclinic') {
+      	doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Niggli Reduced Cell:', margin, yPos); // Changed to H2, normal
+      	yPos += 6;
+
+      	try {
+        	 	const niggliResult = reduceToNiggliCell(sol);
+        	 	const nCell = niggliResult.cell;
+
+        	 	// Define labels and data separately
+        	 	const niggliData = [
+            	 	{ label: 'a', value: `= ${nCell.a.toFixed(4)} A` },
+            	 	{ label: 'b', value: `= ${nCell.b.toFixed(4)} A` },
+            	 	{ label: 'c', value: `= ${nCell.c.toFixed(4)} A` },
+            	 	{ label: 'alpha', value: `= ${nCell.alpha.toFixed(3)} deg` },
+            	 	{ label: 'beta', value: `= ${nCell.beta.toFixed(3)} deg` },
+            	 	{ label: 'gamma', value: `= ${nCell.gamma.toFixed(3)} deg` }
+        	 	];
+
+        	 	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); // Use smaller table body font
+
+        	 	// Define column X positions
+        	 	const col1LabelEndX = margin + 15;
+        	 	const col1DataStartX = col1LabelEndX + 2;
+        	 	const col2LabelEndX = margin + 78;
+        	 	const col2DataStartX = col2LabelEndX + 2;
+
+        	 	// Row 1
+        	 	doc.text(niggliData[0].label, col1LabelEndX, yPos, { align: 'right' }); // 'a'
+        	 	doc.text(niggliData[0].value, col1DataStartX, yPos); // '= 5.xxxx A'
+        	 	doc.text(niggliData[3].label, col2LabelEndX, yPos, { align: 'right' }); // 'alpha'
+        	 	doc.text(niggliData[3].value, col2DataStartX, yPos); // '= 90.xxx deg'
+        	 	yPos += 4;
+
+        	 	// Row 2
+        	 	doc.text(niggliData[1].label, col1LabelEndX, yPos, { align: 'right' }); // 'b'
+        	 	doc.text(niggliData[1].value, col1DataStartX, yPos); // '= 6.xxxx A'
+        	 	doc.text(niggliData[4].label, col2LabelEndX, yPos, { align: 'right' }); // 'beta'
+        	 	doc.text(niggliData[4].value, col2DataStartX, yPos); // '= 90.xxx deg'
+        	 	yPos += 4;
+
+        	 	// Row 3
+        	 	doc.text(niggliData[2].label, col1LabelEndX, yPos, { align: 'right' }); // 'c'
+        	 	doc.text(niggliData[2].value, col1DataStartX, yPos); // '= 8.xxxx A'
+        	 	doc.text(niggliData[5].label, col2LabelEndX, yPos, { align: 'right' }); // 'gamma'
+        	 	doc.text(niggliData[5].value, col2DataStartX, yPos); // '= 90.xxx deg'
+        	 	yPos += 5;
+
+      	} catch (niggliError) {
+        	 	console.error("Niggli reduction failed:", niggliError);
+        	 	doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY);
+        	 	doc.text('Reduction failed. See console for error.', margin + 5, yPos);
+        	 	yPos += 5;
+      	}
+
+      	
+       	yPos += 4;
+      	}
+      
+ 
+      	// --- 5. LATTICE CENTERING (Non-bold) ---
+      	if (sol.analysis) {
+          	 doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text(`Lattice Centering:`, margin, yPos); // Changed to H2, normal
+          	 doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(sol.analysis.centering, margin + 42, yPos); 
+          	 yPos += 7; // Spacing
+          	 
+          	 // --- 6. POSSIBLE SPACE GROUPS (Non-bold) ---
+          	 doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Possible Extinctions:', margin, yPos); // Changed to H2, normal
+          	 let extinctionList = sol.analysis.detectedExtinctions || [];
+          	 let extinctionText = "";
+
+          	 if (extinctionList.length > 0 && extinctionList[0] !== "None detected") {
+            	  extinctionText = extinctionList.join(', '); // Join into a single string
+          	 } else {
+            	  extinctionText = "None clearly detected";
+            	  doc.setFont(FONT.DATA, 'italic'); // Use italic for "None"
+          	 }
+
+          	 const extinctionX = margin + 42;
+          	 const extinctionMaxWidth = pdfWidth - extinctionX - margin; // Max width available
+          	 const extinctionLines = doc.splitTextToSize(extinctionText, extinctionMaxWidth);
+
+          	 doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); // Ensure normal font
+          	 extinctionLines.forEach(line => {
+            	  if (yPos > 280) { // Check for page break before printing line
+              	   doc.addPage();
+              	   yPos = 20;
+            	  }
+            	  doc.text(line, extinctionX, yPos);
+            	  yPos += 4; // Move down for the next line (adjust line spacing if needed)
+          	 });
+          	 yPos += 3; // Total spacing after extinctions (was 7 before)
+
+
+          	 // --- 7. POSSIBLE SPACE GROUPS 
+          	 if (sol.analysis.rankedSpaceGroups && sol.analysis.rankedSpaceGroups.length > 0) {
+            	  if (yPos > 260) { doc.addPage(); yPos = 20; }
+            	  doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Possible Space Groups:', margin, yPos); // Changed to H2, normal
+            	  yPos += 6; // Slightly more space before the list starts
+
+            	  const sgList = sol.analysis.rankedSpaceGroups.slice(0, 20); // Limit to top 20
+            	  const groupsByViolation = {};
+            	  sgList.forEach(sg => {
+              	   const v = sg.violations || 0;
+              	   if (!groupsByViolation[v]) groupsByViolation[v] = [];
+              	   const existingEntry = groupsByViolation[v].find(entry => entry.number === sg.number);
+              	   if (existingEntry) {
+              	 	   existingEntry.settings.push({ symbol: sg.symbol, violations: sg.violatedReflections });
+              	   } else {
+              	 	   groupsByViolation[v].push({
+              	 	 	   number: sg.number,
+              	 	 	   standardSymbol: sg.standardSymbol, // Store standard symbol for reference if needed
+              	 	 	   settings: [{ symbol: sg.symbol, violations: sg.violatedReflections }] 
+              	 	   });
+              	   }
+            	  });
+
+            	  const maxViolationsToShow = 2; // Show details for 0, 1, and 2 violations
+
+            	  for (let v = 0; v <= maxViolationsToShow; v++) {
+              	   if (groupsByViolation[v] && groupsByViolation[v].length > 0) {
+              	 	   if (yPos > 270) { doc.addPage(); yPos = 20; }
+              	 	   // Sub-heading for violations (bold, but smaller than H2)
+              	 	   doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY).text(`[${v} violation${v !== 1 ? 's' : ''}]:`, margin, yPos);
+    	 	   yPos += 5;
+
+    	 	   // Iterate through each unique space group number within this violation count
+    	 	   groupsByViolation[v].forEach(groupEntry => {
+    	 	 	   if (yPos > 280) { doc.addPage(); yPos = 20; }
+
+    	 	 	   // Combine symbols for the same number
+    	 	 	   const symbolsString = groupEntry.settings.map(s => s.symbol).join(', ');
+    	 	 	   const groupLine = `${groupEntry.number}: ${symbolsString}`;
+
+    	 	 	   doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); // Use table body font
+              	 	 	   
+    	 	 	   // Check if the group line itself needs wrapping
+    	 	 	   const groupLinesWrapped = doc.splitTextToSize(groupLine, pdfWidth - margin - margin - 5); // Allow some padding
+    	 	 	   groupLinesWrapped.forEach(linePart => {
+  	 	 	 	    if (yPos > 280) { doc.addPage(); yPos = 20; }
+  	 	 	 	    doc.text(linePart, margin + 5, yPos);
+  	 	 	 	    yPos += 4;
+  	 	 	   });
+              	 	 	   
+    	 	 	   // If there are violations (v > 0), print details indented
+    	 	 	   if (v > 0) {
+    	 	 	 	   // Get violations from the *first* setting (they should be the same for the same group # within the same violation count)
+    	 	 	 	   const violations = groupEntry.settings[0].violations;
+    	 	 	 	   if (violations && violations.length > 0) {
+    	 	 	 	 	   doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
+    	 	 	 	 	   violations.slice(0, 4).forEach(viol => { // Limit displayed violations per group
+  	 	 	 	 	 	    if (yPos > 280) { doc.addPage(); yPos = 20; }
+  	 	 	 	 	 	    // Indent violation details
+  	 	 	 	 	 	    const violationLines = doc.splitTextToSize(viol, pdfWidth - margin - margin - 10); // More indent
+  	 	 	 	 	 	    violationLines.forEach(violLine => {
+  	 	 	 	 	 	 	   if (yPos > 280) { doc.addPage(); yPos = 20; }
+  	 	 	 	 	 	 	   doc.text(violLine, margin + 10, yPos);
+  	 	 	 	 	 	 	   yPos += 3.5;
+  	 	 	 	 	 	    });
+  	 	 	 	 	   });
+  	 	 	 	 	   yPos += 1; // Extra space after violations for one group
+  	 	 	 	   }
+  	 	 	   }
+  	 	   });
+  	 	   yPos += 3; // Extra space between violation categories
+  	 	}
+      	 	  }
+      	 	 }
+      	 	 
+      	 	 yPos += 3; // Spacing after space groups if section exists
+
+      	 	 // --- 8. CENTERING TEST VIOLATIONS (Non-bold) ---
+      	 	 if (sol.analysis.centeringViolations && Object.keys(sol.analysis.centeringViolations).length > 0) {
+        	  if (yPos > 268) { doc.addPage(); yPos = 20; }
+        	  doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Centering test violations:', margin, yPos); // Changed to H2, normal
+        	  yPos += 5;
+        	  const violText = Object.entries(sol.analysis.centeringViolations).sort(([,a], [,b]) => a - b).map(([key, val]) => `${key}:${val}`).join(', ');
+        	  doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(violText, margin, yPos);
+        	  yPos += 5;
+        	  if (sol.analysis.centeringViolations && sol.analysis.centeringViolationDetails) {
+          	   doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL); // Smaller, italic font for details
+          	   let detailsYOffset = 0; // Track y position adjustments
+
+          	   for (const type of ['I', 'F', 'A', 'B', 'C']) {
+          	 	   const count = sol.analysis.centeringViolations[type];
+          	 	   const details = sol.analysis.centeringViolationDetails[type];
+
+          	 	   if ((count === 1 || count === 2) && details && details.length > 0) {
+          	 	 	   let detailText = `${type} violation${count > 1 ? 's' : ''}: `;
+          	 	 	   detailText += details.map(d =>
+          	 	 	 	   `(${d.h},${d.k},${d.l}) at ${d.tth.toFixed(3)}°`
+          	 	 	   ).join('; ');
+
+          	 	 	   // Check for page break BEFORE printing the detail line
+          	 	 	   if (yPos + detailsYOffset > 285) { 
+          	 	 	 	   doc.addPage();
+          	 	 	 	   yPos = 20;
+          	 	 	 	   detailsYOffset = 0; // Reset offset for the new page
+          	 	 	   }
+          	 	 	   doc.text(detailText, margin + 5, yPos + detailsYOffset); // Indent slightly
+          	 	 	   detailsYOffset += 3.5; // Move down for the next potential detail line
+          	 	   }
+          	   }
+          	   yPos += detailsYOffset; // Apply the total offset used for details
+          	   doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); // Reset font
+        	  }
+        	  
+        	  
+        	  
+        	  yPos += 5;
+      	 	 }
+      	} 
+      	yPos += 4; 
+      	if (yPos > 255) { doc.addPage(); yPos = 20; }
+    
+    	/* --- REFLECTION TABLE ... */
+    
+    	 	doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.TABLE_HEADER);
+const tableHeader = ' h  k  l| 2th_exp 2theta 2th_calc |   d_corr    d_calc  | diff(2th)';
+
+    	 	doc.text(tableHeader, margin, yPos); yPos += 4;
+      	 
+    // Use the cached list from the analysis, or recalculate if it's missing
+const hklList = sol.analysis?.hklList || generateHKL_for_analysis(sol, lambda, tthMaxVal);
+      	 
+    	 	if (hklList.length === 0) {
+        	 	 doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY).text('Could not generate theoretical reflections for this cell.', margin, yPos);
+        	 	 yPos += 5;
+        	 	 return; 
+      	 	}
+    
+    	 	const ambiguousHkls = (sol.analysis ? sol.analysis.ambiguousHkls : new Set()) || new Set();
+  	 	const corrected_tth_obs = reportPeaks.map(p => ({ ...p, tth_corr: p.tth - (sol.zero_correction || 0) }));
+    	 	const reportLines = []; 
+    	 	const assignedHkls = new Set();
+    
+    	 	corrected_tth_obs.forEach((corr_peak) => {
+        	 	 let bestMatchHkl = null; let minDiff = Infinity;
+        	 	 hklList.forEach(hkl => { const diff = Math.abs(hkl.tth - corr_peak.tth_corr); if (diff < minDiff) { minDiff = diff; bestMatchHkl = hkl; } });
+        	 	 
+        	 	 if (bestMatchHkl && minDiff < tthError * 2 && corr_peak.tth_corr >= tthMinVal && corr_peak.tth_corr <= tthMaxVal) {
+          	 	 	 reportLines.push({ h: bestMatchHkl.h, k: bestMatchHkl.k, l: bestMatchHkl.l, tth_meas: corr_peak.tth, tth_corr: corr_peak.tth_corr, tth_calc: bestMatchHkl.tth, d_calc: bestMatchHkl.d });
+          	 	 	 assignedHkls.add(`${bestMatchHkl.h},${bestMatchHkl.k},${bestMatchHkl.l}`);
+        	 	 }
+      	 	});
+    
+    	 	hklList.forEach(hkl => {
+        	 	 if (!assignedHkls.has(`${hkl.h},${hkl.k},${hkl.l}`) && hkl.tth >= tthMinVal && hkl.tth <= tthMaxVal) {
+          	 	 	 reportLines.push({ h: hkl.h, k: hkl.k, l: hkl.l, tth_meas: null, tth_corr: null, tth_calc: hkl.tth, d_calc: hkl.d });
+        	 	 }
+      	 	});
+      	 	
+      	 	reportLines.sort((a, b) => a.tth_calc - b.tth_calc);
+      	 	
+      	 	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+      	 	reportLines.forEach(line => {
+        	 	 if (yPos > 285) { doc.addPage(); yPos = 20; doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.TABLE_HEADER); doc.text(tableHeader, margin, yPos); yPos += 4; doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); }
+          	 	 
+          	 	 const hkl_key = `${line.h},${line.k},${line.l}`;
+          	 	 if (ambiguousHkls.has(hkl_key)) {
+            	 	 	 doc.setFont(FONT.DATA, 'italic');
+          	 	 }
+    
+          	 	 const d_corr = line.tth_corr ? lambda / (2 * Math.sin(line.tth_corr * Math.PI / 360)) : null;
+          
+                    const tth_m = line.tth_meas ? line.tth_meas.toFixed(3) : '-'; 
+                    const tth_c = line.tth_corr ? line.tth_corr.toFixed(3) : '-'; 
+                    const d_c_str = d_corr ? d_corr.toFixed(5) : '-'; 
+                    const diff_2t = line.tth_corr ? (line.tth_corr - line.tth_calc).toFixed(3) : '-';        
+
+          	 	 const hkl_str = `${String(line.h).padStart(2)} ${String(line.k).padStart(2)} ${String(line.l).padStart(2)}`.padEnd(8);
+          	 	 const pdfLine = `${hkl_str}| ${tth_m.padStart(7)} ${tth_c.padStart(7)} ${line.tth_calc.toFixed(3).padStart(7)} | ${d_c_str.padStart(9)} ${line.d_calc.toFixed(5).padStart(9)} | ${diff_2t.padStart(8)}`;
+          	 	 doc.text(pdfLine, margin, yPos);
+          	 	 
+          	 	 doc.setFont(FONT.DATA, 'normal'); // Reset font to normal for the next line
+          	 	 yPos += 3.5;
+      	 	});
+    	});
+    
+    	 	const filename = `Indexing-Report-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.pdf`;
+    	 	doc.save(filename);
+    	 	showStatus('PDF report generated and saved.', 'success');
+    
+  	} catch (error) {
+    	 	console.error("Failed to generate PDF:", error);
+    	 	showStatus("An error occurred during PDF generation.", 'error');
+  	} finally {
+    	 	ui.reportButton.textContent = 'Generate PDF Report';
+    	 	ui.reportButton.disabled = (solutions.length === 0);
+    	 	document.body.style.cursor = 'default';
+  	}
+    };
+
+
+window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectURL(workerURL); });
+});
+   
+    
+</script>
+<div id="app-footer">Brutus, 15 nov 2025</div>
+</body>
+</html>
