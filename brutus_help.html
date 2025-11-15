@@ -137,7 +137,7 @@
             <h1>Technical Overview & Methodology</h1>
             <p>
                 This document is a technical reference for the Brutus powder indexing software. It explains the main algorithms, search parameters,
-                and methodology, and is intended for users familiar with powder X-ray diffraction.
+                and methodology, and is intended for users familiar with powder X-ray diffraction. As the name of the program suggests it, this is brute force method (force is not necessarily smart).
             </p>
 
             <h3>Core Goal</h3>
@@ -213,7 +213,7 @@
                     <strong>Inspect solutions.</strong>
                     On the <strong>Solutions</strong> tab:
                     <ul>
-                        <li>Sort solutions by M(20) and F(20).</li>
+                        <li>Sort solutions by M(20).</li>
                         <li>Click a row to display calculated (blue) and observed (red) tick marks on the chart.</li>
                         <li>A plausible solution will show excellent alignment and reasonable space-group suggestions.</li>
                     </ul>
@@ -294,7 +294,7 @@
             <ul>
                 <li>
                     <strong>Solutions table:</strong>
-                    Shows each valid solution with crystal system, unit-cell parameters, volume, M(20) and F(20).
+                    Shows each valid solution with crystal system, unit-cell parameters, volume and M(20).
                     Selecting a row updates the main chart.
                     After the search finishes, you can filter visible solutions by enabling or disabling crystal systems.
                 </li>
@@ -310,7 +310,7 @@
                 <li>
                     <strong>Chart interaction:</strong>
                     <ul>
-                        <li>Zoom: mouse wheel.</li>
+                        <li>Zoom: mouse wheel (different zoom type if the mouse at the left of Y axis or nelow the Y axis).</li>
                         <li>Pan: click and drag.</li>
                         <li>Reset zoom: right-click.</li>
                         <li>Add peak: <code>Ctrl + Click</code>.</li>
@@ -331,7 +331,7 @@
             <ol>
                 <li>
                     <strong>Kα<sub>2</sub> stripping (optional):</strong>
-                    If <code>Strip K-alpha2</code> is enabled, the Rachinger algorithm is applied to the raw intensities.
+                    If <code>Strip K-alpha2</code> is enabled, the van Cittert algorithm is applied to the raw intensities.
                 </li>
                 <li>
                     <strong>Background subtraction:</strong>
@@ -350,13 +350,13 @@
                 <li>
                     <strong>Position refinement:</strong>
                     For each peak, a five-point least-squares quadratic fit (based on Savitzky–Golay coefficients) is carried out around
-                    the maximum to obtain a sub-channel position. If too close to the data edge, the algorithm falls back to a three-point fit.
+                    the maximum to obtain a the position. If too close to the data edge, the algorithm falls back to a three-point fit.
                 </li>
             </ol>
 
             <h3>Practical Recommendations</h3>
             <ul>
-                <li>Start from the default slider values and inspect the result visually.</li>
+                <li>Start from the default slider values and inspect the result visually. Only the peaks shown in the table will be used in the calculations.</li>
                 <li>If weak but real peaks are missed, reduce <code>Min peak (%)</code>. If noise is detected as peaks, increase it.</li>
                 <li>For broad, slowly varying backgrounds, increase <code>Radius</code>.</li>
                 <li>For noisy data, increase <code>Points</code> (smoothing), but avoid over-smoothing, which can merge or shift peaks.</li>
@@ -450,9 +450,7 @@
                     <p>
                         The program scans all combinations of 4 peaks from the first 7 (35 combinations)
                         and all combinations of 4 HKLs from a basis of 80 (≈1.58 million combinations).
-                        The total number of trial cells is therefore:
-                    </p>
-                    <p><strong>≈ 1.33 billion trial cells.</strong></p>
+                        The total number of trial cells is therefore: <strong>≈ 1.33 billion trial cells.</strong></p>
 
                     <h4>Two-Stage GPU Filtering</h4>
                     <p>
@@ -581,15 +579,14 @@
                 <li>
                     <strong>Increase the number of peaks used (code-level option).</strong>
                     Using more peaks in the direct solve (e.g. increasing <code>max_p</code> inside the
-                    <code>triTask</code> or <code>monoTask</code>) greatly enlarges the computation but
-                    can dramatically suppress false positives. You can also decrease the FOM tolerance in the wgsl code.
+                    <code>triTask</code> or <code>monoTask</code>) greatly enlarges the computation. You can also decrease the FOM tolerance in the wgsl code.
                 </li>
             </ul>
 
             <h4>GPU Buffers and Chunking</h4>
             <p>
                 The total list of HKL combinations for triclinic indexing (≈1.19 billion combinations)
-                is far too large for a single GPU buffer (tens of GB of VRAM). Brutus therefore:
+                is usually too large for a single GPU buffer. Brutus therefore:
             </p>
             <ol>
                 <li>
@@ -615,11 +612,11 @@
                 <p>
                     Monoclinic and Triclinic searches are offloaded to the GPU through WebGPU, supported by all major
                     modern browsers. This allows testing of billions of trial cells in a time frame that would be
-                    impractical on the CPU.
+                    impractical on the CPU. If you do not have a GPU you may use the CPU-only version of the preogram, but it will take much more time to find a solution.
                 </p>
                 <p>
-                    On a recent GPU, the throughput can exceed 10<sup>8</sup> trials per second, depending on hardware.
-                    For maximum speed, keep the Brutus tab visible and active; background tabs may be throttled
+                    On a recent GPU, the throughput can exceed 10<sup>7</sup>  to 10<sup>8</sup> trials per second, depending on hardware.
+                    For maximum speed, keep the Brutus tab visible and active; background tabs will be throttled
                     by the browser.
                 </p>
             </blockquote>
@@ -629,14 +626,14 @@
         <section id="evaluating-solutions">
             <h2>Evaluating Solutions</h2>
             <p>
-                The indexing search usually produces several candidate cells. Brutus keeps at most the best 50 during the search.
+                The indexing search usually produces several candidate cells. Brutus keeps at most the best 50, ranked by M20, after the search.
                 Selecting the correct one requires interpreting figures of merit and checking the refined fit.
             </p>
 
             <h3>de Wolff Figure of Merit: M(20)</h3>
             <p>
                 The primary ranking indicator is the <strong>de Wolff Figure of Merit, M(20)</strong>, calculated from
-                the first 20 observed reflections. It combines both positional accuracy and completeness.
+                the first 20 observed reflections. It combines both positional accuracy and completeness. In the PDF report additional values are listed, for instance F(20). 
             </p>
             <table>
                 <thead>
@@ -665,7 +662,7 @@
             </ul>
             <p>
                 A high F(20) indicates a precise fit with low average error. A solution with both high M(20) and high F(20)
-                is usually very reliable.
+                is usually reliable.
             </p>
 
             <h3>Least-Squares and Zero-Point Refinement</h3>
@@ -703,7 +700,7 @@
                 <li>
                     <strong>Generate unique reflections.</strong>
                     Using the refined cell, Brutus computes a complete list of theoretical reflections and keeps
-                    only crystallographically unique ones (e.g. it includes (100) but omits equivalent (−100)).
+                    only crystallographically unique ones (e.g. it includes (100) but omits Friedel equivalent (−100)).
                 </li>
                 <li>
                     <strong>Index observed peaks.</strong>
@@ -723,7 +720,7 @@
                 <li>
                     <strong>Rank space groups.</strong>
                     Based on the crystal system and plausible centerings, the internal database is filtered.
-                    Each space group is assigned a violation count and ranked accordingly.
+                    Each space group is assigned a violation count and ranked accordingly. The correct name of the space group is given, based on the orientation found by the program. 
                 </li>
             </ol>
 
@@ -758,7 +755,7 @@
                 For each promising solution, Brutus re-examines the indexing of the first four low-angle peaks.
                 It identifies the two peaks closest in angle (a common source of mis-assignment) and creates a new
                 hypothesis by swapping their HKL labels. The resulting cell is fully refined and rescored.
-                If this swap resolves an ambiguity, the new solution will usually have a much higher M(20).
+                If this swap resolves an ambiguity, the new solution might have a higher M(20) and this solution will be retained.
             </p>
 
             <h3>2. Matrix-Based Cell Transformations</h3>
@@ -910,7 +907,7 @@
                 </li>
                 <li>
                     <strong>PbSO4.xra</strong> and <strong>FAP.xra</strong> –
-                    Laboratory Cu Kα samples representative of orthorhombic and hexagonal structures.
+                    Laboratory Cu Kα samples representative of orthorhombic and hexagonal structures (these daatfiles were taken from GSAS-2 tutorials).
                 </li>
                 <li>
                     <strong>P-1_sim_5_6_7_86_91_96.txt</strong> –
