@@ -506,7 +506,7 @@
     <div class="parameter-grid">
         <div>
             <label for="gpu-hkl-triplets" class="control-label">HKL Basis Size</label>
-            <input type="number" id="gpu-hkl-triplets" value="80" min="10" max="200" step="5" class="control-input">
+            <input type="number" id="gpu-hkl-triplets" value="80" min="10" max="600" step="5" class="control-input">
         </div>
         <div>
             <label for="gpu-peaks-count" class="control-label">Peaks to Combine</label>
@@ -679,7 +679,6 @@ const WAVELENGTH_PRESETS = {
 
 
 
-
     /**
      * Asynchronously checks WebGPU compute capabilities on page load.
      * Disables and grays out Monoclinic/Triclinic checkboxes if support is absent.
@@ -688,8 +687,10 @@ const WAVELENGTH_PRESETS = {
         // Find the checkboxes and their parent <label> elements
         const monoCheckbox = document.querySelector('.system-checkbox[value="monoclinic"]');
         const triCheckbox = document.querySelector('.system-checkbox[value="triclinic"]');
+        const orthoCheckbox = document.querySelector('.system-checkbox[value="orthorhombic"]'); // depuis le 16 nov
         const monoLabel = monoCheckbox ? monoCheckbox.parentElement : null;
         const triLabel = triCheckbox ? triCheckbox.parentElement : null;
+        const orthoLabel = orthoCheckbox ? orthoCheckbox.parentElement : null;
 
         try {
             if ('gpu' in navigator) {
@@ -707,7 +708,7 @@ const WAVELENGTH_PRESETS = {
             webGPUSupportsCompute = false; 
             
             // error message, 10 secondes
-            showStatus("WebGPU init failed. Monoclinic and Triclinic searches are disabled.", "error", 10000); 
+            showStatus("WebGPU init failed. Orthorhombic, Monoclinic and Triclinic searches are disabled.", "error", 10000); // <-- UPDATE TEXT
             
             // Disable and gray out the monoclinic checkbox
             if (monoCheckbox) {
@@ -728,8 +729,21 @@ const WAVELENGTH_PRESETS = {
                 triLabel.style.opacity = '0.5';
                 triLabel.style.cursor = 'not-allowed';
             }
+            
+            // Disable and gray out the orthorhombic checkbox, 16 nov version
+            if (orthoCheckbox) {
+                orthoCheckbox.disabled = true;
+                orthoCheckbox.checked = false;
+            }
+            if (orthoLabel) {
+                orthoLabel.style.opacity = '0.5';
+                orthoLabel.style.cursor = 'not-allowed';
+            }
+            
         }
     }
+
+
 
     // --- space group, fichier crée avec Gemmi, je mets le script aussi sur git
     let spaceGroupData = null;
@@ -754,16 +768,23 @@ const WAVELENGTH_PRESETS = {
     loadSpaceGroupData();
     checkWebGPUCapabilities(); //check webGPU
     
-// Make Monoclinic and Triclinic mutually exclusive, they use the same GPU engine
+
+
+
+
+
+
+// Make Monoclinic, Triclinic, and Orthorhombic mutually exclusive (only one GPU task, 16 nov)
     const monoCheckbox = document.querySelector('.system-checkbox[value="monoclinic"]');
     const triCheckbox = document.querySelector('.system-checkbox[value="triclinic"]');
+    const orthoCheckbox = document.querySelector('.system-checkbox[value="orthorhombic"]');
 
-    if (monoCheckbox && triCheckbox) {
+    if (monoCheckbox && triCheckbox && orthoCheckbox) {
         
         monoCheckbox.addEventListener('change', () => {
-            // If the user checks monoclinic, uncheck triclinic
             if (monoCheckbox.checked) {
                 triCheckbox.checked = false;
+                orthoCheckbox.checked = false;
                 ui.gpuHklTriplets.value = 80;
                 ui.gpuPeaksCount.value = 7;
                 ui.gpuPeaksCount.min = 4;
@@ -772,12 +793,23 @@ const WAVELENGTH_PRESETS = {
         });
 
         triCheckbox.addEventListener('change', () => {
-            // If the user checks triclinic, uncheck monoclinic
             if (triCheckbox.checked) {
                 monoCheckbox.checked = false;
+                orthoCheckbox.checked = false;
                 ui.gpuHklTriplets.value = 40;
                 ui.gpuPeaksCount.value = 8;
                 ui.gpuPeaksCount.min = 6;
+            }
+            toggleGpuParamsVisibility();
+        });
+        
+        orthoCheckbox.addEventListener('change', () => {
+            if (orthoCheckbox.checked) {
+                monoCheckbox.checked = false;
+                triCheckbox.checked = false;
+                ui.gpuHklTriplets.value = 300; // Default 300
+                ui.gpuPeaksCount.value = 5;    // Default 5
+                ui.gpuPeaksCount.min = 3;      // Min 3
             }
             toggleGpuParamsVisibility();
         });
@@ -786,6 +818,12 @@ const WAVELENGTH_PRESETS = {
         ui.gpuHklTriplets.addEventListener('input', updateGpuStatusText);
         ui.gpuPeaksCount.addEventListener('input', updateGpuStatusText);
     }
+
+
+
+
+
+
 
     /* * Calculates combinations C(n, k) = "n choose k"
      * Uses the stable multiplicative formula: (n/1) * ((n-1)/2) * ... * ((n-k+1)/k)
@@ -812,19 +850,33 @@ const WAVELENGTH_PRESETS = {
     }
 
 
+
     /**
      * Updates the status text with GPU calculation estimates. 16 nov
      */
     function updateGpuStatusText() {
-        if (!monoCheckbox || !triCheckbox || !statusTextElement) return;
+        if (!monoCheckbox || !triCheckbox || !orthoCheckbox || !statusTextElement) return;
 
         const n_hkl = parseInt(ui.gpuHklTriplets.value, 10);
         const n_peaks = parseInt(ui.gpuPeaksCount.value, 10);
 
-        if (monoCheckbox.checked) {
+        if (orthoCheckbox.checked) {
+            const k_hkl = 3;
+            const k_peaks = 3;
+            const min_peaks = parseInt(ui.gpuPeaksCount.min, 10) || k_peaks;
+            
+            if (isNaN(n_hkl) || isNaN(n_peaks) || n_hkl < k_hkl || n_peaks < min_peaks) {
+                statusTextElement.textContent = `Ortho: Requires min ${min_peaks} peaks and ${k_hkl} HKLs.`;
+                return;
+            }
+            const peakCombos = combinations(n_peaks, k_peaks);
+            const hklCombos = combinations(n_hkl, k_hkl);
+            const totalTests = peakCombos * hklCombos * 6; // 6 permutations (3!)
+            statusTextElement.textContent = `Ortho (GPU): ${totalTests.toLocaleString()} cells to test.`;
+
+        } else if (monoCheckbox.checked) {
             const k_hkl = 4;
             const k_peaks = 4;
-            // Use the input's current min attribute for the check
             const min_peaks = parseInt(ui.gpuPeaksCount.min, 10) || k_peaks;
             
             if (isNaN(n_hkl) || isNaN(n_peaks) || n_hkl < k_hkl || n_peaks < min_peaks) {
@@ -839,7 +891,6 @@ const WAVELENGTH_PRESETS = {
         } else if (triCheckbox.checked) {
             const k_hkl = 6;
             const k_peaks = 6;
-            // Use the input's current min attribute for the check
             const min_peaks = parseInt(ui.gpuPeaksCount.min, 10) || k_peaks;
 
             if (isNaN(n_hkl) || isNaN(n_peaks) || n_hkl < k_hkl || n_peaks < min_peaks) {
@@ -854,12 +905,14 @@ const WAVELENGTH_PRESETS = {
             statusTextElement.textContent = lastIndexingStats || '';
         }
     }
+    
+
 
     /**
      * Shows or hides the GPU-specific parameter inputs based on checkbox state.
      */
     function toggleGpuParamsVisibility() {
-        if (monoCheckbox.checked || triCheckbox.checked) {
+        if (monoCheckbox.checked || triCheckbox.checked || orthoCheckbox.checked) {
             ui.gpuParamsContainer.classList.remove('hidden');
             updateGpuStatusText();
         } else {
@@ -869,6 +922,7 @@ const WAVELENGTH_PRESETS = {
             }
         }
     }
+
 
 
 
@@ -1001,6 +1055,7 @@ const getOrthogonalityScore = (cell) => {
 
     let lastIndexingStats = ''; // Stores the final trial count and speed
     let cumulativeTrials = 0;
+    let gpuTotalTrials = 0;
     let indexingStartTime = 0;
     
     let activeWorkers = [];
@@ -1827,6 +1882,7 @@ ui.tthMinSlider.addEventListener('input', () => {
         
         controlsToDisable.forEach(el => { if (el) el.disabled = indexing; });
         
+
         //  Manually handle checkboxes based on GPU support, if WebGPU error disable mono and tric
         ui.systemCheckboxes.forEach(cb => {
             if (indexing) {
@@ -1838,7 +1894,9 @@ ui.tthMinSlider.addEventListener('input', () => {
                     cb.disabled = false; // Re-enable all
                 } else {
                     // Only re-enable non-GPU ones
-                    if (cb.value === 'monoclinic' || cb.value === 'triclinic') {
+                    // --- MODIFIED LINE ---
+                    if (cb.value === 'monoclinic' || cb.value === 'triclinic' || cb.value === 'orthorhombic') {
+                    // --- END MODIFIED LINE ---
                         cb.disabled = true; 
                         cb.checked = false; 
                     } else {
@@ -2093,8 +2151,6 @@ function combinations(n, k) {
 }
 
 
-
-
 const startIndexing = async () => { 
     const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
     if (systemsToSearch.length === 0) {
@@ -2102,7 +2158,7 @@ const startIndexing = async () => {
         return;
     }
 
-    const needsWebGPU = systemsToSearch.includes('monoclinic') || systemsToSearch.includes('triclinic');
+    const needsWebGPU = systemsToSearch.includes('monoclinic') || systemsToSearch.includes('triclinic') || systemsToSearch.includes('orthorhombic');
     let webgpuEngine = null;
 
     if (needsWebGPU) {
@@ -2112,21 +2168,27 @@ const startIndexing = async () => {
             webgpuEngine = engine;
         } catch (err) {
             console.warn("WebGPU initialization failed:", err.message);
-            showStatus("WebGPU failed unexpectedly. Monoclinic/Triclinic searches are disabled.", "error", 8000);
-            webGPUSupportsCompute = false;
-            setUIState(false);
-            return;
+            showStatus("WebGPU failed unexpectedly. GPU searches are disabled.", "error", 8000);
+            webGPUSupportsCompute = false; 
+            // Disable all GPU checkboxes
+            [orthoCheckbox, monoCheckbox, triCheckbox].forEach(cb => {
+                if (cb) {
+                    cb.checked = false;
+                    cb.disabled = true;
+                    if (cb.parentElement) cb.parentElement.style.opacity = '0.5';
+                }
+            });
+            setUIState(false); // Re-enable UI
+            return; // Stop indexing
         }
     }
 
     const tthMinVal = parseFloat(ui.tthMinSlider.value);
-
-
     const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
     const filteredPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
 
-    if (filteredPeaks.length < 4) {
-        showStatus("Please find at least 4 peaks before starting indexing.", 'error');
+    if (filteredPeaks.length < 3) { // Min 3 peaks for Ortho
+        showStatus("Please find at least 3 peaks in the selected range.", 'error');
         return;
     }
 
@@ -2135,23 +2197,27 @@ const startIndexing = async () => {
     gpuStopSignal.stop = false;
 
     systemsToSearch.forEach(system => {
-        if (system === 'triclinic' || system === 'monoclinic') {
+        if (['orthorhombic', 'monoclinic', 'triclinic'].includes(system)) {
             if (webgpuEngine && webGPUSupportsCompute) {
                 webgpuSystems.push(system);
+            } else {
+                //uniquement GPU pour ortho, mono et trcilinic
+                workerSystems.push(system);
             }
         } else {
             workerSystems.push(system);
         }
     });
 
+    // De-select any GPU systems that couldn't be run
     if (needsWebGPU && webgpuSystems.length === 0) {
         ui.systemCheckboxes.forEach(cb => {
-            if (cb.value === 'monoclinic' || cb.value === 'triclinic') cb.checked = false;
+            if (['monoclinic', 'triclinic', 'orthorhombic'].includes(cb.value)) cb.checked = false;
         });
     }
     
     if (workerSystems.length === 0 && webgpuSystems.length === 0) {
-        showStatus("No tasks to run. GPU-dependent tasks were skipped or deselected.", "info");
+        showStatus("No tasks to run. Check selections and GPU support.", "info");
         return;
     }
     
@@ -2174,8 +2240,9 @@ const startIndexing = async () => {
     showStatus(`Indexing started...`, 'info');
 
     cumulativeTrials = 0;
+    gpuTotalTrials = 0;
     indexingStartTime = performance.now();
-    if (statusTextElement) statusTextElement.textContent = 'Trials: 0 (0/s)';
+    //if (statusTextElement) statusTextElement.textContent = 'Trials: 0 (0/s)';
 
     const baseParams = {
         peaks: filteredPeaks,
@@ -2186,9 +2253,102 @@ const startIndexing = async () => {
         refineZero: ui.refineZeroCheckbox.checked,
     };
     
+
+let currentGpuTaskIndex = 0;
+    let currentWorkerTaskIndex = 0;
+    const totalTasks = workerSystems.length + webgpuSystems.length;
+    let taskProgress = new Array(totalTasks).fill(0); // Stores progress for each task (0-100)
+
+    /**
+     * Updates the main progress bar based on the 'taskProgress' array.
+     */
+    const updateProgressBar = () => {
+        if (totalTasks === 0) return;
+        const totalSum = taskProgress.reduce((a, b) => a + b, 0);
+        const totalPercentage = totalSum / totalTasks;
+        ui.progressBar.style.width = `${Math.min(100, totalPercentage)}%`;
+    };
+    
+    if (statusTextElement) statusTextElement.textContent = '[0%] Starting...';
+
+    /**
+     * Creates a progress callback for a GPU task.
+     * @param {string} systemName - The name of the system (e.g., 'Ortho').
+     * @param {number} absoluteTaskIndex - The index of this task in the 'taskProgress' array.
+     * @returns {function} A callback function for the GPU engine.
+     */
+    const getGpuProgressCallback = (systemName, absoluteTaskIndex) => {
+        return (chunkProgress, numFound) => { // chunkProgress is 0-1
+            taskProgress[absoluteTaskIndex] = chunkProgress * 100;
+            updateProgressBar();
+            
+            const totalPercentage = taskProgress.reduce((a, b) => a + b, 0) / totalTasks;
+            const message = `[${totalPercentage.toFixed(0)}%] GPU (${systemName}): ${numFound} candidates`;
+            throttledSetStatusText(message);
+        };
+    };
+
+
+
+
+
+    // This helper will be used by all GPU tasks for refinement
+    const refineGpuCell = (cell) => {
+        return new Promise((resolveCellRefine) => {
+            const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(filteredPeaks, baseParams.wavelength);
+            const N_FOR_M20 = Math.min(20, filteredPeaks.length);
+            const min_m20 = 2.0; 
+            const d_min = baseParams.wavelength / (2 * Math.sin(Math.max(...filteredPeaks.map(p => p.tth)) * Math.PI / 360));
+            const q_max = 1 / (d_min * d_min);
+            
+            const cpuRefineState = {
+                q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q,
+                N_FOR_M20, min_m20, q_max, d_min,
+                foundSolutions: solutions, 
+                foundSolutionMap: foundSolutionMap 
+            };
+            
+            refineAndTestSolution(
+                cell, 
+                baseParams, 
+                cpuRefineState,
+                (msg) => { // 'postMessage_func'
+                    if (msg.type === 'solution') {
+                        solutions.push(msg.payload);
+                        pruneSolutions(); 
+                        if (solutions.length === 1) ui.solutionsLed.className = 'led-indicator green';
+                        sortSolutions();
+                        displayedSolutions = solutions.filter(sol => systemsToSearch.includes(sol.system));
+                        updateSolutionsTable();
+                    }
+                    resolveCellRefine(); // Resolve this specific cell's promise
+                }
+            ); 
+        });
+    };
+    
     const taskPromises = [];
 
-    // --- TASK 1: CPU WORKERS ---
+// --- COMMON GPU DATA PREP ---
+    let qTolerancesArray, qObsArray;
+    if (webgpuSystems.length > 0) {
+        const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(filteredPeaks, baseParams.wavelength);
+        const n_peaks_for_fom = Math.min(q_obs.length, 20);
+        qTolerancesArray = new Float32Array(n_peaks_for_fom);
+        for (let i = 0; i < n_peaks_for_fom; i++) {
+            qTolerancesArray[i] = get_q_tolerance(
+                peaks_sorted_by_q[i].original_index,
+                tth_obs_rad,
+                baseParams.wavelength,
+                baseParams.tth_error
+            ) + 1e-9;
+        }
+        qObsArray = new Float32Array(q_obs);
+    }
+
+
+
+    // --- TASK 1: CPU WORKERS (Cubic, Tetra, Hexa, and Ortho fallback) ---
     if (workerSystems.length > 0) {
         const workerTask = new Promise((resolve) => {
             resolveWorkerTask = resolve;
@@ -2199,9 +2359,13 @@ const startIndexing = async () => {
             }
 
             let workersRemaining = workerSystems.length;
-            const workerProgress = new Array(workersRemaining).fill(0);
+       //     const workerProgress = new Array(workersRemaining).fill(0);
             
             workerSystems.forEach((system, workerIndex) => {
+              const absoluteTaskIndex = currentWorkerTaskIndex;
+                currentWorkerTaskIndex++;
+                
+
                 const worker = new Worker(workerURL);
                 activeWorkers.push(worker);
 
@@ -2211,9 +2375,12 @@ const startIndexing = async () => {
                         cumulativeTrials += payload;
                         const elapsedTimeSeconds = (performance.now() - indexingStartTime) / 1000;
                         const trialsPerSecond = (elapsedTimeSeconds > 0.1) ? cumulativeTrials / elapsedTimeSeconds : 0;
-                        const message = `Trials: ${cumulativeTrials.toLocaleString()} (${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
-                        throttledSetStatusText(message);
                         
+                        const totalPercentage = taskProgress.reduce((a, b) => a + b, 0) / totalTasks;
+                        const message = `[${totalPercentage.toFixed(0)}%] Trials: ${cumulativeTrials.toLocaleString()} (${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
+                        throttledSetStatusText(message);
+
+
                     } else if (type === 'solution') {
                         solutions.push(payload);
                         pruneSolutions();
@@ -2222,11 +2389,15 @@ const startIndexing = async () => {
                         displayedSolutions = solutions.filter(sol => systemsToSearch.includes(sol.system));
                         updateSolutionsTable();
                     } else if (type === 'progress') {
-                        workerProgress[workerIndex] = payload;
-                        const progressScale = (webgpuSystems.length > 0) ? 50 : 100;
-                        const totalWorkerProgress = workerProgress.reduce((sum, p) => sum + p, 0) / workersRemaining;
-                        ui.progressBar.style.width = `${Math.min(100, totalWorkerProgress * (progressScale / 100))}%`;
+                        
+
+                        taskProgress[absoluteTaskIndex] = payload; // payload is 0-100
+                        updateProgressBar();
+
                     } else if (type === 'done') {
+                        taskProgress[absoluteTaskIndex] = 100;
+                        updateProgressBar();
+                        
                         worker.terminate();
                         activeWorkers = activeWorkers.filter(w => w !== worker);
                         workersRemaining--;
@@ -2237,6 +2408,8 @@ const startIndexing = async () => {
                     }
                 };
                 worker.onerror = (err) => { 
+                    taskProgress[absoluteTaskIndex] = 100; // Mark as "done" to not stall bar
+                    updateProgressBar();
                     console.error(`Worker for ${system} crashed:`, err.message, err);
                     showStatus(`Error in ${system} worker. See console.`, "error", 8000);
                     worker.terminate();
@@ -2248,66 +2421,167 @@ const startIndexing = async () => {
                     }
                 };
                 
-                worker.postMessage({ ...baseParams, systemToSearch: system, allowedSystems: workerSystems });
+                worker.postMessage({ ...baseParams, systemToSearch: system, allowedSystems: systemsToSearch });
             });
         });
         taskPromises.push(workerTask);
     }
+    
+    
+    // --- TASK 2: ORTHORHOMBIC (GPU) ---
+    if (webgpuSystems.includes('orthorhombic')) {
+        const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
+        currentGpuTaskIndex++;
 
 
-    // --- TASK 2: MONOCLINIC (GPU) ---
-    if (webgpuSystems.includes('monoclinic')) {
-        const monoTask = (async () => {
-            
-                       const n_peaks_for_combo = Math.max(4, parseInt(ui.gpuPeaksCount.value, 10) || 7);
-            const n_hkl_for_basis = Math.max(10, parseInt(ui.gpuHklTriplets.value, 10) || 80);
+        const orthoTask = (async () => {
+            const K_VALUE = 3;
+            const n_peaks_for_combo = Math.max(K_VALUE, parseInt(ui.gpuPeaksCount.value, 10) || 5);
+            const n_hkl_for_basis = Math.max(K_VALUE * 2, parseInt(ui.gpuHklTriplets.value, 10) || 300);
 
-            
-            
-            if (filteredPeaks.length < 4) {
-                showStatus("Monoclinic search requires at least 4 peaks. Skipping.", "error");
-                return; // Resolves this task's promise
+            if (filteredPeaks.length < K_VALUE) {
+                showStatus(`Ortho search requires at least ${K_VALUE} peaks. Skipping.`, "error");
+               // gpuSystemsCompleted++; // Mark as "completed" to not stall progress bar
+                taskProgress[absoluteTaskIndex] = 100; 
+                updateProgressBar();
+               
+               return;
             } 
             
             try {
-                showStatus('Initializing WebGPU for monoclinic (4-Peak Direct Solve)...', 'info');
-                const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(filteredPeaks, baseParams.wavelength);
-                
-                const n_peaks_for_fom = Math.min(q_obs.length, 20); // Must match config.n_peaks_for_fom in WGSL
-                const qTolerancesArray = new Float32Array(n_peaks_for_fom);
-                
-                for (let i = 0; i < n_peaks_for_fom; i++) {
-                    // get_q_tolerance and tth_obs_rad are globally available from worker-logic.js
-                    qTolerancesArray[i] = get_q_tolerance(
-                        peaks_sorted_by_q[i].original_index, // The original index of the i-th sorted peak
-                        tth_obs_rad,                         // The full, original-order 2theta-rad array
-                        baseParams.wavelength,
-                        baseParams.tth_error
-                    ) + 1e-9; // safety epsilon
-                }
-                
-
-                
-                const N_FOR_M20 = Math.min(20, filteredPeaks.length);
-                const min_m20 = 2.0; 
-                const d_min = baseParams.wavelength / (2 * Math.sin(Math.max(...filteredPeaks.map(p => p.tth)) * Math.PI / 360));
-                const q_max = 1 / (d_min * d_min);
+                showStatus('Initializing WebGPU for orthorhombic...', 'info');
                 const engine = webgpuEngine; 
+                await engine.loadShader('ortho_solver.wgsl');
+                engine.createPipeline('main_3p');
                 
-                await engine.loadShader('monoclinic_solver.wgsl');
-                engine.createPipeline('main_4p');
-                const qObsArray = new Float32Array(q_obs);
+                // --- HKL Basis (promotion, le 16 nov
+                let hkl_full = get_hkl_search_list('orthorhombic');
+                const special = []; const regular = [];
+                for (const hkl of hkl_full) {
+                    const [h, k, l] = hkl;
+                    if ((k === 0 && l === 0) || (h === 0 && l === 0) || (h === 0 && k === 0)) {
+                        special.push(hkl);
+                    } else {
+                        regular.push(hkl);
+                    }
+                }
+                const hkl_basis_raw = [...special, ...regular].slice(0, n_hkl_for_basis);
+                // ---
                 
-                const hkl_basis_raw = get_hkl_search_list('monoclinic').slice(0, n_hkl_for_basis);
                 const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
                 hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
 
-                const max_p = Math.min(n_peaks_for_combo, q_obs.length);
+                const max_p = Math.min(n_peaks_for_combo, qObsArray.length);
+                if (max_p < K_VALUE) throw new Error(`Not enough peaks (${max_p}) for 3-peak solve.`);
 
-                                if (max_p < 4) {
-                     showStatus("Monoclinic: 'Peaks to Combine' must be at least 4.", "error");
-                     return;
+                const peak_combos_raw = [];
+                for (let i=0; i<max_p-2; i++)
+                 for (let j=i+1; j<max_p-1; j++)
+                  for (let k=j+1; k<max_p; k++) {
+                        peak_combos_raw.push(i,j,k);
                 }
+                const peakCombos = new Uint32Array(peak_combos_raw);
+                if (peakCombos.length === 0) throw new Error("Not enough peaks to generate 3-peak combinations.");
+
+                const num_hkls = hkl_basis_raw.length;
+                const BYTES_PER_COMBO = K_VALUE * 4;
+                const userMaxBuffer = engine.device.limits.maxStorageBufferBindingSize;
+                const combosPerChunk = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
+                const TOTAL_EXHAUSTIVE_COMBOS = combinations(num_hkls, K_VALUE);
+                const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
+                if (TOTAL_EXHAUSTIVE_COMBOS === 0) throw new Error("Not enough HKLs.");
+                gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * 6;
+
+                const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
+                    const progressCallback = getGpuProgressCallback('Ortho', absoluteTaskIndex);
+                for (let chunk = 0; chunk < numChunks; chunk++) {
+                    if (gpuStopSignal.stop) break;
+                    
+                    const combosThisChunk = (chunk === numChunks - 1) ? (TOTAL_EXHAUSTIVE_COMBOS % combosPerChunk || combosPerChunk) : combosPerChunk;
+                    const hklCombos = new Uint32Array(combosThisChunk * K_VALUE);
+                    let offset = 0;
+                    for (let i = 0; i < combosThisChunk; i++) {
+                        const arr = hklComboGenerator.next().value;
+                        if (!arr) break; 
+                        hklCombos.set(arr, offset);
+                        offset += K_VALUE;
+                    }
+                    
+                    const { potentialCells, stoppedEarly } = await engine.runOrthoSolver(
+                        qObsArray, hklBasisArray, peakCombos, hklCombos,
+                        qTolerancesArray,
+                        (p, n) => progressCallback((chunk + p) / numChunks, n),
+                        gpuStopSignal, baseParams
+                    );
+                    
+                    const refinementPromises = potentialCells.map(refineGpuCell);
+                    await Promise.all(refinementPromises); 
+                    
+                    if (stoppedEarly) break; 
+                } 
+            } catch (err) {
+                console.error("WebGPU Error (Orthorhombic):", err);
+                showStatus(`Ortho GPU Error: ${err.message}`, 'error');
+            } finally {
+                taskProgress[absoluteTaskIndex] = 100;
+                updateProgressBar();
+            }
+        })(); 
+        taskPromises.push(orthoTask);
+    }
+
+    // --- TASK 3: MONOCLINIC (GPU) ---
+    if (webgpuSystems.includes('monoclinic')) {
+
+const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
+        currentGpuTaskIndex++;
+
+        const monoTask = (async () => {
+            const K_VALUE = 4;
+            const n_peaks_for_combo = Math.max(K_VALUE, parseInt(ui.gpuPeaksCount.value, 10) || 7);
+            const n_hkl_for_basis = Math.max(K_VALUE * 2, parseInt(ui.gpuHklTriplets.value, 10) || 80);
+            
+            if (filteredPeaks.length < K_VALUE) {
+                showStatus(`Monoclinic search requires at least ${K_VALUE} peaks. Skipping.`, "error");
+               // gpuSystemsCompleted++;
+
+               taskProgress[absoluteTaskIndex] = 100;
+                updateProgressBar();
+                return;
+            } 
+            
+            try {
+                showStatus('Initializing WebGPU for monoclinic...', 'info');
+                const engine = webgpuEngine; 
+                await engine.loadShader('monoclinic_solver.wgsl');
+                engine.createPipeline('main_4p');
+                
+                //rajouter les h00, etc... 16 nov              
+                // --- HKL Basis (with promotion) ---
+                let hkl_full_mono = get_hkl_search_list('monoclinic');
+                const special_mono = []; const regular_mono = [];
+                for (const hkl of hkl_full_mono) {
+                    const [h, k, l] = hkl;
+                    if ((k === 0 && l === 0) || (h === 0 && l === 0) || (h === 0 && k === 0)) {
+                        special_mono.push(hkl);
+                    } else {
+                        regular_mono.push(hkl);
+                    }
+                }
+                // Put promoted reflections first, then slice
+                const hkl_basis_raw = [...special_mono, ...regular_mono].slice(0, n_hkl_for_basis);
+                // ---
+                
+                
+                
+                
+                
+                
+                const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
+                hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
+
+                const max_p = Math.min(n_peaks_for_combo, qObsArray.length);
+                if (max_p < K_VALUE) throw new Error(`Not enough peaks (${max_p}) for 4-peak solve.`);
 
                 const peak_combos_raw = [];
                 for (let i=0; i<max_p-3; i++)
@@ -2320,30 +2594,23 @@ const startIndexing = async () => {
                 if (peakCombos.length === 0) throw new Error("Not enough peaks to generate 4-peak combinations.");
 
                 const num_hkls = hkl_basis_raw.length;
-                const K_VALUE = 4;
                 const BYTES_PER_COMBO = K_VALUE * 4;
                 const userMaxBuffer = engine.device.limits.maxStorageBufferBindingSize;
                 const combosPerChunk = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
                 const TOTAL_EXHAUSTIVE_COMBOS = combinations(num_hkls, K_VALUE);
                 const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
                 if (TOTAL_EXHAUSTIVE_COMBOS === 0) throw new Error("Not enough HKLs.");
-
-                console.log(`Monoclinic 4-Peak Direct Solve Config:`);
-                console.log(`  Peak Combos: ${peakCombos.length / K_VALUE}`);
-                
-                               console.log(`  Peak Combos: ${peakCombos.length / K_VALUE} (from ${max_p} peaks)`);
-                console.log(`  Total HKL Combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()} (from ${num_hkls} HKLs)`);
+                gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * 24;
 
                 const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
 
+                const progressCallback = getGpuProgressCallback('Monoclinic', absoluteTaskIndex);
+
                 for (let chunk = 0; chunk < numChunks; chunk++) {
-                    if (gpuStopSignal.stop) {
-                        console.log("Monoclinic GPU run stopped by user.");
-                        break;
-                    }
+                    if (gpuStopSignal.stop) break;
+                    
                     const combosThisChunk = (chunk === numChunks - 1) ? (TOTAL_EXHAUSTIVE_COMBOS % combosPerChunk || combosPerChunk) : combosPerChunk;
-                    const totalIndices = combosThisChunk * K_VALUE;
-                    const hklCombos = new Uint32Array(totalIndices);
+                    const hklCombos = new Uint32Array(combosThisChunk * K_VALUE);
                     let offset = 0;
                     for (let i = 0; i < combosThisChunk; i++) {
                         const arr = hklComboGenerator.next().value;
@@ -2351,136 +2618,66 @@ const startIndexing = async () => {
                         hklCombos.set(arr, offset);
                         offset += K_VALUE;
                     }
-                    const progressCallback = (chunkProgress, numFound) => {
-                        const totalPercent = ((chunk + chunkProgress) / numChunks) * 100;
-                        let workerPortion = (workerSystems.length > 0) ? 50 : 0;
-                        let currentWorkerProgress = 0;
-                        if (workerSystems.length > 0) {
-                            currentWorkerProgress = parseFloat(ui.progressBar.style.width) || 0;
-                            if (activeWorkers.length === 0 && currentWorkerProgress < workerPortion) {
-                                currentWorkerProgress = workerPortion;
-                            }
-                        }
-                        const gpuPortion = 100 - workerPortion;
-                        const progressPerGpuSystem = gpuPortion / webgpuSystems.length;
-                        let gpuSystemIndex = 0;
-                        if (webgpuSystems.includes('triclinic') && webgpuSystems.indexOf('monoclinic') > webgpuSystems.indexOf('triclinic')) {
-                            gpuSystemIndex = 1;
-                        }
-                        const gpuProgress = (gpuSystemIndex * progressPerGpuSystem) + (totalPercent / 100 * progressPerGpuSystem);
-                        const totalBarPercent = currentWorkerProgress + gpuProgress;
-                        ui.progressBar.style.width = `${Math.min(100, totalBarPercent)}%`;
-                        const message = `GPU (Monoclinic): ${totalPercent.toFixed(1)}%... ${numFound} candidates`;
-                        throttledSetStatusText(message);
-                    };
 
                     const { potentialCells, stoppedEarly } = await engine.runMonoclinicSolver(
                         qObsArray, hklBasisArray, peakCombos, hklCombos,
-                        qTolerancesArray, // même ordre que dans le webgpu
-                        progressCallback, gpuStopSignal, baseParams
+                        qTolerancesArray,
+                        (p, n) => progressCallback((chunk + p) / numChunks, n),
+                        gpuStopSignal, baseParams
                     );
                     
-                   
-                    // Create an array of new promises, one for each refinement
-                    const refinementPromises = potentialCells.map((cell) => {
-                        // This creates one new Promise for EACH cell
-                        return new Promise((resolveCellRefine) => {
-                            const cpuRefineState = {
-                                q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q,
-                                N_FOR_M20, min_m20, q_max, d_min,
-                                foundSolutions: solutions, 
-                                foundSolutionMap: foundSolutionMap 
-                            };
-                            
-                            // Call the worker function. Pass our *own* callback.
-                            refineAndTestSolution(
-                                cell, 
-                                baseParams, 
-                                cpuRefineState,
-                                (msg) => { // 'postMessage_func'
-                                    if (msg.type === 'solution') {
-                                        
-                                        solutions.push(msg.payload);
-                                        pruneSolutions(); 
-                                        if (solutions.length === 1) ui.solutionsLed.className = 'led-indicator green';
-                                        sortSolutions();
-                                        displayedSolutions = solutions.filter(sol => systemsToSearch.includes(sol.system));
-                                        updateSolutionsTable();
-                                    }
-                                    
-
-                                    resolveCellRefine();
-                                }
-                            ); 
-                        });
-                    });
-                    
-                    // wait for all refinements in this batch to finish
+                    const refinementPromises = potentialCells.map(refineGpuCell);
                     await Promise.all(refinementPromises); 
                     
-                    if (stoppedEarly) {
-                        console.log("Stopping brutus.html chunk loop due to max solutions.");
-                        break; 
-                    }
+                    if (stoppedEarly) break; 
                 } 
             } catch (err) {
                 console.error("WebGPU Error (Monoclinic):", err);
-                showStatus(`WebGPU Error: ${err.message}`, 'error');
+                showStatus(`Monoclinic GPU Error: ${err.message}`, 'error');
+            } finally {
+                taskProgress[absoluteTaskIndex] = 100;
+                updateProgressBar();
             }
         })(); 
         taskPromises.push(monoTask);
     }
 
 
-    // --- TASK 3: TRICLINIC (GPU) ---
+    // --- TASK 4: TRICLINIC (GPU) ---
     if (webgpuSystems.includes('triclinic')) {
+
+        const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
+        currentGpuTaskIndex++;
+
         const triTask = (async () => {
+            const K_VALUE = 6;
+            const n_peaks_for_combo_tri = Math.max(K_VALUE, parseInt(ui.gpuPeaksCount.value, 10) || 8);
+            const n_hkl_for_basis_tri = Math.max(K_VALUE * 2, parseInt(ui.gpuHklTriplets.value, 10) || 40);
 
-                        const n_peaks_for_combo_tri = Math.max(6, parseInt(ui.gpuPeaksCount.value, 10) || 8);
-            const n_hkl_for_basis_tri = Math.max(10, parseInt(ui.gpuHklTriplets.value, 10) || 40);
+            if (filteredPeaks.length < K_VALUE) {
+                 showStatus(`Triclinic search requires at least ${K_VALUE} peaks. Skipping.`, "error");
+                // gpuSystemsCompleted++;
+                taskProgress[absoluteTaskIndex] = 100; 
+                 updateProgressBar();
 
-            if (filteredPeaks.length < 6) {
-                 showStatus("Triclinic search requires at least 6 peaks. Skipping.", "error");
                  return;
             }
 
             try {
-                showStatus('Initializing WebGPU for triclinic (Exhaustive)...', 'info');
-                
-                const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(filteredPeaks, baseParams.wavelength);
-               
-                const n_peaks_for_fom = Math.min(q_obs.length, 20);
-                const qTolerancesArray = new Float32Array(n_peaks_for_fom);
-                for (let i = 0; i < n_peaks_for_fom; i++) {
-                    qTolerancesArray[i] = get_q_tolerance(
-                        peaks_sorted_by_q[i].original_index,
-                        tth_obs_rad,
-                        baseParams.wavelength,
-                        baseParams.tth_error
-                    ) + 1e-9;
-                }
-               
-                const N_FOR_M20 = Math.min(20, filteredPeaks.length);
-                const min_m20 = 2.0; 
-                const d_min = baseParams.wavelength / (2 * Math.sin(Math.max(...filteredPeaks.map(p => p.tth)) * Math.PI / 360));
-                const q_max = 1 / (d_min * d_min);
-
+                showStatus('Initializing WebGPU for triclinic...', 'info');
                 const engine = webgpuEngine;
                 await engine.loadShader('triclinic_solver.wgsl');
                 engine.createPipeline('main');
                 
-                const qObsArray = new Float32Array(q_obs);
-                
-                const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, n_hkl_for_basis_tri); // 40 est petit et rapide, n'est pas suffisant pour d'autres symétries
+                //pas de promo pour H00 en triclinic, la base de recherche est assez faible, 16 nov
+                const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, n_hkl_for_basis_tri);
+
+
                 const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
                 hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
 
-                const max_p = Math.min(n_peaks_for_combo_tri, q_obs.length); // Use first 10 peaks ?
-                
-                                if (max_p < 6) {
-                     showStatus("Triclinic: 'Peaks to Combine' must be at least 6.", "error");
-                     return;
-                }
+                const max_p = Math.min(n_peaks_for_combo_tri, qObsArray.length);
+                if (max_p < K_VALUE) throw new Error(`Not enough peaks (${max_p}) for 6-peak solve.`);
                 
                 const peak_combos_raw = [];
                 for (let i=0; i<max_p-5; i++) for (let j=i+1; j<max_p-4; j++)
@@ -2492,21 +2689,14 @@ const startIndexing = async () => {
                 if (peakCombos.length === 0) throw new Error("Not enough peaks for triclinic 6-peak solve.");
                 
                 const num_hkls = hkl_basis_raw.length;
-                const K_VALUE = 6;
                 const userMaxBuffer = engine.device.limits.maxStorageBufferBindingSize;
                 const BYTES_PER_COMBO = K_VALUE * 4;
                 const combosPerChunk = Math.floor((userMaxBuffer * 0.99) / BYTES_PER_COMBO);
-                
                 const TOTAL_EXHAUSTIVE_COMBOS = combinations(num_hkls, K_VALUE);
                 const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
-                
-                console.log(`Triclinic Config: n=${num_hkls}, k=${K_VALUE}`);
-                console.log(`  Peak Combos: ${peakCombos.length / K_VALUE} (from ${max_p} peaks)`);
-                console.log(`  Total HKL Combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()} (from ${num_hkls} HKLs)`); // <-- MODIFIED
-                console.log(`Dynamically calculated chunks: ${numChunks}`);
-
-
+                gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * 720;
                 const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
+                const progressCallback = getGpuProgressCallback('Triclinic', absoluteTaskIndex);
                 
                 for (let chunk = 0; chunk < numChunks; chunk++) {
                     if (gpuStopSignal.stop) break;
@@ -2514,116 +2704,67 @@ const startIndexing = async () => {
                     const combosThisChunk = (chunk === numChunks - 1)
                         ? (TOTAL_EXHAUSTIVE_COMBOS % combosPerChunk || combosPerChunk)
                         : combosPerChunk;
-
-                    const totalIndices = combosThisChunk * 6;
-                    const hklCombos = new Uint32Array(totalIndices);
+                    const hklCombos = new Uint32Array(combosThisChunk * K_VALUE);
                     
                     let offset = 0;
                     for (let i = 0; i < combosThisChunk; i++) {
                         const arr = hklComboGenerator.next().value;
                         if (!arr) break;
                         hklCombos.set(arr, offset);
-                        offset += 6;
+                        offset += K_VALUE;
                     }
-
-                    const progressCallback = (chunkProgress, numFound) => {
-                        const totalProgress = ((chunk + chunkProgress) / numChunks) * 100;
-                        
-                        let workerPortion = (workerSystems.length > 0) ? 50 : 0;
-                        let currentWorkerProgress = 0;
-                        if (workerSystems.length > 0) {
-                            currentWorkerProgress = parseFloat(ui.progressBar.style.width) || 0;
-                            if (activeWorkers.length === 0 && currentWorkerProgress < workerPortion) {
-                                currentWorkerProgress = workerPortion;
-                            }
-                        }
-                        const gpuPortion = 100 - workerPortion;
-                        const progressPerGpuSystem = gpuPortion / webgpuSystems.length;
-
-                        let gpuSystemIndex = 0;
-                        if (webgpuSystems.includes('monoclinic') && webgpuSystems.indexOf('triclinic') > webgpuSystems.indexOf('monoclinic')) {
-                            gpuSystemIndex = 1;
-                        }
-
-                        const gpuProgress = (gpuSystemIndex * progressPerGpuSystem) + (totalProgress / 100 * progressPerGpuSystem);
-                        const totalBarPercent = currentWorkerProgress + gpuProgress;
-                        ui.progressBar.style.width = `${Math.min(100, totalBarPercent)}%`;
-                        
-                        const message = `GPU (Triclinic): ${totalProgress.toFixed(1)}%... ${numFound} candidates`;
-                        throttledSetStatusText(message);
-                    };
-                    
 
                     const { potentialCells, stoppedEarly } = await engine.runTriclinicSolver(
                         qObsArray, hklBasisArray, peakCombos, hklCombos,
                         qTolerancesArray,
-                        progressCallback, gpuStopSignal, baseParams
+                        (p, n) => progressCallback((chunk + p) / numChunks, n),
+                        gpuStopSignal, baseParams
                     );
 
-                    // Create an array of new promises, one for each refinement
-                    const refinementPromises = potentialCells.map((cell) => {
-                            return new Promise((resolveCellRefine) => {
-                            const cpuRefineState = {
-                                q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q,
-                                N_FOR_M20, min_m20, q_max, d_min,
-                                foundSolutions: solutions, 
-                                foundSolutionMap: foundSolutionMap 
-                            };
-                            
-                            // Call the worker function. 
-                            refineAndTestSolution( 
-                                cell, baseParams, cpuRefineState,
-                                (msg) => { // 'postMessage_func', copié du monoclinique
-                                    if (msg.type === 'solution') {
-                                        solutions.push(msg.payload);
-                                        pruneSolutions();
-                                        if (solutions.length === 1) ui.solutionsLed.className = 'led-indicator green';
-                                        sortSolutions();
-                                        displayedSolutions = solutions.filter(sol => systemsToSearch.includes(sol.system));
-                                        updateSolutionsTable();
-                                    }
-
-                                    resolveCellRefine();
-                                }
-                            ); 
-                        });
-                    });
-                    
+                    const refinementPromises = potentialCells.map(refineGpuCell);
                     await Promise.all(refinementPromises);
                     
-                    if (stoppedEarly) {
-                        console.log("Stopping brutus.html (Triclinic) chunk loop due to max solutions.");
-                        break;
-                    }
+                    if (stoppedEarly) break;
                 }
-                
             } catch (err) {
                 console.error("WebGPU Error (Triclinic):", err);
-                showStatus(`WebGPU Error: ${err.message}`, 'error');
+                showStatus(`Triclinic GPU Error: ${err.message}`, 'error');
+            } finally {
+                taskProgress[absoluteTaskIndex] = 100;
+                updateProgressBar();
             }
         })();
         taskPromises.push(triTask);
     }
 
 
-    // --- PART 4: FINALIZE ---
+    // --- PART 5: FINALIZE ---
     await Promise.all(taskPromises);
-    
-    // small delay to settle, was 100 msec, changet to 250 on nov 15
+           
     await new Promise(resolve => setTimeout(resolve, 250));
     
     finalizeIndexing(gpuStopSignal.stop);
 };
 
-    const finalizeIndexing = (stoppedByUser = false) => {
+
+
+const finalizeIndexing = (stoppedByUser = false) => {
     const statusTextElement = document.getElementById('status-text');
 
     const elapsedTimeSeconds = (performance.now() - indexingStartTime) / 1000;
-    const trialsPerSecond = (elapsedTimeSeconds > 0.1) ? cumulativeTrials / elapsedTimeSeconds : 0;
-    const finalStatus = `Trials: ${cumulativeTrials.toLocaleString()} (Avg: ${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
+    
+    // 
+    const totalCpuTrials = cumulativeTrials; // Get CPU trials
+    const totalFinalTrials = totalCpuTrials + gpuTotalTrials; 
+    
+    const trialsPerSecond = (elapsedTimeSeconds > 0.1) ? totalFinalTrials / elapsedTimeSeconds : 0;
+    const finalStatus = `Trials: ${totalFinalTrials.toLocaleString()} (Avg: ${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
+    
     
     lastIndexingStats = finalStatus;
-    
+
+
+
     if (statusTextElement) {
         statusTextElement.textContent = finalStatus; // Display it
     }
@@ -3165,7 +3306,7 @@ const generatePDFReport = async () => {
           	 case 'hexagonal': paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`; break;
           	 case 'orthorhombic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`; break;
           	 case 'monoclinic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}, beta=${formatWithError(sol.beta, p.s_beta)}`; break;
-          	 // --- [ADDED TRICLINIC] ---
+          	 // --- TRICLINIC, oct/nov 2025
           	 case 'triclinic': 
             	 	paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`;
             	 	doc.text(sol.system.substring(0,4), margin, yPos);

@@ -299,24 +299,28 @@
                 </li>
             </ul>
 
+       
+
             <h4 style="margin-top: 2em;">GPU Search Parameters</h4>
             <p>
-                When <code>Monoclinic</code> or <code>Triclinic</code> is selected, this section appears, allowing you to control the scope of the GPU-accelerated search.
+                When <code>Orthorhombic</code>, <code>Monoclinic</code>, or <code>Triclinic</code> is selected, this section appears, allowing you to control the scope of the GPU-accelerated search.
             </p>
             <ul>
                 <li>
                     <strong>HKL Basis Size:</strong>
                     Controls how many simple HKL triplets (from a pre-generated list) are used in the search combinations.
-                    <br><em>(Default: 80 for Monoclinic, 40 for Triclinic. Range: 10-200)</em>
+                    <br><em>(Default: 300 for Orthorhombic, 80 for Monoclinic, 40 for Triclinic. Range: 10-600)</em>
                 </li>
                 <li>
                     <strong>Peaks to Combine:</strong>
                     Controls how many of your observed peaks (from the top of the peak list) are used to generate combinations.
-                    <br><em>(Default: 7 for Monoclinic, 8 for Triclinic. Min: 4/6)</em>
+                    <br><em>(Default: 5 for Orthorhombic, 7 for Monoclinic, 8 for Triclinic. Min: 3/4/6)</em>
                 </li>
             </ul>
+
+
             <p>
-                When you select a GPU system, the status text at the bottom of the panel will show you the total number of cells to be tested, which is a direct result of these two parameters. Be careful, this number can increase very fast. For a regular GPU card at the time of this writting (like Nvidia 8Gb T1000) the search speed is about 10M cells per second.
+                When you select a GPU system, the status text at the bottom of the panel will show you the total number of cells to be tested, which is a direct result of these two parameters. Be careful, this number can increase very fast. For a regular GPU card at the time of this writting (like Nvidia 8Gb T1000) the search speed is in the range of millions/sec cells tested.
             </p>
 
             <h4>3. Solutions Tab</h4>
@@ -421,7 +425,7 @@
         (e.g. $h^2$, $k^2$, $l^2$), and $P_i$ are the reciprocal lattice parameters (e.g. $A = 1/a^2$, $B = 1/b^2$, …).
     </p>
 
-    <h3>CPU Searches (Cubic, Tetra, Hexa, Ortho)</h3>
+    <h3>CPU Searches (Cubic, Tetra, Hexa)</h3>
     <ul>
         <li>
             <strong>Cubic (1 parameter, $A = 1/a^2$)</strong><br>
@@ -432,79 +436,21 @@
             <strong>Tetragonal & Hexagonal (2 parameters)</strong><br>
             Solves all the combinations of a 2×2 system using pairs of peaks from the first 12, assigning pairs of trial $(hkl)$ vectors up to 5; 34 million tests.
         </li>
-
-
-        <li>
-
-
-            <li>
-    <strong>Orthorhombic (3 parameters, A, B, C)</strong><br>
-    Orthorhombic indexing in Brutus uses a 3×3 linear solve for each trial
-    combination of three observed peaks and three trial Miller indices. Because
-    an orthorhombic lattice has three independent axial lengths and the eventual
-    assignment of the a, b, c directions is arbitrary before refinement,
-    Brutus now uses an <em>anisotropic</em> HKL basis instead of a symmetric one.
-
-    <h4>HKL Generation</h4>
-    <p>
-        The trial HKLs are generated from the anisotropic envelope h = 0 ... 4; k = 0 ... 8; l = 0 .. 10.
-    </p>
-
-    <p>
-        This envelope allows higher-index <code>00L</code> reflections (which probe
-        long real-space axes) to be included early, while keeping <code>h</code> and
-        <code>k</code> ranges moderate for shorter axes. All HKLs are then sorted by
-        increasing <code>Q = h² + k² + l²</code>.
-    </p>
-
-    <h4>Axis-Promotion Before Slicing</h4>
-    <p>
-        Before applying the HKL slice, Brutus moves all axis-aligned reflections
-        to the top of the list: H00, 0K0 and 00L. Promoting these HKLs ensures that essential long-axis reflections
-        (such as <code>00L</code> with <code>L = 8–10</code>) are not discarded when
-        slicing. This greatly improves stability for skewed cells
-        (axis ratios &gt; 3–4).
-    </p>
-
-    <h4>HKL Slice</h4>
-    <p>
-        After promotion, the list is truncated to the first
-        <strong>200</strong> HKLs. This keeps the search space manageable while still
-        maintaining good anisotropic coverage. The number of orthorhombic trial
-        triplets becomes:
-    </p>
-
-    <p style="margin-left: 1em;">
-        <code>C(12,3) × C(200,3) = 220 × 1,313,400 ≈ 2.89 × 10⁸</code>
-    </p>
-
-    <p>
-        This is significantly faster than using the full anisotropic HKL
-        envelope, while retaining the most important candidates for long
-        and short axes alike.
-    </p>
-
-    <h4>Why This Improves Indexing</h4>
-    <p>
-        The combination of (1) anisotropic HKL limits, (2) axis promotion,
-        and (3) Q-sorting ensures that:
-    </p>
-
-    <ul>
-        <li>low-angle reflections along all three axes are always included,</li>
-        <li>high-<code>L</code> reflections needed for long c-axes are preserved,</li>
-        <li>ill-conditioned 3×3 systems from overly symmetric HKL sets are avoided,</li>
-        <li>skewed cells are indexed much more reliably.</li>
-    </ul>
-</li>
-
-
-
     </ul>
 
-    <h3 style="margin-top: 2.5em;">GPU-Accelerated Searches (Monoclinic & Triclinic)</h3>
+
+
+
+
+
+
+
+
+
+    
+<h3 style="margin-top: 2.5em;">GPU-Accelerated Searches (Orthorhombic, Monoclinic & Triclinic)</h3>
     <p>
-        For low-symmetry systems, the number of combinations becomes too large for the CPU. These searches are offloaded to the WebGPU. Their scope is now user-configurable.
+        For low-symmetry systems and orthorhombic, the number of combinations becomes too large for the CPU. These searches are offloaded to the WebGPU. Their scope is now user-configurable.
     </p>
     
     <h4>GPU Search Parameters</h4>
@@ -513,22 +459,42 @@
     </p>
     <ul>
         <li>
-            <code><strong>Peaks to Combine</strong></code>: This sets $N_p$, the number of observed peaks from your list used to generate combinations. The program calculates $C(N_p, k)$, where $k=4$ for monoclinic and $k=6$ for triclinic.
-            <br><em>(Defaults: $N_p=7$ for Monoclinic, $N_p=8$ for Triclinic)</em>
+            <code><strong>Peaks to Combine</strong></code>: This sets $N_p$, the number of observed peaks from your list used to generate combinations. The program calculates $C(N_p, k)$, where $k=3$ for orthorhombic, $k=4$ for monoclinic, and $k=6$ for triclinic.
+            <br><em>(Defaults: $N_p=5$ for Orthorhombic, $N_p=7$ for Monoclinic, $N_p=8$ for Triclinic)</em>
         </li>
         <li>
             <code><strong>HKL Basis Size</strong></code>: This sets $N_h$, the number of simple HKL vectors used as the "basis set". The program calculates $C(N_h, k)$.
-            <br><em>(Defaults: $N_h=80$ for Monoclinic, $N_h=40$ for Triclinic)</em>
+            <br><em>(Defaults: $N_h=300$ for Orthorhombic, $N_h=80$ for Monoclinic, $N_h=40$ for Triclinic)</em>
         </li>
     </ul>
+    <blockquote style="margin-top: 1.5em; margin-bottom: 1.5em;">
+        <strong>Note on HKL Basis Generation (Axial Promotion)</strong>
+        <p style="margin-bottom: 0;">
+            For the Orthorhombic and Monoclinic systems, the HKL basis is generated with a special "promotion" step. 
+            This ensures that essential reflections for long axes (e.g., <code>(0 0 10)</code>) are not accidentally cut off, which dramatically improves the indexing stability for highly skewed or anisotropic cells.
+        </p>
+    </blockquote>
     <p>
         The total number of cells tested (which is displayed in the status text) is:
         <br>
         <strong>Total Cells = $C(N_p, k) \times C(N_h, k) \times k!$</strong>
     </p>
     <p>
-        where the number of permutations is defined by k, $k=4$ and $k!=24$ for Monoclinic, and $k=6$ and $k!=720$ for Triclinic.
+        where the number of permutations is defined by k: $k=3$ ($k!=6$) for Orthorhombic, $k=4$ ($k!=24$) for Monoclinic, and $k=6$ ($k!=720$) for Triclinic.
     </p>
+
+    <h4>Orthorhombic (3 parameters, $A, B, C$)</h4>
+    <ul>
+        <li>
+            <strong>Logic:</strong> Solves a 3x3 system $M \cdot \vec{x} = \vec{q}$ for $\vec{x} = [A, B, C]$.
+        </li>
+        <li>
+            <strong>GPU Work:</strong> Each GPU thread tests one (peak combo, HKL combo) pair, and loops 6 times (3!) to test all permutations.
+        </li>
+        <li>
+            <strong>Defaults:</strong> $C(5, 3) \times C(300, 3) \times 6 \approx$ <strong>268 million</strong> trial cells.
+        </li>
+    </ul>
 
     <h4>Monoclinic (4 parameters, $A, B, C, D$)</h4>
     <ul>
@@ -635,12 +601,90 @@
     <blockquote>
         <strong>Performance: WebGPU vs CPU</strong>
         <p>
-            Cubic, Tetragonal, Hexagonal, and Orthorhombic searches run on the CPU (in a Web Worker) and are typically
-            very fast, of the order of below one second for cubic to several minutes for orthorhombic. The user can stop the search if a good solution is found.
+            Cubic, Tetragonal, and Hexagonal searches run on the CPU (in a Web Worker) and are typically
+            very fast (under a second).
+        </p>
+        <p>
+            Orthorhombic, Monoclinic, and Triclinic searches are offloaded to the GPU. This allows testing of billions of trial cells in a time frame (few minutes for 1 billion cells) that would be
+            impractical on the CPU. 
+        </p>
+        <p>
+            Note: at the end of a GPU search all candidates (up to 50 000) are passed to refinement, Niggli cell reduction, M(20) and F(N) calculations. These are made on the CPU so it might take a few minutes, be patient (or change the parameters, or decrease the number of peaks in the list).
+        </p>
+    </blockquote>
+
+
+
+    <h3 id="tuning-the-search">Tuning the Search & Troubleshooting</h3>
+    <p>
+        If you obtain no solutions, or too many, consider the following adjustments.
+    </p>
+
+    <h4>If no solutions (or only poor ones) are found</h4>
+    <ul>
+        <li>
+            <strong>Re-examine the peak list.</strong>
+            This is the dominant failure mode. Check that the first 10–15 peaks belong to a single phase,
+            are free of impurities, and have accurate $2\theta$ positions.
+        </li>
+        <li>
+            <strong>Relax <code>2θ Error</code>.</strong>
+            If this value is too strict for your data resolution, valid solutions may be discarded.
+        </li>
+        <li>
+            <strong>Increase <code>Max Volume</code>.</strong>
+            The true cell may be larger than initially expected.
+        </li>
+        <li>
+            <strong>Increase GPU Parameters.</strong>
+            Try increasing <code>HKL Basis Size</code> (e.g., from 80 to 120) or <code>Peaks to Combine</code> (e.g., from 7 to 9). This will significantly increase the search time but covers more combinations.
+        </li>
+    </ul>
+
+    <h4>If you get too many solutions (GPU buffer fills)</h4>
+    <p>
+        The GPU buffer is now limited to 50,000 candidate solutions. If this buffer fills up, the search stops earlier than the full space requested. If you have no solution that appears valid:
+    </p>
+    <ul>
+        <li>
+            <strong>Tighten <code>2θ Error</code>.</strong>
+            This is the most effective way to reduce the number of false positives.
+        </li>
+        <li>
+            <strong>Reduce <code>Max Volume</code>.</strong>
+            This is another strong constraint to remove unphysical large cells.
+        </li>
+        <li>
+            <strong>Decrease GPU Parameters.</strong>
+            Reducing <code>HKL Basis Size</code> or <code>Peaks to Combine</code> will run a smaller, faster search, but may miss the solution if it relies on a higher-index HKL or a peak further down the list.
+        </li>
+    </ul>
+
+    <h4>GPU Buffers and Chunking</h4>
+    <p>
+        The total list of HKL combinations can be too large for a single GPU buffer. Brutus therefore:
+    </p>
+    <ol>
+        <li>
+            Generates HKL combinations in large JavaScript chunks in <code>brutus.html</code>.
+        </li>
+        <li>
+            Further splits each of these into small “dispatch chunks” (e.g. 256 workgroups) in
+            <code>webgpu-engine.js</code> before sending them to the GPU.
+        </li>
+    </ol>
+    <p>
+        This two-level chunking avoids both memory overflow and long-running GPU commands.
+    </p>
+    <blockquote>
+        <strong>Performance: WebGPU vs CPU</strong>
+        <p>
+            Cubic, Tetragonal and Hexagonal searches run on the CPU (in a Web Worker) and are typically
+            very fast, of the order of a few seconds. 
         </p>
         <p>
             Monoclinic and Triclinic searches are offloaded to the GPU. This allows testing of billions of trial cells in a time frame (few minutes for 1 billion cells) that would be
-            impractical on the CPU. 
+            impractical on the CPU. The user can stop the search if a good solution is found.
         </p>
         <p>
             Note: at the end of a GPU search all candidates (up to 50 000) are passed to refinement, Niggli cell reduction, M(20) and F(N) calculations. These are made on the CPU so it might take a few minutes, be patient. 

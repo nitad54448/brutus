@@ -551,6 +551,205 @@ class WebGPUEngine {
     }
 
 
+    // 9. runOrthoSolver (NEW)
+    async runOrthoSolver(
+        qObsArray,        // Float32Array
+        hklBasisArray,    // Float32Array
+        peakCombos,       // Uint32Array (N x 3)
+        hklCombos,        // Uint32Array (N x 3)
+        qTolerancesArray, // tol
+        progressCallback, // function
+        stopSignal,       // { stop: false }
+        baseParams        // { wavelength, tth_error, max_volume, impurity_peaks }
+    ) {
+        if (!this.pipeline) {
+            throw new Error("Pipeline not created. Call createPipeline() first.");
+        }
+        if (!this.adapter) { 
+            throw new Error("Engine not initialized. Call init() first.");
+        }
+
+        let stoppedEarly=false;
+
+        // --- Create Buffers ---
+        const maxSolutions = 50000;
+        const solutionStructSize = 3 * 4; // RawOrthoSolution: a,b,c
+        
+        const qObsBuffer = this.createBuffer(qObsArray, GPUBufferUsage.STORAGE);
+        const hklBasisBuffer = this.createBuffer(hklBasisArray, GPUBufferUsage.STORAGE);
+        const peakCombosBuffer = this.createBuffer(peakCombos, GPUBufferUsage.STORAGE);
+        const hklCombosBuffer = this.createBuffer(hklCombos, GPUBufferUsage.STORAGE);
+
+        const counterBuffer = this.createStorageBuffer(4);
+        const resultsBuffer = this.createStorageBuffer(maxSolutions * solutionStructSize);
+        const counterReadBuffer = this.createReadBuffer(4);
+        const resultsReadBuffer = this.createReadBuffer(maxSolutions * solutionStructSize);
+        const qTolerancesBuffer = this.createBuffer(qTolerancesArray, GPUBufferUsage.STORAGE);
+
+        const debugLogSize = 10 * 20 * 4; // 10 cells * 3 peaks * 5 floats + pad
+        const debugCounterBuffer = this.createStorageBuffer(4);
+        const debugLogBuffer = this.createStorageBuffer(debugLogSize);
+        const debugCounterReadBuffer = this.createReadBuffer(4);
+        const debugLogReadBuffer = this.createReadBuffer(debugLogSize);
+
+        // --- Config Buffer (Uniforms) ---
+        const configBufferSize = 36; // 9 * 4 bytes
+        const configBuffer = this.device.createBuffer({
+            size: configBufferSize,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+        
+        const configData = new ArrayBuffer(configBufferSize);
+        const configViewU32 = new Uint32Array(configData);
+        const configViewF32 = new Float32Array(configData);
+
+        const n_peaks = qObsArray.length;
+        const n_hkls = hklBasisArray.length / 4;
+
+        configViewF32[1] = baseParams.wavelength;
+        configViewF32[2] = baseParams.tth_error;
+        configViewF32[3] = baseParams.max_volume;
+        configViewU32[4] = baseParams.impurity_peaks;
+        configViewU32[5] = qTolerancesArray.length; // N_PEAKS_FOR_FOM
+        configViewU32[6] = Math.min(n_hkls, 100);   // N_HKL_FOR_FOM (e.g., 100)
+        // 7, 8 are padding
+
+        // --- Create Bind Group
+        const bindGroup = this.device.createBindGroup({
+            layout: this.pipeline.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: { buffer: qObsBuffer } },
+                { binding: 1, resource: { buffer: hklBasisBuffer } },
+                { binding: 2, resource: { buffer: peakCombosBuffer } },
+                { binding: 3, resource: { buffer: hklCombosBuffer } },
+                { binding: 4, resource: { buffer: counterBuffer } },
+                { binding: 5, resource: { buffer: resultsBuffer } },
+                { binding: 6, resource: { buffer: configBuffer } },
+                { binding: 7, resource: { buffer: debugCounterBuffer } },
+                { binding: 8, resource: { buffer: debugLogBuffer } },
+                { binding: 9, resource: { buffer: qTolerancesBuffer } },
+            ],
+        });
+
+        // --- Chunked Dispatch Logic ---
+        const numPeakCombos = peakCombos.length / 3;
+        const numHklCombos = hklCombos.length / 3;
+        const workgroupSizeX = 8;
+        const workgroupSizeY = 8;
+
+        const workgroupsX = Math.ceil(numPeakCombos / workgroupSizeX);
+        const totalHklWorkgroups = Math.ceil(numHklCombos / workgroupSizeY);
+
+        const maxDimY = this.adapter.limits.maxComputeWorkgroupsPerDimension || 4096;
+        const safeChunkY = 256;
+        const workgroupsY = Math.min(totalHklWorkgroups, safeChunkY, maxDimY);
+        
+        const totalWorkgroupsZ = Math.ceil(totalHklWorkgroups / workgroupsY);
+
+        for (let z_chunk = 0; z_chunk < totalWorkgroupsZ; z_chunk++) {
+            if (stopSignal.stop) {
+                console.log("WebGPU engine stopping (ortho)...");
+                break;
+            }
+
+            configViewU32[0] = z_chunk; // Set z_offset
+            this.device.queue.writeBuffer(configBuffer, 0, configData);
+
+            const hklWorkgroupsInThisChunk = (z_chunk === totalWorkgroupsZ - 1) 
+                ? (totalHklWorkgroups % workgroupsY || workgroupsY) 
+                : workgroupsY;
+
+            const commandEncoder = this.device.createCommandEncoder();
+            const passEncoder = commandEncoder.beginComputePass();
+            passEncoder.setPipeline(this.pipeline);
+            passEncoder.setBindGroup(0, bindGroup);
+            passEncoder.dispatchWorkgroups(workgroupsX, hklWorkgroupsInThisChunk, 1);
+            passEncoder.end();
+            commandEncoder.copyBufferToBuffer(counterBuffer, 0, counterReadBuffer, 0, 4);
+            
+            this.device.queue.submit([commandEncoder.finish()]);
+            await this.device.queue.onSubmittedWorkDone();
+
+            await counterReadBuffer.mapAsync(GPUMapMode.READ);
+            const numSolutions = new Uint32Array(counterReadBuffer.getMappedRange())[0];
+            counterReadBuffer.unmap();
+
+            if (numSolutions >= maxSolutions) {
+                console.log(`GPU Buffer Full (Ortho: ${numSolutions}). Stopping early.`);
+                if (progressCallback) progressCallback(1.0, numSolutions);
+                stoppedEarly = true;
+                break;
+            }
+
+            if (progressCallback) {
+                progressCallback((z_chunk + 1) / totalWorkgroupsZ, numSolutions);
+            }
+        }
+
+        // --- Retrieve Results ---
+        const finalEncoder = this.device.createCommandEncoder();
+        finalEncoder.copyBufferToBuffer(counterBuffer, 0, counterReadBuffer, 0, 4);
+        finalEncoder.copyBufferToBuffer(resultsBuffer, 0, resultsReadBuffer, 0, resultsBuffer.size);
+        finalEncoder.copyBufferToBuffer(debugCounterBuffer, 0, debugCounterReadBuffer, 0, 4);
+        finalEncoder.copyBufferToBuffer(debugLogBuffer, 0, debugLogReadBuffer, 0, debugLogBuffer.size);
+        this.device.queue.submit([finalEncoder.finish()]);
+        await this.device.queue.onSubmittedWorkDone();
+
+        await counterReadBuffer.mapAsync(GPUMapMode.READ);
+        const numSolutions = new Uint32Array(counterReadBuffer.getMappedRange())[0];
+        counterReadBuffer.unmap();
+
+        const potentialCells = [];
+        if (numSolutions > 0) {
+            await resultsReadBuffer.mapAsync(GPUMapMode.READ);
+            const rawResults = new Float32Array(resultsReadBuffer.getMappedRange());
+            
+            const maxVol = baseParams.max_volume;
+            const countToRead = Math.min(numSolutions, maxSolutions);
+
+            for (let i = 0; i < countToRead; i++) {
+                const offset = i * 3;
+                const cell = {
+                    a: rawResults[offset + 0],
+                    b: rawResults[offset + 1],
+                    c: rawResults[offset + 2],
+                    system: 'orthorhombic',
+                };
+                
+                const vol = cell.a * cell.b * cell.c;
+                if (vol > 0 && vol <= maxVol) {
+                     potentialCells.push(cell);
+                }
+            }
+            resultsReadBuffer.unmap();
+        }
+        
+        // --- Debug Log Readback ---
+        await debugCounterReadBuffer.mapAsync(GPUMapMode.READ);
+        // const numDebugLogs = new Uint32Array(debugCounterReadBuffer.getMappedRange())[0];
+        debugCounterReadBuffer.unmap();
+        await debugLogReadBuffer.mapAsync(GPUMapMode.READ); // Map...
+        debugLogReadBuffer.unmap(); // ...and unmap, even if not logging.
+
+        // --- Cleanup ---
+        qObsBuffer.destroy();
+        hklBasisBuffer.destroy();
+        peakCombosBuffer.destroy();
+        hklCombosBuffer.destroy();
+        counterBuffer.destroy();
+        resultsBuffer.destroy();
+        counterReadBuffer.destroy();
+        resultsReadBuffer.destroy();
+        configBuffer.destroy();
+        debugCounterBuffer.destroy();
+        debugLogBuffer.destroy();
+        debugCounterReadBuffer.destroy();
+        debugLogReadBuffer.destroy();
+        qTolerancesBuffer.destroy();
+
+        return { potentialCells, stoppedEarly };
+    }
+
 
 
 }

@@ -433,59 +433,49 @@ const propagateErrors = (system, fitResult, cell) => {
 const hkl_search_list_cache = {};
 const get_hkl_search_list = (system) => {
     if (hkl_search_list_cache[system]) return hkl_search_list_cache[system];
-    const hkls = []; const max_h = 8, max_mono = 4, max_tri = 4;
+    const hkls = []; 
+    const max_mono = 6, max_tri = 5;
+
     if (system === 'monoclinic') {
-
- for (let h = 0; h <= max_mono; h++) { // Rule 2: h >= 0
-            for (let k = 0; k <= max_mono; k++) { // Rule 1: k >= 0
-                for (let l = -max_mono; l <= max_mono; l++) {
-                    
-                    // (0,0,0) is not a reflection
+        const max_h = max_mono; // Use max_mono for clarity
+        for (let h = 0; h <= max_h; h++) { // Rule 2: h >= 0
+            for (let k = 0; k <= max_h; k++) { // Rule 1: k >= 0
+                for (let l = -max_h; l <= max_h; l++) {
                     if (h === 0 && k === 0 && l === 0) continue;
-                    
-                    // Apply special h=0 rule: if h=0, l must be >= 0
-                    if (h === 0 && l < 0) continue;
-
+                    if (h === 0 && l < 0) continue; // Apply special h=0 rule
                     hkls.push([h, k, l]);
                 }
             }
         }
-
-
-
     } else if (system === 'triclinic') {
         for (let h = -max_tri; h <= max_tri; h++) for (let k = -max_tri; k <= max_tri; k++) for (let l = 0; l <= max_tri; l++) {
             if (h === 0 && k === 0 && l === 0) continue; if (l === 0 && k < 0) continue; if (l === 0 && k === 0 && h <= 0) continue; hkls.push([h, k, l]);
         }
-    
-
-
-        } else if (system === 'orthorhombic') {
-//anisotropic cells, 16 nov
-    const hmax = 4;
-    const kmax = 8;
-    const lmax = 10;
-
-    for (let h = 0; h <= hmax; h++)
-        for (let k = 0; k <= kmax; k++)
-            for (let l = 0; l <= lmax; l++)
-                if (!(h===0 && k===0 && l===0))
-                    hkls.push([h,k,l]);
-
+    } else if (system === 'orthorhombic') {
+        // NEW ISOTROPIC GENERATION
+        const max_h = 12; // Generates up to 12x12x12 = 1728 potential HKLs before sort/filter
+        for (let h = 0; h <= max_h; h++)
+            for (let k = 0; k <= max_h; k++)
+                for (let l = 0; l <= max_h; l++)
+                    if (!(h===0 && k===0 && l===0))
+                        hkls.push([h,k,l]);
     } else if (system === 'tetragonal' || system === 'hexagonal') {
+        const max_h = 8;
         for (let h = 0; h <= max_h; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= max_h; l++) {
             if (h === 0 && k === 0 && l === 0) continue; hkls.push([h, k, l]);
         }
     } else if (system === 'cubic') {
+        const max_h = 8;
         for (let h = 0; h <= max_h; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= k; l++) {
             if (h === 0 && k === 0 && l === 0) continue; hkls.push([h, k, l]);
         }
     }
+    
+    // Q-sort (h^2+k^2+l^2) is applied to all systems
     hkls.sort((a,b) => (a[0]*a[0]+a[1]*a[1]+a[2]*a[2])-(b[0]*b[0]+b[1]*b[1]+b[2]*b[2]));
+    
     return hkl_search_list_cache[system] = hkls;
 };
-
-
 
 
 // --- CORE REFINEMENT AND ANALYSIS FUNCTION ---
@@ -905,7 +895,7 @@ for (const hkl of hkl_full) {
 }
 
 // Put the promoted reflections first, then slice
-const basis_hkls = [...special, ...regular].slice(0, 180);
+const basis_hkls = [...special, ...regular].slice(0, 300);
 
     
     const n_p = max_p;
