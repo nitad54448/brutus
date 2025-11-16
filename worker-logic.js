@@ -457,10 +457,21 @@ const get_hkl_search_list = (system) => {
         for (let h = -max_tri; h <= max_tri; h++) for (let k = -max_tri; k <= max_tri; k++) for (let l = 0; l <= max_tri; l++) {
             if (h === 0 && k === 0 && l === 0) continue; if (l === 0 && k < 0) continue; if (l === 0 && k === 0 && h <= 0) continue; hkls.push([h, k, l]);
         }
-    } else if (system === 'orthorhombic') {
-        for (let h = 0; h <= max_h; h++) for (let k = 0; k <= max_h; k++) for (let l = 0; l <= max_h; l++) {
-            if (h === 0 && k === 0 && l === 0) continue; hkls.push([h, k, l]);
-        }
+    
+
+
+        } else if (system === 'orthorhombic') {
+//anisotropic cells, 16 nov
+    const hmax = 4;
+    const kmax = 8;
+    const lmax = 10;
+
+    for (let h = 0; h <= hmax; h++)
+        for (let k = 0; k <= kmax; k++)
+            for (let l = 0; l <= lmax; l++)
+                if (!(h===0 && k===0 && l===0))
+                    hkls.push([h,k,l]);
+
     } else if (system === 'tetragonal' || system === 'hexagonal') {
         for (let h = 0; h <= max_h; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= max_h; l++) {
             if (h === 0 && k === 0 && l === 0) continue; hkls.push([h, k, l]);
@@ -872,8 +883,30 @@ function indexTetragonalOrHexagonal(data, state, postMessage_func, system) {
 
 function indexOrthorhombic(data, state, postMessage_func) {
     const { q_obs, refineAndTestSolution } = state;
-    const max_p = Math.min(10, q_obs.length), basis_hkls = get_hkl_search_list('orthorhombic').slice(0, 80);
-    
+
+    const max_p = Math.min(10, q_obs.length);
+
+// --- Method C: Promote H00 / 0K0 / 00L before slicing ---
+let hkl_full = get_hkl_search_list('orthorhombic');  // already Q-sorted
+
+const special = [];
+const regular = [];
+
+for (const hkl of hkl_full) {
+    const [h, k, l] = hkl;
+
+    if ((k === 0 && l === 0) ||   // H00
+        (h === 0 && l === 0) ||   // 0K0
+        (h === 0 && k === 0)) {   // 00L
+        special.push(hkl);
+    } else {
+        regular.push(hkl);
+    }
+}
+
+// Put the promoted reflections first, then slice
+const basis_hkls = [...special, ...regular].slice(0, 180);
+
     
     const n_p = max_p;
     const n_h = basis_hkls.length;
@@ -913,7 +946,7 @@ function indexOrthorhombic(data, state, postMessage_func) {
     }
     if (trialsBatch > 0) postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch });
 }
-
+//old CPU, keep it, not used since end of oct 2025, GPU implemented
 function indexMonoclinic(data, state, postMessage_func) {
     const { q_obs, refineAndTestSolution } = state;
     const max_p = Math.min(10, q_obs.length), basis_hkls = get_hkl_search_list('monoclinic').slice(0, 100);
@@ -960,6 +993,8 @@ function indexMonoclinic(data, state, postMessage_func) {
     if (trialsBatch > 0) postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch });
 }
 
+
+//old CPU, keep it here but not used.
 function indexTriclinic(data, state, postMessage_func) {
     const { q_obs, refineAndTestSolution } = state;
     const max_p = Math.min(10, q_obs.length), basis_hkls = get_hkl_search_list('triclinic').slice(0, 160);

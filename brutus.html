@@ -2501,7 +2501,7 @@ const startIndexing = async () => {
                 const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
                 
                 console.log(`Triclinic Config: n=${num_hkls}, k=${K_VALUE}`);
-                console.log(`  Peak Combos: ${peakCombos.length / K_VALUE} (from ${max_p} peaks)`); // <-- MODIFIED
+                console.log(`  Peak Combos: ${peakCombos.length / K_VALUE} (from ${max_p} peaks)`);
                 console.log(`  Total HKL Combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()} (from ${num_hkls} HKLs)`); // <-- MODIFIED
                 console.log(`Dynamically calculated chunks: ${numChunks}`);
 
