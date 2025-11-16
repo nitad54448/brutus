@@ -1,7 +1,7 @@
 # Technical Overview & Methodology
 
 <a id="introduction"></a>
-This document is a technical reference for the Brutus powder indexing software. It explains the main algorithms, search parameters, and methodology, and is intended for users familiar with powder X-ray diffraction. As the name of the program suggests it, this is brute force method (force is not necessarily smart).
+This document is a technical reference for the Brutus powder indexing software. It explains the main algorithms, search parameters, and methodology, and is intended for users familiar with powder X-ray diffraction. As the name of the program suggests it, this is a brute force method (force is not necessarily smart).
 
 ### Core Goal
 
