@@ -323,6 +323,14 @@
         input[type="range"].custom-slider:disabled::-moz-range-thumb {
             background: var(--border-color);
         }
+
+                /* --- GPU Params specific style --- */
+        #gpu-params-container {
+            border-top: 1px solid var(--light-bg);
+            padding-top: 1.5rem;
+            margin-top: 1.5rem;
+        }
+
     </style>
 </head>
 <body>
@@ -463,7 +471,7 @@
                             <div class="parameter-grid">
                                 <div>
                                     <label for="max-volume" class="control-label">Max Volume (Å³)</label>
-                                    <input type="number" id="max-volume" value="4000" step="100" min="25" max="12500" class="control-input">
+                                    <input type="number" id="max-volume" value="2000" step="100" min="25" max="12500" class="control-input">
                                 </div>
                                 <div>
                                     <label for="impurity-peaks" class="control-label">Impurity Peaks</label>
@@ -474,7 +482,7 @@
                             <div class="parameter-grid" style="margin-top: 1rem; align-items: end;">
                                 <div>
                                     <label for="tth-error" class="control-label">2θ Error (°)</label>
-                                    <input type="number" id="tth-error" value="0.06" step="0.002" min="0.0001" class="control-input">
+                                    <input type="number" id="tth-error" value="0.05" step="0.002" min="0.0001" class="control-input">
                                 </div>
                                 <label class="checkbox-label" style="padding-bottom: 0.5rem;">
                                     <input type="checkbox" id="refine-zero-checkbox" checked> 
@@ -484,12 +492,27 @@
                             
 <label class="control-label" style="margin-top: 1.5rem; margin-bottom: 1rem;">Crystal Systems to Search:</label>
 <div class="parameter-grid">
-    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="cubic" checked> <span>Cubic</span></label>
-    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="tetragonal" checked> <span>Tetragonal</span></label>
-    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="hexagonal" checked> <span>Hexagonal</span></label>
+    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="cubic"> <span>Cubic</span></label>
+    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="tetragonal"> <span>Tetragonal</span></label>
+    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="hexagonal" > <span>Hexagonal</span></label>
     <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="orthorhombic"> <span>Orthorhombic</span></label>
     <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="monoclinic"> <span>Monoclinic</span></label>
     <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="triclinic"> <span>Triclinic</span></label>
+</div>
+
+
+<div id="gpu-params-container" class="control-group hidden">
+    <label class="control-label" style="margin-bottom: 1rem;">GPU Search Parameters:</label>
+    <div class="parameter-grid">
+        <div>
+            <label for="gpu-hkl-triplets" class="control-label">HKL Basis Size</label>
+            <input type="number" id="gpu-hkl-triplets" value="80" min="10" max="200" step="5" class="control-input">
+        </div>
+        <div>
+            <label for="gpu-peaks-count" class="control-label">Peaks to Combine</label>
+            <input type="number" id="gpu-peaks-count" value="7" min="4" max="20" step="1" class="control-input">
+        </div>
+    </div>
 </div>
 
 
@@ -582,6 +605,15 @@ const WAVELENGTH_PRESETS = {
         systemCheckboxes: document.querySelectorAll('.system-checkbox'),
         startIndexingButton: document.getElementById('start-indexing-button'),
         reportButton: document.getElementById('report-button'),
+
+                tabButtonsContainer: document.querySelector('.tab-buttons'),
+        tabButtons: document.querySelectorAll('.tab-btn'),
+        tabPanels: document.querySelectorAll('.tab-content-panel'),
+        // --- New GPU Param UI Elements ---
+        gpuParamsContainer: document.getElementById('gpu-params-container'),
+        gpuHklTriplets: document.getElementById('gpu-hkl-triplets'),
+        gpuPeaksCount: document.getElementById('gpu-peaks-count'),
+
         progressBar: document.getElementById('progress-bar'),
         progressBarContainer: document.getElementById('progress-bar-container'),
         solutionsTableBody: document.getElementById('solutions-table-body'),
@@ -598,13 +630,54 @@ const WAVELENGTH_PRESETS = {
         ballRadiusValue: document.getElementById('ball-radius-value'),
         smoothingWidthSlider: document.getElementById('smoothing-width-slider'),
         smoothingWidthValue: document.getElementById('smoothing-width-value'),
-        statusBar: document.getElementById('status-box'),
-        tabButtonsContainer: document.querySelector('.tab-buttons'),
-        tabButtons: document.querySelectorAll('.tab-btn'),
-        tabPanels: document.querySelectorAll('.tab-content-panel')
+        statusBar: document.getElementById('status-box')
     };
     
     const statusTextElement = document.getElementById('status-text');
+
+
+/**
+     * Enforces min/max constraints on a number input element when the user clicks away.
+     * @param {HTMLInputElement} inputEl - The input element to validate.
+     * @param {number} defaultVal - A default value to use if parsing fails.
+     */
+    function validateNumberInput(inputEl, defaultVal = 0) {
+        const min = parseFloat(inputEl.min) || 0;
+        const max = parseFloat(inputEl.max) || Infinity;
+        let value = parseFloat(inputEl.value);
+
+        if (isNaN(value)) {
+            value = defaultVal;
+        }
+        
+        if (value < min) {
+            value = min;
+        } else if (value > max) {
+            value = max;
+        }
+        
+        // Update the element's value to the constrained value
+        inputEl.value = value;
+    }
+
+    // --- Add validation to all number inputs ---
+    ui.maxVolume.addEventListener('blur', () => validateNumberInput(ui.maxVolume, 4000));
+    ui.impurityPeaksInput.addEventListener('blur', () => validateNumberInput(ui.impurityPeaksInput, 0));
+    ui.tthError.addEventListener('blur', () => validateNumberInput(ui.tthError, 0.06));
+    
+    // Add validation to the new GPU inputs
+    ui.gpuHklTriplets.addEventListener('blur', () => {
+        validateNumberInput(ui.gpuHklTriplets, 80);
+        updateGpuStatusText(); // Also update status text on blur
+    });
+    ui.gpuPeaksCount.addEventListener('blur', () => {
+        // Special min-value logic for gpuPeaksCount
+        const currentMin = parseFloat(ui.gpuPeaksCount.min) || 4;
+        validateNumberInput(ui.gpuPeaksCount, currentMin);
+        updateGpuStatusText(); // Also update status text on blur
+    });
+
+
 
 
     /**
@@ -691,16 +764,112 @@ const WAVELENGTH_PRESETS = {
             // If the user checks monoclinic, uncheck triclinic
             if (monoCheckbox.checked) {
                 triCheckbox.checked = false;
+                ui.gpuHklTriplets.value = 80;
+                ui.gpuPeaksCount.value = 7;
+                ui.gpuPeaksCount.min = 4;
             }
+            toggleGpuParamsVisibility();
         });
 
         triCheckbox.addEventListener('change', () => {
             // If the user checks triclinic, uncheck monoclinic
             if (triCheckbox.checked) {
                 monoCheckbox.checked = false;
+                ui.gpuHklTriplets.value = 40;
+                ui.gpuPeaksCount.value = 8;
+                ui.gpuPeaksCount.min = 6;
             }
+            toggleGpuParamsVisibility();
         });
+
+        // Add listeners to new inputs to update status text
+        ui.gpuHklTriplets.addEventListener('input', updateGpuStatusText);
+        ui.gpuPeaksCount.addEventListener('input', updateGpuStatusText);
     }
+
+    /* * Calculates combinations C(n, k) = "n choose k"
+     * Uses the stable multiplicative formula: (n/1) * ((n-1)/2) * ... * ((n-k+1)/k)
+     */
+    function combinations(n, k) {
+        if (k < 0 || k > n) {
+            return 0;
+        }
+        if (k === 0 || k === n) {
+            return 1;
+        }
+        // Use the identity C(n, k) == C(n, n-k) for efficiency
+        if (k > n / 2) {
+            k = n - k;
+        }
+        
+        let res = 1;
+        for (let i = 1; i <= k; i++) {
+            // (n - i + 1) is equivalent to (n, n-1, n-2, ...)
+            res = res * (n - i + 1) / i;
+        }
+        
+        return Math.round(res);
+    }
+
+
+    /**
+     * Updates the status text with GPU calculation estimates. 16 nov
+     */
+    function updateGpuStatusText() {
+        if (!monoCheckbox || !triCheckbox || !statusTextElement) return;
+
+        const n_hkl = parseInt(ui.gpuHklTriplets.value, 10);
+        const n_peaks = parseInt(ui.gpuPeaksCount.value, 10);
+
+        if (monoCheckbox.checked) {
+            const k_hkl = 4;
+            const k_peaks = 4;
+            // Use the input's current min attribute for the check
+            const min_peaks = parseInt(ui.gpuPeaksCount.min, 10) || k_peaks;
+            
+            if (isNaN(n_hkl) || isNaN(n_peaks) || n_hkl < k_hkl || n_peaks < min_peaks) {
+                statusTextElement.textContent = `Monoclinic: Requires min ${min_peaks} peaks and ${k_hkl} HKLs.`;
+                return;
+            }
+            const peakCombos = combinations(n_peaks, k_peaks);
+            const hklCombos = combinations(n_hkl, k_hkl);
+            const totalTests = peakCombos * hklCombos * 24; // 24 permutations
+            statusTextElement.textContent = `Monoclinic: ${totalTests.toLocaleString()} cells to test.`;
+
+        } else if (triCheckbox.checked) {
+            const k_hkl = 6;
+            const k_peaks = 6;
+            // Use the input's current min attribute for the check
+            const min_peaks = parseInt(ui.gpuPeaksCount.min, 10) || k_peaks;
+
+            if (isNaN(n_hkl) || isNaN(n_peaks) || n_hkl < k_hkl || n_peaks < min_peaks) {
+                statusTextElement.textContent = `Triclinic: Requires min ${min_peaks} peaks and ${k_hkl} HKLs.`;
+                return;
+            }
+            const peakCombos = combinations(n_peaks, k_peaks);
+            const hklCombos = combinations(n_hkl, k_hkl);
+            const totalTests = peakCombos * hklCombos * 720; // 720 permutations
+            statusTextElement.textContent = `Triclinic: ${totalTests.toLocaleString()} cells to test.`;
+        } else {
+            statusTextElement.textContent = lastIndexingStats || '';
+        }
+    }
+
+    /**
+     * Shows or hides the GPU-specific parameter inputs based on checkbox state.
+     */
+    function toggleGpuParamsVisibility() {
+        if (monoCheckbox.checked || triCheckbox.checked) {
+            ui.gpuParamsContainer.classList.remove('hidden');
+            updateGpuStatusText();
+        } else {
+            ui.gpuParamsContainer.classList.add('hidden');
+            if (statusTextElement) {
+                statusTextElement.textContent = lastIndexingStats || ''; // Restore last indexing status or clear
+            }
+        }
+    }
+
 
 
     ui.solutionsTableHeaders.forEach(header => {
@@ -1951,6 +2120,8 @@ const startIndexing = async () => {
     }
 
     const tthMinVal = parseFloat(ui.tthMinSlider.value);
+
+
     const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
     const filteredPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
 
@@ -2087,8 +2258,14 @@ const startIndexing = async () => {
     // --- TASK 2: MONOCLINIC (GPU) ---
     if (webgpuSystems.includes('monoclinic')) {
         const monoTask = (async () => {
-            if (filteredPeaks.length < 5) {
-                showStatus("Monoclinic search requires at least 5 peaks. Skipping.", "error");
+            
+                       const n_peaks_for_combo = Math.max(4, parseInt(ui.gpuPeaksCount.value, 10) || 7);
+            const n_hkl_for_basis = Math.max(10, parseInt(ui.gpuHklTriplets.value, 10) || 80);
+
+            
+            
+            if (filteredPeaks.length < 4) {
+                showStatus("Monoclinic search requires at least 4 peaks. Skipping.", "error");
                 return; // Resolves this task's promise
             } 
             
@@ -2121,11 +2298,17 @@ const startIndexing = async () => {
                 engine.createPipeline('main_4p');
                 const qObsArray = new Float32Array(q_obs);
                 
-                const hkl_basis_raw = get_hkl_search_list('monoclinic').slice(0, 80);
+                const hkl_basis_raw = get_hkl_search_list('monoclinic').slice(0, n_hkl_for_basis);
                 const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
                 hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
 
-                const max_p = Math.min(7, q_obs.length);
+                const max_p = Math.min(n_peaks_for_combo, q_obs.length);
+
+                                if (max_p < 4) {
+                     showStatus("Monoclinic: 'Peaks to Combine' must be at least 4.", "error");
+                     return;
+                }
+
                 const peak_combos_raw = [];
                 for (let i=0; i<max_p-3; i++)
                  for (let j=i+1; j<max_p-2; j++)
@@ -2147,8 +2330,9 @@ const startIndexing = async () => {
 
                 console.log(`Monoclinic 4-Peak Direct Solve Config:`);
                 console.log(`  Peak Combos: ${peakCombos.length / K_VALUE}`);
-                console.log(`  Total HKL Combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()}`);
-                console.log(`  Chunks: ${numChunks} (Size: ${combosPerChunk.toLocaleString()})`);
+                
+                               console.log(`  Peak Combos: ${peakCombos.length / K_VALUE} (from ${max_p} peaks)`);
+                console.log(`  Total HKL Combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()} (from ${num_hkls} HKLs)`);
 
                 const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
 
@@ -2251,6 +2435,15 @@ const startIndexing = async () => {
     // --- TASK 3: TRICLINIC (GPU) ---
     if (webgpuSystems.includes('triclinic')) {
         const triTask = (async () => {
+
+                        const n_peaks_for_combo_tri = Math.max(6, parseInt(ui.gpuPeaksCount.value, 10) || 8);
+            const n_hkl_for_basis_tri = Math.max(10, parseInt(ui.gpuHklTriplets.value, 10) || 40);
+
+            if (filteredPeaks.length < 6) {
+                 showStatus("Triclinic search requires at least 6 peaks. Skipping.", "error");
+                 return;
+            }
+
             try {
                 showStatus('Initializing WebGPU for triclinic (Exhaustive)...', 'info');
                 
@@ -2278,11 +2471,17 @@ const startIndexing = async () => {
                 
                 const qObsArray = new Float32Array(q_obs);
                 
-                const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, 40); // 40 est petit et rapide, n'est pas suffisant pour d'autres symétries
+                const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, n_hkl_for_basis_tri); // 40 est petit et rapide, n'est pas suffisant pour d'autres symétries
                 const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
                 hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
 
-                const max_p = Math.min(8, q_obs.length); // Use first 10 peaks ?
+                const max_p = Math.min(n_peaks_for_combo_tri, q_obs.length); // Use first 10 peaks ?
+                
+                                if (max_p < 6) {
+                     showStatus("Triclinic: 'Peaks to Combine' must be at least 6.", "error");
+                     return;
+                }
+                
                 const peak_combos_raw = [];
                 for (let i=0; i<max_p-5; i++) for (let j=i+1; j<max_p-4; j++)
                 for (let k=j+1; k<max_p-3; k++) for (let l=k+1; l<max_p-2; l++)
@@ -2302,8 +2501,10 @@ const startIndexing = async () => {
                 const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
                 
                 console.log(`Triclinic Config: n=${num_hkls}, k=${K_VALUE}`);
-                console.log(`Total exhaustive combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()}`);
+                console.log(`  Peak Combos: ${peakCombos.length / K_VALUE} (from ${max_p} peaks)`); // <-- MODIFIED
+                console.log(`  Total HKL Combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()} (from ${num_hkls} HKLs)`); // <-- MODIFIED
                 console.log(`Dynamically calculated chunks: ${numChunks}`);
+
 
                 const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
                 
@@ -2427,73 +2628,21 @@ const startIndexing = async () => {
         statusTextElement.textContent = finalStatus; // Display it
     }
 
+
+        // After a run, clear GPU-specific status text if not selected
+    if (!monoCheckbox.checked && !triCheckbox.checked) {
+         if (statusTextElement) statusTextElement.textContent = finalStatus;
+    } else {
+        // If still selected, re-calculate the estimate (in case inputs changed during run)
+        updateGpuStatusText();
+    }
+
+
+
     if (statusTextElement) statusTextElement.textContent = 'Applying final sieve...';
     solutions = applyFinalSieve(solutions); 
     
- 
-    // niceness test, cherche proche de ortho
-    if (statusTextElement) statusTextElement.textContent = 'Standardizing Niggli cells...';
-    
-    const symmetryOrder = { 
-        'triclinic': 0, 
-        'monoclinic': 1, 
-        'orthorhombic': 2, 
-        'tetragonal': 3, 
-        'hexagonal': 4, 
-        'cubic': 5 
-    };
 
-    solutions.forEach(sol => {
-        // We only check systems that can be "ugly"
-        if (sol.system === 'monoclinic' || sol.system === 'triclinic') {
-            try {
-                // 1. Get the Niggli-reduced cell
-                const niggliResult = reduceToNiggliCell(sol);
-                const nCell = niggliResult.cell;
-                
-                // 2. Find its "true" symmetry
-                const trueSymmetry = getSymmetry(nCell.a, nCell.b, nCell.c, nCell.alpha, nCell.beta, nCell.gamma, 0.05);
-
-                const originalSymmetryRank = symmetryOrder[sol.system];
-                const newSymmetryRank = symmetryOrder[trueSymmetry];
-
-                let keepOriginal = true; // Default to keeping the original
-
-                // --- 3. Apply Niceness Logic ---
-                if (newSymmetryRank > originalSymmetryRank) {
-                    // Rule 1: The new cell has a higher symmetry. This is ALWAYS better.
-                    keepOriginal = false;
-                } else if (newSymmetryRank === originalSymmetryRank) {
-                    // Rule 2: Same symmetry. Check if the new cell is more orthogonal.
-                    const originalScore = getOrthogonalityScore(sol);
-                    const newScore = getOrthogonalityScore(nCell);
-                    
-                    // oops...need to prefer the original cell in a tie.
-                    if (newScore < originalScore) {
-                        keepOriginal = false;
-                    }
-                }
-
-                // --- 4. Overwrite solution if we found a better one ---
-                if (!keepOriginal) {
-                    sol.a = nCell.a;
-                    sol.b = nCell.b;
-                    sol.c = nCell.c;
-                    sol.alpha = nCell.alpha;
-                    sol.beta = nCell.beta;
-                    sol.gamma = nCell.gamma;
-                    sol.system = trueSymmetry; 
-                    sol.volume = getVolume(sol); // Recalculate volume
-                }
-                // (If keepOriginal is true, we do nothing)
-
-            } catch (e) {
-                // Robustness: If reduction fails, just keep the original cell.
-                console.warn("Niggli reduction failed for a solution, retaining original:", e, sol);
-            }
-        }
-    });
-    // toute cette partie de Niceness peut etre supprimée
     
     if (statusTextElement) statusTextElement.textContent = 'Analyzing space groups...';
 
@@ -2898,7 +3047,7 @@ const generatePDFReport = async () => {
             // --- Page Header & Chart ---
             const now = new Date();
             const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 15 nov 2025';
+            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 16 nov 2025';
           	const programURL = window.location.href;
             
     
@@ -3423,6 +3572,6 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 15 nov 2025</div>
+<div id="app-footer">Brutus, 16 nov 2025</div>
 </body>
 </html>

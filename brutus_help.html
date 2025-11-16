@@ -17,7 +17,7 @@
           }
         };
     </script>
-    <script type="text/javascript" id="MathJax-script" async
+    <script typeF="text/javascript" id="MathJax-script" async
       src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js">
     </script>
     <style>
@@ -206,6 +206,15 @@
                     </ul>
                 </li>
                 <li>
+                    <strong>(Optional) Tune GPU Parameters.</strong>
+                    If searching Monoclinic or Triclinic, a new box appears.
+                    <ul>
+                        <li><code>HKL Basis Size</code>: (Default: 80 for M, 40 for T) Number of simple HKLs to use for the search.</li>
+                        <li><code>Peaks to Combine</code>: (Default: 7 for M, 8 for T) Number of observed peaks to use for combinations.</li>
+                        <li>Leave these at their defaults unless you have trouble finding a solution.</li>
+                    </ul>
+                </li>
+                <li>
                     <strong>Start indexing.</strong>
                     Click <code>Start Indexing</code>. Progress is shown on the main bar.
                 </li>
@@ -289,6 +298,26 @@
                     Checkboxes for Cubic, Tetragonal, Hexagonal, Orthorhombic, Monoclinic, and Triclinic.
                 </li>
             </ul>
+
+            <h4 style="margin-top: 2em;">GPU Search Parameters</h4>
+            <p>
+                When <code>Monoclinic</code> or <code>Triclinic</code> is selected, this section appears, allowing you to control the scope of the GPU-accelerated search.
+            </p>
+            <ul>
+                <li>
+                    <strong>HKL Basis Size:</strong>
+                    Controls how many simple HKL triplets (from a pre-generated list) are used in the search combinations.
+                    <br><em>(Default: 80 for Monoclinic, 40 for Triclinic. Range: 10-200)</em>
+                </li>
+                <li>
+                    <strong>Peaks to Combine:</strong>
+                    Controls how many of your observed peaks (from the top of the peak list) are used to generate combinations.
+                    <br><em>(Default: 7 for Monoclinic, 8 for Triclinic. Min: 4/6)</em>
+                </li>
+            </ul>
+            <p>
+                When you select a GPU system, the status text at the bottom of the panel will show you the total number of cells to be tested, which is a direct result of these two parameters. Be careful, this number can increase very fast. For a regular GPU card at the time of this writting (like Nvidia 8Gb T1000) the search speed is about 10M cells per second.
+            </p>
 
             <h4>3. Solutions Tab</h4>
             <ul>
@@ -392,151 +421,96 @@
                 (e.g. $h^2$, $k^2$, $l^2$), and $P_i$ are the reciprocal lattice parameters (e.g. $A = 1/a^2$, $B = 1/b^2$, …).
             </p>
 
-            <h3>System-by-System Logic</h3>
+            <h3>CPU Searches (Cubic, Tetra, Hexa, Ortho)</h3>
             <ul>
                 <li>
-                    <strong>Cubic (1 parameter, $A = 1/a^2$) – CPU worker</strong><br>
-                    Solves a 1×1 system:
-                    $$ Q_{obs, 1} = (h_1^2 + k_1^2 + l_1^2) \cdot A $$
-                    The program iterates through the first 10 observed peaks and assigns trial $(hkl)$
-                    vectors (integers up to 8) to obtain candidate values for $a$.
+                    <strong>Cubic (1 parameter, $A = 1/a^2$)</strong><br>
+                    Solves a 1×1 system by iterating through the first 10 observed peaks and assigning trial $(hkl)$ vectors (integers up to 8).
                 </li>
 
                 <li>
-                    <strong>Tetragonal & Hexagonal (2 parameters) – CPU worker</strong><br>
-                    Solves a 2×2 system using pairs of peaks from the first 10:
-                    $$ Q_{obs, 1} = H_{1,a} \cdot P_1 + H_{1,c} \cdot P_2 $$
-                    $$ Q_{obs, 2} = H_{2,a} \cdot P_1 + H_{2,c} \cdot P_2 $$
-                    Pairs of trial $(hkl)$ vectors are assigned to determine $P_1$ and $P_2$, which
-                    are then converted to $a$ and $c$.
+                    <strong>Tetragonal & Hexagonal (2 parameters)</strong><br>
+                    Solves a 2×2 system using pairs of peaks from the first 10, assigning pairs of trial $(hkl)$ vectors.
                 </li>
 
                 <li>
-                    <strong>Orthorhombic (3 parameters, $A, B, C$) – CPU worker</strong><br>
-                    Solves a 3×3 system for $1/a^2$, $1/b^2$, and $1/c^2$.
-                    The algorithm:
-                    <ul>
-                        <li>Loops over all combinations of 3 peaks from the first 10 (120 triplets).</li>
-                        <li>For each peak triplet, tests all combinations of 3 HKLs drawn from a basis of 80 simple reflections (82,160 triplets).</li>
-                        <li>Total search space: 120 × 82,160 ≈ 9.86 million combinations, forming a truly exhaustive search over this HKL basis.</li>
-                    </ul>
-                </li>
-
-                <li>
-                    <strong>Monoclinic (4 parameters, $A, B, C, D$) – WebGPU accelerated</strong>
-                    <h4>Direct 4-Peak Solve</h4>
-                    <p>
-                        The monoclinic $Q$-spacing formula can be written as
-                    </p>
-                    <p>
-                        $$ Q_{hkl} = A h^2 + B k^2 + C l^2 + D h l $$
-                    </p>
-                    <p>
-                        One combination of 4 observed peaks and 4 trial HKLs defines a 4×4 matrix $M$ and right-hand side vector $\vec{q}$.
-                        The system
-                        $$ M \cdot \vec{x} = \vec{q} $$
-                        is solved for $\vec{x} = [A, B, C, D]$.
-                    </p>
-
-                    <h4>GPU Parallelism and Permutations</h4>
-                    <p>
-                        The correct assignment between peaks and HKLs is unknown, so each GPU thread:
-                    </p>
-                    <ul>
-                        <li>Receives one unique (4-peak combination, 4-HKL combination) pair.</li>
-                        <li>Loops 24 times (4!) over all permutations of the 4 peaks.</li>
-                        <li>Solves the 4×4 system for each permutation using a dedicated solver.</li>
-                    </ul>
-                    <p>
-                        The program scans all combinations of 4 peaks from the first 7 (35 combinations)
-                        and all combinations of 4 HKLs from a basis of 80 (≈1.58 million combinations).
-                        The total number of trial cells is therefore: <strong>≈ 1.33 billion trial cells.</strong></p>
-
-                    <h4>Two-Stage GPU Filtering</h4>
-                    <p>
-                        Most of these candidate cells are discarded on the GPU before they reach the CPU:
-                    </p>
-                    <ol>
-                        <li>
-                            <strong>Stage 1 – Basic filter (<code>extractCell</code>):</strong>
-                            A candidate is immediately rejected if:
-                            <ul>
-                                <li>The 4×4 system is singular.</li>
-                                <li>The derived monoclinic angle β is invalid ($D^2 \ge 4AC$) or outside 90°–150°.</li>
-                                <li>$a$, $b$, or $c$ is outside the range 2–50 Å.</li>
-                                <li>The cell volume exceeds <code>Max Volume</code>.</li>
-                            </ul>
-                        </li>
-                        <li>
-                            <strong>Stage 2 – Mini Figure of Merit (<code>validate_fom_avg_diff</code>):</strong>
-                            For surviving cells, the GPU:
-                            <ul>
-                                <li>Computes theoretical $q$ values for the first 100 HKLs.</li>
-                                <li>Compares them with the first 20 observed peaks.</li>
-                                <li>Evaluates the mean squared normalized error
-                                    $\text{avg}((\frac{q_{obs}-q_{calc}}{\text{tolerance}})^2)$.</li>
-                                <li>Accepts only cells whose score is below an internal threshold (e.g. 2.25).</li>
-                            </ul>
-                        </li>
-                    </ol>
-                </li>
-
-                <li>
-                    <strong>Triclinic (6 parameters, $A \dots F$) – WebGPU accelerated</strong>
-                    <h4>Direct 6-Peak Solve</h4>
-                    <p>
-                        The triclinic case solves the full quadratic form:
-                    </p>
-                    <p>
-                        $$ Q_{hkl} = Ah^2 + Bk^2 + Cl^2 + Dkl + Ehl + Fhk $$
-                    </p>
-                    <p>
-                        A combination of 6 peaks and 6 trial HKLs defines a 6×6 matrix $M$ and
-                        $\vec{q}$, and Brutus solves
-                        $$ M \cdot \vec{x} = \vec{q} $$
-                        for $\vec{x} = [A, B, C, D, E, F]$.
-                    </p>
-
-                    <h4>GPU Parallelism and Permutations</h4>
-                    <p>
-                        Each GPU thread receives one unique (6-peak combination, 6-HKL combination) pair and:
-                    </p>
-                    <ul>
-                        <li>Loops 720 times (6!) over all permutations of the 6 peaks.</li>
-                        <li>Solves the 6×6 system for each permutation.</li>
-                    </ul>
-                    <p>
-                        The search uses all combinations of 6 peaks from the first 8 (28 combinations)
-                        and all combinations of 6 HKLs from a basis of 40
-                        (≈3.84 million combinations). The total number of trial cells is
-                    </p>
-                    <p><strong>≈ 77.4 billion trial cells.</strong></p>
-
-                    <h4>Two-Stage GPU Filtering</h4>
-                    <ol>
-                        <li>
-                            <strong>Stage 1 – Basic filter (<code>extractCell</code>):</strong>
-                            A candidate is rejected if:
-                            <ul>
-                                <li>The 6×6 matrix is singular.</li>
-                                <li>The reciprocal metric tensor is not positive-definite or cannot be inverted.</li>
-                                <li>$a$, $b$, or $c$ is outside 2–50 Å.</li>
-                                <li>$\alpha$, $\beta$, or $\gamma$ is outside 60°–150°.</li>
-                                <li>The cell volume exceeds <code>Max Volume</code>.</li>
-                            </ul>
-                        </li>
-                        <li>
-                            <strong>Stage 2 – Mini Figure of Merit:</strong>
-                            Identical logic to the monoclinic case: a mean squared normalized error is evaluated
-                            against the first 20 peaks, and only sufficiently good candidates are retained.
-                        </li>
-                    </ol>
+                    <strong>Orthorhombic (3 parameters, $A, B, C$)</strong><br>
+                    Solves a 3×3 system. Loops over all combinations of 3 peaks from the first 10 (120 triplets) and tests them against combinations of 3 HKLs from a basis of 80 (82,160 triplets).
                 </li>
             </ul>
 
+            <h3 style="margin-top: 2.5em;">GPU-Accelerated Searches (Monoclinic & Triclinic)</h3>
+            <p>
+                For low-symmetry systems, the number of combinations becomes too large for the CPU. These searches are offloaded to the WebGPU. Their scope is now user-configurable.
+            </p>
+            
+            <h4>GPU Search Parameters</h4>
+            <p>
+                You can now control the two key inputs for the GPU search:
+            </p>
+            <ul>
+                <li>
+                    <code><strong>Peaks to Combine</strong></code>: This sets $N_p$, the number of observed peaks from your list used to generate combinations. The program calculates $C(N_p, k)$, where $k=4$ for monoclinic and $k=6$ for triclinic.
+                    <br><em>(Defaults: $N_p=7$ for Monoclinic, $N_p=8$ for Triclinic)</em>
+                </li>
+                <li>
+                    <code><strong>HKL Basis Size</strong></code>: This sets $N_h$, the number of simple HKL vectors used as the "basis set". The program calculates $C(N_h, k)$.
+                    <br><em>(Defaults: $N_h=80$ for Monoclinic, $N_h=40$ for Triclinic)</em>
+                </li>
+            </ul>
+            <p>
+                The total number of cells tested (which is displayed in the status text) is:
+                <br>
+                <strong>Total Cells = $C(N_p, k) \times C(N_h, k) \times k!$</strong>
+            </p>
+            <p>
+                Where $k=4$ and $k!=24$ for Monoclinic, and $k=6$ and $k!=720$ for Triclinic.
+            </p>
+
+
+            <h4>Monoclinic (4 parameters, $A, B, C, D$)</h4>
+            <ul>
+                <li>
+                    <strong>Logic:</strong> Solves a 4x4 system $M \cdot \vec{x} = \vec{q}$ for $\vec{x} = [A, B, C, D]$.
+                </li>
+                <li>
+                    <strong>GPU Work:</strong> Each GPU thread tests one (peak combo, HKL combo) pair, and loops 24 times (4!) to test all permutations.
+                </li>
+                <li>
+                    <strong>Defaults:</strong> $C(7, 4) \times C(80, 4) \times 24 \approx$ <strong>1.33 billion</strong> trial cells.
+                </li>
+            </ul>
+
+            <h4>Triclinic (6 parameters, $A \dots F$)</h4>
+            <ul>
+                <li>
+                    <strong>Logic:</strong> Solves the full 6x6 system $M \cdot \vec{x} = \vec{q}$ for $\vec{x} = [A, B, C, D, E, F]$.
+                </li>
+                <li>
+                    <strong>GPU Work:</strong> Each GPU thread tests one (peak combo, HKL combo) pair, and loops 720 times (6!) to test all permutations.
+                </li>
+                <li>
+                    <strong>Defaults:</strong> $C(8, 6) \times C(40, 6) \times 720 \approx$ <strong>77.4 billion</strong> trial cells.
+                </li>
+            </ul>
+
+            <h4>Two-Stage GPU Filtering</h4>
+            <p>
+                Most of these candidate cells are discarded on the GPU before they reach the CPU:
+            </p>
+            <ol>
+                <li>
+                    <strong>Stage 1 – Basic filter (<code>extractCell</code>):</strong>
+                    A candidate is immediately rejected if the system is singular, parameters are unphysical (e.g., $a < 2Å$), angles are invalid (e.g., $\beta > 150^\circ$), or the volume exceeds <code>Max Volume</code>.
+                </li>
+                <li>
+                    <strong>Stage 2 – Mini Figure of Merit (<code>validate_fom_avg_diff</code>):</strong>
+                    For surviving cells, the GPU computes a fast Figure of Merit by comparing the first 20 observed peaks to the cell's theoretical pattern. Only cells that pass a strict internal threshold are sent back to the CPU.
+                </li>
+            </ol>
+            
             <h3 id="tuning-the-search">Tuning the Search & Troubleshooting</h3>
             <p>
-                The GPU searches are exhaustive over the specified bases, but their usefulness depends strongly on the input parameters.
                 If you obtain no solutions, or too many, consider the following adjustments.
             </p>
 
@@ -545,8 +519,7 @@
                 <li>
                     <strong>Re-examine the peak list.</strong>
                     This is the dominant failure mode. Check that the first 10–15 peaks belong to a single phase,
-                    are free of impurities, and have accurate $2\theta$ positions. For low symmetry,
-                    the first 10 peaks with largest interplanar distances are particularly critical.
+                    are free of impurities, and have accurate $2\theta$ positions.
                 </li>
                 <li>
                     <strong>Relax <code>2θ Error</code>.</strong>
@@ -557,41 +530,37 @@
                     The true cell may be larger than initially expected.
                 </li>
                 <li>
-                    <strong>Increase the HKL basis (code-level option).</strong>
-                    If the default set of HKLs does not include the right 4 or 6 reflections,
-                    the direct solve may never hit the correct combination. In <code>brutus.html</code> (inside
-                    <code>startIndexing</code>), increase the slice, for example from
-                    <code>hkl_basis_raw.slice(0, 80)</code> to <code>slice(0, 120)</code>. The search will become
-                    much longer.
+                    <strong>Increase GPU Parameters.</strong>
+                    Try increasing <code>HKL Basis Size</code> (e.g., from 80 to 120) or <code>Peaks to Combine</code> (e.g., from 7 to 9). This will significantly increase the search time but covers more combinations.
                 </li>
             </ul>
 
             <h4>If you get too many solutions (GPU buffer fills)</h4>
+            <p>
+                The GPU buffer is now limited to 50,000 candidate solutions. If this buffer fills up, the search stops earlier than the full space requested. If you have no solution that appears valid:
+            </p>
             <ul>
                 <li>
                     <strong>Tighten <code>2θ Error</code>.</strong>
-                    The GPU buffer is now set at 100k solutions, if you have more than 100k candidates you need to adjust some parameters. A loose tolerance allows many marginal cells to pass so this is the first thing to check. 
+                    This is the most effective way to reduce the number of false positives.
                 </li>
                 <li>
                     <strong>Reduce <code>Max Volume</code>.</strong>
-                    This is an effective way to remove unphysical large cells.
+                    This is another strong constraint to remove unphysical large cells.
                 </li>
                 <li>
-                    <strong>Increase the number of peaks used (code-level option).</strong>
-                    Using more peaks in the direct solve (e.g. increasing <code>max_p</code> inside the
-                    <code>triTask</code> or <code>monoTask</code>) greatly enlarges the computation. You can also decrease the FOM tolerance in the wgsl code.
+                    <strong>Decrease GPU Parameters.</strong>
+                    Reducing <code>HKL Basis Size</code> or <code>Peaks to Combine</code> will run a smaller, faster search, but may miss the solution if it relies on a higher-index HKL or a peak further down the list.
                 </li>
             </ul>
 
             <h4>GPU Buffers and Chunking</h4>
             <p>
-                The total list of HKL combinations for triclinic indexing (≈1.19 billion combinations)
-                is usually too large for a single GPU buffer. Brutus therefore:
+                The total list of HKL combinations can be too large for a single GPU buffer. Brutus therefore:
             </p>
             <ol>
                 <li>
-                    Generates HKL combinations in large JavaScript chunks (e.g. ≈50 million combinations at a time)
-                    in <code>brutus.html</code>.
+                    Generates HKL combinations in large JavaScript chunks in <code>brutus.html</code>.
                 </li>
                 <li>
                     Further splits each of these into small “dispatch chunks” (e.g. 256 workgroups) in
@@ -599,25 +568,20 @@
                 </li>
             </ol>
             <p>
-                This two-level chunking avoids both memory overflow and long-running GPU commands that may trigger
-                “device hung” errors. The progress bar follows the JavaScript-side generation chunks.
+                This two-level chunking avoids both memory overflow and long-running GPU commands.
             </p>
-
             <blockquote>
                 <strong>Performance: WebGPU vs CPU</strong>
                 <p>
                     Cubic, Tetragonal, Hexagonal, and Orthorhombic searches run on the CPU (in a Web Worker) and are typically
-                    very fast (seconds to a few minutes).
+                    very fast, of the order or seconds.
                 </p>
                 <p>
-                    Monoclinic and Triclinic searches are offloaded to the GPU through WebGPU, supported by all major
-                    modern browsers. This allows testing of billions of trial cells in a time frame that would be
-                    impractical on the CPU. If you do not have a GPU you may use the CPU-only version of the preogram, but it will take much more time to find a solution.
+                    Monoclinic and Triclinic searches are offloaded to the GPU. This allows testing of billions of trial cells in a time frame (few minutes for 1 billion cells) that would be
+                    impractical on the CPU. 
                 </p>
                 <p>
-                    On a recent GPU, the throughput can exceed 10<sup>7</sup>  to 10<sup>8</sup> trials per second, depending on hardware.
-                    For maximum speed, keep the Brutus tab visible and active; background tabs will be throttled
-                    by the browser.
+                    Note: at the end of a GPU search all candidates (up to 50 000) are passeed to refinement, Niggli cell reduction, M(20) and F(N) calculations. These are made on the CPU so it might take a few minutes, be patient. 
                 </p>
             </blockquote>
         </section>
@@ -818,19 +782,9 @@
             <p>
                 If their symmetry is identical (e.g. two monoclinic cells), M(20) is compared.
                 Cells with M(20) values within a small tolerance (e.g. ΔM(20) &lt; 0.05) are considered equivalent in
-                quality and additional rules are applied:
+                quality and the first solution found is retained.
             </p>
-            <ul>
-                <li>
-                    <strong>Monoclinic:</strong>
-                    If volumes differ by less than 2% and M(20) is effectively equal, Brutus prefers the cell whose
-                    β angle is closer to 90° (e.g. 106° is preferred over 147°).
-                </li>
-                <li>
-                    <strong>Other systems:</strong>
-                    If a tie persists, the first solution found is retained.
-                </li>
-            </ul>
+            
         </section>
 
         <!-- TROUBLESHOOTING -->
@@ -848,6 +802,10 @@
                 <li>
                     <strong>Incorrect parameters:</strong>
                     Check the wavelength, the selected <code>Radiation Preset</code>, and the <code>Max Volume</code> value.
+                </li>
+                <li>
+                    <strong>GPU parameters are too restrictive:</strong>
+                    The true solution might require HKLs or peaks beyond the default <code>HKL Basis Size</code> or <code>Peaks to Combine</code>. Try increasing these values.
                 </li>
                 <li>
                     <strong>Large zero-point error:</strong>
@@ -907,15 +865,12 @@
                 </li>
                 <li>
                     <strong>PbSO4.xra</strong> and <strong>FAP.xra</strong> –
-                    Laboratory Cu Kα samples representative of orthorhombic and hexagonal structures (these daatfiles were taken from GSAS-2 tutorials).
+                    Laboratory Cu Kα samples representative of orthorhombic and hexagonal structures (these datafiles were taken from GSAS-2 tutorials).
                 </li>
                 <li>
                     <strong>P-1_sim_5_6_7_86_91_96.txt</strong> –
                     Simulated powder pattern for a P−1 lattice, λ = 1.7 Å,
                     a = 5.0 Å, b = 6.0 Å, c = 7.0 Å, α = 86.0°, β = 91.0°, γ = 96.0°.
-                    On a Windows PC with Chrome and an NVIDIA T1000 8 GB GPU, Brutus typically finds a solution with
-                    M(20) ≈ 86.9 (or an equivalent alternative cell) in under three minutes.
-                    On the CPU-only version (see <code>combs.html</code>), the same search will take 10 to 20 hours.
                 </li>
             </ul>
         </section>
@@ -984,7 +939,7 @@
             </ol>
 
             <div class="footer">
-                <p>Help guide generated with the assistance of an AI, last updated 15 November 2025.</p>
+                <p>Help guide generated with the assistance of an AI, last updated 16 November 2025.</p>
             </div>
         </section>
     </main>
