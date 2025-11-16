@@ -95,7 +95,7 @@ class WebGPUEngine {
         let stoppedEarly=false;
 
         // --- Create Buffers ---
-        const maxSolutions = 50000;
+        const maxSolutions = 20000;
         const solutionStructSize = 6 * 4; // RawSolution: a,b,c,al,be,ga
         
         const qObsBuffer = this.createBuffer(qObsArray, GPUBufferUsage.STORAGE);
@@ -330,7 +330,7 @@ class WebGPUEngine {
         let stoppedEarly=false;
 
         // --- Create Buffers ---
-        const maxSolutions = 50000;
+        const maxSolutions = 20000;
         const solutionStructSize = 4 * 4; // RawMonoSolution: a,b,c,beta
         
         const qObsBuffer = this.createBuffer(qObsArray, GPUBufferUsage.STORAGE);
@@ -572,7 +572,7 @@ class WebGPUEngine {
         let stoppedEarly=false;
 
         // --- Create Buffers ---
-        const maxSolutions = 50000;
+        const maxSolutions = 20000;
         const solutionStructSize = 3 * 4; // RawOrthoSolution: a,b,c
         
         const qObsBuffer = this.createBuffer(qObsArray, GPUBufferUsage.STORAGE);

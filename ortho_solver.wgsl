@@ -50,7 +50,7 @@ struct Config {
 const PI: f32 = 3.1415926535;
 const WORKGROUP_SIZE_Y: u32 = 8u;
 const MAX_Y_WORKGROUPS: u32 = 256u;
-const MAX_SOLUTIONS: u32 = 50000u;
+const MAX_SOLUTIONS: u32 = 20000u; //16 nov 
 const MAX_DEBUG_CELLS: u32 = 10u;
 
 // threshold for the *mean squared* normalized error

@@ -565,7 +565,7 @@
 
     <h4>If you get too many solutions (GPU buffer fills)</h4>
     <p>
-        The GPU buffer is now limited to 50,000 candidate solutions. If this buffer fills up, the search stops earlier than the full space requested. If you have no solution that appears valid:
+        The GPU buffer is now limited to 20,000 candidate solutions. If this buffer fills up, the search stops earlier than the full space requested. If you have no solution that appears valid:
     </p>
     <ul>
         <li>
@@ -609,7 +609,7 @@
             impractical on the CPU. 
         </p>
         <p>
-            Note: at the end of a GPU search all candidates (up to 50 000) are passed to refinement, Niggli cell reduction, M(20) and F(N) calculations. These are made on the CPU so it might take a few minutes, be patient (or change the parameters, or decrease the number of peaks in the list).
+            Note: at the end of a GPU search all candidates (up to 20 000) are passed to refinement, Niggli cell reduction, M(20) and F(N) calculations. These are made on the CPU so it might take a few minutes, be patient (or change the parameters, or decrease the number of peaks in the list).
         </p>
     </blockquote>
 
@@ -643,7 +643,7 @@
 
     <h4>If you get too many solutions (GPU buffer fills)</h4>
     <p>
-        The GPU buffer is now limited to 50,000 candidate solutions. If this buffer fills up, the search stops earlier than the full space requested. If you have no solution that appears valid:
+        The GPU buffer is now limited to 20,000 candidate solutions. If this buffer fills up, the search stops earlier than the full space requested. If you have no solution that appears valid:
     </p>
     <ul>
         <li>
@@ -687,7 +687,7 @@
             impractical on the CPU. The user can stop the search if a good solution is found.
         </p>
         <p>
-            Note: at the end of a GPU search all candidates (up to 50 000) are passed to refinement, Niggli cell reduction, M(20) and F(N) calculations. These are made on the CPU so it might take a few minutes, be patient. 
+            Note: at the end of a GPU search all candidates (up to 10 000) are passed to refinement, Niggli cell reduction, M(20) and F(N) calculations. These are made on the CPU so it might take a few minutes, be patient. 
         </p>
     </blockquote>
 </section>

@@ -482,7 +482,7 @@
                             <div class="parameter-grid" style="margin-top: 1rem; align-items: end;">
                                 <div>
                                     <label for="tth-error" class="control-label">2θ Error (°)</label>
-                                    <input type="number" id="tth-error" value="0.05" step="0.002" min="0.0001" class="control-input">
+                                    <input type="number" id="tth-error" value="0.06" step="0.002" min="0.0001" class="control-input">
                                 </div>
                                 <label class="checkbox-label" style="padding-bottom: 0.5rem;">
                                     <input type="checkbox" id="refine-zero-checkbox" checked> 
@@ -1295,7 +1295,7 @@ const setupWorker = () => {
     // --- Validation and Wavelength Listener ---
     const inputsToValidate = [
         { id: 'max-volume', el: ui.maxVolume, default: 1000 },
-        { id: 'tth-error', el: ui.tthError, default: 0.05 },
+        { id: 'tth-error', el: ui.tthError, default: 0.06 },
         { id: 'impurity-peaks', el: ui.impurityPeaksInput, default: 0 },
     ];
 
@@ -1567,6 +1567,80 @@ const setupWorker = () => {
             return;
         }
 
+
+        // Clean some bad points
+        let tth_in = parsed.tth;
+        let int_in = parsed.intensity;
+        
+        if (tth_in.length !== int_in.length) {
+            showStatus(`Error: Data file is corrupt. Mismatched column lengths.`, "error");
+            return;
+        }
+
+        let tth_out = [];
+        let int_out = [];
+        let stoppedAtIndex = -1;
+
+        for (let i = 0; i < tth_in.length; i++) {
+            const tth = tth_in[i];
+            const intensity = int_in[i];
+
+            // Check for non-numeric or infinite values
+            if (!isFinite(tth) || !isFinite(intensity)) {
+                stoppedAtIndex = i;
+                break; // Stop at the very first bad point
+            }
+            
+            // Only add if it's a valid, finite point
+            tth_out.push(tth);
+            int_out.push(Math.max(0, intensity)); // Clamp negative intensities to 0
+        }
+        
+        const originalCount = tth_in.length;
+        const removedCount = originalCount - tth_out.length;
+
+        // Write a warning if we trimmed any points
+        if (removedCount > 0) {
+            const message = `Info: Data read stopped at first invalid (NaN/Inf) point. ${removedCount} points trimmed.`;
+            console.warn(message, `Stopped at index ${stoppedAtIndex}`);
+            showStatus(message, 'info', 4000);
+        }
+
+        if (tth_out.length === 0) {
+             showStatus("Error: No valid data could be read from file.", "error");
+            return;
+        }
+
+        // --some Hack... trim trailing zeros
+        let lastNonZeroIndex = tth_out.length - 1;
+        
+        // Search backwards from the end
+        while (lastNonZeroIndex >= 0) {
+            // Use a small epsilon to treat very small numbers as zero
+            if (int_out[lastNonZeroIndex] > 1e-9) { 
+                break; // Found the last real data point
+            }
+            lastNonZeroIndex--;
+        }
+
+        const trimmedCount = tth_out.length - (lastNonZeroIndex + 1);
+
+        if (trimmedCount > 0) {
+            // Trim the arrays by slicing
+            tth_out = tth_out.slice(0, lastNonZeroIndex + 1);
+            int_out = int_out.slice(0, lastNonZeroIndex + 1);
+            
+            const message = `Info: Auto-trimmed ${trimmedCount} trailing zero-intensity points.`;
+            console.warn(message);
+            showStatus(message, 'info', 4000);
+        }
+        
+        if (tth_out.length === 0) {
+             showStatus("Error: No non-zero intensity data found.", "error");
+             return;
+        }
+    
+
         // --- Handle wavelength from file, if any
         if (parsed.wavelength) {
             // This is a monochromatic, known wavelength from the file
@@ -1583,7 +1657,7 @@ const setupWorker = () => {
         }
         
         // Store full dataset
-        fullExperimentalData = { tth: parsed.tth, intensity: parsed.intensity };
+        fullExperimentalData = { tth: tth_out, intensity: int_out };
         updateWorkingData(); // This will apply stripping if needed
 
         // Build experimental points for Chart.js
@@ -1803,23 +1877,38 @@ ui.tthMinSlider.addEventListener('input', () => {
                         refinedTth = tth[idx] + delta * avgStep;
                     }
                 }
+
+
+
+
+                
             // --- FALLBACK: Use 3-point fit if 5-point fails or is near edge ---
             } else if (idx > 0 && idx < n - 1) { 
                 const y1 = smoothed[idx - 1], y2 = smoothed[idx], y3 = smoothed[idx + 1]; 
                 const denominator = 2 * (y1 - 2 * y2 + y3); 
                 
-                // Check for valid maximum (denominator < 0)
-                if (denominator < -1e-10) { 
+if (denominator < -1e-10) { 
                     const delta = (y1 - y3) / denominator; 
-                    if (Math.abs(delta) < 1.0) { // Sanity check: delta must be within -1 to 1
+                    if (Math.abs(delta) < 1.0) { 
                         refinedTth = tth[idx] + delta * avgStep; 
                     } 
                 } 
-            } 
+            }
             
+            if (refinedTth <= 1e-4) {
+                refinedTth = 1e-4; // Prevent tth=0 or negative tth
+            }
+
+
+
             refinedPeaks.push({ ...peak, tth: refinedTth });
         }
         
+
+
+
+
+
         // --- Continue 
         refinedPeaks.sort((a, b) => a.tth - b.tth);
         const finalPeaks = []; const mergeThreshold = 0.02;
@@ -1855,15 +1944,28 @@ ui.tthMinSlider.addEventListener('input', () => {
         else { ui.startIndexingButton.disabled = false; ui.startIndexingButton.textContent = 'Start Indexing'; }
     };
 
-    ui.peakListBody.addEventListener('change', (e) => {
+
+
+
+
+ui.peakListBody.addEventListener('change', (e) => {
         if (e.target.classList.contains('peak-tth-input')) {
-            const index = parseInt(e.target.dataset.index); const tth = parseFloat(e.target.value); const lambda = parseFloat(ui.wavelength.value);
+            const index = parseInt(e.target.dataset.index); 
+            let tth = parseFloat(e.target.value); // 'const' to 'let'
+            if (tth <= 1e-4) tth = 1e-4; // <-- ADD THIS LINE
+            e.target.value = tth.toFixed(4); // <-- ADD THIS LINE to update the UI
+            const lambda = parseFloat(ui.wavelength.value);
             const d = lambda / (2 * Math.sin(tth * Math.PI / 360)); const q = 1 / (d*d);
             pickedPeaks[index] = {tth, d, q};
             e.target.closest('tr').querySelector('.peak-d-input').value = d.toFixed(5);
             updateAllMarkers(); updateStartIndexingButtonState();
         }
     });
+
+
+
+
+
      ui.peakListBody.addEventListener('click', (e) => {
         if (e.target.classList.contains('delete-peak-btn')) { const index = parseInt(e.target.dataset.index); pickedPeaks.splice(index, 1); updatePeakTable(); updateStartIndexingButtonState(); }
     });
@@ -3052,7 +3154,7 @@ scales: {
                                             closestPeak = hkl;
                                         }
                                     }
-                                    const tolerance = parseFloat(ui.tthError.value) || 0.05;
+                                    const tolerance = parseFloat(ui.tthError.value) || 0.06;
                                     if (closestPeak && minDiff < tolerance) {
                                         // Show the nearest HKL for context
                                         title += ` (Nearest Calc: ${closestPeak.tth.toFixed(4)}°, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}))`;
@@ -3122,17 +3224,23 @@ scales: {
     });
     
     ui.chartCanvas.addEventListener('contextmenu', e => { e.preventDefault(); if (xrdChart) { xrdChart.resetZoom('none'); updateAllMarkers(); } });
-    ui.chartCanvas.addEventListener('click', (e) => {
+    
+    
+    
+ui.chartCanvas.addEventListener('click', (e) => {
         if (!e.ctrlKey || !xrdChart) return;
         const rect = xrdChart.canvas.getBoundingClientRect(); const x = e.clientX - rect.left;
         if (x < xrdChart.chartArea.left || x > xrdChart.chartArea.right) return;
-        const tth = xrdChart.scales.x.getValueForPixel(x); if (!tth) return;
+        let tth = xrdChart.scales.x.getValueForPixel(x); if (!tth) return; // 'const' to 'let'
+        if (tth <= 1e-4) tth = 1e-4; // <-- ADD THIS LINE
         const lambda = parseFloat(ui.wavelength.value); if (isNaN(lambda)) { showStatus('Wavelength is not a valid number.', 'error'); return; }
         const sin_theta = Math.sin(tth * Math.PI / 360); if (sin_theta <= 0) return;
         const d = lambda / (2 * sin_theta); const q = 1 / (d * d);
         pickedPeaks.push({ tth, d, q }); pickedPeaks.sort((a, b) => a.tth - b.tth);
         updatePeakTable(); updateStartIndexingButtonState(); showStatus(`Peak added at ${tth.toFixed(3)}°`, 'success', 2000);
     });
+
+
 
 
 //main report function, on peut optimiser...

@@ -331,7 +331,8 @@ const luInvert = (luDecomp) => {
 const get_q_tolerance = (original_peak_index, tth_obs_rad, wavelength, tth_error) => {
     const theta_rad = tth_obs_rad[original_peak_index] / 2.0;
     const d_theta_rad = tth_error * Math.PI / 360;
-    return ((8 * Math.sin(theta_rad) * Math.cos(theta_rad)) / (wavelength**2)) * d_theta_rad;
+    const tolerance = ((8 * Math.sin(theta_rad) * Math.cos(theta_rad)) / (wavelength**2)) * d_theta_rad;
+    return tolerance + 1e-9; // Add epsilon to prevent division by zero
 };
 
 const binarySearchClosest = (arr, target) => {
@@ -452,7 +453,7 @@ const get_hkl_search_list = (system) => {
             if (h === 0 && k === 0 && l === 0) continue; if (l === 0 && k < 0) continue; if (l === 0 && k === 0 && h <= 0) continue; hkls.push([h, k, l]);
         }
     } else if (system === 'orthorhombic') {
-        // NEW ISOTROPIC GENERATION
+        
         const max_h = 12; // Generates up to 12x12x12 = 1728 potential HKLs before sort/filter
         for (let h = 0; h <= max_h; h++)
             for (let k = 0; k <= max_h; k++)
@@ -871,175 +872,6 @@ function indexTetragonalOrHexagonal(data, state, postMessage_func, system) {
     if (trialsBatch > 0) postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch });
 }
 
-function indexOrthorhombic(data, state, postMessage_func) {
-    const { q_obs, refineAndTestSolution } = state;
-
-    const max_p = Math.min(10, q_obs.length);
-
-// --- Method C: Promote H00 / 0K0 / 00L before slicing ---
-let hkl_full = get_hkl_search_list('orthorhombic');  // already Q-sorted
-
-const special = [];
-const regular = [];
-
-for (const hkl of hkl_full) {
-    const [h, k, l] = hkl;
-
-    if ((k === 0 && l === 0) ||   // H00
-        (h === 0 && l === 0) ||   // 0K0
-        (h === 0 && k === 0)) {   // 00L
-        special.push(hkl);
-    } else {
-        regular.push(hkl);
-    }
-}
-
-// Put the promoted reflections first, then slice
-const basis_hkls = [...special, ...regular].slice(0, 300);
-
-    
-    const n_p = max_p;
-    const n_h = basis_hkls.length;
-    const totalPeakCombos = (n_p * (n_p - 1) * (n_p - 2)) / 6; // C(n_p, 3)
-    const totalHklCombos = (n_h * (n_h - 1) * (n_h - 2)) / 6; // C(n_h, 3)
-    const totalTrialsToRun = totalPeakCombos * totalHklCombos;
-    let totalTrialsCompleted = 0;
-    
-    
-    let trialsBatch = 0; const batchSize = 20000;
-    for (let i = 0; i < max_p - 2; i++) {
-        for (let j = i + 1; j < max_p - 1; j++) {
-            for (let k = j + 1; k < max_p; k++) {
-                const q_vec_for_guess = [q_obs[i], q_obs[j], q_obs[k]];
-                for (let n1 = 0; n1 < basis_hkls.length - 2; n1++) {
-                    for (let n2 = n1 + 1; n2 < basis_hkls.length - 1; n2++) {
-                        for (let n3 = n2 + 1; n3 < basis_hkls.length; n3++) {
-                            trialsBatch++; 
-                            if (trialsBatch >= batchSize) { 
-                                postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
-                                totalTrialsCompleted += trialsBatch;
-                                const progress = (totalTrialsCompleted / totalTrialsToRun) * 80;
-                                postMessage_func({ type: 'progress', payload: progress });
-                                trialsBatch = 0; 
-                            }
-                            const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3]].map(hkl => [hkl[0] ** 2, hkl[1] ** 2, hkl[2] ** 2]);
-                            const fit = solveLeastSquares(M, q_vec_for_guess, q_vec_for_guess);
-                            if (fit && fit.solution && fit.solution.every(s => s > 0)) {
-                                refineAndTestSolution({ a: 1 / Math.sqrt(fit.solution[0]), b: 1 / Math.sqrt(fit.solution[1]), c: 1 / Math.sqrt(fit.solution[2]), system: 'orthorhombic' });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-    }
-    if (trialsBatch > 0) postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch });
-}
-//old CPU, keep it, not used since end of oct 2025, GPU implemented
-function indexMonoclinic(data, state, postMessage_func) {
-    const { q_obs, refineAndTestSolution } = state;
-    const max_p = Math.min(10, q_obs.length), basis_hkls = get_hkl_search_list('monoclinic').slice(0, 100);
-
-    
-    const n_p = max_p;
-    const n_h = basis_hkls.length;
-    const totalPeakCombos = (n_p * (n_p - 1) * (n_p - 2) * (n_p - 3)) / 24; // C(n_p, 4)
-    const totalHklCombos = (n_h * (n_h - 1) * (n_h - 2) * (n_h - 3)) / 24; // C(n_h, 4)
-    const totalTrialsToRun = totalPeakCombos * totalHklCombos;
-    let totalTrialsCompleted = 0;
-    
-    
-    let trialsBatch = 0; const batchSize = 50000;
-    for (let i = 0; i < max_p - 3; i++) {
-        for (let j = i + 1; j < max_p - 2; j++) {
-            for (let k = j + 1; k < max_p - 1; k++) {
-                for (let l = k + 1; l < max_p; l++) {
-                    const q_vec_for_guess = [q_obs[i], q_obs[j], q_obs[k], q_obs[l]];
-                    for (let n1 = 0; n1 < basis_hkls.length - 3; n1++) {
-                        for (let n2 = n1 + 1; n2 < basis_hkls.length - 2; n2++) {
-                            for (let n3 = n2 + 1; n3 < basis_hkls.length - 1; n3++) {
-                                for (let n4 = n3 + 1; n4 < basis_hkls.length; n4++) {
-                                    trialsBatch++; 
-                                    if (trialsBatch >= batchSize) { 
-                                        postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
-                                        totalTrialsCompleted += trialsBatch;
-                                        const progress = (totalTrialsCompleted / totalTrialsToRun) * 80;
-                                        postMessage_func({ type: 'progress', payload: progress });
-                                        trialsBatch = 0; 
-                                    }
-                                    const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4]].map(hkl => [hkl[0]**2, hkl[1]**2, hkl[2]**2, hkl[0]*hkl[2]]);
-                                    const fit = solveLeastSquares(M, q_vec_for_guess, q_vec_for_guess);
-                                    if (fit && fit.solution) { const trialCell = extractCellFromFit(fit.solution, 'monoclinic'); if (trialCell) refineAndTestSolution(trialCell); }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-    }
-    if (trialsBatch > 0) postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch });
-}
-
-
-//old CPU, keep it here but not used.
-function indexTriclinic(data, state, postMessage_func) {
-    const { q_obs, refineAndTestSolution } = state;
-    const max_p = Math.min(10, q_obs.length), basis_hkls = get_hkl_search_list('triclinic').slice(0, 160);
-    
-    
-    const n_p = max_p;
-    const n_h = basis_hkls.length;
-    const totalPeakCombos = (n_p * (n_p - 1) * (n_p - 2) * (n_p - 3) * (n_p - 4) * (n_p - 5)) / 720; // C(n_p, 6)
-    const totalHklCombos = (n_h * (n_h - 1) * (n_h - 2) * (n_h - 3) * (n_h - 4) * (n_h - 5)) / 720; // C(n_h, 6)
-    const totalTrialsToRun = totalPeakCombos * totalHklCombos;
-    let totalTrialsCompleted = 0;
-    
-    
-    let trialsBatch = 0; const batchSize = 50000;
-    for (let i = 0; i < max_p - 5; i++) {
-        for (let j = i + 1; j < max_p - 4; j++) {
-            for (let k = j + 1; k < max_p - 3; k++) {
-                for (let l = k + 1; l < max_p - 2; l++) {
-                    for (let m = l + 1; m < max_p - 1; m++) {
-                        for (let n = m + 1; n < max_p; n++) {
-                            const q_vec_for_guess = [q_obs[i], q_obs[j], q_obs[k], q_obs[l], q_obs[m], q_obs[n]];
-                            for (let n1=0; n1<basis_hkls.length-5; n1++) {
-                                for (let n2=n1+1; n2<basis_hkls.length-4; n2++) {
-                                    for (let n3=n2+1; n3<basis_hkls.length-3; n3++) {
-                                        for (let n4=n3+1; n4<basis_hkls.length-2; n4++) {
-                                            for (let n5=n4+1; n5<basis_hkls.length-1; n5++) {
-                                                for (let n6=n5+1; n6<basis_hkls.length; n6++) {
-                                                    trialsBatch++; 
-                                                    if (trialsBatch >= batchSize) { 
-                                                        postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
-                                                        totalTrialsCompleted += trialsBatch;
-                                                        const progress = (totalTrialsCompleted / totalTrialsToRun) * 80;
-                                                        postMessage_func({ type: 'progress', payload: progress });
-                                                        trialsBatch = 0; 
-                                                    }
-                                                    const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4], basis_hkls[n5], basis_hkls[n6]].map(hkl => 
-                                                        [hkl[0]**2, hkl[1]**2, hkl[2]**2, hkl[1]*hkl[2], hkl[0]*hkl[2], hkl[0]*hkl[1]]
-                                                    );
-                                                    const fit = solveLeastSquares(M, q_vec_for_guess, q_vec_for_guess);
-                                                    if (fit && fit.solution) { const trialCell = extractCellFromFit(fit.solution, 'triclinic'); if (trialCell) refineAndTestSolution(trialCell); }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-    }
-    if (trialsBatch > 0) postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch });
-}
 
 function findTransformedSolutions(initialSolutions, data, state, postMessage_func) {
     const { allowedSystems } = data;
@@ -1051,7 +883,7 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
     
     initialSolutions.forEach((sol, index) => {
         
-        // === NEW NIGGLI REDUCTION & SYMMETRY SQUEEZE ===
+        // === NIGGLI REDUCTION & SYMMETRY SQUEEZE
 
         try {
             // 1. "Squeeze" the cell into its most basic form

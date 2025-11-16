@@ -1,5 +1,4 @@
-// This is the entire content of your new "indexing-worker.js" file.
-
+//  "indexing-worker.js"
 // 1. Import all the functions (like indexCubic, refineAndTestSolution, etc.)
 importScripts('worker-logic.js'); 
 

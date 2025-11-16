@@ -45,7 +45,7 @@ struct Config {
 @group(0) @binding(7) var<storage, read_write> debug_counter: atomic<u32>;
 @group(0) @binding(8) var<storage, read_write> debug_log: array<f32>;
 
-// === NEW TOLERANCE BUFFER ===
+// === TOLERANCE BUFFER ===
 @group(0) @binding(9) var<storage, read> q_tolerances: array<f32>;
 
 
@@ -55,7 +55,7 @@ const RAD: f32 = PI / 180.0;
 const DEG: f32 = 180.0 / PI;
 const WORKGROUP_SIZE_Y: u32 = 8u;
 const MAX_Y_WORKGROUPS: u32 = 256u;  //attention à cette valeur, probleme possible si conflit avec webgpu définition
-const MAX_SOLUTIONS: u32 = 50000u;  //réduit à 50k le 16 nov
+const MAX_SOLUTIONS: u32 = 20000u;  //réduit à 20k le 16 nov
 const MAX_DEBUG_CELLS: u32 = 10u;
 
 // threshold for the *mean squared* normalized error
