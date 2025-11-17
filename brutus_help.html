@@ -271,12 +271,15 @@
                     Displays the wavelength used for calculations. It is updated automatically when a preset is chosen and
                     depends on the <code>Strip K-alpha2</code> setting. It becomes editable only when a <code>Custom</code> preset is selected.
                 </li>
+
                 <li>
                     <strong>Strip K-alpha2:</strong>
-                    Applies a vanCittert-type correction to remove the Kα<sub>2</sub> component before peak analysis.
+                    Applies a Damped Richardson-Lucy deconvolution to remove the Kα<sub>2</sub> component before peak analysis.
+                    This iterative Bayesian method is superior to traditional subtraction as it enforces positivity (no negative artifacts) and includes damping to prevent noise amplification ("ringing").
                     When enabled, the <code>Ka1 Wavelength</code> field is set to the pure Kα<sub>1</sub> value.
                     The default is OFF.
                 </li>
+
                 <li>
                     <strong>Max Volume (Å³):</strong>
                     Upper bound on the allowed unit-cell volume. This is a strong constraint on the search.
@@ -364,13 +367,16 @@
             <ol>
                 <li>
                     <strong>Kα<sub>2</sub> stripping (optional):</strong>
-                    If <code>Strip K-alpha2</code> is enabled, the van Cittert algorithm is applied to the raw intensities.
+                    If <code>Strip K-alpha2</code> is enabled, the Damped Richardson-Lucy algorithm is applied to the raw intensities.
+                    This separates the doublet based on the wavelength ratio; even the natural shape of the peak base is not preserved this is not important for this program.
                 </li>
                 <li>
                     <strong>Background subtraction:</strong>
                     A rolling-ball style algorithm estimates and removes the background.
                     The <code>Radius</code> slider controls the ball radius.
                 </li>
+
+
                 <li>
                     <strong>Data smoothing:</strong>
                     A Savitzky–Golay filter is applied to the background-subtracted signal to reduce noise
@@ -977,7 +983,7 @@
                 <li>
                     <strong>P-1_sim_5_6_7_86_91_96.txt</strong> –
                     Simulated powder pattern for a P−1 lattice, λ = 1.7 Å,
-                    a = 5.0 Å, b = 6.0 Å, c = 7.0 Å, α = 86.0°, β = 91.0°, γ = 96.0°.
+                    a = 5.0 Å, b = 6.0 Å, c = 7.0 Å, α = 86.0°, β = 91.0°, γ = 96.0° (volume of 208.29 A^3)
                 </li>
             </ul>
         </section>
@@ -1017,11 +1023,16 @@
                 </li>
 
                 <li>
-                <strong>Deconvolution Algorithm (van Cittert):</strong><br>
-                van Cittert, P. H. (1931).
-                “Zum Einfluß der Spaltbreite auf die Intensitätsverteilung in Spektrallinien II.”
-                <em>Zeitschrift für Physik</em>, <strong>69</strong>, 298–308.
-            </li>
+                    <strong>Deconvolution Algorithm (Richardson-Lucy):</strong><br>
+                    Richardson, W. H. (1972).
+                    “Bayesian-Based Iterative Method of Image Restoration.”
+                    <em>Journal of the Optical Society of America</em>, <strong>62</strong>, 55–59.<br>
+                    Lucy, L. B. (1974).
+                    “An iterative technique for the rectification of observed distributions.”
+                    <em>The Astronomical Journal</em>, <strong>79</strong>, 745.
+                </li>
+
+
                 <li>
                     <strong>Alternative indexing approaches</strong><br>
                     Ito, T. (1949). “A General Powder X-ray Photography.” <em>Nature</em> <strong>164</strong>, 755–756.<br>

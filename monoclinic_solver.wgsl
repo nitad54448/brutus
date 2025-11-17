@@ -54,7 +54,7 @@ const PI: f32 = 3.1415926535;
 const RAD: f32 = PI / 180.0;
 const DEG: f32 = 180.0 / PI;
 const WORKGROUP_SIZE_Y: u32 = 8u;
-const MAX_Y_WORKGROUPS: u32 = 256u;  //attention à cette valeur, probleme possible si conflit avec webgpu définition
+const MAX_Y_WORKGROUPS: u32 = 16383u;  //attention à cette valeur, probleme possible si conflit avec webgpu définition
 const MAX_SOLUTIONS: u32 = 20000u;  //réduit à 20k le 16 nov
 const MAX_DEBUG_CELLS: u32 = 10u;
 

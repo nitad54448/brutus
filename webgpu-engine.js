@@ -165,9 +165,9 @@ class WebGPUEngine {
         const workgroupsX = Math.ceil(numPeakCombos / workgroupSizeX);
         const totalHklWorkgroups = Math.ceil(numHklCombos / workgroupSizeY);
 
-        //some limits, see harcoded wgsl limit
-        const maxDimY = this.adapter.limits.maxComputeWorkgroupsPerDimension || 4096;
-        const safeChunkY = 256;
+        //some limits, see harcoded wgsl limit.. 16384 assez des donnees, plus fluide car chque chunk est plus petit
+        const maxDimY = this.adapter.limits.maxComputeWorkgroupsPerDimension || 65535;
+        const safeChunkY = 16383;
         const workgroupsY = Math.min(totalHklWorkgroups, safeChunkY, maxDimY);
 
         const totalWorkgroupsZ = Math.ceil(totalHklWorkgroups / workgroupsY);
@@ -401,8 +401,8 @@ class WebGPUEngine {
         const workgroupsX = Math.ceil(numPeakCombos / workgroupSizeX);
         const totalHklWorkgroups = Math.ceil(numHklCombos / workgroupSizeY);
 
-        const maxDimY = this.adapter.limits.maxComputeWorkgroupsPerDimension || 4096;
-        const safeChunkY = 256; //voir aussi wgsl
+        const maxDimY = this.adapter.limits.maxComputeWorkgroupsPerDimension || 65535;
+        const safeChunkY = 16383; //voir aussi wgsl
         const workgroupsY = Math.min(totalHklWorkgroups, safeChunkY, maxDimY);
         
         const totalWorkgroupsZ = Math.ceil(totalHklWorkgroups / workgroupsY);
@@ -640,8 +640,8 @@ class WebGPUEngine {
         const workgroupsX = Math.ceil(numPeakCombos / workgroupSizeX);
         const totalHklWorkgroups = Math.ceil(numHklCombos / workgroupSizeY);
 
-        const maxDimY = this.adapter.limits.maxComputeWorkgroupsPerDimension || 4096;
-        const safeChunkY = 256;
+        const maxDimY = this.adapter.limits.maxComputeWorkgroupsPerDimension || 65535;
+        const safeChunkY = 16383;
         const workgroupsY = Math.min(totalHklWorkgroups, safeChunkY, maxDimY);
         
         const totalWorkgroupsZ = Math.ceil(totalHklWorkgroups / workgroupsY);

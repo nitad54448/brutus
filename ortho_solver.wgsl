@@ -3,7 +3,8 @@
 //
 // Stage 1: 3-peak direct solve (6 permutations).
 // Stage 2: Basic boolean filters (singular, volume, params).
-// Stage 3: For passing cells, run a "TRUE FoM" filter.
+// Stage 3: For passing cells, run a "TRUE FoM" filter.For now impurities is not used
+//
 
 // === Structs ===
 struct RawOrthoSolution {
@@ -49,7 +50,7 @@ struct Config {
 // === Constants ===
 const PI: f32 = 3.1415926535;
 const WORKGROUP_SIZE_Y: u32 = 8u;
-const MAX_Y_WORKGROUPS: u32 = 256u;
+const MAX_Y_WORKGROUPS: u32 = 16383u;  //check webGPU in the engine.js
 const MAX_SOLUTIONS: u32 = 20000u; //16 nov 
 const MAX_DEBUG_CELLS: u32 = 10u;
 

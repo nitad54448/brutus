@@ -371,7 +371,7 @@
 
                     </div>
                 </div>
-                <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.xrdml,.brml,.ras,.esd,.std,.udf,.xra,.gsa">
+                <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.xrdml,.brml,.ras,.esd,.std,.udf,.uxd,.xra,.gsa">
             </div>
 
             <div class="tab-buttons">
@@ -1098,116 +1098,123 @@ const setupWorker = () => {
     const max_hkl_analysis = 10;
 
 
-    /**
-     * 15 nov, replaces stripRachinger with a stable iterative deconvolution (Van Cittert).
-     */
-    const stripVanCittert = (tth, intensity, ka1, ka2, ratio) => {
-        const n = tth.length;
-        if (n === 0) return [];
+    const stripRichardsonLucyDamped = (tth, intensity, ka1, ka2, ratio) => {
+    const n = tth.length;
+    if (n === 0) return [];
 
-        const numIterations = 24; // Iterations. More = better, but slower. 15 is a good balance.
-        const relaxation = 1.0;  // Relaxation factor (1.0 is standard Van Cittert)
+ 
+    const numIterations = 6; 
+    
+    // Damping Threshold (in Sigma). 
+    // 1.0 = cautious (preserves smooth background)
+    // 0.0 = standard RL (maximum sharpness, risk of artifacts)
+    const dampingThreshold = 1.0; 
+    
+    const lambdaRatio = ka1 / ka2;
 
+    // --- Helper: Cubic Interpolation ---
+    const getCubicVal = (targetX, xArr, yArr) => {
+        let low = 0, high = n - 1, i = 0;
+        while (low <= high) {
+            const mid = (low + high) >>> 1;
+            if (xArr[mid] <= targetX) { i = mid; low = mid + 1; } 
+            else { high = mid - 1; }
+        }
+        if (i < 0) i = 0; if (i >= n) i = n - 1;
 
-        const getInterpolatedValue = (targetTthDeg, tthArray, intensityArray) => {
-            const len = tthArray.length;
-            if (targetTthDeg <= tthArray[0]) return intensityArray[0];
-            if (targetTthDeg >= tthArray[len - 1]) return intensityArray[len - 1];
+        const p0 = (i > 0) ? yArr[i - 1] : yArr[i];
+        const p1 = yArr[i];
+        const p2 = (i < n - 1) ? yArr[i + 1] : yArr[i];
+        const p3 = (i < n - 2) ? yArr[i + 2] : p2;
 
-            let low = 0, high = len - 1, j = 0;
-            while (low <= high) {
-                const mid = Math.floor((low + high) / 2);
-                if (tthArray[mid] <= targetTthDeg) {
-                    j = mid;
-                    low = mid + 1;
-                } else {
-                    high = mid - 1;
-                }
-            }
-            if (j >= len - 1) return intensityArray[len - 1]; // At the end
-
-            const x1 = tthArray[j], y1 = intensityArray[j];
-            const x2 = tthArray[j + 1], y2 = intensityArray[j + 1];
-            const x = targetTthDeg;
-
-            if (Math.abs(x2 - x1) < 1e-6) return y1; // Avoid division by zero
-            
-            return y1 + (x - x1) * (y2 - y1) / (x2 - x1);
-        };
-        // --- End of helper ---
-
-        // Pre-calculate 2-theta in radians and the lambda ratio
-        const tthRad = tth.map(t => t * Math.PI / 180);
-        const lambdaRatio_12 = ka1 / ka2; // e.g., 1.54056 / 1.54439
-
-        // g_k: our current guess for the K-alpha1-only spectrum.
-        // Start with g_0 = f (the observed intensity)
-        let g_k = [...intensity];
+        const x1 = xArr[i];
+        const x2 = (i < n - 1) ? xArr[i + 1] : x1 + (xArr[1]-xArr[0]);
         
-        // Arrays to be re-used in the loop
-        let convolved_g = new Array(n); // This will hold (g_k * h)
-        let residual = new Array(n);    // This will hold (f - (g_k * h))
+        const t = (targetX - x1) / (x2 - x1);
+        const t2 = t * t, t3 = t2 * t;
 
-        for (let iter = 0; iter < numIterations; iter++) {
-            
-            // 1. Calculate convolved_g = (g_k * h)
-            // This loop calculates the "re-convolved" spectrum from our current guess (g_k)
-            for (let i = 0; i < n; i++) {
-                
-                // The K-alpha1 component at this position i is just g_k[i]
-                const g_i = g_k[i];
-                
-                // Find the K-alpha2 contribution *at this position i*
-                // This contribution is caused by a K-alpha1 peak (g_k[j]) at an earlier position j
-                const sinTh_i = Math.sin(tthRad[i] / 2);
-                const sinTh_j_arg = sinTh_i * lambdaRatio_12;
-                
-                let ka2_contribution = 0;
-                if (sinTh_j_arg < 1 && sinTh_j_arg > 0) {
-                    const ka1_pos_rad = 2 * Math.asin(sinTh_j_arg);
-                    const ka1_pos_deg = ka1_pos_rad * 180 / Math.PI;
-                    
-                    // Interpolate from the *previous* iteration's guess (g_k)
-                    // This is the key difference from Rachinger, which interpolates on its *own output*
-                    const ka1_at_j = getInterpolatedValue(ka1_pos_deg, tth, g_k);
-                    
-                    ka2_contribution = ka1_at_j * ratio;
-                }
-                
-                // The total "simulated" observed intensity is the K-alpha1 peak + its K-alpha2 ghost
-                convolved_g[i] = g_i + ka2_contribution;
-            }
-            
-            // 2. Calculate residual = f - convolved_g
-            // 3. Calculate g_{k+1} = g_k + relaxation * residual
-            let hasConverged = true;
-            for (let i = 0; i < n; i++) {
-                // f - (g_k * h)
-                residual[i] = intensity[i] - convolved_g[i];
-                
-                // g_{k+1} = g_k + relaxation * residual
-                const correction = relaxation * residual[i];
-                const newValue = g_k[i] + correction;
-                
-                // Enforce non-negativity constraint (crucial for stability)
-                g_k[i] = Math.max(0, newValue);
-                
-                // Check for convergence (if correction is very small)
-                if (hasConverged && Math.abs(correction) > 1e-3 * Math.max(1, intensity[i])) {
-                    hasConverged = false;
-                }
-            }
-            
-            // Exit loop early if converged
-            if (hasConverged && iter > 2) { 
-                // console.log(`Van Cittert converged in ${iter + 1} iterations.`);
-                break;
-            }
-        } // end iteration loop
+        const v0 = -0.5 * t3 + t2 - 0.5 * t;
+        const v1 =  1.5 * t3 - 2.5 * t2 + 1.0;
+        const v2 = -1.5 * t3 + 2.0 * t2 + 0.5 * t;
+        const v3 =  0.5 * t3 - 0.5 * t2;
 
-        // g_k is now our final, stripped K-alpha1 spectrum
-        return g_k;
+        return (p0 * v0) + (p1 * v1) + (p2 * v2) + (p3 * v3);
     };
+
+    // Pre-calc sin(theta)
+    const sinThetaDiv2 = new Float64Array(n);
+    for(let i=0; i<n; i++) sinThetaDiv2[i] = Math.sin((tth[i] * Math.PI / 180) / 2);
+
+    // Initial guess
+    let estimate = Float64Array.from(intensity);
+    
+    // Buffers
+    let simulatedObs = new Float64Array(n);
+    let errorRatio = new Float64Array(n);
+
+    for (let iter = 0; iter < numIterations; iter++) {
+        
+        // 1. Forward Projection (Simulate)
+        for (let i = 0; i < n; i++) {
+            const val = estimate[i];
+            const sinTh_j_arg = sinThetaDiv2[i] * lambdaRatio;
+            
+            let ka2_contribution = 0;
+            if (sinTh_j_arg > 0 && sinTh_j_arg < 1) {
+                const ka1_pos_deg = (2 * Math.asin(sinTh_j_arg)) * 180 / Math.PI;
+                ka2_contribution = getCubicVal(ka1_pos_deg, tth, estimate) * ratio;
+            }
+            simulatedObs[i] = val + ka2_contribution;
+        }
+
+        // 2. Calculate Damped Error Ratio
+        for (let i = 0; i < n; i++) {
+            const obs = intensity[i];
+            const sim = simulatedObs[i];
+            
+            if (sim < 1e-12) {
+                errorRatio[i] = 1.0;
+                continue;
+            }
+
+            const rawRatio = obs / sim;
+
+            // --- DAMPING LOGIC ---
+            // If the difference between Observed and Simulated is small (within noise),
+            // force the ratio to 1.0 (no update).
+            
+            // Poisson noise estimate = sqrt(obs)
+            const sigma = Math.sqrt(Math.abs(obs)) || 1;
+            const diff = obs - sim;
+            
+            // If the error is within 'dampingThreshold' sigmas, suppress it.
+            if (Math.abs(diff) < dampingThreshold * sigma) {
+                 // Smoothly blend the ratio towards 1.0 to avoid hard cutoffs
+                 // This simple dampener reduces the update strength for small errors
+                 errorRatio[i] = 1.0 + (rawRatio - 1.0) * 0.1; // heavily suppressed
+            } else {
+                 errorRatio[i] = rawRatio;
+            }
+        }
+
+        // 3. Back Projection (Update)
+        for (let i = 0; i < n; i++) {
+            const term1 = errorRatio[i];
+            
+            let term2 = 0;
+            const forward_arg = sinThetaDiv2[i] * (ka2 / ka1);
+            if (forward_arg < 1) {
+                const ka2_pos_deg = (2 * Math.asin(forward_arg)) * 180 / Math.PI;
+                term2 = getCubicVal(ka2_pos_deg, tth, errorRatio) * ratio;
+            }
+
+            const correctionFactor = (term1 + term2) / (1 + ratio);
+            estimate[i] = estimate[i] * correctionFactor;
+        }
+    }
+
+    return Array.from(estimate);
+};
 
     /**
      * Populates `workingExperimentalData` based on stripping checkbox.
@@ -1223,7 +1230,7 @@ const setupWorker = () => {
             const { tth, intensity } = fullExperimentalData;
             
   //          console.log(`Stripping Ka2 for ${ui.wavelengthPreset.value}...`);
-            const strippedIntensity = stripVanCittert(tth, intensity, preset.ka1, preset.ka2, preset.ratio);
+            const strippedIntensity = stripRichardsonLucyDamped(tth, intensity, preset.ka1, preset.ka2, preset.ratio);
             workingExperimentalData = { tth: [...tth], intensity: strippedIntensity };
   //          console.log("Stripping complete.");
 
@@ -3296,7 +3303,7 @@ const generatePDFReport = async () => {
             // --- Page Header & Chart ---
             const now = new Date();
             const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 16 nov 2025';
+            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 17 nov 2025';
           	const programURL = window.location.href;
             
     
@@ -3821,6 +3828,6 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 16 nov 2025</div>
+<div id="app-footer">Brutus, 17 nov 2025</div>
 </body>
 </html>
