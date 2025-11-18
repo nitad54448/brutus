@@ -2257,6 +2257,7 @@ function combinations(n, k) {
 }
 
 
+// In brutus.html
 const startIndexing = async () => { 
     const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
     if (systemsToSearch.length === 0) {
@@ -2293,7 +2294,7 @@ const startIndexing = async () => {
     const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
     const filteredPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
 
-    if (filteredPeaks.length < 3) { // Min 3 peaks for Ortho
+    if (filteredPeaks.length < 3) { 
         showStatus("Please find at least 3 peaks in the selected range.", 'error');
         return;
     }
@@ -2307,7 +2308,6 @@ const startIndexing = async () => {
             if (webgpuEngine && webGPUSupportsCompute) {
                 webgpuSystems.push(system);
             } else {
-                //uniquement GPU pour ortho, mono et trcilinic
                 workerSystems.push(system);
             }
         } else {
@@ -2315,7 +2315,6 @@ const startIndexing = async () => {
         }
     });
 
-    // De-select any GPU systems that couldn't be run
     if (needsWebGPU && webgpuSystems.length === 0) {
         ui.systemCheckboxes.forEach(cb => {
             if (['monoclinic', 'triclinic', 'orthorhombic'].includes(cb.value)) cb.checked = false;
@@ -2348,7 +2347,6 @@ const startIndexing = async () => {
     cumulativeTrials = 0;
     gpuTotalTrials = 0;
     indexingStartTime = performance.now();
-    //if (statusTextElement) statusTextElement.textContent = 'Trials: 0 (0/s)';
 
     const baseParams = {
         peaks: filteredPeaks,
@@ -2359,15 +2357,11 @@ const startIndexing = async () => {
         refineZero: ui.refineZeroCheckbox.checked,
     };
     
-
-let currentGpuTaskIndex = 0;
+    let currentGpuTaskIndex = 0;
     let currentWorkerTaskIndex = 0;
     const totalTasks = workerSystems.length + webgpuSystems.length;
-    let taskProgress = new Array(totalTasks).fill(0); // Stores progress for each task (0-100)
+    let taskProgress = new Array(totalTasks).fill(0); 
 
-    /**
-     * Updates the main progress bar based on the 'taskProgress' array.
-     */
     const updateProgressBar = () => {
         if (totalTasks === 0) return;
         const totalSum = taskProgress.reduce((a, b) => a + b, 0);
@@ -2377,28 +2371,17 @@ let currentGpuTaskIndex = 0;
     
     if (statusTextElement) statusTextElement.textContent = '[0%] Starting...';
 
-    /**
-     * Creates a progress callback for a GPU task.
-     * @param {string} systemName - The name of the system (e.g., 'Ortho').
-     * @param {number} absoluteTaskIndex - The index of this task in the 'taskProgress' array.
-     * @returns {function} A callback function for the GPU engine.
-     */
     const getGpuProgressCallback = (systemName, absoluteTaskIndex) => {
-        return (chunkProgress, numFound) => { // chunkProgress is 0-1
+        return (chunkProgress, numFound) => { 
             taskProgress[absoluteTaskIndex] = chunkProgress * 100;
             updateProgressBar();
-            
             const totalPercentage = taskProgress.reduce((a, b) => a + b, 0) / totalTasks;
             const message = `[${totalPercentage.toFixed(0)}%] GPU (${systemName}): ${numFound} candidates`;
             throttledSetStatusText(message);
         };
     };
 
-
-
-
-
-    // This helper will be used by all GPU tasks for refinement
+    // Common refinement helper
     const refineGpuCell = (cell) => {
         return new Promise((resolveCellRefine) => {
             const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(filteredPeaks, baseParams.wavelength);
@@ -2418,7 +2401,7 @@ let currentGpuTaskIndex = 0;
                 cell, 
                 baseParams, 
                 cpuRefineState,
-                (msg) => { // 'postMessage_func'
+                (msg) => { 
                     if (msg.type === 'solution') {
                         solutions.push(msg.payload);
                         pruneSolutions(); 
@@ -2427,7 +2410,7 @@ let currentGpuTaskIndex = 0;
                         displayedSolutions = solutions.filter(sol => systemsToSearch.includes(sol.system));
                         updateSolutionsTable();
                     }
-                    resolveCellRefine(); // Resolve this specific cell's promise
+                    resolveCellRefine(); 
                 }
             ); 
         });
@@ -2435,7 +2418,7 @@ let currentGpuTaskIndex = 0;
     
     const taskPromises = [];
 
-// --- COMMON GPU DATA PREP ---
+    // --- COMMON GPU DATA PREP ---
     let qTolerancesArray, qObsArray;
     if (webgpuSystems.length > 0) {
         const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(filteredPeaks, baseParams.wavelength);
@@ -2452,9 +2435,7 @@ let currentGpuTaskIndex = 0;
         qObsArray = new Float32Array(q_obs);
     }
 
-
-
-    // --- TASK 1: CPU WORKERS (Cubic, Tetra, Hexa, and Ortho fallback) ---
+    // --- TASK 1: CPU WORKERS ---
     if (workerSystems.length > 0) {
         const workerTask = new Promise((resolve) => {
             resolveWorkerTask = resolve;
@@ -2463,14 +2444,10 @@ let currentGpuTaskIndex = 0;
                 resolve();
                 return;
             }
-
             let workersRemaining = workerSystems.length;
-       //     const workerProgress = new Array(workersRemaining).fill(0);
-            
-            workerSystems.forEach((system, workerIndex) => {
-              const absoluteTaskIndex = currentWorkerTaskIndex;
+            workerSystems.forEach((system) => {
+                const absoluteTaskIndex = currentWorkerTaskIndex;
                 currentWorkerTaskIndex++;
-                
 
                 const worker = new Worker(workerURL);
                 activeWorkers.push(worker);
@@ -2481,12 +2458,9 @@ let currentGpuTaskIndex = 0;
                         cumulativeTrials += payload;
                         const elapsedTimeSeconds = (performance.now() - indexingStartTime) / 1000;
                         const trialsPerSecond = (elapsedTimeSeconds > 0.1) ? cumulativeTrials / elapsedTimeSeconds : 0;
-                        
                         const totalPercentage = taskProgress.reduce((a, b) => a + b, 0) / totalTasks;
                         const message = `[${totalPercentage.toFixed(0)}%] Trials: ${cumulativeTrials.toLocaleString()} (${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
                         throttledSetStatusText(message);
-
-
                     } else if (type === 'solution') {
                         solutions.push(payload);
                         pruneSolutions();
@@ -2495,50 +2469,42 @@ let currentGpuTaskIndex = 0;
                         displayedSolutions = solutions.filter(sol => systemsToSearch.includes(sol.system));
                         updateSolutionsTable();
                     } else if (type === 'progress') {
-                        
-
-                        taskProgress[absoluteTaskIndex] = payload; // payload is 0-100
+                        taskProgress[absoluteTaskIndex] = payload; 
                         updateProgressBar();
-
                     } else if (type === 'done') {
                         taskProgress[absoluteTaskIndex] = 100;
                         updateProgressBar();
-                        
                         worker.terminate();
                         activeWorkers = activeWorkers.filter(w => w !== worker);
                         workersRemaining--;
                         if (workersRemaining === 0) {
                             resolveWorkerTask = null;
-                            resolve(); // All workers in this group are done
+                            resolve();
                         }
                     }
                 };
                 worker.onerror = (err) => { 
-                    taskProgress[absoluteTaskIndex] = 100; // Mark as "done" to not stall bar
+                    taskProgress[absoluteTaskIndex] = 100; 
                     updateProgressBar();
-                    console.error(`Worker for ${system} crashed:`, err.message, err);
-                    showStatus(`Error in ${system} worker. See console.`, "error", 8000);
+                    console.error(`Worker for ${system} crashed:`, err.message);
                     worker.terminate();
                     activeWorkers = activeWorkers.filter(w => w !== worker);
                     workersRemaining--;
                     if (workersRemaining === 0) {
                         resolveWorkerTask = null;
-                        resolve(); // Resolve even on error
+                        resolve(); 
                     }
                 };
-                
                 worker.postMessage({ ...baseParams, systemToSearch: system, allowedSystems: systemsToSearch });
             });
         });
         taskPromises.push(workerTask);
     }
     
-    
     // --- TASK 2: ORTHORHOMBIC (GPU) ---
     if (webgpuSystems.includes('orthorhombic')) {
         const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
         currentGpuTaskIndex++;
-
 
         const orthoTask = (async () => {
             const K_VALUE = 3;
@@ -2547,11 +2513,9 @@ let currentGpuTaskIndex = 0;
 
             if (filteredPeaks.length < K_VALUE) {
                 showStatus(`Ortho search requires at least ${K_VALUE} peaks. Skipping.`, "error");
-               // gpuSystemsCompleted++; // Mark as "completed" to not stall progress bar
                 taskProgress[absoluteTaskIndex] = 100; 
                 updateProgressBar();
-               
-               return;
+                return;
             } 
             
             try {
@@ -2560,7 +2524,6 @@ let currentGpuTaskIndex = 0;
                 await engine.loadShader('ortho_solver.wgsl');
                 engine.createPipeline('main_3p');
                 
-                // --- HKL Basis (promotion, le 16 nov
                 let hkl_full = get_hkl_search_list('orthorhombic');
                 const special = []; const regular = [];
                 for (const hkl of hkl_full) {
@@ -2572,8 +2535,6 @@ let currentGpuTaskIndex = 0;
                     }
                 }
                 const hkl_basis_raw = [...special, ...regular].slice(0, n_hkl_for_basis);
-                // ---
-                
                 const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
                 hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
 
@@ -2595,11 +2556,16 @@ let currentGpuTaskIndex = 0;
                 const combosPerChunk = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
                 const TOTAL_EXHAUSTIVE_COMBOS = combinations(num_hkls, K_VALUE);
                 const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
-                if (TOTAL_EXHAUSTIVE_COMBOS === 0) throw new Error("Not enough HKLs.");
                 gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * 6;
 
                 const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
-                    const progressCallback = getGpuProgressCallback('Ortho', absoluteTaskIndex);
+                const progressCallback = getGpuProgressCallback('Ortho', absoluteTaskIndex);
+                
+                // Live Callback for Ortho
+                const handleIntermediateResults = (newCells) => {
+                     newCells.forEach(cell => refineGpuCell(cell));
+                };
+
                 for (let chunk = 0; chunk < numChunks; chunk++) {
                     if (gpuStopSignal.stop) break;
                     
@@ -2613,15 +2579,13 @@ let currentGpuTaskIndex = 0;
                         offset += K_VALUE;
                     }
                     
-                    const { potentialCells, stoppedEarly } = await engine.runOrthoSolver(
+                    const { stoppedEarly } = await engine.runOrthoSolver(
                         qObsArray, hklBasisArray, peakCombos, hklCombos,
                         qTolerancesArray,
                         (p, n) => progressCallback((chunk + p) / numChunks, n),
-                        gpuStopSignal, baseParams
+                        gpuStopSignal, baseParams,
+                        handleIntermediateResults // Pass callback
                     );
-                    
-                    const refinementPromises = potentialCells.map(refineGpuCell);
-                    await Promise.all(refinementPromises); 
                     
                     if (stoppedEarly) break; 
                 } 
@@ -2638,8 +2602,7 @@ let currentGpuTaskIndex = 0;
 
     // --- TASK 3: MONOCLINIC (GPU) ---
     if (webgpuSystems.includes('monoclinic')) {
-
-const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
+        const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
         currentGpuTaskIndex++;
 
         const monoTask = (async () => {
@@ -2649,9 +2612,7 @@ const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
             
             if (filteredPeaks.length < K_VALUE) {
                 showStatus(`Monoclinic search requires at least ${K_VALUE} peaks. Skipping.`, "error");
-               // gpuSystemsCompleted++;
-
-               taskProgress[absoluteTaskIndex] = 100;
+                taskProgress[absoluteTaskIndex] = 100;
                 updateProgressBar();
                 return;
             } 
@@ -2661,9 +2622,7 @@ const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
                 const engine = webgpuEngine; 
                 await engine.loadShader('monoclinic_solver.wgsl');
                 engine.createPipeline('main_4p');
-                
-                //rajouter les h00, etc... 16 nov              
-                // --- HKL Basis (with promotion) ---
+            
                 let hkl_full_mono = get_hkl_search_list('monoclinic');
                 const special_mono = []; const regular_mono = [];
                 for (const hkl of hkl_full_mono) {
@@ -2674,14 +2633,7 @@ const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
                         regular_mono.push(hkl);
                     }
                 }
-                // Put promoted reflections first, then slice
                 const hkl_basis_raw = [...special_mono, ...regular_mono].slice(0, n_hkl_for_basis);
-                // ---
-                
-                
-                
-                
-                
                 
                 const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
                 hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
@@ -2705,12 +2657,15 @@ const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
                 const combosPerChunk = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
                 const TOTAL_EXHAUSTIVE_COMBOS = combinations(num_hkls, K_VALUE);
                 const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
-                if (TOTAL_EXHAUSTIVE_COMBOS === 0) throw new Error("Not enough HKLs.");
                 gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * 24;
 
                 const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
-
                 const progressCallback = getGpuProgressCallback('Monoclinic', absoluteTaskIndex);
+
+                // Live Callback for Monoclinic
+                const handleIntermediateResults = (newCells) => {
+                     newCells.forEach(cell => refineGpuCell(cell));
+                };
 
                 for (let chunk = 0; chunk < numChunks; chunk++) {
                     if (gpuStopSignal.stop) break;
@@ -2725,15 +2680,13 @@ const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
                         offset += K_VALUE;
                     }
 
-                    const { potentialCells, stoppedEarly } = await engine.runMonoclinicSolver(
+                    const { stoppedEarly } = await engine.runMonoclinicSolver(
                         qObsArray, hklBasisArray, peakCombos, hklCombos,
                         qTolerancesArray,
                         (p, n) => progressCallback((chunk + p) / numChunks, n),
-                        gpuStopSignal, baseParams
+                        gpuStopSignal, baseParams,
+                        handleIntermediateResults // Pass callback
                     );
-                    
-                    const refinementPromises = potentialCells.map(refineGpuCell);
-                    await Promise.all(refinementPromises); 
                     
                     if (stoppedEarly) break; 
                 } 
@@ -2748,10 +2701,8 @@ const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
         taskPromises.push(monoTask);
     }
 
-
     // --- TASK 4: TRICLINIC (GPU) ---
     if (webgpuSystems.includes('triclinic')) {
-
         const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
         currentGpuTaskIndex++;
 
@@ -2762,10 +2713,8 @@ const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
 
             if (filteredPeaks.length < K_VALUE) {
                  showStatus(`Triclinic search requires at least ${K_VALUE} peaks. Skipping.`, "error");
-                // gpuSystemsCompleted++;
                 taskProgress[absoluteTaskIndex] = 100; 
                  updateProgressBar();
-
                  return;
             }
 
@@ -2775,10 +2724,7 @@ const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
                 await engine.loadShader('triclinic_solver.wgsl');
                 engine.createPipeline('main');
                 
-                //pas de promo pour H00 en triclinic, la base de recherche est assez faible, 16 nov
                 const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, n_hkl_for_basis_tri);
-
-
                 const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
                 hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
 
@@ -2804,6 +2750,11 @@ const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
                 const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
                 const progressCallback = getGpuProgressCallback('Triclinic', absoluteTaskIndex);
                 
+                // Live Callback for Triclinic
+                const handleIntermediateResults = (newCells) => {
+                     newCells.forEach(cell => refineGpuCell(cell));
+                };
+
                 for (let chunk = 0; chunk < numChunks; chunk++) {
                     if (gpuStopSignal.stop) break;
 
@@ -2820,16 +2771,14 @@ const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
                         offset += K_VALUE;
                     }
 
-                    const { potentialCells, stoppedEarly } = await engine.runTriclinicSolver(
+                    const { stoppedEarly } = await engine.runTriclinicSolver(
                         qObsArray, hklBasisArray, peakCombos, hklCombos,
                         qTolerancesArray,
                         (p, n) => progressCallback((chunk + p) / numChunks, n),
-                        gpuStopSignal, baseParams
+                        gpuStopSignal, baseParams,
+                        handleIntermediateResults // Pass callback
                     );
 
-                    const refinementPromises = potentialCells.map(refineGpuCell);
-                    await Promise.all(refinementPromises);
-                    
                     if (stoppedEarly) break;
                 }
             } catch (err) {
@@ -2843,15 +2792,13 @@ const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
         taskPromises.push(triTask);
     }
 
-
-    // --- PART 5: FINALIZE ---
+    // --- FINALIZE ---
     await Promise.all(taskPromises);
            
     await new Promise(resolve => setTimeout(resolve, 250));
     
     finalizeIndexing(gpuStopSignal.stop);
 };
-
 
 
 const finalizeIndexing = (stoppedByUser = false) => {
