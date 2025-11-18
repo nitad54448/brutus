@@ -3300,7 +3300,7 @@ const generatePDFReport = async () => {
             // --- Page Header & Chart ---
             const now = new Date();
             const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 17 nov 2025';
+            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 18 nov 2025';
           	const programURL = window.location.href;
             
     
@@ -3825,6 +3825,6 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 17 nov 2025</div>
+<div id="app-footer">Brutus, 18 nov 2025</div>
 </body>
 </html>

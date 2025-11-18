@@ -57,6 +57,7 @@ const WORKGROUP_SIZE_Y: u32 = 8u;
 const MAX_Y_WORKGROUPS: u32 = 16383u;  //attention à cette valeur, probleme possible si conflit avec webgpu définition
 const MAX_SOLUTIONS: u32 = 20000u;  //réduit à 20k le 16 nov
 const MAX_DEBUG_CELLS: u32 = 10u;
+const MAX_FOM_PEAKS: u32 = 32u; // A safe upper limit for the sorting buffer
 
 // threshold for the *mean squared* normalized error
 const FOM_THRESHOLD: f32 = 3.; // 2.25 est 1.5^2, 1.5 times average of delta_q.. si trop grand ça remplit le buffer de mauvaises cellules
@@ -185,18 +186,23 @@ fn extractCell(params: Vec4) -> RawMonoSolution {
 }
 
 
-// calculates the MEAN SQUARED NORMALIZED ERROR
+// Calculates the MEAN SQUARED NORMALIZED ERROR
+// Now excludes the 'max_impurities' worst peaks
 fn validate_fom_avg_diff(A: f32, B: f32, C: f32, D: f32) -> f32 {
 
-    var sum_of_squared_normalized_diffs: f32 = 0.0;
+    // 1. Create a local buffer to store errors so we can sort them
+    var errors: array<f32, 32>; 
     
-    // Loop over the first N peaks (e.g., N=20)
-    for (var i: u32 = 0u; i < config.n_peaks_for_fom; i = i + 1u) {
+    // Ensure we don't go out of bounds of our fixed array
+    let n_peaks_to_check = min(config.n_peaks_for_fom, MAX_FOM_PEAKS);
+
+    // 2. Calculate Error for every peak
+    for (var i: u32 = 0u; i < n_peaks_to_check; i = i + 1u) {
         
         let q_obs_val = q_obs[i];
         let tol = q_tolerances[i]; 
 
-        var min_diff: f32 = 1e10; // A very large number
+        var min_diff: f32 = 1e10; 
         
         // Inner loop: check all HKLs to find the best match
         for (var j: u32 = 0u; j < config.n_hkl_for_fom; j = j + 1u) {
@@ -214,22 +220,46 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32, D: f32) -> f32 {
             }
         }
         
-        // Add the *square* of the normalized difference for this peak.
+        // Store the squared normalized error
         let normalized_diff = min_diff / tol; 
-        sum_of_squared_normalized_diffs += (normalized_diff * normalized_diff);
+        errors[i] = (normalized_diff * normalized_diff);
+    }
+
+    // 3. Sort the errors (Bubble Sort - ascending order)
+    // We want small errors at the start, huge impurity errors at the end.
+    for (var i: u32 = 0u; i < n_peaks_to_check; i++) {
+        for (var j: u32 = 0u; j < n_peaks_to_check - 1u - i; j++) {
+            if (errors[j] > errors[j+1]) {
+                let temp = errors[j];
+                errors[j] = errors[j+1];
+                errors[j+1] = temp;
+            }
+        }
+    }
+
+    // 4. Determine how many peaks to actually sum
+    // If we have 20 peaks and 2 impurities, we sum the best 18.
+    var count_to_sum = n_peaks_to_check;
+    if (config.max_impurities > 0u && config.max_impurities < n_peaks_to_check) {
+        count_to_sum = n_peaks_to_check - config.max_impurities;
+    }
+
+    // 5. Sum the best peaks
+    var sum_of_valid_errors: f32 = 0.0;
+    for (var k: u32 = 0u; k < count_to_sum; k++) {
+        sum_of_valid_errors += errors[k];
     }
     
-    // Return the mean squared normalized difference
-    let avg_squared_norm_error = sum_of_squared_normalized_diffs / f32(config.n_peaks_for_fom);
+    // 6. Calculate Average
+    let avg_squared_norm_error = sum_of_valid_errors / f32(count_to_sum);
 
     // Fail if average squared error is too high
     if (avg_squared_norm_error > FOM_THRESHOLD) {
-        return 999.0; // Return a value guaranteed to fail
+        return 999.0; 
     }
 
-    return avg_squared_norm_error; // Pass
+    return avg_squared_norm_error; 
 }
-
 
 // === Main Kernel (4-Peak) ===
 @compute @workgroup_size(8, WORKGROUP_SIZE_Y, 1)

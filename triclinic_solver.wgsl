@@ -59,6 +59,8 @@ const MAX_Y_WORKGROUPS: u32 = 16383u; // la meme que dans le webgpu
 const MAX_SOLUTIONS: u32 = 20000u;
 const MAX_DEBUG_CELLS: u32 = 10u;
 
+const MAX_FOM_PEAKS: u32 = 32u; // avoid counting impurities
+
 // threshold for the *mean squared* normalized error
 const FOM_THRESHOLD: f32 = 3.; // c'est le carré de la moyenne de dq
 
@@ -304,22 +306,24 @@ fn extractCell(params: Vec6) -> RawSolution {
 }
 
 
-// <-- CHANGED: This function now calculates the MEAN SQUARED NORMALIZED ERROR -->
+// <-- CHANGED: Calculates MEAN SQUARED NORMALIZED ERROR (Excluding Impurities) -->
 fn validate_fom_avg_diff(p: Vec6) -> f32 {
 
-    var sum_of_squared_normalized_diffs: f32 = 0.0;
+    // 1. Local buffer for sorting errors
+    var errors: array<f32, 32>;
     
-    // Loop over the first N peaks (e.g., N=20)
-    for (var i: u32 = 0u; i < config.n_peaks_for_fom; i = i + 1u) {
+    // Safety: Ensure we don't exceed array size
+    let n_peaks_to_check = min(config.n_peaks_for_fom, MAX_FOM_PEAKS);
+
+    // 2. Calculate Error for every peak
+    for (var i: u32 = 0u; i < n_peaks_to_check; i = i + 1u) {
         
         let q_obs_val = q_obs[i];
-        
-        // Read pre-calculated tolerance
         let tol = q_tolerances[i]; 
 
-        var min_diff: f32 = 1e10; // A very large number
+        var min_diff: f32 = 1e10; 
         
-        // Inner loop: check all HKLs to find the best match
+        // Inner loop: check all HKLs
         for (var j: u32 = 0u; j < config.n_hkl_for_fom; j = j + 1u) {
             let h = hkl_basis[j * 4u + 0u];
             let k = hkl_basis[j * 4u + 1u];
@@ -335,21 +339,44 @@ fn validate_fom_avg_diff(p: Vec6) -> f32 {
             }
         }
         
-        // Add the *square* of the normalized difference for this peak.
+        // Store squared normalized error
         let normalized_diff = min_diff / tol;
-        sum_of_squared_normalized_diffs += (normalized_diff * normalized_diff);
+        errors[i] = (normalized_diff * normalized_diff);
     }
     
-    // Return the mean squared normalized difference
-    let avg_squared_norm_error = sum_of_squared_normalized_diffs / f32(config.n_peaks_for_fom);
-
-    // Fail if average squared error is too high
-    if (avg_squared_norm_error > FOM_THRESHOLD) {
-        return 999.0; // Return a value guaranteed to fail
+    // 3. Sort errors (Ascending)
+    for (var i: u32 = 0u; i < n_peaks_to_check; i++) {
+        for (var j: u32 = 0u; j < n_peaks_to_check - 1u - i; j++) {
+            if (errors[j] > errors[j+1]) {
+                let temp = errors[j];
+                errors[j] = errors[j+1];
+                errors[j+1] = temp;
+            }
+        }
     }
 
-    return avg_squared_norm_error; // Pass
+    // 4. Determine truncation limit (ignore worst peaks)
+    var count_to_sum = n_peaks_to_check;
+    if (config.max_impurities > 0u && config.max_impurities < n_peaks_to_check) {
+        count_to_sum = n_peaks_to_check - config.max_impurities;
+    }
+
+    // 5. Sum only the best peaks
+    var sum_of_valid_errors: f32 = 0.0;
+    for (var k: u32 = 0u; k < count_to_sum; k++) {
+        sum_of_valid_errors += errors[k];
+    }
+
+    // 6. Calculate Average
+    let avg_squared_norm_error = sum_of_valid_errors / f32(count_to_sum);
+
+    if (avg_squared_norm_error > FOM_THRESHOLD) {
+        return 999.0; 
+    }
+
+    return avg_squared_norm_error; 
 }
+
 
 
 // === Main Kernel ===

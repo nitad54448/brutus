@@ -53,6 +53,7 @@ const WORKGROUP_SIZE_Y: u32 = 8u;
 const MAX_Y_WORKGROUPS: u32 = 16383u;  //check webGPU in the engine.js
 const MAX_SOLUTIONS: u32 = 20000u; //16 nov 
 const MAX_DEBUG_CELLS: u32 = 10u;
+const MAX_FOM_PEAKS: u32 = 32u; //impurities, discard in the FOM calculations, 18 nov
 
 // threshold for the *mean squared* normalized error
 const FOM_THRESHOLD: f32 = 3.;
@@ -123,20 +124,23 @@ fn extractCellOrtho(params: Vec3) -> RawOrthoSolution {
 }
 
 
-// calculates the MEAN SQUARED NORMALIZED ERROR
+// calculates the MEAN SQUARED NORMALIZED ERROR (Excluding Impurities)
 fn validate_fom_avg_diff(A: f32, B: f32, C: f32) -> f32 {
 
-    var sum_of_squared_normalized_diffs: f32 = 0.0;
+    // 1. Local buffer for sorting
+    var errors: array<f32, 32>;
     
-    // Loop over the first N peaks (e.g., N=20)
-    for (var i: u32 = 0u; i < config.n_peaks_for_fom; i = i + 1u) {
+    let n_peaks_to_check = min(config.n_peaks_for_fom, MAX_FOM_PEAKS);
+
+    // 2. Calculate Error for every peak
+    for (var i: u32 = 0u; i < n_peaks_to_check; i = i + 1u) {
         
         let q_obs_val = q_obs[i];
         let tol = q_tolerances[i]; 
 
-        var min_diff: f32 = 1e10; // A very large number
+        var min_diff: f32 = 1e10; 
         
-        // Inner loop: check all HKLs to find the best match
+        // Inner loop: check all HKLs
         for (var j: u32 = 0u; j < config.n_hkl_for_fom; j = j + 1u) {
             let h = hkl_basis[j * 4u + 0u];
             let k = hkl_basis[j * 4u + 1u];
@@ -153,16 +157,39 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32) -> f32 {
         }
         
         let normalized_diff = min_diff / tol; 
-        sum_of_squared_normalized_diffs += (normalized_diff * normalized_diff);
+        errors[i] = (normalized_diff * normalized_diff);
     }
     
-    let avg_squared_norm_error = sum_of_squared_normalized_diffs / f32(config.n_peaks_for_fom);
-
-    if (avg_squared_norm_error > FOM_THRESHOLD) {
-        return 999.0; // Fail
+    // 3. Sort errors (Ascending)
+    for (var i: u32 = 0u; i < n_peaks_to_check; i++) {
+        for (var j: u32 = 0u; j < n_peaks_to_check - 1u - i; j++) {
+            if (errors[j] > errors[j+1]) {
+                let temp = errors[j];
+                errors[j] = errors[j+1];
+                errors[j+1] = temp;
+            }
+        }
     }
 
-    return avg_squared_norm_error; // Pass
+    // 4. Determine truncation limit
+    var count_to_sum = n_peaks_to_check;
+    if (config.max_impurities > 0u && config.max_impurities < n_peaks_to_check) {
+        count_to_sum = n_peaks_to_check - config.max_impurities;
+    }
+
+    // 5. Sum best peaks
+    var sum_of_valid_errors: f32 = 0.0;
+    for (var k: u32 = 0u; k < count_to_sum; k++) {
+        sum_of_valid_errors += errors[k];
+    }
+    
+    let avg_squared_norm_error = sum_of_valid_errors / f32(count_to_sum);
+
+    if (avg_squared_norm_error > FOM_THRESHOLD) {
+        return 999.0; 
+    }
+
+    return avg_squared_norm_error; 
 }
 
 
