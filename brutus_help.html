@@ -553,11 +553,84 @@
         </li>
     </ol>
     
-    <h3 id="tuning-the-search">Tuning the Search & Troubleshooting</h3>
+    
+      <h3 id="tuning-the-search">Tuning the Search & Troubleshooting</h3>
     <p>
         If you obtain no solutions, or too many, consider the following adjustments.
     </p>
-    </section>
+
+    <h4>If no solutions (or only poor ones) are found</h4>
+    <ul>
+        <li>
+            <strong>Re-examine the peak list.</strong>
+            This is the dominant failure mode. Check that the first 10–15 peaks belong to a single phase,
+            are free of impurities, and have accurate $2\theta$ positions.
+        </li>
+        <li>
+            <strong>Relax <code>2θ Error</code>.</strong>
+            If this value is too strict for your data resolution, valid solutions may be discarded.
+        </li>
+        <li>
+            <strong>Increase <code>Max Volume</code>.</strong>
+            The true cell may be larger than initially expected.
+        </li>
+        <li>
+            <strong>Increase GPU Parameters.</strong>
+            Try increasing <code>HKL Basis Size</code> (e.g., from 80 to 120) or <code>Peaks to Combine</code> (e.g., from 7 to 9). This will significantly increase the search time but covers more combinations.
+        </li>
+    </ul>
+
+    <h4>If you get too many solutions (GPU buffer fills)</h4>
+    <p>
+        The GPU buffer is now limited to 20,000 candidate solutions. If this buffer fills up, the search stops earlier than the full space requested. If you have no solution that appears valid:
+    </p>
+    <ul>
+        <li>
+            <strong>Tighten <code>2θ Error</code>.</strong>
+            This is the most effective way to reduce the number of false positives.
+        </li>
+        <li>
+            <strong>Reduce <code>Max Volume</code>.</strong>
+            This is another strong constraint to remove unphysical large cells.
+        </li>
+        <li>
+            <strong>Decrease GPU Parameters.</strong>
+            Reducing <code>HKL Basis Size</code> or <code>Peaks to Combine</code> will run a smaller, faster search, but may miss the solution if it relies on a higher-index HKL or a peak further down the list.
+        </li>
+    </ul>
+
+    <h4>GPU Buffers and Chunking</h4>
+    <p>
+        The total list of HKL combinations can be too large for a single GPU buffer. Brutus therefore:
+    </p>
+    <ol>
+        <li>
+            Generates HKL combinations in large JavaScript chunks in <code>brutus.html</code>.
+        </li>
+        <li>
+            Further splits each of these into small “dispatch chunks” (e.g. 256 workgroups) in
+            <code>webgpu-engine.js</code> before sending them to the GPU.
+        </li>
+    </ol>
+    <p>
+        This two-level chunking avoids both memory overflow and long-running GPU commands.
+    </p>
+    <blockquote>
+        <strong>Performance: WebGPU vs CPU</strong>
+        <p>
+            Cubic, Tetragonal, and Hexagonal searches run on the CPU (in a Web Worker) and are typically
+            very fast (under a second).
+        </p>
+        <p>
+            Orthorhombic, Monoclinic, and Triclinic searches are offloaded to the GPU. This allows testing of billions of trial cells in a time frame (few minutes for 1 billion cells) that would be
+            impractical on the CPU. 
+        </p>
+        <p>
+            Note: at the end of a GPU search all candidates (up to 20 000) are passed to refinement, Niggli cell reduction, M(20) and F(N) calculations. These are made on the CPU so it might take a few minutes, be patient (or change the parameters, or decrease the number of peaks in the list).
+        </p>
+    </blockquote>
+
+   
 
 
         <!-- EVALUATING SOLUTIONS -->
