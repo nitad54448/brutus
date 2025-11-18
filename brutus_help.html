@@ -411,149 +411,132 @@
         </section>
 
 
-
         <section id="indexing-method">
-    <h2>Indexing Algorithm and Search Parameters</h2>
-    <p>
-      Brutus uses an exhaustive, symmetry-specific trial-and-refine indexing algorithm.
-       For each crystal system, the program generates trial solutions from combinations of the lowest-angle peaks and low-index Miller indices, solves the corresponding linear system of equations in reciprocal space, rejects unphysical cells, and finally performs a full refinement and figure-of-merit evaluation.
-    </p>
-
-    <h3>Linear System Formulation</h3>
-    <p>
-        The search is formulated as a system of linear equations:
-    </p>
-    <p>
-        $$ Q_{obs} = \sum P_i \cdot H_i $$
-    </p>
-    <p>
-        where $Q_{obs}$ are the observed $1/d^2$ values, $H_i$ are terms derived from trial Miller indices
-        (e.g. $h^2$, $k^2$, $l^2$), and $P_i$ are the reciprocal lattice parameters (e.g. $A = 1/a^2$, $B = 1/b^2$, …).
-    </p>
-
-    <h3>CPU Searches (Cubic, Tetra, Hexa)</h3>
-    <ul>
-        <li>
-            <strong>Cubic (1 parameter, $A = 1/a^2$)</strong><br>
-            Solves a 1×1 system by iterating through the first 12 observed peaks and assigning trial $(hkl)$ vectors (integers up to 8), this requires 2448 direct solves.
-        </li>
-
-        <li>
-            <strong>Tetragonal & Hexagonal (2 parameters)</strong><br>
-            Solves all the combinations of a 2×2 system using pairs of peaks from the first 12, assigning pairs of trial $(hkl)$ vectors up to 5; 34 million tests.
-        </li>
-    </ul>
-
-    <h3 style="margin-top: 2.5em;">GPU-Accelerated Searches (Orthorhombic, Monoclinic & Triclinic)</h3>
-    <p>
-        For low-symmetry systems and orthorhombic, the number of combinations becomes too large for the CPU. These searches are offloaded to the WebGPU. Their scope is now user-configurable.
-    </p>
-    
-    <h4>GPU Search Parameters</h4>
-    <p>
-        You can now control the two key inputs for the GPU search:
-    </p>
-    <ul>
-        <li>
-            <code><strong>HKL Basis Size</strong></code>: This sets $N_h$, the number of simple HKL vectors used as the "basis set". The program calculates $C(N_h, k)$.
-            <br><em>(Defaults: $N_h=300$ for Orthorhombic, $N_h=80$ for Monoclinic, $N_h=40$ for Triclinic. Range: 10-600)</em>
-        </li>
-        <li>
-            <code><strong>Peaks to Combine</strong></code>: This parameter ($N_p$) determines the robustness of the search against impurity peaks or missing low-angle reflections.
-            <p style="margin-top: 0.5em; margin-bottom: 0.5em;">
-                The solver requires a specific number of peaks ($k$) to form a mathematical solution ($k=3$ for Ortho, $4$ for Mono, $6$ for Tri).
-                Instead of just taking the first $k$ peaks, Brutus takes the first $N_p$ peaks from your list and tests <strong>every possible combination</strong> of $k$ peaks drawn from that pool.
+            <h2>Indexing Algorithm and Search Parameters</h2>
+            <p>
+                Brutus uses an exhaustive, symmetry-specific trial-and-refine indexing algorithm. 
+                For each crystal system, the program generates trial solutions from combinations of the lowest-angle peaks and low-index Miller indices, solves the corresponding linear system of equations in reciprocal space, rejects unphysical cells, and finally performs a full refinement.
             </p>
-            <p style="margin-top: 0.5em; margin-bottom: 0.5em;">
-                <strong>Why change this?</strong>
-                <br>
-                If your first few peaks contain an impurity (or a large error), a low value here will cause the search to fail because the math relies on those specific peaks being correct.
-                Increasing this value allows the program to "skip" bad peaks and find a valid combination further down the list.
+
+            <h3>Linear System Formulation</h3>
+            <p>
+                The search is formulated as a system of linear equations based on the quadratic form:
             </p>
-            <p style="margin-top: 0.5em;">
-                <strong>Typical Values (Monoclinic example, $k=4$):</strong>
-                <br>
-                &bull; <strong>4</strong>: Tests 1 combination (Fastest, but fails if <em>any</em> of the first 4 peaks are bad/impurity).
-                <br>
-                &bull; <strong>7</strong> (Default): Tests $C(7,4) = 35$ combinations (Robust, can tolerate up to 3 bad peaks in the top 7).
-                <br>
-                &bull; <strong>10</strong>: Tests $C(10,4) = 210$ combinations (Very robust).
-                <br>
-                &bull; <strong>15</strong>: Tests $C(15,4) = 1,365$ combinations (Extremely robust, significant speed cost).
+            <p>
+                $$ Q_{obs} = \sum P_i \cdot H_i $$
             </p>
-        </li>
-    </ul>
-    <blockquote style="margin-top: 1.5em; margin-bottom: 1.5em;">
-        <strong>Note on HKL Basis Generation (Axial Promotion)</strong>
-        <p style="margin-bottom: 0;">
-            For the Orthorhombic and Monoclinic systems, the HKL basis is generated with a special "promotion" step. 
-            This ensures that essential reflections for long axes (e.g., <code>(0 0 10)</code>) are not accidentally cut off, which dramatically improves the indexing stability for highly skewed or anisotropic cells.
-            However, impurities, large errors and skewed cell are not handled very well with this program. Brutus is good at crunching numbers, the analysis is in the hands of the user. 
-        </p>
-    </blockquote>
-    <p>
-        The total number of cells tested (which is displayed in the status text) is:
-        <br>
-        <strong>Total Cells = $C(N_p, k) \times C(N_h, k) \times k!$</strong>
-    </p>
-    <p>
-        where the number of permutations is defined by k: $k=3$ ($k!=6$) for Orthorhombic, $k=4$ ($k!=24$) for Monoclinic, and $k=6$ ($k!=720$) for Triclinic.
-    </p>
+            <p>
+                where $Q_{obs}$ are the observed $1/d^2$ values, $H_i$ are terms derived from trial Miller indices
+                (e.g. $h^2$, $k^2$, $l^2$), and $P_i$ are the reciprocal lattice parameters (e.g. $A = 1/a^2$, $B = 1/b^2$, …).
+            </p>
 
-    <h4>Orthorhombic (3 parameters, $A, B, C$)</h4>
-    <ul>
-        <li>
-            <strong>Logic:</strong> Solves a 3x3 system $M \cdot \vec{x} = \vec{q}$ for $\vec{x} = [A, B, C]$.
-        </li>
-        <li>
-            <strong>GPU Work:</strong> Each GPU thread tests one (peak combo, HKL combo) pair, and loops 6 times (3!) to test all permutations.
-        </li>
-        <li>
-            <strong>Defaults:</strong> $C(5, 3) \times C(300, 3) \times 6 \approx$ <strong>268 million</strong> trial cells.
-        </li>
-    </ul>
+            <h3>CPU Searches (High Symmetry)</h3>
+            <p>
+                High-symmetry systems have fewer degrees of freedom and are solved instantly on the CPU.
+            </p>
+            <ul>
+                <li>
+                    <strong>Cubic (1 parameter):</strong>
+                    Solves a 1×1 system by iterating through the first 12 observed peaks.
+                </li>
+                <li>
+                    <strong>Tetragonal & Hexagonal (2 parameters):</strong>
+                    Solves a 2×2 system using pairs of peaks from the first 12.
+                </li>
+            </ul>
 
-    <h4>Monoclinic (4 parameters, $A, B, C, D$)</h4>
-    <ul>
-        <li>
-            <strong>Logic:</strong> Solves a 4x4 system $M \cdot \vec{x} = \vec{q}$ for $\vec{x} = [A, B, C, D]$.
-        </li>
-        <li>
-            <strong>GPU Work:</strong> Each GPU thread tests one (peak combo, HKL combo) pair, and loops 24 times (4!) to test all permutations.
-        </li>
-        <li>
-            <strong>Defaults:</strong> $C(7, 4) \times C(80, 4) \times 24 \approx$ <strong>1.33 billion</strong> trial cells.
-        </li>
-    </ul>
+            <h3 style="margin-top: 2.5em;">GPU-Accelerated Searches (Low Symmetry)</h3>
+            <p>
+                For Orthorhombic, Monoclinic, and Triclinic systems, the combinatorial explosion makes CPU searching impractical. Brutus offloads these tasks to the WebGPU, allowing billions of cells to be tested in minutes.
+            </p>
 
-    <h4>Triclinic (6 parameters, $A \dots F$)</h4>
-    <ul>
-        <li>
-            <strong>Logic:</strong> Solves the full 6x6 system $M \cdot \vec{x} = \vec{q}$ for $\vec{x} = [A, B, C, D, E, F]$.
-        </li>
-        <li>
-            <strong>GPU Work:</strong> Each GPU thread tests one (peak combo, HKL combo) pair, and loops 720 times (6!) to test all permutations.
-        </li>
-        <li>
-            <strong>Defaults:</strong> $C(8, 6) \times C(40, 6) \times 720 \approx$ <strong>77.4 billion</strong> trial cells.
-        </li>
-    </ul>
+            <h4>The Combinatorial Search Space</h4>
+            <p>
+                The total number of cells tested depends on two user-configurable parameters:
+            </p>
+            <div style="background-color: #f9fafb; padding: 1rem; border-radius: 0.5rem; border: 1px solid #e5e7eb;">
+                <strong>Total Trials = Peak Combinations × HKL Combinations × Permutations</strong>
+                <p style="margin-top: 0.5rem; margin-bottom: 0;">
+                    $$ N_{total} = C(N_{peaks}, k) \times C(N_{hkl}, k) \times k! $$
+                </p>
+            </div>
+            
+            <h4 style="margin-top: 1.5em;">User Parameters</h4>
+            <ul>
+                <li>
+                    <code><strong>HKL Basis Size</strong></code> ($N_{hkl}$): 
+                    The size of the pool of simple Miller indices (e.g., (100), (110), (211)) used to form the mathematical basis. 
+                    <br><em>Defaults: 300 (Ortho), 80 (Mono), 40 (Tri).</em>
+                </li>
+                <li>
+                    <code><strong>Peaks to Combine</strong></code> ($N_{peaks}$): 
+                    This parameter determines the search's robustness against impurity peaks.
+                    <p style="margin-top: 0.5em; margin-bottom: 0.5em;">
+                        The solver requires exactly $k$ peaks to find a solution (Ortho $k=3$, Mono $k=4$, Tri $k=6$).
+                        However, simply taking the first $k$ peaks fails if even <strong>one</strong> of them is an impurity or has a large error.
+                    </p>
+                    <p style="margin-top: 0.5em; margin-bottom: 0;">
+                        By increasing "Peaks to Combine" (e.g., to 7 for Monoclinic), Brutus tests <strong>every possible subgroup</strong> of 4 peaks drawn from those top 7. This allows the algorithm to "skip over" bad peaks automatically, but it increases the search time factorially (e.g., $C(7,4)=35\times$ more work).
+                    </p>
+                </li>
+            </ul>
 
-    <h4>Two-Stage GPU Filtering</h4>
-    <p>
-        Most of these candidate cells are discarded on the GPU before they reach the CPU:
-    </p>
-    <ol>
-        <li>
-            <strong>Stage 1 – Basic filter (<code>extractCell</code>):</strong>
-            A candidate is immediately rejected if the system is singular, parameters are unphysical (e.g., $a < 2Å$), angles are invalid (e.g., $\beta > 150^\circ$), or the volume exceeds <code>Max Volume</code>.
-        </li>
-        <li>
-            <strong>Stage 2 – Mini Figure of Merit (<code>validate_fom_avg_diff</code>):</strong>
-            For surviving cells, the GPU computes a fast Figure of Merit by comparing the first 20 observed peaks to the cell's theoretical pattern. Only cells that pass a strict internal threshold are sent back to the CPU.
-        </li>
-    </ol>
-    
+            <h4>System Specifics</h4>
+            <ul>
+                <li>
+                    <strong>Orthorhombic (3 parameters):</strong> 
+                    Solves combinations of 3 peaks. With defaults, tests ~268 million cells.
+                </li>
+                <li>
+                    <strong>Monoclinic (4 parameters):</strong> 
+                    Solves combinations of 4 peaks. With defaults ($N_{peaks}=7$), it tests 35 peak subgroups × HKL combos × 24 permutations ≈ <strong>54 Billion cells</strong>.
+                </li>
+                <li>
+                    <strong>Triclinic (6 parameters):</strong> 
+                    Solves combinations of 6 peaks. Tests 720 permutations per combination. With defaults, tests ~77 Billion cells.
+                </li>
+            </ul>
+
+            <h4 style="margin-top: 2.5em;">GPU Memory Management & "Safe Batching"</h4>
+            <p>
+                Testing 50+ billion cells generates massive amounts of data. To prevent crashing your browser or freezing your computer, Brutus utilizes a sophisticated <strong>Safe Batching</strong> architecture.
+            </p>
+            <p>
+                The program automatically splits the work into smaller chunks based on a "Dual Constraint" logic:
+            </p>
+            <ol>
+                <li>
+                    <strong>Hardware Limit (VRAM):</strong> 
+                    The program detects your GPU's available memory. If you are on a mobile device or a laptop with integrated graphics, the batch size is automatically reduced to fit within your specific VRAM limits.
+                </li>
+                <li>
+                    <strong>Time Limit (TDR Prevention):</strong> 
+                    On Windows, if a GPU calculation takes longer than ~2 seconds, the Operating System assumes the driver has frozen and resets it (causing a <code>DXGI_ERROR_DEVICE_HUNG</code> crash). Brutus enforces a strict "Speed Limit" (e.g., max 100,000 trials per batch for Triclinic) to ensure the GPU stays responsive.
+                </li>
+            </ol>
+            <blockquote>
+                <strong>What this means for you:</strong>
+                
+                You do not need to configure memory settings. If you see the progress bar moving in many small steps, the safety system is working correctly.
+                <br><br>
+                <strong>If the search is too slow:</strong> Adjusting technical settings for the GPU is not useful, or not a lot. Some parameters are listed in the Console (if you really want to play with the memory and chunk parameters... you may gain 50-100 msec, is it worth it ?). Instead, curate the peak list, reduce the physics parameters: lower the <code>HKL Basis Size</code> or reduce <code>Peaks to Combine</code>.
+            </blockquote>
+
+            <h4 style="margin-top: 2.5em;">Two-Stage Filtering</h4>
+            <p>
+                Most candidate cells are invalid. They are discarded directly on the GPU to save CPU time:
+            </p>
+            <ol>
+                <li>
+                    <strong>Geometric Filter:</strong> 
+                    Cells are rejected if they are singular, have unphysical edge lengths ($< 2Å$), invalid angles ($< 20^\circ$ or $> 160^\circ$), or exceed the user's <code>Max Volume</code>.
+                </li>
+                <li>
+                    <strong>Figure of Merit Filter:</strong> 
+                    For surviving cells, the GPU calculates a fast internal score based on the match of the first 20 lines. Only the top candidates are sent back to the CPU for full refinement.
+                </li>
+            </ol>
+        </section>
     
       <h3 id="tuning-the-search">Tuning the Search & Troubleshooting</h3>
     <p>

@@ -2553,10 +2553,37 @@ const startIndexing = async () => {
                 const num_hkls = hkl_basis_raw.length;
                 const BYTES_PER_COMBO = K_VALUE * 4;
                 const userMaxBuffer = engine.device.limits.maxStorageBufferBindingSize;
-                const combosPerChunk = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
+
+ //18 nov
+const MAX_SAFE_BATCH = 1000000; //ortho
+const memoryLimit = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
+const combosPerChunk = Math.min(memoryLimit, MAX_SAFE_BATCH);
+
+ //OLD                const combosPerChunk = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
+                
+ 
+ 
                 const TOTAL_EXHAUSTIVE_COMBOS = combinations(num_hkls, K_VALUE);
-                const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
-                gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * 6;
+//OLD                const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
+const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);            
+//18 nov
+
+
+
+console.log(`[GPU] System: Orthorhombic`);
+console.log(`- Total HKL Combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()}`);
+console.log(`- Max Safe Batch: ${MAX_SAFE_BATCH.toLocaleString()}`);
+console.log(`- VRAM Limit: ${memoryLimit.toLocaleString()}`);
+console.log(`- Actual Batch Size: ${combosPerChunk.toLocaleString()} (${memoryLimit < MAX_SAFE_BATCH ? 'Limited by VRAM' : 'Limited by Safety Cap'})`);
+console.log(`- Total Batches (Chunks): ${numChunks}`);
+
+
+
+ //               gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * 6;
+
+ // Multiply by Peak Combinations (C(n_peaks, 3))
+                gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * combinations(n_peaks_for_combo, 3) * 6;
+
 
                 const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
                 const progressCallback = getGpuProgressCallback('Ortho', absoluteTaskIndex);
@@ -2654,10 +2681,29 @@ const startIndexing = async () => {
                 const num_hkls = hkl_basis_raw.length;
                 const BYTES_PER_COMBO = K_VALUE * 4;
                 const userMaxBuffer = engine.device.limits.maxStorageBufferBindingSize;
-                const combosPerChunk = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
+            //adapted for crazy searches, on 18 nov... card dependent though
+              const MAX_SAFE_BATCH = 300000;
+              const memoryLimit = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
+            const combosPerChunk = Math.min(memoryLimit, MAX_SAFE_BATCH);
+
+              //  const combosPerChunk = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
                 const TOTAL_EXHAUSTIVE_COMBOS = combinations(num_hkls, K_VALUE);
                 const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
-                gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * 24;
+
+
+console.log(`[GPU] System: Monoclinic`); 
+console.log(`- Total HKL Combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()}`);
+console.log(`- Max Safe Batch: ${MAX_SAFE_BATCH.toLocaleString()}`);
+console.log(`- VRAM Limit: ${memoryLimit.toLocaleString()}`);
+console.log(`- Actual Batch Size: ${combosPerChunk.toLocaleString()} (${memoryLimit < MAX_SAFE_BATCH ? 'Limited by VRAM' : 'Limited by Safety Cap'})`);
+console.log(`- Total Batches (Chunks): ${numChunks}`);
+
+
+
+                // Multiply by Peak Combinations (C(n_peaks, 4)) 
+gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * combinations(n_peaks_for_combo, 4) * 24;
+
+           //gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * 24;
 
                 const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
                 const progressCallback = getGpuProgressCallback('Monoclinic', absoluteTaskIndex);
@@ -2743,10 +2789,31 @@ const startIndexing = async () => {
                 const num_hkls = hkl_basis_raw.length;
                 const userMaxBuffer = engine.device.limits.maxStorageBufferBindingSize;
                 const BYTES_PER_COMBO = K_VALUE * 4;
-                const combosPerChunk = Math.floor((userMaxBuffer * 0.99) / BYTES_PER_COMBO);
+
+                //18 nov, memory limts
+                const MAX_SAFE_BATCH = 100000;
+                const memoryLimit = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
+                const combosPerChunk = Math.min(memoryLimit, MAX_SAFE_BATCH);
+
+        // old        const combosPerChunk = Math.floor((userMaxBuffer * 0.99) / BYTES_PER_COMBO);
                 const TOTAL_EXHAUSTIVE_COMBOS = combinations(num_hkls, K_VALUE);
                 const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
-                gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * 720;
+
+// 
+
+console.log(`[GPU] System: Triclinic`);
+console.log(`- Total HKL Combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()}`);
+console.log(`- Max Safe Batch: ${MAX_SAFE_BATCH.toLocaleString()}`);
+console.log(`- VRAM Limit: ${memoryLimit.toLocaleString()}`);
+console.log(`- Actual Batch Size: ${combosPerChunk.toLocaleString()} (${memoryLimit < MAX_SAFE_BATCH ? 'Limited by VRAM' : 'Limited by Safety Cap'})`);
+console.log(`- Total Batches (Chunks): ${numChunks}`);
+
+
+
+                // Multiply by Peak Combinations (C(n_peaks, 6))
+            gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * combinations(n_peaks_for_combo_tri, 6) * 720;
+
+                //gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * 720;
                 const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
                 const progressCallback = getGpuProgressCallback('Triclinic', absoluteTaskIndex);
                 
