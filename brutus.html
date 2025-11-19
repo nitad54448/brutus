@@ -2553,9 +2553,12 @@ const startIndexing = async () => {
                 const peakCombos = new Uint32Array(peak_combos_raw);
                 if (peakCombos.length === 0) throw new Error("Not enough peaks.");
 
+                
                 // 3. Stats
                 const num_hkls = hkl_basis_raw.length;
                 const totalHklCombos = combinations(num_hkls, K_VALUE);
+                
+                // Orthorhombic has 6 permutations (3!)
                 gpuTotalTrials += totalHklCombos * combinations(max_p, 3) * 6;
 
                 // 4. Execution

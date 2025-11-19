@@ -157,8 +157,8 @@ class WebGPUEngine {
         // --- 5. TDR-Safe Chunking ---
         const numPeakCombos = peakCombos.length / 4;
         
-        // Safety Target: 10M threads max
-        const MAX_THREADS_PER_DISPATCH = 10_000_000; 
+        // Safety Target: 2M threads max
+        const MAX_THREADS_PER_DISPATCH = 2_000_000; 
         const maxHklPerDispatch = Math.floor(MAX_THREADS_PER_DISPATCH / Math.max(1, numPeakCombos));
         
         const WORKGROUP_SIZE_Y = 8; // Matches shader
@@ -346,7 +346,7 @@ class WebGPUEngine {
         
         // Safety Target: Max 10 million threads per dispatch to avoid TDR (2-second limit)
         // Threads = (Peak Combos) * (HKL Combos per Dispatch)
-        const MAX_THREADS_PER_DISPATCH = 5_000_000; 
+        const MAX_THREADS_PER_DISPATCH = 200_000; 
         
         const maxHklPerDispatch = Math.floor(MAX_THREADS_PER_DISPATCH / Math.max(1, numPeakCombos));
         
@@ -522,7 +522,7 @@ class WebGPUEngine {
         const numPeakCombos = peakCombos.length / 3;
         
         // Safety Target
-        const MAX_THREADS_PER_DISPATCH = 15_000_000; // Slightly higher for ortho is fine
+        const MAX_THREADS_PER_DISPATCH = 1_000_000; // Slightly higher for ortho is fine
         const maxHklPerDispatch = Math.floor(MAX_THREADS_PER_DISPATCH / Math.max(1, numPeakCombos));
         
         const WORKGROUP_SIZE_Y = 8; 
