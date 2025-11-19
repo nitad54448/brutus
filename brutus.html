@@ -2501,6 +2501,7 @@ const startIndexing = async () => {
         taskPromises.push(workerTask);
     }
     
+
     // --- TASK 2: ORTHORHOMBIC (GPU) ---
     if (webgpuSystems.includes('orthorhombic')) {
         const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
@@ -2524,6 +2525,7 @@ const startIndexing = async () => {
                 await engine.loadShader('ortho_solver.wgsl');
                 engine.createPipeline('main_3p');
                 
+                // 1. HKL Basis
                 let hkl_full = get_hkl_search_list('orthorhombic');
                 const special = []; const regular = [];
                 for (const hkl of hkl_full) {
@@ -2538,8 +2540,9 @@ const startIndexing = async () => {
                 const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
                 hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
 
+                // 2. Peak Combinations
                 const max_p = Math.min(n_peaks_for_combo, qObsArray.length);
-                if (max_p < K_VALUE) throw new Error(`Not enough peaks (${max_p}) for 3-peak solve.`);
+                if (max_p < K_VALUE) throw new Error(`Not enough peaks.`);
 
                 const peak_combos_raw = [];
                 for (let i=0; i<max_p-2; i++)
@@ -2548,74 +2551,31 @@ const startIndexing = async () => {
                         peak_combos_raw.push(i,j,k);
                 }
                 const peakCombos = new Uint32Array(peak_combos_raw);
-                if (peakCombos.length === 0) throw new Error("Not enough peaks to generate 3-peak combinations.");
+                if (peakCombos.length === 0) throw new Error("Not enough peaks.");
 
+                // 3. Stats
                 const num_hkls = hkl_basis_raw.length;
-                const BYTES_PER_COMBO = K_VALUE * 4;
-                const userMaxBuffer = engine.device.limits.maxStorageBufferBindingSize;
+                const totalHklCombos = combinations(num_hkls, K_VALUE);
+                gpuTotalTrials += totalHklCombos * combinations(max_p, 3) * 6;
 
- //18 nov
-const MAX_SAFE_BATCH = 1000000; //ortho
-const memoryLimit = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
-const combosPerChunk = Math.min(memoryLimit, MAX_SAFE_BATCH);
-
- //OLD                const combosPerChunk = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
-                
- 
- 
-                const TOTAL_EXHAUSTIVE_COMBOS = combinations(num_hkls, K_VALUE);
-//OLD                const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
-const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);            
-//18 nov
-
-
-
-console.log(`[GPU] System: Orthorhombic`);
-console.log(`- Total HKL Combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()}`);
-console.log(`- Max Safe Batch: ${MAX_SAFE_BATCH.toLocaleString()}`);
-console.log(`- VRAM Limit: ${memoryLimit.toLocaleString()}`);
-console.log(`- Actual Batch Size: ${combosPerChunk.toLocaleString()} (${memoryLimit < MAX_SAFE_BATCH ? 'Limited by VRAM' : 'Limited by Safety Cap'})`);
-console.log(`- Total Batches (Chunks): ${numChunks}`);
-
-
-
- //               gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * 6;
-
- // Multiply by Peak Combinations (C(n_peaks, 3))
-                gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * combinations(n_peaks_for_combo, 3) * 6;
-
-
-                const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
+                // 4. Execution
                 const progressCallback = getGpuProgressCallback('Ortho', absoluteTaskIndex);
-                
-                // Live Callback for Ortho
                 const handleIntermediateResults = (newCells) => {
                      newCells.forEach(cell => refineGpuCell(cell));
                 };
 
-                for (let chunk = 0; chunk < numChunks; chunk++) {
-                    if (gpuStopSignal.stop) break;
-                    
-                    const combosThisChunk = (chunk === numChunks - 1) ? (TOTAL_EXHAUSTIVE_COMBOS % combosPerChunk || combosPerChunk) : combosPerChunk;
-                    const hklCombos = new Uint32Array(combosThisChunk * K_VALUE);
-                    let offset = 0;
-                    for (let i = 0; i < combosThisChunk; i++) {
-                        const arr = hklComboGenerator.next().value;
-                        if (!arr) break; 
-                        hklCombos.set(arr, offset);
-                        offset += K_VALUE;
-                    }
-                    
-                    const { stoppedEarly } = await engine.runOrthoSolver(
-                        qObsArray, hklBasisArray, peakCombos, hklCombos,
-                        qTolerancesArray,
-                        (p, n) => progressCallback((chunk + p) / numChunks, n),
-                        gpuStopSignal, baseParams,
-                        handleIntermediateResults // Pass callback
-                    );
-                    
-                    if (stoppedEarly) break; 
-                } 
+                const { stoppedEarly } = await engine.runOrthoSolver(
+                    qObsArray, 
+                    hklBasisArray, 
+                    peakCombos, 
+                    null, // <--- Combinadics active
+                    qTolerancesArray,
+                    (p, n) => progressCallback(p, n),
+                    gpuStopSignal, 
+                    baseParams,
+                    handleIntermediateResults
+                );
+                
             } catch (err) {
                 console.error("WebGPU Error (Orthorhombic):", err);
                 showStatus(`Ortho GPU Error: ${err.message}`, 'error');
@@ -2626,6 +2586,8 @@ console.log(`- Total Batches (Chunks): ${numChunks}`);
         })(); 
         taskPromises.push(orthoTask);
     }
+
+
 
     // --- TASK 3: MONOCLINIC (GPU) ---
     if (webgpuSystems.includes('monoclinic')) {
@@ -2650,6 +2612,8 @@ console.log(`- Total Batches (Chunks): ${numChunks}`);
                 await engine.loadShader('monoclinic_solver.wgsl');
                 engine.createPipeline('main_4p');
             
+                // 1. Prepare HKL Basis
+                // (Generates the list of unique HKLs to test)
                 let hkl_full_mono = get_hkl_search_list('monoclinic');
                 const special_mono = []; const regular_mono = [];
                 for (const hkl of hkl_full_mono) {
@@ -2661,81 +2625,48 @@ console.log(`- Total Batches (Chunks): ${numChunks}`);
                     }
                 }
                 const hkl_basis_raw = [...special_mono, ...regular_mono].slice(0, n_hkl_for_basis);
-                
                 const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
                 hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
 
+                // 2. Prepare Peak Combinations
+                // (CPU side is fine here, N is small compared to HKLs)
                 const max_p = Math.min(n_peaks_for_combo, qObsArray.length);
                 if (max_p < K_VALUE) throw new Error(`Not enough peaks (${max_p}) for 4-peak solve.`);
 
                 const peak_combos_raw = [];
-                for (let i=0; i<max_p-3; i++)
-                 for (let j=i+1; j<max_p-2; j++)
-                  for (let k=j+1; k<max_p-1; k++)
-                   for (let l=k+1; l<max_p; l++) {
+                for (let i=0; i<max_p-3; i++) for (let j=i+1; j<max_p-2; j++)
+                  for (let k=j+1; k<max_p-1; k++) for (let l=k+1; l<max_p; l++) {
                         peak_combos_raw.push(i,j,k,l);
                 }
                 const peakCombos = new Uint32Array(peak_combos_raw);
                 if (peakCombos.length === 0) throw new Error("Not enough peaks to generate 4-peak combinations.");
 
+                // 3. Update Global Stats (Estimation)
+                // We recalculate the math here just for the UI "Total Trials" display
                 const num_hkls = hkl_basis_raw.length;
-                const BYTES_PER_COMBO = K_VALUE * 4;
-                const userMaxBuffer = engine.device.limits.maxStorageBufferBindingSize;
-            //adapted for crazy searches, on 18 nov... card dependent though
-              const MAX_SAFE_BATCH = 300000;
-              const memoryLimit = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
-            const combosPerChunk = Math.min(memoryLimit, MAX_SAFE_BATCH);
+                const totalHklCombos = combinations(num_hkls, K_VALUE);
+                gpuTotalTrials += totalHklCombos * combinations(max_p, 4) * 24;
 
-              //  const combosPerChunk = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
-                const TOTAL_EXHAUSTIVE_COMBOS = combinations(num_hkls, K_VALUE);
-                const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
-
-
-console.log(`[GPU] System: Monoclinic`); 
-console.log(`- Total HKL Combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()}`);
-console.log(`- Max Safe Batch: ${MAX_SAFE_BATCH.toLocaleString()}`);
-console.log(`- VRAM Limit: ${memoryLimit.toLocaleString()}`);
-console.log(`- Actual Batch Size: ${combosPerChunk.toLocaleString()} (${memoryLimit < MAX_SAFE_BATCH ? 'Limited by VRAM' : 'Limited by Safety Cap'})`);
-console.log(`- Total Batches (Chunks): ${numChunks}`);
-
-
-
-                // Multiply by Peak Combinations (C(n_peaks, 4)) 
-gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * combinations(n_peaks_for_combo, 4) * 24;
-
-           //gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * 24;
-
-                const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
+                // 4. Setup Callbacks
                 const progressCallback = getGpuProgressCallback('Monoclinic', absoluteTaskIndex);
-
-                // Live Callback for Monoclinic
                 const handleIntermediateResults = (newCells) => {
                      newCells.forEach(cell => refineGpuCell(cell));
                 };
 
-                for (let chunk = 0; chunk < numChunks; chunk++) {
-                    if (gpuStopSignal.stop) break;
-                    
-                    const combosThisChunk = (chunk === numChunks - 1) ? (TOTAL_EXHAUSTIVE_COMBOS % combosPerChunk || combosPerChunk) : combosPerChunk;
-                    const hklCombos = new Uint32Array(combosThisChunk * K_VALUE);
-                    let offset = 0;
-                    for (let i = 0; i < combosThisChunk; i++) {
-                        const arr = hklComboGenerator.next().value;
-                        if (!arr) break; 
-                        hklCombos.set(arr, offset);
-                        offset += K_VALUE;
-                    }
-
-                    const { stoppedEarly } = await engine.runMonoclinicSolver(
-                        qObsArray, hklBasisArray, peakCombos, hklCombos,
-                        qTolerancesArray,
-                        (p, n) => progressCallback((chunk + p) / numChunks, n),
-                        gpuStopSignal, baseParams,
-                        handleIntermediateResults // Pass callback
-                    );
-                    
-                    if (stoppedEarly) break; 
-                } 
+                // 5. Run Solver (Single Call)
+                // The Engine now handles TDR safety, chunking, and Combinadics internally.
+                const { stoppedEarly } = await engine.runMonoclinicSolver(
+                    qObsArray, 
+                    hklBasisArray, 
+                    peakCombos, 
+                    null, // <--- HKL Combos ignored (Combinadics active)
+                    qTolerancesArray,
+                    (p, n) => progressCallback(p, n),
+                    gpuStopSignal, 
+                    baseParams,
+                    handleIntermediateResults 
+                );
+                
             } catch (err) {
                 console.error("WebGPU Error (Monoclinic):", err);
                 showStatus(`Monoclinic GPU Error: ${err.message}`, 'error');
@@ -2747,7 +2678,11 @@ gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * combinations(n_peaks_for_combo, 4) *
         taskPromises.push(monoTask);
     }
 
-    // --- TASK 4: TRICLINIC (GPU) ---
+
+
+
+
+// --- TASK 4: TRICLINIC (GPU) ---
     if (webgpuSystems.includes('triclinic')) {
         const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
         currentGpuTaskIndex++;
@@ -2770,10 +2705,12 @@ gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * combinations(n_peaks_for_combo, 4) *
                 await engine.loadShader('triclinic_solver.wgsl');
                 engine.createPipeline('main');
                 
+                // 1. Prepare HKL Basis
                 const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, n_hkl_for_basis_tri);
                 const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
                 hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
 
+                // 2. Prepare Peak Combinations (CPU side is fine for peaks, N is small)
                 const max_p = Math.min(n_peaks_for_combo_tri, qObsArray.length);
                 if (max_p < K_VALUE) throw new Error(`Not enough peaks (${max_p}) for 6-peak solve.`);
                 
@@ -2786,68 +2723,31 @@ gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * combinations(n_peaks_for_combo, 4) *
                 const peakCombos = new Uint32Array(peak_combos_raw);
                 if (peakCombos.length === 0) throw new Error("Not enough peaks for triclinic 6-peak solve.");
                 
+                // 3. Update Global Stats (Estimation)
                 const num_hkls = hkl_basis_raw.length;
-                const userMaxBuffer = engine.device.limits.maxStorageBufferBindingSize;
-                const BYTES_PER_COMBO = K_VALUE * 4;
+                const totalHklCombos = combinations(num_hkls, K_VALUE);
+                gpuTotalTrials += totalHklCombos * combinations(max_p, 6) * 720;
 
-                //18 nov, memory limts
-                const MAX_SAFE_BATCH = 100000;
-                const memoryLimit = Math.floor((userMaxBuffer * 0.98) / BYTES_PER_COMBO);
-                const combosPerChunk = Math.min(memoryLimit, MAX_SAFE_BATCH);
-
-        // old        const combosPerChunk = Math.floor((userMaxBuffer * 0.99) / BYTES_PER_COMBO);
-                const TOTAL_EXHAUSTIVE_COMBOS = combinations(num_hkls, K_VALUE);
-                const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
-
-// 
-
-console.log(`[GPU] System: Triclinic`);
-console.log(`- Total HKL Combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()}`);
-console.log(`- Max Safe Batch: ${MAX_SAFE_BATCH.toLocaleString()}`);
-console.log(`- VRAM Limit: ${memoryLimit.toLocaleString()}`);
-console.log(`- Actual Batch Size: ${combosPerChunk.toLocaleString()} (${memoryLimit < MAX_SAFE_BATCH ? 'Limited by VRAM' : 'Limited by Safety Cap'})`);
-console.log(`- Total Batches (Chunks): ${numChunks}`);
-
-
-
-                // Multiply by Peak Combinations (C(n_peaks, 6))
-            gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * combinations(n_peaks_for_combo_tri, 6) * 720;
-
-                //gpuTotalTrials += TOTAL_EXHAUSTIVE_COMBOS * 720;
-                const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
+                // 4. Setup Callbacks
                 const progressCallback = getGpuProgressCallback('Triclinic', absoluteTaskIndex);
                 
-                // Live Callback for Triclinic
                 const handleIntermediateResults = (newCells) => {
                      newCells.forEach(cell => refineGpuCell(cell));
                 };
 
-                for (let chunk = 0; chunk < numChunks; chunk++) {
-                    if (gpuStopSignal.stop) break;
+                // 5. Run Solver (Single call - Engine handles chunking internally)
+                const { stoppedEarly } = await engine.runTriclinicSolver(
+                    qObsArray, 
+                    hklBasisArray, 
+                    peakCombos, 
+                    null, // <--- HKL Combos ignored (Combinadics used)
+                    qTolerancesArray,
+                    (p, n) => progressCallback(p, n),
+                    gpuStopSignal, 
+                    baseParams,
+                    handleIntermediateResults 
+                );
 
-                    const combosThisChunk = (chunk === numChunks - 1)
-                        ? (TOTAL_EXHAUSTIVE_COMBOS % combosPerChunk || combosPerChunk)
-                        : combosPerChunk;
-                    const hklCombos = new Uint32Array(combosThisChunk * K_VALUE);
-                    
-                    let offset = 0;
-                    for (let i = 0; i < combosThisChunk; i++) {
-                        const arr = hklComboGenerator.next().value;
-                        if (!arr) break;
-                        hklCombos.set(arr, offset);
-                        offset += K_VALUE;
-                    }
-
-                    const { stoppedEarly } = await engine.runTriclinicSolver(
-                        qObsArray, hklBasisArray, peakCombos, hklCombos,
-                        qTolerancesArray,
-                        (p, n) => progressCallback((chunk + p) / numChunks, n),
-                        gpuStopSignal, baseParams,
-                        handleIntermediateResults // Pass callback
-                    );
-
-                    if (stoppedEarly) break;
-                }
             } catch (err) {
                 console.error("WebGPU Error (Triclinic):", err);
                 showStatus(`Triclinic GPU Error: ${err.message}`, 'error');
@@ -2858,6 +2758,9 @@ console.log(`- Total Batches (Chunks): ${numChunks}`);
         })();
         taskPromises.push(triTask);
     }
+
+
+
 
     // --- FINALIZE ---
     await Promise.all(taskPromises);
@@ -3314,7 +3217,7 @@ const generatePDFReport = async () => {
             // --- Page Header & Chart ---
             const now = new Date();
             const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 18 nov 2025';
+            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 19 nov 2025';
           	const programURL = window.location.href;
             
     
@@ -3839,6 +3742,6 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 18 nov 2025</div>
+<div id="app-footer">Brutus, 19 nov 2025</div>
 </body>
 </html>
