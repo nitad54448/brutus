@@ -164,13 +164,26 @@
 
         .bottom-actions { margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--light-bg); }
 
+
         #status-box {
             position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 6px;
             color: white; font-size: 0.8rem; font-weight: 500; z-index: 1000;
             opacity: 0; visibility: hidden; transform: translateY(20px);
             transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.3s ease;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+
+            /* - Force wrapping on long text - */
+            max-width: 400px;        /* Limits width so text must wrap */
+            white-space: normal;     /* Explicitly allows wrapping */
+            word-wrap: break-word;   /* Breaks long words/numbers if needed */
+            line-height: 1.4;        /* Improves readability on multiple lines */
+            text-align: right;       /* (Optional) Keeps text aligned to the corner */
         }
+
+
+
+
+
         #status-box.show { opacity: 1; visibility: visible; transform: translateY(0); }
         #status-box.success { background-color: var(--success-green); }
         #status-box.error { background-color: var(--error-red); }
@@ -1942,13 +1955,112 @@ if (denominator < -1e-10) {
         updateAllMarkers();
     };
     
-    const updateStartIndexingButtonState = () => {
-        const needed = 4 - pickedPeaks.length;
-        if (needed > 0) { ui.startIndexingButton.disabled = true; ui.startIndexingButton.textContent = `Need ${needed} more peak${needed > 1 ? 's' : ''}`; } 
-        else { ui.startIndexingButton.disabled = false; ui.startIndexingButton.textContent = 'Start Indexing'; }
+
+// ============================================================
+    // === SAFETY & UI LOGIC (Replace updateStartIndexingButtonState) ===
+    // ============================================================
+
+    const UINT32_MAX = 4294967295n; // 2^32 - 1 (BigInt)
+
+    // Helper: BigInt combinations to prevent JS precision loss
+    const bigCombinations = (n, k) => {
+        if (k < 0 || k > n) return 0n;
+        if (k === 0 || k === n) return 1n;
+        if (k > n / 2) k = n - k;
+        let res = 1n;
+        for (let i = 1n; i <= BigInt(k); i++) {
+            res = res * (BigInt(n) - i + 1n) / i;
+        }
+        return res;
     };
 
+    const checkGpuLimits = () => {
+        // If WebGPU isn't even available, don't block (CPU fallback logic handles it)
+        if (!webGPUSupportsCompute) return true;
 
+        let n_hkl = 0;
+        let k_val = 0;
+        let activeSystem = "";
+
+        // 1. Identify Active System & Parameters
+        if (triCheckbox && triCheckbox.checked) {
+            n_hkl = parseInt(ui.gpuHklTriplets.value, 10) || 40;
+            k_val = 6;
+            activeSystem = "Triclinic";
+        } else if (monoCheckbox && monoCheckbox.checked) {
+            n_hkl = parseInt(ui.gpuHklTriplets.value, 10) || 80;
+            k_val = 4;
+            activeSystem = "Monoclinic";
+        } else if (orthoCheckbox && orthoCheckbox.checked) {
+            n_hkl = parseInt(ui.gpuHklTriplets.value, 10) || 300;
+            k_val = 3;
+            activeSystem = "Orthorhombic";
+        } else {
+            return true; // No GPU system selected
+        }
+
+        // 2. Calculate Shader Loop Size (The dangerous number)
+        const totalHklCombos = bigCombinations(n_hkl, k_val);
+
+        // 3. Check against Hardware Limit (u32)
+        if (totalHklCombos > UINT32_MAX) {
+            // --- LIMIT EXCEEDED: BLOCK UI ---
+            ui.startIndexingButton.disabled = true;
+            ui.startIndexingButton.textContent = "Start (**** Too Large)";
+            ui.startIndexingButton.style.backgroundColor = "var(--error-red)";
+            ui.startIndexingButton.style.borderColor = "var(--error-red)";
+            
+            if (document.getElementById('status-text')) {
+                const fmt = totalHklCombos.toLocaleString('en-US');
+                document.getElementById('status-text').textContent = 
+                    `Error: ${activeSystem} HKL combos (${fmt}) exceeds GPU limit (4.29 Billion). Reduce HKL Basis.`;
+            }
+            return false; // Invalid
+        } 
+        
+        // 4. Valid State
+        return true;
+    };
+
+    // --- MAIN UPDATE FUNCTION ---
+    const updateStartIndexingButtonState = () => {
+        // Step 1: Check Peaks
+        const needed = 4 - pickedPeaks.length;
+        
+        if (needed > 0) { 
+            // Not enough peaks
+            ui.startIndexingButton.disabled = true; 
+            ui.startIndexingButton.textContent = `Need ${needed} more peak${needed > 1 ? 's' : ''}`; 
+            ui.startIndexingButton.style.backgroundColor = ""; 
+            ui.startIndexingButton.style.borderColor = "";
+            if (document.getElementById('status-text')) document.getElementById('status-text').textContent = "";
+        } else { 
+            // Step 2: Peaks are good, now Check GPU Safety
+            const gpuSafe = checkGpuLimits();
+            
+            if (gpuSafe) {
+                // Safe to run
+                ui.startIndexingButton.disabled = false; 
+                ui.startIndexingButton.textContent = 'Start Indexing'; 
+                ui.startIndexingButton.style.backgroundColor = ""; 
+                ui.startIndexingButton.style.borderColor = "";
+                
+                // Clear error message if it was set previously
+                const statusEl = document.getElementById('status-text');
+                if (statusEl && statusEl.textContent.includes("exceeds GPU limit")) {
+                    statusEl.textContent = "";
+                }
+            }
+            // If gpuSafe is false, checkGpuLimits already set the button to Red/****
+        }
+    };
+
+    // Attach listeners
+    ui.gpuHklTriplets.addEventListener('input', updateStartIndexingButtonState);
+    ui.systemCheckboxes.forEach(cb => cb.addEventListener('change', updateStartIndexingButtonState));
+    
+    // Also run on init
+    updateStartIndexingButtonState();
 
 
 

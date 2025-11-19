@@ -241,25 +241,39 @@ class WebGPUEngine {
     }
 
 
-    // Helper to generate Pascal's Triangle (Binomial Coeffs) flattened
+
+    // bingINt, fro crazy numbers
+
     generateBinomialTable(n, k) {
-        // Table size: (n+1) rows, (k+1) columns
-        // We only need up to column k.
         const stride = k + 1;
+        // We use Uint32Array. If a value exceeds 2^32, it will wrap around. 
+        // The checkGpuLimits() in UI prevents this from happening.
         const table = new Uint32Array((n + 1) * stride);
         
+        // Use BigInt for calculation to avoid precision loss, then cast to Number for buffer
+        const bigTable = new BigUint64Array((n + 1) * stride);
+
         for (let i = 0; i <= n; i++) {
-            table[i * stride + 0] = 1; // C(i, 0) = 1
-            if (i <= k) table[i * stride + i] = 1; // C(i, i) = 1
+            bigTable[i * stride + 0] = 1n; 
+            if (i <= k) bigTable[i * stride + i] = 1n; 
             
             for (let j = 1; j < i && j <= k; j++) {
-                 // Pascal's Identity: C(i, j) = C(i-1, j-1) + C(i-1, j)
-                 const val = table[(i - 1) * stride + (j - 1)] + table[(i - 1) * stride + j];
-                 table[i * stride + j] = val;
+                 const val = bigTable[(i - 1) * stride + (j - 1)] + bigTable[(i - 1) * stride + j];
+                 bigTable[i * stride + j] = val;
             }
         }
+
+        // Copy to Uint32 (Safe because we blocked > u32 in UI)
+        for(let i=0; i<table.length; i++) {
+            // Clamp to max u32 just in case, though logic should prevent it
+            if (bigTable[i] > 4294967295n) table[i] = 4294967295; 
+            else table[i] = Number(bigTable[i]);
+        }
+        
         return table;
     }
+
+
 
 // 7. runTriclinicSolver (TDR Safe Version)
     async runTriclinicSolver(

@@ -121,8 +121,11 @@
                 <li><a href="#quick-start">Quick Start Guide</a></li>
                 <li><a href="#ui">The User Interface</a></li>
                 <li><a href="#peak-finding">Peak Finding</a></li>
+
                 <li><a href="#indexing-method">Indexing Algorithm</a></li>
-                <li><a href="#evaluating-solutions">Evaluating Solutions</a></li>
+<li><a href="#numbers-and-limits">Numbers & Limits</a></li> <li><a href="#evaluating-solutions">Evaluating Solutions</a></li>
+
+
                 <li><a href="#space-group-analysis">Space Group Analysis</a></li>
                 <li><a href="#advanced-topics">Advanced Topics</a></li>
                 <li><a href="#troubleshooting">Troubleshooting</a></li>
@@ -538,6 +541,90 @@
             </ol>
         </section>
     
+
+
+        <section id="numbers-and-limits">
+            <h2>Computational Limits & The Scale of Search</h2>
+            <p>
+                Because Brutus performs a brute-force combinatorial search, the number of trial cells can become astronomical.
+                While modern GPUs are incredibly fast, there are hard limits defined by both the hardware (WebGPU specifications)
+                and practical time constraints.
+            </p>
+
+            <h3>The Hierarchy of Limits</h3>
+            <p>
+                The "Total Trials" displayed in the application is calculated as:
+            </p>
+            <div style="background-color: #f9fafb; padding: 1rem; border-radius: 0.5rem; border: 1px solid #e5e7eb; overflow-x: auto;">
+                $$ \text{Trials} = \underbrace{\text{HKL Combos}}_{\text{Limit: } \approx 4.29 \times 10^9} \times \underbrace{\text{Peak Combos}}_{\text{User Dependent}} \times \underbrace{\text{Permutations}}_{\text{Constant}} $$
+            </div>
+            <p>
+                The <strong>HKL Combos</strong> count is the most critical hardware constraint. It maps directly to the number of GPU threads dispatched.
+                Since WebGPU uses 32-bit integers (<code>u32</code>) for indexing, this value <strong>must strictly remain below $2^{32}-1$ (approx. 4.29 Billion)</strong>.
+            </p>
+            <p>
+                Brutus automatically calculates this limit based on your "HKL Basis Size" and prevents the search from starting if you exceed it.
+            </p>
+
+            <h3>System-Specific Breakdown</h3>
+            <p>
+                Each crystal system scales differently. <strong>Triclinic</strong> is by far the most computationally demanding ("The Monster") due to its high dimensionality ($k=6$).
+            </p>
+
+            <h4>1. Triclinic ($k=6$)</h4>
+            <ul>
+                <li><strong>HKL Limit:</strong> You hit the 4.29 Billion safety wall at a Basis Size of <strong>122</strong>.</li>
+                <li><strong>Permutations:</strong> $6! = 720$.</li>
+                <li><strong>Peak Multiplier:</strong> Using 20 peaks ($C(20,6)$) adds a factor of 38,760.</li>
+                <li>
+                    <strong>Maximum Possible Trials:</strong>
+                    $$ 4.29 \times 10^9 \times 38,760 \times 720 \approx \mathbf{1.2 \times 10^{17}} \quad (120 \text{ Quadrillion}) $$
+                </li>
+            </ul>
+
+            <h4>2. Monoclinic ($k=4$)</h4>
+            <ul>
+                <li><strong>HKL Limit:</strong> You hit the 4.29 Billion wall at a Basis Size of <strong>568</strong>.</li>
+                <li><strong>Permutations:</strong> $4! = 24$.</li>
+                <li><strong>Peak Multiplier:</strong> Using 20 peaks ($C(20,4)$) adds a factor of 4,845.</li>
+                <li>
+                    <strong>Maximum Possible Trials:</strong>
+                    $$ 4.29 \times 10^9 \times 4,845 \times 24 \approx \mathbf{5 \times 10^{14}} \quad (500 \text{ Trillion}) $$
+                </li>
+            </ul>
+
+            <h4>3. Orthorhombic ($k=3$)</h4>
+            <ul>
+                <li><strong>HKL Limit:</strong> You hit the 4.29 Billion wall at a Basis Size of approx. <strong>3,000</strong>.</li>
+                <li><strong>Permutations:</strong> $3! = 6$.</li>
+                <li><strong>Peak Multiplier:</strong> Using 20 peaks ($C(20,3)$) adds a factor of 1,140.</li>
+                <li>
+                    <strong>Maximum Possible Trials:</strong>
+                    $$ 4.29 \times 10^9 \times 1,140 \times 6 \approx \mathbf{2.9 \times 10^{13}} \quad (29 \text{ Trillion}) $$
+                </li>
+            </ul>
+
+            <h3>Practical Implications</h3>
+            <p>
+                <strong>Is the "Trials" number real?</strong><br>
+                Yes. It represents the total number of mathematical checks the GPU would theoretically perform.
+                However, Brutus uses a <strong>"Fail-Fast"</strong> optimization: most invalid cells are rejected after checking only the first 2 or 3 peaks,
+                meaning the GPU rarely performs the full calculation for every trial.
+            </p>
+            <p>
+                <strong>Can you actually run 120 Quadrillion trials?</strong><br>
+                Technically yes—the "Safe Batching" system prevents your computer from crashing. However, even at a speed of
+                200 Million trials/sec, 120 Quadrillion trials would take <strong>~19 years</strong> to finish.
+            </p>
+            <blockquote>
+                <strong>Practical Limit:</strong> For a search to finish in a "coffee break" time frame (5–10 minutes),
+                you generally want to keep the Total Trials count under <strong>100–500 Billion</strong>.
+            </blockquote>
+        </section>
+
+
+
+
       <h3 id="tuning-the-search">Tuning the Search & Troubleshooting</h3>
     <p>
         If you obtain no solutions, or too many, consider the following adjustments.
