@@ -3,9 +3,8 @@
 
 // === Structs ===
 struct RawOrthoSolution {
-    a: f32,
-    b: f32,
-    c: f32,
+    a: f32, b: f32, c: f32,
+    pad1: f32 // <--- Padding (Total 16 bytes, for older cards)
 }
 
 // === Type Aliases ===
@@ -78,21 +77,21 @@ fn solve3x3(A: Mat3x3, b: Vec3) -> Vec3 {
 fn extractCellOrtho(params: Vec3) -> RawOrthoSolution {
     let A: f32 = params[0]; let B: f32 = params[1]; let C: f32 = params[2]; 
 
-    if (A <= 1e-12 || B <= 1e-12 || C <= 1e-12) { return RawOrthoSolution(0.0, 0.0, 0.0); }
+    if (A <= 1e-12 || B <= 1e-12 || C <= 1e-12) { return RawOrthoSolution(0.0, 0.0, 0.0, 0.0); }
 
     let a_val = 1.0 / sqrt(A);
     let b_val = 1.0 / sqrt(B);
     let c_val = 1.0 / sqrt(C);
 
     if (a_val < 2.0 || a_val > 50.0 || b_val < 2.0 || b_val > 50.0 || c_val < 2.0 || c_val > 50.0) { 
-        return RawOrthoSolution(0.0, 0.0, 0.0); 
+        return RawOrthoSolution(0.0, 0.0, 0.0,0.0); 
     }
     
     let volume = a_val * b_val * c_val;
     if (volume < 20.0 || volume > config.max_volume) { 
-         return RawOrthoSolution(0.0, 0.0, 0.0);
+         return RawOrthoSolution(0.0, 0.0, 0.0,0.0);
     }
-    return RawOrthoSolution(a_val, b_val, c_val);
+    return RawOrthoSolution(a_val, b_val, c_val, 0.0);
 }
 
 // === Combinatorial Number System (K=3) ===

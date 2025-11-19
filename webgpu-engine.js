@@ -287,7 +287,7 @@ class WebGPUEngine {
 
         // --- 2. Create Buffers ---
         const maxSolutions = 20000;
-        const solutionStructSize = 6 * 4; 
+        const solutionStructSize = 8 * 4; 
         
         const qObsBuffer = this.createBuffer(qObsArray, GPUBufferUsage.STORAGE);
         const hklBasisBuffer = this.createBuffer(hklBasisArray, GPUBufferUsage.STORAGE);
@@ -346,7 +346,7 @@ class WebGPUEngine {
         
         // Safety Target: Max 10 million threads per dispatch to avoid TDR (2-second limit)
         // Threads = (Peak Combos) * (HKL Combos per Dispatch)
-        const MAX_THREADS_PER_DISPATCH = 200_000; 
+        const MAX_THREADS_PER_DISPATCH = 50_000; 
         
         const maxHklPerDispatch = Math.floor(MAX_THREADS_PER_DISPATCH / Math.max(1, numPeakCombos));
         
@@ -407,10 +407,14 @@ class WebGPUEngine {
                 const countToRead = Math.min(numSolutions, maxSolutions);
                 
                 for(let k=solutionsReadCount; k<countToRead; k++) {
-                     const offset = k * 6;
+                     const offset = k * 8;
                      newBatch.push({
-                         a: rawResults[offset], b: rawResults[offset+1], c: rawResults[offset+2],
-                         alpha: rawResults[offset+3], beta: rawResults[offset+4], gamma: rawResults[offset+5],
+                        a: rawResults[offset+0],
+                        b: rawResults[offset+1],
+                        c: rawResults[offset+2],
+                        alpha: rawResults[offset+3],
+                        beta: rawResults[offset+4],
+                        gamma: rawResults[offset+5],
                          system: 'triclinic'
                      });
                 }
@@ -465,7 +469,7 @@ class WebGPUEngine {
 
         // --- 2. Buffers ---
         const maxSolutions = 20000;
-        const solutionStructSize = 3 * 4; 
+        const solutionStructSize = 4 * 4; 
         
         const qObsBuffer = this.createBuffer(qObsArray, GPUBufferUsage.STORAGE);
         const hklBasisBuffer = this.createBuffer(hklBasisArray, GPUBufferUsage.STORAGE);
@@ -569,7 +573,7 @@ class WebGPUEngine {
                 const countToRead = Math.min(numSolutions, maxSolutions);
 
                 for (let k = solutionsReadCount; k < countToRead; k++) {
-                    const offset = k * 3;
+                    const offset = k * 4;
                     newBatch.push({
                         a: rawResults[offset + 0],
                         b: rawResults[offset + 1],

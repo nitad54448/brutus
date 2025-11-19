@@ -3,12 +3,10 @@
 
 // === Structs ===
 struct RawSolution {
-    a: f32,
-    b: f32,
-    c: f32,
-    alpha: f32,
-    beta: f32,
-    gamma: f32,
+    a: f32, b: f32, c: f32,
+    alpha: f32, beta: f32, gamma: f32,
+    pad1: f32, // <--- Padding
+    pad2: f32  // <--- Padding (Total 32 bytes)
 }
 
 // === Type Aliases ===
@@ -232,7 +230,7 @@ fn extractCell(params: Vec6) -> RawSolution {
     let p1: f32 = params[0]; let p2: f32 = params[1]; let p3: f32 = params[2];
     let p4: f32 = params[3]; let p5: f32 = params[4]; let p6: f32 = params[5];
 
-    if (p1 <= 1e-12 || p2 <= 1e-12 || p3 <= 1e-12) { return RawSolution(0.0,0.0,0.0,0.0,0.0,0.0); }
+    if (p1 <= 1e-12 || p2 <= 1e-12 || p3 <= 1e-12) { return RawSolution(0.0,0.0,0.0,0.0,0.0,0.0,0.,0.); }
 
     let G_star = mat3x3<f32>(
         vec3<f32>(p1, p6/2.0, p5/2.0),
@@ -241,12 +239,12 @@ fn extractCell(params: Vec6) -> RawSolution {
     );
     
     let G = invert3x3(G_star);
-    if (G[0][0] <= 1e-6 || G[1][1] <= 1e-6 || G[2][2] <= 1e-6) { return RawSolution(0.0,0.0,0.0,0.0,0.0,0.0); }
+    if (G[0][0] <= 1e-6 || G[1][1] <= 1e-6 || G[2][2] <= 1e-6) { return RawSolution(0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0); }
 
     let a: f32 = sqrt(G[0][0]);
     let b: f32 = sqrt(G[1][1]);
     let c: f32 = sqrt(G[2][2]);
-    if (a < 2.0 || a > 50.0 || b < 2.0 || b > 50.0 || c < 2.0 || c > 50.0) { return RawSolution(0.0,0.0,0.0,0.0,0.0,0.0); }
+    if (a < 2.0 || a > 50.0 || b < 2.0 || b > 50.0 || c < 2.0 || c > 50.0) { return RawSolution(0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0); }
 
     let alpha_cos = clamp(G[1][2] / (b*c), -1.0, 1.0);
     let beta_cos = clamp(G[0][2] / (a*c), -1.0, 1.0);
@@ -256,15 +254,15 @@ fn extractCell(params: Vec6) -> RawSolution {
     let gamma = acos(gamma_cos) * DEG;
 
     if (alpha < 60.0 || alpha > 150.0 || beta < 60.0 || beta > 150.0 || gamma < 60.0 || gamma > 150.0) { 
-        return RawSolution(0.0,0.0,0.0,0.0,0.0,0.0); 
+        return RawSolution(0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0); 
     }
 
     let V_star_sq = determinant(G_star);
-    if (V_star_sq <= 1e-12) { return RawSolution(0.0,0.0,0.0,0.0,0.0,0.0); }
+    if (V_star_sq <= 1e-12) { return RawSolution(0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0); }
     let volume = 1.0 / sqrt(V_star_sq);
-    if (volume < 20.0 || volume > config.max_volume) { return RawSolution(0.0,0.0,0.0,0.0,0.0,0.0); }
+    if (volume < 20.0 || volume > config.max_volume) { return RawSolution(0.0,0.0,0.0,0.0,0.0,0.0,0.,0.); }
     
-    return RawSolution(a, b, c, alpha, beta, gamma);
+    return RawSolution(a, b, c, alpha, beta, gamma,0.,0.);
 }
 
 // === Combinatorial Number System Helper ===
