@@ -2777,47 +2777,47 @@ const startIndexing = async () => {
 const finalizeIndexing = (stoppedByUser = false) => {
     const statusTextElement = document.getElementById('status-text');
 
-    const elapsedTimeSeconds = (performance.now() - indexingStartTime) / 1000;
-    
-    // 
-    const totalCpuTrials = cumulativeTrials; // Get CPU trials
+    // 1. Calculate Counts
+    const totalCpuTrials = cumulativeTrials; 
     const totalFinalTrials = totalCpuTrials + gpuTotalTrials; 
+    const fmtTrials = totalFinalTrials.toLocaleString('en-US');
     
-    const trialsPerSecond = (elapsedTimeSeconds > 0.1) ? totalFinalTrials / elapsedTimeSeconds : 0;
-    const finalStatus = `Trials: ${totalFinalTrials.toLocaleString()} (Avg: ${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
-    
-    
-    lastIndexingStats = finalStatus;
+    // 2. Check if a GPU system was actually run
+    const isGpuRun = (orthoCheckbox && orthoCheckbox.checked) || 
+                     (monoCheckbox && monoCheckbox.checked) || 
+                     (triCheckbox && triCheckbox.checked);
 
+    // 3. Construct the Status String for the PDF Report based on mode
+    let finalStatus = "";
 
-
-    if (statusTextElement) {
-        statusTextElement.textContent = finalStatus; // Display it
-    }
-
-
-        // After a run, clear GPU-specific status text if not selected
-    if (!monoCheckbox.checked && !triCheckbox.checked) {
-         if (statusTextElement) statusTextElement.textContent = finalStatus;
+    if (isGpuRun) {
+        // GPU Mode: Show Max Trials and Settings
+        const hklSize = ui.gpuHklTriplets.value;
+        const peaksComb = ui.gpuPeaksCount.value;
+        
+        // Note: We use "Max Trials" because Fail-Fast skips many, so this is the search space size
+        finalStatus = `Max Trials: ${fmtTrials}    HKL Basis: ${hklSize}    Peaks Combined: ${peaksComb}`;
     } else {
-        // If still selected, re-calculate the estimate (in case inputs changed during run)
-        updateGpuStatusText();
+        // CPU Mode: Show Exact Count
+        finalStatus = `CPU, trials made: ${fmtTrials}`;
     }
 
+    // 4. Store this global variable (used by generatePDFReport)
+    lastIndexingStats = finalStatus; 
+    
+    // -------------------------------------------------
 
-
+    // Update screen status temporarily
     if (statusTextElement) statusTextElement.textContent = 'Applying final sieve...';
+    
+    // Apply Sieve
     solutions = applyFinalSieve(solutions); 
     
-
-    
+    // Space Group Analysis
     if (statusTextElement) statusTextElement.textContent = 'Analyzing space groups...';
 
-    // Get the 2-theta range from the sliders 
     const tthMinVal = parseFloat(ui.tthMinSlider.value);
     const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
-
-    // Pre-filter the peaks list based on the slider range
     const filteredPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
 
     if (spaceGroupData) {
@@ -2842,17 +2842,19 @@ const finalizeIndexing = (stoppedByUser = false) => {
         });
     }
                                 
+    // Clear status text on screen
     if (statusTextElement) statusTextElement.textContent = '';
     
     setUIState(false);    
     
-    // Set default sort back to M(20)
+    // Sort and Update Table
     sortState = { column: 'm20', direction: 'desc' };
-    sortSolutions(); // This will sort using the new standardized parameters
+    sortSolutions(); 
     
     displayedSolutions = [...solutions]; 
-    updateSolutionsTable(); // This will display the new standardized parameters
+    updateSolutionsTable(); 
 
+    // Final Toast Message / LED
     if (solutions.length > 0) {
         const message = stoppedByUser ? 
             'Indexing stopped by user.' : 
@@ -2867,7 +2869,6 @@ const finalizeIndexing = (stoppedByUser = false) => {
         }
     }
 };
-
  
     ui.startIndexingButton.addEventListener('click', startIndexing);
     ui.reportButton.addEventListener('click', () => {
