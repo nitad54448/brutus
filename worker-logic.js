@@ -1,6 +1,6 @@
 // "worker-logic.js" 
 // most of the combs.html functions are moved here, version 15 nov 2025
-
+//20 nov, moved here the former webworker, indexing-logic
 const RAD = Math.PI / 180.0;
 const DEG = 180.0 / Math.PI;
 
@@ -1311,4 +1311,68 @@ function getReflectionZone(h, k, l) {
     if (h === 0 && k !== 0 && l !== 0) return '0kl'; if (k === 0 && h !== 0 && l !== 0) return 'h0l'; if (l === 0 && h !== 0 && k !== 0) return 'hk0';
     if (h !== 0 && h === k && l !== 0 && h !== l) return 'hhl'; if (k !== 0 && k === l && h !== 0 && h !== k) return 'hkk'; if (h !== 0 && h === l && k !== 0 && k !== h) return 'hll';
     return 'hkl';
+}
+
+//20 nov, worker
+// Check if we are running in a Worker environment to avoid conflicts with the main thread
+if (typeof self !== 'undefined' && typeof  WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) {
+
+    self.onmessage = function(e) {
+        
+        // --- 1. Get data from main thread ---
+        const data = e.data;
+        const { systemToSearch, peaks, wavelength, tth_error, impurity_peaks } = data;
+
+        // --- 2. Set up the "global" state for the functions ---
+        const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(peaks, wavelength);
+        const N_FOR_M20 = Math.min(20, peaks.length);
+        const min_m20 = 2.0;
+        const d_min = wavelength / (2 * Math.sin(Math.max(...peaks.map(p => p.tth)) * Math.PI / 360));
+        const q_max = 1 / (d_min * d_min);
+        
+        // Live-updating arrays
+        const foundSolutions = [];
+        const foundSolutionMap = new Map();
+        
+        // Wrapper for refineAndTestSolution to match the signature expected by logic functions
+        const refineAndTestWrapper = (cell) => {
+            refineAndTestSolution(
+                cell, 
+                data, 
+                { 
+                    q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q,
+                    N_FOR_M20, min_m20, q_max, d_min,
+                    foundSolutions, foundSolutionMap
+                },
+                self.postMessage.bind(self) 
+            );
+        };
+
+        // State object passed to logic functions
+        const workerState = {
+            q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q,
+            N_FOR_M20, min_m20, q_max, d_min,
+            foundSolutions, foundSolutionMap,
+            refineAndTestSolution: refineAndTestWrapper 
+        };
+
+        // --- 3. Run the requested search ---
+        self.postMessage({ type: 'progress', payload: 1 });
+        
+        if (systemToSearch === 'cubic') {
+            indexCubic(data, workerState, self.postMessage.bind(self));
+        } else if (systemToSearch === 'tetragonal') {
+            indexTetragonalOrHexagonal(data, workerState, self.postMessage.bind(self), 'tetragonal');
+        } else if (systemToSearch === 'hexagonal') {
+            indexTetragonalOrHexagonal(data, workerState, self.postMessage.bind(self), 'hexagonal');
+        }
+
+        self.postMessage({ type: 'progress', payload: 80 });
+        
+        // Run transformation/symmetry checks on found solutions
+        findTransformedSolutions(foundSolutions, data, workerState, self.postMessage.bind(self));
+        
+        self.postMessage({ type: 'progress', payload: 100 });
+        self.postMessage({ type: 'done' });
+    };
 }

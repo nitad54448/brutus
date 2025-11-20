@@ -1126,7 +1126,7 @@ const handleNewSolution = (newSolution) => {
 
 const setupWorker = () => {
     try {
-        workerURL = 'indexing-worker.js'; 
+        workerURL = 'worker-logic.js'; 
     } catch (error) {
         console.error("Failed to set up worker URL:", error);
         showStatus("Critical error: Could not initialize indexing engine.", "error", 10000);
