@@ -671,7 +671,8 @@ const WAVELENGTH_PRESETS = {
     }
 
     // --- Add validation to all number inputs ---
-    ui.maxVolume.addEventListener('blur', () => validateNumberInput(ui.maxVolume, 4000));
+    //c'est fait plus tard ?
+    //ui.maxVolume.addEventListener('blur', () => validateNumberInput(ui.maxVolume, 4000));
     ui.impurityPeaksInput.addEventListener('blur', () => validateNumberInput(ui.impurityPeaksInput, 0));
     ui.tthError.addEventListener('blur', () => validateNumberInput(ui.tthError, 0.06));
     
@@ -1074,6 +1075,37 @@ const getOrthogonalityScore = (cell) => {
     let workerURL = null;    
     const MAX_SOLUTIONS_BEFORE_PRUNING = 50;
     const PRUNE_TO_COUNT = 40; // Prune down to this many
+
+
+// Add this new function to centralize updates
+const handleNewSolution = (newSolution) => {
+    solutions.push(newSolution);
+
+    // 1. Prune (Maintain Max Limit)
+    if (solutions.length > MAX_SOLUTIONS_BEFORE_PRUNING) {
+        // Always sort by quality (M20) before cutting
+        solutions.sort((a, b) => b.m20 - a.m20); 
+        solutions = solutions.slice(0, PRUNE_TO_COUNT);
+    }
+
+    // 2. Visual Feedback
+    if (solutions.length === 1) ui.solutionsLed.className = 'led-indicator green';
+
+    // 3. Apply User Sort Preference (e.g., by Volume or System)
+    sortSolutions();
+
+    // 4. Re-Sync Displayed List (Critical Step)
+    // We must re-read the checkboxes to ensure displayedSolutions matches visible systems
+    const activeSystems = Array.from(ui.systemCheckboxes)
+                               .filter(cb => cb.checked)
+                               .map(cb => cb.value);
+    
+    displayedSolutions = solutions.filter(sol => activeSystems.includes(sol.system));
+
+    // 5. Update DOM
+    updateSolutionsTable();
+};
+
 
     /**
      * Dynamically prunes the global 'solutions' list if it exceeds the max count.
@@ -2415,17 +2447,22 @@ const startIndexing = async () => {
     const workerSystems = [];
     gpuStopSignal.stop = false;
 
-    systemsToSearch.forEach(system => {
-        if (['orthorhombic', 'monoclinic', 'triclinic'].includes(system)) {
-            if (webgpuEngine && webGPUSupportsCompute) {
-                webgpuSystems.push(system);
-            } else {
-                workerSystems.push(system);
-            }
+systemsToSearch.forEach(system => {
+    if (['orthorhombic', 'monoclinic', 'triclinic'].includes(system)) {
+        if (webgpuEngine && webGPUSupportsCompute) {
+            webgpuSystems.push(system);
         } else {
-            workerSystems.push(system);
+            // GPU unavailable: Do NOT push to workerSystems. 
+            // Just skip it or warn.
+            console.warn(`Skipping ${system} - GPU unavailable and CPU fallback disabled.`);
+            showStatus(`Skipping ${system} (GPU required)`, "error", 4000);
         }
-    });
+    } else {
+        // Cubic, Tetragonal, Hexagonal go to CPU
+        workerSystems.push(system);
+    }
+});
+
 
     if (needsWebGPU && webgpuSystems.length === 0) {
         ui.systemCheckboxes.forEach(cb => {
@@ -2513,17 +2550,19 @@ const startIndexing = async () => {
                 cell, 
                 baseParams, 
                 cpuRefineState,
-                (msg) => { 
-                    if (msg.type === 'solution') {
-                        solutions.push(msg.payload);
-                        pruneSolutions(); 
-                        if (solutions.length === 1) ui.solutionsLed.className = 'led-indicator green';
-                        sortSolutions();
-                        displayedSolutions = solutions.filter(sol => systemsToSearch.includes(sol.system));
-                        updateSolutionsTable();
-                    }
-                    resolveCellRefine(); 
-                }
+              
+              
+              
+(msg) => { 
+    if (msg.type === 'solution') {
+        handleNewSolution(msg.payload); // helper
+    }
+    resolveCellRefine(); 
+}
+
+
+
+
             ); 
         });
     };
@@ -2572,15 +2611,12 @@ const startIndexing = async () => {
                         const trialsPerSecond = (elapsedTimeSeconds > 0.1) ? cumulativeTrials / elapsedTimeSeconds : 0;
                         const totalPercentage = taskProgress.reduce((a, b) => a + b, 0) / totalTasks;
                         const message = `[${totalPercentage.toFixed(0)}%] Trials: ${cumulativeTrials.toLocaleString()} (${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
-                        throttledSetStatusText(message);
+                        throttledSetStatusText(message);           
+
                     } else if (type === 'solution') {
-                        solutions.push(payload);
-                        pruneSolutions();
-                        if (solutions.length === 1) ui.solutionsLed.className = 'led-indicator green';
-                        sortSolutions();
-                        displayedSolutions = solutions.filter(sol => systemsToSearch.includes(sol.system));
-                        updateSolutionsTable();
+                     handleNewSolution(payload); //new helper, 20 nov
                     } else if (type === 'progress') {
+                                 
                         taskProgress[absoluteTaskIndex] = payload; 
                         updateProgressBar();
                     } else if (type === 'done') {
@@ -3333,7 +3369,7 @@ const generatePDFReport = async () => {
             // --- Page Header & Chart ---
             const now = new Date();
             const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 19 nov 2025';
+            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 20 nov 2025';
           	const programURL = window.location.href;
             
     
@@ -3858,6 +3894,6 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 19 nov 2025</div>
+<div id="app-footer">Brutus, 20 nov 2025</div>
 </body>
 </html>

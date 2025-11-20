@@ -51,10 +51,8 @@ self.onmessage = function(e) {
     if (systemToSearch === 'cubic') indexCubic(data, workerState, self.postMessage.bind(self));
     if (systemToSearch === 'tetragonal') indexTetragonalOrHexagonal(data, workerState, self.postMessage.bind(self), 'tetragonal');
     if (systemToSearch === 'hexagonal') indexTetragonalOrHexagonal(data, workerState, self.postMessage.bind(self), 'hexagonal');
-    if (systemToSearch === 'orthorhombic') indexOrthorhombic(data, workerState, self.postMessage.bind(self));
-    if (systemToSearch === 'monoclinic') indexMonoclinic(data, workerState, self.postMessage.bind(self));
-    // We are no longer calling triclinic from the worker
-    
+    // ortho, mono et triclinique ne sont plus utilisés en CPU, il y a combs pour ça. 20 nov
+
     self.postMessage({ type: 'progress', payload: 80 });
     
     findTransformedSolutions(foundSolutions, data, workerState, self.postMessage.bind(self));

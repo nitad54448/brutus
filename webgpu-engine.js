@@ -131,7 +131,7 @@ class WebGPUEngine {
         configViewF32[3] = baseParams.max_volume;
         configViewU32[4] = baseParams.impurity_peaks;
         configViewU32[5] = qTolerancesArray.length;
-        configViewU32[6] = Math.min(n_hkls, 100);
+        configViewU32[6] = Math.min(n_hkls, 600);
         
         // Params for Combinadics & Safety
         configViewU32[7] = n_hkls; // n_basis_total
@@ -332,7 +332,7 @@ class WebGPUEngine {
         configViewF32[3] = baseParams.max_volume;
         configViewU32[4] = baseParams.impurity_peaks;
         configViewU32[5] = qTolerancesArray.length; 
-        configViewU32[6] = Math.min(n_hkls, 100); 
+        configViewU32[6] = Math.min(n_hkls, 600); 
         configViewU32[7] = n_hkls; // n_basis_total
 
         configViewU32[8] = totalHklCombos;
@@ -513,7 +513,7 @@ class WebGPUEngine {
         configViewF32[3] = baseParams.max_volume;
         configViewU32[4] = baseParams.impurity_peaks;
         configViewU32[5] = qTolerancesArray.length; 
-        configViewU32[6] = Math.min(n_hkls, 100);   
+        configViewU32[6] = Math.min(n_hkls, 600);   
         
         // Combinadics & Safety
         configViewU32[7] = n_hkls; 
