@@ -477,59 +477,78 @@
                     </div>
 
                     <div class="control-group" style="width: 100%; border-top: 1px solid var(--light-bg); padding-top: 1.5rem;">
+                 
+                 
+
+
+
+
+
                         <div id="indexing-controls" class="hidden">
-                            <div class="parameter-grid">
-                                <div>
-                                    <label for="max-volume" class="control-label">Max Volume (Å³)</label>
-                                    <input type="number" id="max-volume" value="2000" step="100" min="25" max="12500" class="control-input">
-                                </div>
-                                <div>
-                                    <label for="impurity-peaks" class="control-label">Impurity Peaks</label>
-                                    <input type="number" id="impurity-peaks" value="0" min="0" max="3" step="1" class="control-input">
-                                </div>
-                            </div>
-                            
-                            <div class="parameter-grid" style="margin-top: 1rem; align-items: end;">
-                                <div>
-                                    <label for="tth-error" class="control-label">2θ Error (°)</label>
-                                    <input type="number" id="tth-error" value="0.06" step="0.002" min="0.0001" class="control-input">
-                                </div>
-                                <label class="checkbox-label" style="padding-bottom: 0.5rem;">
-                                    <input type="checkbox" id="refine-zero-checkbox" checked> 
-                                    <span>Refine Zero Error</span>
-                                </label>
-                            </div>
-                            
-<label class="control-label" style="margin-top: 1.5rem; margin-bottom: 1rem;">Crystal Systems to Search:</label>
-<div class="parameter-grid">
-    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="cubic"> <span>Cubic</span></label>
-    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="tetragonal"> <span>Tetragonal</span></label>
-    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="hexagonal" > <span>Hexagonal</span></label>
-    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="orthorhombic"> <span>Orthorhombic</span></label>
-    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="monoclinic"> <span>Monoclinic</span></label>
-    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="triclinic"> <span>Triclinic</span></label>
-</div>
-
-
-<div id="gpu-params-container" class="control-group hidden">
-    <label class="control-label" style="margin-bottom: 1rem;">GPU Search Parameters:</label>
     <div class="parameter-grid">
         <div>
-            <label for="gpu-hkl-triplets" class="control-label">HKL Basis Size</label>
-            <input type="number" id="gpu-hkl-triplets" value="80" min="10" max="600" step="5" class="control-input">
+            <label for="max-volume" class="control-label">Max Volume (Å³)</label>
+            <input type="number" id="max-volume" value="3000" step="100" min="25" max="12500" class="control-input">
         </div>
         <div>
-            <label for="gpu-peaks-count" class="control-label">Peaks to Combine</label>
-            <input type="number" id="gpu-peaks-count" value="7" min="4" max="20" step="1" class="control-input">
+            <label for="impurity-peaks" class="control-label">Impurity Peaks</label>
+            <input type="number" id="impurity-peaks" value="0" min="0" max="3" step="1" class="control-input">
+        </div>
+    </div>
+
+    <div class="parameter-grid" style="margin-top: 1rem; align-items: end;">
+        <div>
+            <label for="tth-error" class="control-label">2θ Error (°)</label>
+            <input type="number" id="tth-error" value="0.06" step="0.002" min="0.0001" class="control-input">
+        </div>
+        <label class="checkbox-label" style="padding-bottom: 0.5rem;">
+            <input type="checkbox" id="refine-zero-checkbox" checked>
+            <span>Refine Zero Error</span>
+        </label>
+    </div>
+
+    <label class="control-label" style="margin-top: 1.5rem; margin-bottom: 1rem;">Crystal Systems to Search:</label>
+    <div class="parameter-grid">
+        <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="cubic"> <span>Cubic</span></label>
+        <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="tetragonal"> <span>Tetragonal</span></label>
+        <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="hexagonal"> <span>Hexagonal</span></label>
+        <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="orthorhombic"> <span>Orthorhombic</span></label>
+        <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="monoclinic"> <span>Monoclinic</span></label>
+        <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="triclinic"> <span>Triclinic</span></label>
+    </div>
+
+    <div id="gpu-params-container" class="control-group hidden" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--light-bg);">
+        <label class="control-label" style="margin-bottom: 1rem;">GPU Search Parameters:</label>
+        <div class="parameter-grid">
+            <div>
+                <label for="gpu-hkl-triplets" class="control-label">HKL Basis Size</label>
+                <input type="number" id="gpu-hkl-triplets" value="80" min="10" max="600" step="5" class="control-input">
+            </div>
+            <div>
+                <label for="gpu-peaks-count" class="control-label">Peaks to Combine</label>
+                <input type="number" id="gpu-peaks-count" value="7" min="4" max="20" step="1" class="control-input">
+            </div>
+        </div>
+        <div class="parameter-grid" style="margin-top: 0.75rem;">
+            <div>
+                <label for="gpu-fom-threshold" class="control-label">FoM Tolerance</label>
+                <input type="number" id="gpu-fom-threshold" value="0.8" min="0.10" max="5.0" step="0.1" class="control-input">
+            </div>
+            <div>
+                <label for="gpu-buffer-size" class="control-label">Candidates (kCells)</label>
+                <input type="number" id="gpu-buffer-size" value="20" min="1" max="200" step="1" class="control-input">
+            </div>
         </div>
     </div>
 </div>
 
 
-
-                        </div>
                     </div>
                 </div>
+
+
+
+
 
                 <div id="solutions-tab-content" class="tab-content-panel">
                     <div class="control-group" style="width: 100%;">
@@ -548,6 +567,8 @@
                     </div>
                 </div>
             </div>
+
+
 
             <div class="bottom-actions">
                 <div id="progress-bar-container" class="hidden" style="width: 100%; background-color: var(--light-bg); border-radius: 9999px; height: 0.625rem; margin-bottom: 0.5rem;">
@@ -623,7 +644,8 @@ const WAVELENGTH_PRESETS = {
         gpuParamsContainer: document.getElementById('gpu-params-container'),
         gpuHklTriplets: document.getElementById('gpu-hkl-triplets'),
         gpuPeaksCount: document.getElementById('gpu-peaks-count'),
-
+        gpuFomThreshold: document.getElementById('gpu-fom-threshold'),
+        gpuBufferSize: document.getElementById('gpu-buffer-size'),
         progressBar: document.getElementById('progress-bar'),
         progressBarContainer: document.getElementById('progress-bar-container'),
         solutionsTableBody: document.getElementById('solutions-table-body'),
@@ -678,7 +700,7 @@ const WAVELENGTH_PRESETS = {
     
     // Add validation to the new GPU inputs
     ui.gpuHklTriplets.addEventListener('blur', () => {
-        validateNumberInput(ui.gpuHklTriplets, 80);
+        validateNumberInput(ui.gpuHklTriplets, 100);
         updateGpuStatusText(); // Also update status text on blur
     });
     ui.gpuPeaksCount.addEventListener('blur', () => {
@@ -688,6 +710,8 @@ const WAVELENGTH_PRESETS = {
         updateGpuStatusText(); // Also update status text on blur
     });
 
+    ui.gpuFomThreshold.addEventListener('blur', () => validateNumberInput(ui.gpuFomThreshold, 3.0));
+    ui.gpuBufferSize.addEventListener('blur', () => validateNumberInput(ui.gpuBufferSize, 20));
 
 
     /**
@@ -796,7 +820,7 @@ const WAVELENGTH_PRESETS = {
             if (monoCheckbox.checked) {
                 triCheckbox.checked = false;
                 orthoCheckbox.checked = false;
-                ui.gpuHklTriplets.value = 80;
+                ui.gpuHklTriplets.value = 100;
                 ui.gpuPeaksCount.value = 7;
                 ui.gpuPeaksCount.min = 4;
             }
@@ -808,7 +832,7 @@ const WAVELENGTH_PRESETS = {
                 monoCheckbox.checked = false;
                 orthoCheckbox.checked = false;
                 ui.gpuHklTriplets.value = 40;
-                ui.gpuPeaksCount.value = 8;
+                ui.gpuPeaksCount.value = 9;
                 ui.gpuPeaksCount.min = 6;
             }
             toggleGpuParamsVisibility();
@@ -819,7 +843,7 @@ const WAVELENGTH_PRESETS = {
                 monoCheckbox.checked = false;
                 triCheckbox.checked = false;
                 ui.gpuHklTriplets.value = 300; // Default 300
-                ui.gpuPeaksCount.value = 5;    // Default 5
+                ui.gpuPeaksCount.value = 7;    
                 ui.gpuPeaksCount.min = 3;      // Min 3
             }
             toggleGpuParamsVisibility();
@@ -2504,6 +2528,9 @@ systemsToSearch.forEach(system => {
         max_volume: parseFloat(ui.maxVolume.value),
         impurity_peaks: parseInt(ui.impurityPeaksInput.value, 10),
         refineZero: ui.refineZeroCheckbox.checked,
+        fom_threshold: parseFloat(ui.gpuFomThreshold.value),
+        max_solutions: parseInt(ui.gpuBufferSize.value, 10) * 1000,
+        gpu_peaks_count: parseInt(ui.gpuPeaksCount.value, 10)
     };
     
     let currentGpuTaskIndex = 0;
@@ -2657,7 +2684,7 @@ systemsToSearch.forEach(system => {
 
         const orthoTask = (async () => {
             const K_VALUE = 3;
-            const n_peaks_for_combo = Math.max(K_VALUE, parseInt(ui.gpuPeaksCount.value, 10) || 5);
+            const n_peaks_for_combo = Math.max(K_VALUE, parseInt(ui.gpuPeaksCount.value, 10) || 7);
             const n_hkl_for_basis = Math.max(K_VALUE * 2, parseInt(ui.gpuHklTriplets.value, 10) || 300);
 
             if (filteredPeaks.length < K_VALUE) {
@@ -2673,7 +2700,7 @@ systemsToSearch.forEach(system => {
                 await engine.loadShader('ortho_solver.wgsl');
                 engine.createPipeline('main_3p');
                 
-                // 1. HKL Basis
+                // 1. HKL Basis // do I still need it here ? it is the wgsl, since 19 nov ??
                 let hkl_full = get_hkl_search_list('orthorhombic');
                 const special = []; const regular = [];
                 for (const hkl of hkl_full) {
@@ -2748,7 +2775,7 @@ systemsToSearch.forEach(system => {
         const monoTask = (async () => {
             const K_VALUE = 4;
             const n_peaks_for_combo = Math.max(K_VALUE, parseInt(ui.gpuPeaksCount.value, 10) || 7);
-            const n_hkl_for_basis = Math.max(K_VALUE * 2, parseInt(ui.gpuHklTriplets.value, 10) || 80);
+            const n_hkl_for_basis = Math.max(K_VALUE * 2, parseInt(ui.gpuHklTriplets.value, 10) || 100);
             
             if (filteredPeaks.length < K_VALUE) {
                 showStatus(`Monoclinic search requires at least ${K_VALUE} peaks. Skipping.`, "error");
@@ -3372,7 +3399,7 @@ const generatePDFReport = async () => {
             // --- Page Header & Chart ---
             const now = new Date();
             const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 20 nov 2025';
+            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 21 nov 2025';
           	const programURL = window.location.href;
             
     
@@ -3897,6 +3924,6 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 20 nov 2025</div>
+<div id="app-footer">Brutus, 21 nov 2025</div>
 </body>
 </html>

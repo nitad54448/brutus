@@ -1,5 +1,5 @@
 // triclinic_solver.wgsl
-// 6-Peak Direct Solve + Combinadics + Optimized FoM
+// 6-Peak Direct Solve + Combinadics + Optimized FoM (Abs Diff)
 
 // === Structs ===
 struct RawSolution {
@@ -18,23 +18,22 @@ alias Mat6x6 = array<f32, 36>; // Flat 6x6 matrix, row-major
 @group(0) @binding(1) var<storage, read> hkl_basis: array<f32>; // [h,k,l,pad]
 @group(0) @binding(2) var<storage, read> peak_combos: array<u32>; // [i,j,k,l,m,n]
 
-// CHANGED: Replaced massive hkl_combos with Pascal's Triangle Lookup
+// Replaced massive hkl_combos with Pascal's Lookup
 @group(0) @binding(3) var<storage, read> binomial_table: array<u32>; 
 
 @group(0) @binding(4) var<storage, read_write> solution_counter: atomic<u32>;
 @group(0) @binding(5) var<storage, read_write> results_list: array<RawSolution>;
 
+
+
 struct Config { 
-    z_offset: u32,
-    wavelength: f32,
-    tth_error: f32,
-    max_volume: f32,
-    max_impurities: u32,
-    n_peaks_for_fom: u32, 
-    n_hkl_for_fom: u32,   
-    n_basis_total: u32, 
-    total_hkl_combos: u32 //  Was pad2, now stores the strict limit
+    u_params1: vec4<u32>, // Indices 0-3
+    u_params2: vec4<u32>, // Indices 4-7
+    f_params: vec4<f32>   // Indices 8-11
 };
+
+
+
 
 @group(0) @binding(6) var<uniform> config: Config;
 
@@ -47,10 +46,8 @@ const PI: f32 = 3.1415926535;
 const DEG: f32 = 180.0 / PI;
 const WORKGROUP_SIZE_Y: u32 = 4u;
 const MAX_Y_WORKGROUPS: u32 = 16383u; 
-const MAX_SOLUTIONS: u32 = 20000u;
 const MAX_DEBUG_CELLS: u32 = 10u;
 const MAX_FOM_PEAKS: u32 = 32u; 
-const FOM_THRESHOLD: f32 = 3.0;
 
 // Triclinic Constants for Combinadics
 const K_VALUE: u32 = 6u; 
@@ -260,7 +257,8 @@ fn extractCell(params: Vec6) -> RawSolution {
     let V_star_sq = determinant(G_star);
     if (V_star_sq <= 1e-12) { return RawSolution(0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0); }
     let volume = 1.0 / sqrt(V_star_sq);
-    if (volume < 20.0 || volume > config.max_volume) { return RawSolution(0.0,0.0,0.0,0.0,0.0,0.0,0.,0.); }
+    
+    if (volume < 20.0 || volume > config.f_params.z) { return RawSolution(0.0,0.0,0.0,0.0,0.0,0.0,0.,0.); }
     
     return RawSolution(a, b, c, alpha, beta, gamma,0.,0.);
 }
@@ -270,12 +268,10 @@ fn extractCell(params: Vec6) -> RawSolution {
 fn get_combinadic_indices(linear_index: u32, n_max: u32) -> array<u32, 6> {
     var m = linear_index;
     var out: array<u32, 6>;
-    // Start searching from the largest possible index (n_max - 1)
     var v = n_max - 1u; 
     
     for (var k_idx: u32 = K_VALUE; k_idx > 0u; k_idx = k_idx - 1u) {
         loop {
-            // Lookup Binomial(v, k) from precomputed table
             let binom = binomial_table[v * BINOMIAL_STRIDE + k_idx];
             if (binom <= m) {
                 out[k_idx - 1u] = v;
@@ -290,19 +286,23 @@ fn get_combinadic_indices(linear_index: u32, n_max: u32) -> array<u32, 6> {
     return out;
 }
 
-// === Optimized FoM Validator ===
+// === Optimized FoM Validator (Abs Diff) ===
 fn validate_fom_avg_diff(p: Vec6) -> f32 {
-    let n_peaks_to_check = min(config.n_peaks_for_fom, MAX_FOM_PEAKS);
+    let n_peaks_to_check = min(config.u_params1.z, MAX_FOM_PEAKS);
     
     // --- OPTIMIZATION: If no impurities, skip sorting entirely ---
-    if (config.max_impurities == 0u) {
-        var sum_sq_error: f32 = 0.0;
+    if (config.u_params1.y == 0u) {
+        var sum_abs_error: f32 = 0.0;
+        
+        // Fail-Fast Threshold
+        let max_allowed_total = config.f_params.w * f32(n_peaks_to_check);
+
         for (var i: u32 = 0u; i < n_peaks_to_check; i = i + 1u) {
             let q_obs_val = q_obs[i];
             let tol = q_tolerances[i]; 
             var min_diff: f32 = 1e10; 
             
-            for (var j: u32 = 0u; j < config.n_hkl_for_fom; j = j + 1u) {
+            for (var j: u32 = 0u; j < config.u_params1.w; j = j + 1u) {
                 let h = hkl_basis[j * 4u + 0u];
                 let k = hkl_basis[j * 4u + 1u];
                 let l = hkl_basis[j * 4u + 2u];
@@ -311,13 +311,14 @@ fn validate_fom_avg_diff(p: Vec6) -> f32 {
                 if (diff < min_diff) { min_diff = diff; }
             }
             let norm = min_diff / tol;
-            sum_sq_error += (norm * norm);
+            sum_abs_error += norm;
+            
+            // Fail-Fast Check
+            if (sum_abs_error > max_allowed_total) { return 999.0; }
         }
-        let avg = sum_sq_error / f32(n_peaks_to_check);
-        if (avg > FOM_THRESHOLD) { return 999.0; }
+        let avg = sum_abs_error / f32(n_peaks_to_check);
         return avg;
     } 
-    // --- END OPTIMIZATION ---
 
     // --- IMPURITY PATH (Partial Sort) ---
     var errors: array<f32, 32>;
@@ -325,7 +326,8 @@ fn validate_fom_avg_diff(p: Vec6) -> f32 {
         let q_obs_val = q_obs[i];
         let tol = q_tolerances[i]; 
         var min_diff: f32 = 1e10; 
-        for (var j: u32 = 0u; j < config.n_hkl_for_fom; j = j + 1u) {
+        
+        for (var j: u32 = 0u; j < config.u_params1.w; j = j + 1u) {
             let h = hkl_basis[j * 4u + 0u];
             let k = hkl_basis[j * 4u + 1u];
             let l = hkl_basis[j * 4u + 2u];
@@ -334,18 +336,13 @@ fn validate_fom_avg_diff(p: Vec6) -> f32 {
             if (diff < min_diff) { min_diff = diff; }
         }
         let norm = min_diff / tol;
-        errors[i] = (norm * norm);
+        // Using absolute difference
+        errors[i] = norm;
     }
 
-    // Simple selection logic: we only need to sum the best (N - impurities)
-    let count_to_sum = n_peaks_to_check - config.max_impurities;
+    let count_to_sum = n_peaks_to_check - config.u_params1.y;
     var sum_of_valid_errors: f32 = 0.0;
 
-    // Insertion sort logic for top K items
-    // Since count_to_sum is usually large (e.g. 18 out of 20), it's often faster 
-    // to sort the WHOLE array of 20 than to maintain a complex heap. 
-    // Bubble sort for small N is very fast in registers.
-    
     for (var i: u32 = 0u; i < count_to_sum; i = i + 1u) {
         var min_val = errors[i];
         var min_idx = i;
@@ -355,42 +352,39 @@ fn validate_fom_avg_diff(p: Vec6) -> f32 {
                 min_idx = j;
             }
         }
-        // Swap found min to position i
         let temp = errors[i];
         errors[i] = min_val;
         errors[min_idx] = temp;
-        
-        // Accumulate immediately
         sum_of_valid_errors += min_val;
     }
 
     let avg = sum_of_valid_errors / f32(count_to_sum);
-    if (avg > FOM_THRESHOLD) { return 999.0; }
+    if (avg > config.f_params.w) { return 999.0; }
     return avg;
 }
-
 // === Main Kernel ===
 @compute @workgroup_size(4, WORKGROUP_SIZE_Y, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>
 ) {
-    // Optimization: Early exit if buffer full
-    if (atomicLoad(&solution_counter) >= MAX_SOLUTIONS) { return; }
+    // Fix: config.u_params2.z (max_solutions)
+    if (atomicLoad(&solution_counter) >= config.u_params2.z) { return; }
     
     // 1. Calculate Global Indices
     let peak_combo_idx: u32 = global_id.x;
-   // let hkl_threads_per_z = MAX_Y_WORKGROUPS * WORKGROUP_SIZE_Y;
-    let hkl_linear_idx: u32 = config.z_offset + global_id.y;
+    
+    // Fix: config.u_params1.x (z_offset)
+    let hkl_linear_idx: u32 = config.u_params1.x + global_id.y;
 
-    if (hkl_linear_idx >= config.total_hkl_combos) { return; }
+    // Fix: config.u_params2.y (total_hkl_combos)
+    if (hkl_linear_idx >= config.u_params2.y) { return; }
 
     // 2. Bounds Check
     let num_peak_combos = arrayLength(&peak_combos) / 6u;
     if (peak_combo_idx >= num_peak_combos) { return; }
 
     // 3. Combinadics: Generate HKL Indices on the fly
-    // n_basis_total (N) is passed in config.n_basis_total (mapped to pad1 effectively in struct)
-    let hkl_indices = get_combinadic_indices(hkl_linear_idx, config.n_basis_total);
+    let hkl_indices = get_combinadic_indices(hkl_linear_idx, config.u_params2.x);
 
     // 4. Build M Matrix
     var M: Mat6x6;
@@ -436,10 +430,12 @@ fn main(
          
         if (cell.a > 0.0) { 
             let avg_err = validate_fom_avg_diff(fit_params);
-            if (avg_err < FOM_THRESHOLD) {
+            
+            if (avg_err < config.f_params.w) {
                 // Atomic Add to Global Counter
                 let idx = atomicAdd(&solution_counter, 1u);
-                if (idx < MAX_SOLUTIONS) {
+                
+                if (idx < config.u_params2.z) {
                     results_list[idx] = cell;
                 }
                 // Debug Log Logic
@@ -448,7 +444,7 @@ fn main(
                     let debug_cell_offset = debug_idx * 30u; 
                     for(var k_log: u32 = 0u; k_log < 6u; k_log = k_log + 1u) {
                         let log_offset = debug_cell_offset + (k_log * 5u);
-                        let hkl_idx = hkl_indices[k_log]; // Use local indices
+                        let hkl_idx = hkl_indices[k_log]; 
                         let q_obs_val = q_perm[k_log];
                         let q_calc = (fit_params[0]*M[k_log*6u+0u] + fit_params[1]*M[k_log*6u+1u] +
                                       fit_params[2]*M[k_log*6u+2u] + fit_params[3]*M[k_log*6u+3u] +

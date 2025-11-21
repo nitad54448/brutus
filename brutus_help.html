@@ -17,7 +17,7 @@
           }
         };
     </script>
-    <script typeF="text/javascript" id="MathJax-script" async
+    <script type="text/javascript" id="MathJax-script" async
       src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js">
     </script>
     <style>
@@ -205,15 +205,15 @@
                         <li>Set a chemically reasonable <code>Max Volume (Å³)</code> to limit the search space.</li>
                         <li>Set <code>2θ Error (°)</code> according to your data quality (e.g. ≈0.02° for synchrotron, ≈0.05° for a typical lab diffractometer).</li>
                         <li>Leave <strong>Refine Zero-Point Error</strong> enabled unless you have a specific reason to turn it off.</li>
-                        <li>Select the crystal systems to search. Enabling Monoclinic or Triclinic activates GPU-accelerated searches.</li>
+                        <li>Select the crystal systems to search. Enabling Orthorhombic, Monoclinic, or Triclinic activates GPU-accelerated searches.</li>
                     </ul>
                 </li>
                 <li>
                     <strong>(Optional) Tune GPU Parameters.</strong>
-                    If searching Monoclinic or Triclinic, a new box appears.
+                    If searching Orthorhombic, Monoclinic, or Triclinic, a new box appears.
                     <ul>
-                        <li><code>HKL Basis Size</code>: (Default: 80 for M, 40 for T) Number of simple HKLs to use for the search.</li>
-                        <li><code>Peaks to Combine</code>: (Default: 7 for M, 8 for T) Number of observed peaks to use for combinations.</li>
+                        <li><code>HKL Basis Size</code>: (Default: 300 for Ortho, 100 for Mono, 40 for Tri) Number of simple HKLs to use for the search.</li>
+                        <li><code>Peaks to Combine</code>: (Default: 7 for Ortho, 7 for Mono, 9 for Tri) Number of observed peaks to use for combinations.</li>
                         <li>Leave these at their defaults unless you have trouble finding a solution.</li>
                     </ul>
                 </li>
@@ -309,20 +309,50 @@
 
             <h4 style="margin-top: 2em;">GPU Search Parameters</h4>
             <p>
-                When <code>Orthorhombic</code>, <code>Monoclinic</code>, or <code>Triclinic</code> is selected, this section appears, allowing you to control the scope of the GPU-accelerated search.
+                When <code>Orthorhombic</code>, <code>Monoclinic</code>, or <code>Triclinic</code> is selected, a dedicated panel appears. These four parameters control the scope, speed, and memory usage of the brute-force search.
             </p>
             <ul>
                 <li>
-                    <strong>HKL Basis Size:</strong>
-                    Controls how many simple HKL triplets (from a pre-generated list) are used in the search combinations.
-                    <br><em>(Default: 300 for Orthorhombic, 80 for Monoclinic, 40 for Triclinic. Range: 10-600)</em>
+                    <strong>HKL Basis Size ($N_{hkl}$):</strong>
+                    <br>Defines the size of the pool of theoretical Miller indices used to construct trial matrices.
+                    <ul>
+                        <li><em>What it does:</em> Brutus generates a list of simple HKL triplets (e.g., 100, 011, 112) sorted by $h^2+k^2+l^2$. This parameter determines how many of these triplets are used to form combinations (bases).</li>
+                        <li><em>Implication:</em> Increasing this allows finding cells with larger unit cell edges or complex centering, but it increases the number of "HKL Combinations" factorially. This is the main driver of search time for Monoclinic and Triclinic systems.</li>
+                        <li><em>Defaults:</em> 300 (Ortho), 100 (Mono), 40 (Tri).</li>
+                    </ul>
                 </li>
+                
                 <li>
-                    <strong>Peaks to Combine:</strong>
-                    Controls how many of your observed peaks (from the top of the peak list) are used to generate combinations.
-                    <br><em>(Default: 5 for Orthorhombic, 7 for Monoclinic, 8 for Triclinic. Min: 3/4/6)</em>
+                    <strong>Peaks to Combine ($N_{peaks}$):</strong>
+                    <br>Controls how many observed peaks (starting from the first one) are considered for generating the solving tuple.
+                    <ul>
+                        <li><em>What it does:</em> To solve a system, Brutus needs exactly $k$ peaks ($k=3$ for Ortho, 4 for Mono, 6 for Tri). If this parameter is set higher than $k$ (e.g., 7 for Monoclinic), the program tests every possible subgroup of 4 peaks drawn from those top 7.</li>
+                        <li><em>Implication:</em> This provides robustness against impurities. If the 2nd peak is an impurity, a search using only the first 4 peaks will fail. A search using the first 7 peaks will eventually test the combination $\{1,3,4,5\}$, skipping the impurity. Increasing this value effectively creates a "Sliding Window" search but increases total trials.</li>
+                    </ul>
+                </li>
+
+                <li>
+                    <strong>FoM Tolerance:</strong>
+                    <br>The "Fail-Fast" threshold for the GPU's internal Figure of Merit filter.
+                    <ul>
+                        <li><em>What it does:</em> Before sending a solution to the CPU, the GPU calculates a quick score based on the average deviation of the first 10 observed peaks. If the error is higher than this tolerance, the cell is discarded immediately.</li>
+                        <li><em>Recommendation:</em> The default (3.0) is a balanced choice. Increase it (e.g., to 5.0 or 10.0) if your data is very noisy or has a significant zero-shift, to prevent valid but poorly-fitting initial cells from being rejected too early.</li>
+                    </ul>
+                </li>
+
+                <li>
+                    <strong>Buffer (kCells):</strong>
+                    <br>The maximum number of candidate solutions (in thousands) the GPU is allowed to store.
+                    <ul>
+                        <li><em>What it does:</em> It limits the size of the results buffer passed back to the CPU. If the search finds more valid candidates than this limit, the search stops early ("Buffer Full").</li>
+                        <li><em>Recommendation:</em> Keep this around 20 (20,000 solutions). Sending millions of solutions to the CPU will freeze the interface during the refinement step without adding value, as the correct solution is almost always among the top candidates if it exists.</li>
+                    </ul>
                 </li>
             </ul>
+
+            <p>
+                <strong>Note:</strong> The status text at the bottom of the panel updates in real-time as you adjust these values, showing the total estimated number of cells to be tested. Ensure this number remains reasonable (e.g., under 500 Billion) for a timely result.
+            </p>
 
 
             <p>
@@ -469,7 +499,7 @@
                 <li>
                     <code><strong>HKL Basis Size</strong></code> ($N_{hkl}$): 
                     The size of the pool of simple Miller indices (e.g., (100), (110), (211)) used to form the mathematical basis. 
-                    <br><em>Defaults: 300 (Ortho), 80 (Mono), 40 (Tri).</em>
+                    <br><em>Defaults: 300 (Ortho), 100 (Mono), 40 (Tri).</em>
                 </li>
                 <li>
                     <code><strong>Peaks to Combine</strong></code> ($N_{peaks}$): 
@@ -482,21 +512,38 @@
                         By increasing "Peaks to Combine" (e.g., to 7 for Monoclinic), Brutus tests <strong>every possible subgroup</strong> of 4 peaks drawn from those top 7. This allows the algorithm to "skip over" bad peaks automatically, but it increases the search time factorially (e.g., $C(7,4)=35\times$ more work).
                     </p>
                 </li>
+
+   <li>
+                    <code><strong>FoM Tolerance</strong></code>: 
+                    During the GPU search, the average of absolute difference between observed and calculated q is calculated on the first Peaks to Combine (or 10, whichever is larger). This is a crude estimation of the cell quality. If it passes the User error * FoM tolerance, the cell is saved as a candidate. A larger FoM tolerance will generate more candidates.
+                    <br><em>Default: 3.</em>
+                </li>
+                <li>
+                    <code><strong>Candidate (kCells)</strong></code>: 
+                    This is the size of the memory buffer reserved in the GPU.
+                    <p style="margin-top: 0.5em; margin-bottom: 0.5em;">
+                        All the candidate cells are passed to the CPU for proper M(20) validation. The number of candidates is the size of this buffer (20 means 20 000 cells). If the number of candidates reaches the buffer size, the search is stopeed. A good balance needs to be found between the tolerance to allow a cell to be posted as a candidate and the size of the buffer. A larger buffer will allow more candidates but it will take more time to validate by CPU.
+                        <br><em>Default: 20.</em>
+                    </p>
+                    
+                </li>
+
+
             </ul>
 
             <h4>System Specifics</h4>
             <ul>
                 <li>
                     <strong>Orthorhombic (3 parameters):</strong> 
-                    Solves combinations of 3 peaks. With defaults, tests ~268 million cells.
+                    Solves combinations of 3 peaks. With defaults ($N_{hkl}=300, N_{peaks}=7$), tests ~936 million cells.
                 </li>
                 <li>
                     <strong>Monoclinic (4 parameters):</strong> 
-                    Solves combinations of 4 peaks. With defaults ($N_{peaks}=7$), it tests 35 peak subgroups × HKL combos × 24 permutations ≈ 1.32 Billion cells.
+                    Solves combinations of 4 peaks. With defaults ($N_{hkl}=100, N_{peaks}=7$), it tests 35 peak subgroups × HKL combos × 24 permutations ≈ 3.3 Billion cells.
                 </li>
                 <li>
                     <strong>Triclinic (6 parameters):</strong> 
-                    Solves combinations of 6 peaks. Tests 720 permutations per combination. With defaults, tests ~77 Billion cells. These are the default parameters, the numbers can go up quickly.
+                    Solves combinations of 6 peaks. Tests 720 permutations per combination. With defaults ($N_{hkl}=40, N_{peaks}=9$), tests ~232 Billion cells. These are the default parameters, the numbers can go up quickly.
                 </li>
             </ul>
 
@@ -536,7 +583,7 @@
                 </li>
                 <li>
                     <strong>Figure of Merit Filter:</strong> 
-                    For surviving cells, the GPU calculates a fast internal score based on the match of the first 20 lines. Only the top candidates are sent back to the CPU for full refinement.
+                    For surviving cells, the GPU calculates a fast internal score based on the match of the first 10 lines. Only the top candidates are sent back to the CPU for full refinement.
                 </li>
             </ol>
         </section>
@@ -653,13 +700,19 @@
 
     <h4>If you get too many solutions (GPU buffer fills)</h4>
     <p>
-        The GPU buffer is now limited to 20,000 candidate solutions. If this buffer fills up, the search stops earlier than the full space requested. If you have no solution that appears valid:
+        The GPU buffer is now limited by the Candidates field in the UI. If this buffer fills up, the search stops earlier than the full space requested. If you have no solution that appears valid:
     </p>
     <ul>
         <li>
             <strong>Tighten <code>2θ Error</code>.</strong>
             This is the most effective way to reduce the number of false positives.
         </li>
+
+                <li>
+            <strong>Decrease <code>FoM tolerance</code>.</strong>
+            This is closely related to the <code>2θ Error</code>, decrease this value to decrease the number of candidate cells. This applies to the first 10 peaks (or to the number of Peaks to combine) whereas the <code>2θ Error</code> applies to indexing, M(20) and space group detection.
+        </li>
+
         <li>
             <strong>Reduce <code>Max Volume</code>.</strong>
             This is another strong constraint to remove unphysical large cells.
@@ -697,7 +750,7 @@
             impractical on the CPU. 
         </p>
         <p>
-            Note: at the end of a GPU search all candidates (up to 20 000) are passed to refinement, Niggli cell reduction, M(20) and F(N) calculations. These are made on the CPU so it might take a few minutes, be patient (or change the parameters, or decrease the number of peaks in the list).
+            Note: at the end of a GPU search all candidates (up to the value in the Candidates, default 20 000) are passed to refinement, Niggli cell reduction, M(20) and F(N) calculations. These are made on the CPU so it might take a few minutes, be patient (or change the parameters, or decrease the number of peaks in the list).
         </p>
     </blockquote>
 

@@ -1,10 +1,10 @@
 // ortho_solver.wgsl
-// 3-Peak Direct Solve + Combinadics + Optimized FoM + Fail-Fast
+// 3-Peak Direct Solve + Combinadics + Optimized FoM + Fail-Fast + 16-byte Config
 
 // === Structs ===
 struct RawOrthoSolution {
     a: f32, b: f32, c: f32,
-    pad1: f32 // <--- Padding (Total 16 bytes, for older cards)
+    pad1: f32 
 }
 
 // === Type Aliases ===
@@ -16,22 +16,19 @@ alias Mat3x3 = mat3x3<f32>;
 @group(0) @binding(1) var<storage, read> hkl_basis: array<f32>; // [h,k,l,pad]
 @group(0) @binding(2) var<storage, read> peak_combos: array<u32>; // [i,j,k]
 
-// CHANGED: Pascal's Triangle Table
 @group(0) @binding(3) var<storage, read> binomial_table: array<u32>; 
 
 @group(0) @binding(4) var<storage, read_write> solution_counter: atomic<u32>;
 @group(0) @binding(5) var<storage, read_write> results_list: array<RawOrthoSolution>;
 
+// --- ALIGNED CONFIG STRUCT (16-byte alignment) ---
 struct Config { 
-    z_offset: u32,
-    wavelength: f32,
-    tth_error: f32, 
-    max_volume: f32,
-    max_impurities: u32,
-    n_peaks_for_fom: u32, 
-    n_hkl_for_fom: u32,   
-    n_basis_total: u32, // N for Combinadics
-    total_hkl_combos: u32 // Bounds check
+    // Chunk 1 (U32): z_offset, max_impurities, n_peaks_for_fom, n_hkl_for_fom
+    u_params1: vec4<u32>, 
+    // Chunk 2 (U32): n_basis_total, total_hkl_combos, max_solutions, pad
+    u_params2: vec4<u32>,
+    // Chunk 3 (F32): wavelength, tth_error, max_volume, fom_threshold
+    f_params: vec4<f32>
 };
 @group(0) @binding(6) var<uniform> config: Config;
 
@@ -42,17 +39,14 @@ struct Config {
 // === Constants ===
 const PI: f32 = 3.1415926535;
 const WORKGROUP_SIZE_Y: u32 = 8u;
-const MAX_Y_WORKGROUPS: u32 = 16383u;  
-const MAX_SOLUTIONS: u32 = 20000u;
 const MAX_DEBUG_CELLS: u32 = 10u;
-const MAX_FOM_PEAKS: u32 = 32u; 
-const FOM_THRESHOLD: f32 = 3.0;
+const MAX_FOM_PEAKS: u32 = 20u; 
 
 // Orthorhombic Constants (K=3)
 const K_VALUE: u32 = 3u; 
 const BINOMIAL_STRIDE: u32 = 4u; // Columns 0..3
 
-// 3! = 6 permutations.
+// 3! = 6 permutations
 const PERMUTATIONS_3: array<u32, 18> = array<u32, 18>(
     0u, 1u, 2u, 0u, 2u, 1u,
     1u, 0u, 2u, 1u, 2u, 0u,
@@ -84,12 +78,13 @@ fn extractCellOrtho(params: Vec3) -> RawOrthoSolution {
     let c_val = 1.0 / sqrt(C);
 
     if (a_val < 2.0 || a_val > 50.0 || b_val < 2.0 || b_val > 50.0 || c_val < 2.0 || c_val > 50.0) { 
-        return RawOrthoSolution(0.0, 0.0, 0.0,0.0); 
+        return RawOrthoSolution(0.0, 0.0, 0.0, 0.0); 
     }
     
     let volume = a_val * b_val * c_val;
-    if (volume < 20.0 || volume > config.max_volume) { 
-         return RawOrthoSolution(0.0, 0.0, 0.0,0.0);
+    
+    if (volume < 20.0 || volume > config.f_params.z) { 
+         return RawOrthoSolution(0.0, 0.0, 0.0, 0.0);
     }
     return RawOrthoSolution(a_val, b_val, c_val, 0.0);
 }
@@ -116,21 +111,21 @@ fn get_combinadic_indices(linear_index: u32, n_max: u32) -> array<u32, 3> {
     return out;
 }
 
-// === Optimized FoM with Fail-Fast & Fast Sort ===
+// === Optimized FoM (Absolute Difference) ===
 fn validate_fom_avg_diff(A: f32, B: f32, C: f32) -> f32 {
-    let n_peaks_to_check = min(config.n_peaks_for_fom, MAX_FOM_PEAKS);
-
-    // --- PATH A: No Impurities (Fail-Fast) ---
-    if (config.max_impurities == 0u) {
-        var sum_sq_error: f32 = 0.0;
-        let max_allowed_total = FOM_THRESHOLD * f32(n_peaks_to_check);
+    let n_peaks_to_check = min(config.u_params1.z, MAX_FOM_PEAKS);
+    
+    // --- OPTIMIZATION 1: Fail-Fast (No Impurities) ---
+    if (config.u_params1.y == 0u) {
+        var sum_abs_error: f32 = 0.0;
+        let max_allowed_total = config.f_params.w * f32(n_peaks_to_check);
 
         for (var i: u32 = 0u; i < n_peaks_to_check; i = i + 1u) {
             let q_obs_val = q_obs[i];
             let tol = q_tolerances[i]; 
             var min_diff: f32 = 1e10; 
             
-            for (var j: u32 = 0u; j < config.n_hkl_for_fom; j = j + 1u) {
+            for (var j: u32 = 0u; j < config.u_params1.w; j = j + 1u) {
                 let h = hkl_basis[j * 4u + 0u];
                 let k = hkl_basis[j * 4u + 1u];
                 let l = hkl_basis[j * 4u + 2u];
@@ -138,22 +133,23 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32) -> f32 {
                 let diff = abs(q_obs_val - q_calc);
                 if (diff < min_diff) { min_diff = diff; }
             }
-            let norm = min_diff / tol; 
-            sum_sq_error += (norm * norm);
+            let norm = min_diff / tol;  
+            // Changed to Abs Difference (FoM = Mean |diff|/tol)
+            sum_abs_error += norm;  
             
-            // Fail-Fast Check
-            if (sum_sq_error > max_allowed_total) { return 999.0; }
+            if (sum_abs_error > max_allowed_total) { return 999.0; }
         }
-        return sum_sq_error / f32(n_peaks_to_check);
+        return sum_abs_error / f32(n_peaks_to_check);
     }
 
-    // --- PATH B: With Impurities (Sort) ---
+    // --- PATH B: With Impurities (Requires Sorting) ---
     var errors: array<f32, 32>;
     for (var i: u32 = 0u; i < n_peaks_to_check; i = i + 1u) {
         let q_obs_val = q_obs[i];
         let tol = q_tolerances[i]; 
         var min_diff: f32 = 1e10; 
-        for (var j: u32 = 0u; j < config.n_hkl_for_fom; j = j + 1u) {
+        
+        for (var j: u32 = 0u; j < config.u_params1.w; j = j + 1u) {
             let h = hkl_basis[j * 4u + 0u];
             let k = hkl_basis[j * 4u + 1u];
             let l = hkl_basis[j * 4u + 2u];
@@ -162,11 +158,12 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32) -> f32 {
             if (diff < min_diff) { min_diff = diff; }
         }
         let norm = min_diff / tol; 
-        errors[i] = (norm * norm);
+        
+        // CRITICAL FIX: Uncommented this line. Use Abs Difference.
+        errors[i] = norm;
     }
 
-    // Partial Selection Sort
-    let count_to_sum = n_peaks_to_check - config.max_impurities;
+    let count_to_sum = n_peaks_to_check - config.u_params1.y;
     var sum_of_valid_errors: f32 = 0.0;
 
     for (var i: u32 = 0u; i < count_to_sum; i = i + 1u) {
@@ -182,7 +179,7 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32) -> f32 {
     }
     
     let avg = sum_of_valid_errors / f32(count_to_sum);
-    if (avg > FOM_THRESHOLD) { return 999.0; }
+    if (avg > config.f_params.w) { return 999.0; }
     return avg; 
 }
 
@@ -192,19 +189,21 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32) -> f32 {
 fn main_3p(
     @builtin(global_invocation_id) global_id: vec3<u32>
 ) { 
-    if (atomicLoad(&solution_counter) >= MAX_SOLUTIONS) { return; }
+    if (atomicLoad(&solution_counter) >= config.u_params2.z) { return; }
 
     // 1. Calculate Indices
     let peak_combo_idx: u32 = global_id.x;
-    let hkl_linear_idx: u32 = config.z_offset + global_id.y;
+    // z_offset is .x of u_params1
+    let hkl_linear_idx: u32 = config.u_params1.x + global_id.y;
 
     // 2. Bounds Checks
     let num_peak_combos = arrayLength(&peak_combos) / 3u;
     if (peak_combo_idx >= num_peak_combos) { return; }
-    if (hkl_linear_idx >= config.total_hkl_combos) { return; }
+    
+    if (hkl_linear_idx >= config.u_params2.y) { return; }
 
-    // 3. Generate HKL Indices (Combinadics K=3)
-    let hkl_indices = get_combinadic_indices(hkl_linear_idx, config.n_basis_total);
+    // 3. Generate HKL Indices
+    let hkl_indices = get_combinadic_indices(hkl_linear_idx, config.u_params2.x);
 
     // 4. Build M Matrix
     var M_hkl_rows: array<vec3<f32>, 3>; 
@@ -236,32 +235,18 @@ fn main_3p(
          
         let fit_params = solve3x3(M_hkl, q_perm);
         let cell = extractCellOrtho(fit_params);
+
+         //removed Debug le 21 nov
          
         if (cell.a > 0.0) { 
             let A_sol = fit_params[0]; let B_sol = fit_params[1]; let C_sol = fit_params[2]; 
             
             let avg_err = validate_fom_avg_diff(A_sol, B_sol, C_sol);
             
-            if (avg_err < FOM_THRESHOLD) { 
+            if (avg_err < config.f_params.w) { 
                 let idx = atomicAdd(&solution_counter, 1u);
-                if (idx < MAX_SOLUTIONS) {
+                if (idx < config.u_params2.z) {
                     results_list[idx] = cell;
-                }
-                
-                let debug_idx = atomicAdd(&debug_counter, 1u);
-                if (debug_idx < MAX_DEBUG_CELLS) {
-                    let debug_cell_offset = debug_idx * 20u; 
-                    for(var k_log: u32 = 0u; k_log < 3u; k_log = k_log + 1u) {
-                        let log_offset = debug_cell_offset + (k_log * 5u);
-                        let hkl_idx = hkl_indices[k_log];
-                        let q_obs_val = q_perm[k_log];
-                        let q_calc = (A_sol * M_hkl_rows[k_log][0] + B_sol * M_hkl_rows[k_log][1] + C_sol * M_hkl_rows[k_log][2]);
-                        debug_log[log_offset + 0u] = hkl_basis[hkl_idx * 4u + 0u]; 
-                        debug_log[log_offset + 1u] = hkl_basis[hkl_idx * 4u + 1u]; 
-                        debug_log[log_offset + 2u] = hkl_basis[hkl_idx * 4u + 2u]; 
-                        debug_log[log_offset + 3u] = 1.0 / sqrt(q_obs_val); 
-                        debug_log[log_offset + 4u] = 1.0 / sqrt(q_calc);
-                    }
                 }
                 break; 
             }

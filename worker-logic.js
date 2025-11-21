@@ -1321,8 +1321,7 @@ if (typeof self !== 'undefined' && typeof  WorkerGlobalScope !== 'undefined' && 
         
         // --- 1. Get data from main thread ---
         const data = e.data;
-        const { systemToSearch, peaks, wavelength, tth_error, impurity_peaks } = data;
-
+        const { systemToSearch, peaks, wavelength, tth_error, impurity_peaks, fom_threshold, max_solutions } = data;
         // --- 2. Set up the "global" state for the functions ---
         const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(peaks, wavelength);
         const N_FOR_M20 = Math.min(20, peaks.length);
