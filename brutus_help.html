@@ -212,8 +212,8 @@
                     <strong>(Optional) Tune GPU Parameters.</strong>
                     If searching Orthorhombic, Monoclinic, or Triclinic, a new box appears.
                     <ul>
-                        <li><code>HKL Basis Size</code>: (Default: 300 for Ortho, 100 for Mono, 40 for Tri) Number of simple HKLs to use for the search.</li>
-                        <li><code>Peaks to Combine</code>: (Default: 7 for Ortho, 7 for Mono, 9 for Tri) Number of observed peaks to use for combinations.</li>
+                        <li><code>HKL Basis Size</code>: Number of simple HKLs to use for the search (Defaults: Ortho 300, Mono 100, Tri 40).</li>
+                        <li><code>Peaks to Combine</code>: Number of observed peaks to use for combinations (Defaults: Ortho 7, Mono 7, Tri 9).</li>
                         <li>Leave these at their defaults unless you have trouble finding a solution.</li>
                     </ul>
                 </li>
@@ -328,6 +328,7 @@
                     <ul>
                         <li><em>What it does:</em> To solve a system, Brutus needs exactly $k$ peaks ($k=3$ for Ortho, 4 for Mono, 6 for Tri). If this parameter is set higher than $k$ (e.g., 7 for Monoclinic), the program tests every possible subgroup of 4 peaks drawn from those top 7.</li>
                         <li><em>Implication:</em> This provides robustness against impurities. If the 2nd peak is an impurity, a search using only the first 4 peaks will fail. A search using the first 7 peaks will eventually test the combination $\{1,3,4,5\}$, skipping the impurity. Increasing this value effectively creates a "Sliding Window" search but increases total trials.</li>
+                        <li><em>Defaults:</em> 7 (Ortho), 7 (Mono), 9 (Tri).</li>
                     </ul>
                 </li>
 
@@ -335,8 +336,9 @@
                     <strong>FoM Tolerance:</strong>
                     <br>The "Fail-Fast" threshold for the GPU's internal Figure of Merit filter.
                     <ul>
-                        <li><em>What it does:</em> Before sending a solution to the CPU, the GPU calculates a quick score based on the average deviation of the first 10 observed peaks. If the error is higher than this tolerance, the cell is discarded immediately.</li>
-                        <li><em>Recommendation:</em> The default (3.0) is a balanced choice. Increase it (e.g., to 5.0 or 10.0) if your data is very noisy or has a significant zero-shift, to prevent valid but poorly-fitting initial cells from being rejected too early.</li>
+                        <li><em>What it does:</em> Before sending a solution to the CPU, the GPU calculates a quick score based on the average absolute deviation of the first 10 observed peaks. If the error is higher than this tolerance, the cell is discarded immediately.</li>
+                        <li><em>Note:</em> A value of <strong>1.0</strong> corresponds to an average error exactly matching your user-defined <code>2θ Error</code>. The default is higher to allow for unrefined trial cells.</li>
+                        <li><em>Recommendation:</em> The default (0.8) is a balanced choice. Increase it (e.g., to 3.0) if your data is very noisy or has a significant zero-shift, to prevent valid but poorly-fitting initial cells from being rejected too early. A large value will generate many candidates, you may need to update the Candidates number.</li>
                     </ul>
                 </li>
 
@@ -515,7 +517,7 @@
 
    <li>
                     <code><strong>FoM Tolerance</strong></code>: 
-                    During the GPU search, the average of absolute difference between observed and calculated q is calculated on the first Peaks to Combine (or 10, whichever is larger). This is a crude estimation of the cell quality. If it passes the User error * FoM tolerance, the cell is saved as a candidate. A larger FoM tolerance will generate more candidates.
+                    During the GPU search, the average of absolute difference between observed and calculated q is calculated on the first Peaks to Combine (or 10, whichever is larger). This is a crude estimation of the cell quality. If it passes the User error * FoM tolerance, the cell is saved as a candidate. A value of 1.0 means the fit matches the user error exactly. A larger FoM tolerance will generate more candidates.
                     <br><em>Default: 3.</em>
                 </li>
                 <li>
@@ -700,19 +702,13 @@
 
     <h4>If you get too many solutions (GPU buffer fills)</h4>
     <p>
-        The GPU buffer is now limited by the Candidates field in the UI. If this buffer fills up, the search stops earlier than the full space requested. If you have no solution that appears valid:
+        The GPU buffer is now limited to 20,000 candidate solutions. If this buffer fills up, the search stops earlier than the full space requested. If you have no solution that appears valid:
     </p>
     <ul>
         <li>
             <strong>Tighten <code>2θ Error</code>.</strong>
             This is the most effective way to reduce the number of false positives.
         </li>
-
-                <li>
-            <strong>Decrease <code>FoM tolerance</code>.</strong>
-            This is closely related to the <code>2θ Error</code>, decrease this value to decrease the number of candidate cells. This applies to the first 10 peaks (or to the number of Peaks to combine) whereas the <code>2θ Error</code> applies to indexing, M(20) and space group detection.
-        </li>
-
         <li>
             <strong>Reduce <code>Max Volume</code>.</strong>
             This is another strong constraint to remove unphysical large cells.
@@ -750,7 +746,7 @@
             impractical on the CPU. 
         </p>
         <p>
-            Note: at the end of a GPU search all candidates (up to the value in the Candidates, default 20 000) are passed to refinement, Niggli cell reduction, M(20) and F(N) calculations. These are made on the CPU so it might take a few minutes, be patient (or change the parameters, or decrease the number of peaks in the list).
+            Note: at the end of a GPU search all candidates (up to 20 000) are passed to refinement, Niggli cell reduction, M(20) and F(N) calculations. These are made on the CPU so it might take a few minutes, be patient (or change the parameters, or decrease the number of peaks in the list).
         </p>
     </blockquote>
 
@@ -1115,7 +1111,7 @@
             </ol>
 
             <div class="footer">
-                <p>Help guide generated with the assistance of an AI, last updated 16 November 2025.</p>
+                <p>Help guide generated with the assistance of an AI, last updated 21 November 2025.</p>
             </div>
         </section>
     </main>
