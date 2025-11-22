@@ -953,12 +953,40 @@
             
         </section>
 
-        <!-- TROUBLESHOOTING -->
-        <section id="troubleshooting">
+<section id="troubleshooting">
             <h2>Troubleshooting & FAQ</h2>
+
+            <h3>Error: "WebGPU not supported in this browser"</h3>
+            <p>
+                This error indicates a software or configuration issue, rather than a lack of hardware capability.
+                Even integrated graphics (like Intel UHD) support WebGPU if configured correctly.
+            </p>
+            <ul>
+                <li>
+                    <strong>Unsupported Browser:</strong>
+                    WebGPU is currently best supported on <strong>Google Chrome</strong> (v113+) and <strong>Microsoft Edge</strong>.
+                </li>
+                <li>
+                    <strong>Outdated Drivers:</strong>
+                    Old graphics drivers are frequently "blacklisted" by browsers to prevent instability.
+                    Update your GPU drivers (Intel, NVIDIA, or AMD) to the latest version via the manufacturer's website or Windows Update.
+                </li>
+                <li>
+                    <strong>Hardware Acceleration Disabled:</strong>
+                    Check your browser settings (usually under <code>Settings > System</code>) and ensure "Use graphics acceleration when available" is turned <strong>ON</strong>. Restart the browser afterwards.
+                </li>
+                <li>
+                    <strong>Linux / Special OS:</strong>
+                    On Linux, WebGPU is often disabled by default. You may need to manually enable flags in <code>chrome://flags</code>. Search for "Vulkan" and "WebGPU" and set them to Enabled.
+                </li>
+            </ul>
+            <p>
+                <strong>To verify:</strong> Type <code>chrome://gpu</code> in your address bar. Look for "WebGPU". If it says "Software only" or "Disabled", the program will not work.
+            </p>
 
             <h3>Why were no solutions found?</h3>
             <ul>
+    
                 <li>
                     <strong>Poor peak list:</strong>
                     This is the most common cause. Ensure the list is accurate, impurity peaks are removed,
@@ -1110,7 +1138,7 @@
             </ol>
 
             <div class="footer">
-                <p>Help guide generated with the assistance of an AI, last updated 21 November 2025.</p>
+                <p>Help guide generated with the assistance of an AI, last updated 22 November 2025.</p>
             </div>
         </section>
     </main>
