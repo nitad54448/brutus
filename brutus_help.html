@@ -617,23 +617,23 @@
 
             <h3>System-Specific Breakdown</h3>
             <p>
-                Each crystal system scales differently. <strong>Triclinic</strong> is by far the most computationally demanding ("The Monster") due to its high dimensionality ($k=6$).
+                Each crystal system scales differently based on the number of parameters ($k$). The maximum safe HKL Basis Size ($N_{hkl}$) is determined by the Combinatorial formula $C(N, k) < 2^{32}$.
             </p>
 
             <h4>1. Triclinic ($k=6$)</h4>
             <ul>
-                <li><strong>HKL Limit:</strong> You hit the 4.29 Billion safety wall at a Basis Size of <strong>122</strong>.</li>
+                <li><strong>HKL Limit:</strong> You hit the 4.29 Billion safety wall at a Basis Size of <strong>123</strong>. ($C(123,6) \approx 4.24 \times 10^9$).</li>
                 <li><strong>Permutations:</strong> $6! = 720$.</li>
                 <li><strong>Peak Multiplier:</strong> Using 20 peaks ($C(20,6)$) adds a factor of 38,760.</li>
                 <li>
                     <strong>Maximum Possible Trials:</strong>
-                    $$ 4.29 \times 10^9 \times 38,760 \times 720 \approx \mathbf{1.2 \times 10^{17}} \quad (120 \text{ Quadrillion}) $$
+                    $$ 4.24 \times 10^9 \times 38,760 \times 720 \approx \mathbf{1.18 \times 10^{17}} \quad (118 \text{ Quadrillion}) $$
                 </li>
             </ul>
 
             <h4>2. Monoclinic ($k=4$)</h4>
             <ul>
-                <li><strong>HKL Limit:</strong> You hit the 4.29 Billion wall at a Basis Size of <strong>568</strong>.</li>
+                <li><strong>HKL Limit:</strong> You hit the 4.29 Billion wall at a Basis Size of <strong>568</strong>. ($C(568,4) \approx 4.29 \times 10^9$).</li>
                 <li><strong>Permutations:</strong> $4! = 24$.</li>
                 <li><strong>Peak Multiplier:</strong> Using 20 peaks ($C(20,4)$) adds a factor of 4,845.</li>
                 <li>
@@ -644,7 +644,7 @@
 
             <h4>3. Orthorhombic ($k=3$)</h4>
             <ul>
-                <li><strong>HKL Limit:</strong> You hit the 4.29 Billion wall at a Basis Size of approx. <strong>3,000</strong>.</li>
+                <li><strong>HKL Limit:</strong> You hit the 4.29 Billion wall at a Basis Size of <strong>2,954</strong>. ($C(2954,3) \approx 4.29 \times 10^9$).</li>
                 <li><strong>Permutations:</strong> $3! = 6$.</li>
                 <li><strong>Peak Multiplier:</strong> Using 20 peaks ($C(20,3)$) adds a factor of 1,140.</li>
                 <li>
@@ -667,10 +667,9 @@
             </p>
             <blockquote>
                 <strong>Practical Limit:</strong> For a search to finish in a "coffee break" time frame (5–10 minutes),
-                you generally want to keep the Total Trials count under <strong>100–500 Billion</strong>.
+                you generally want to keep the Total Trials count under 100–500 Billion.
             </blockquote>
         </section>
-
 
 
 
@@ -702,7 +701,7 @@
 
     <h4>If you get too many solutions (GPU buffer fills)</h4>
     <p>
-        The GPU buffer is now limited to 20,000 candidate solutions. If this buffer fills up, the search stops earlier than the full space requested. If you have no solution that appears valid:
+        The GPU buffer is limited (user selected up to 200k, default 20,000) candidate solutions. If this buffer fills up, the search stops earlier than the full space requested. If you have no solution that appears valid:
     </p>
     <ul>
         <li>
