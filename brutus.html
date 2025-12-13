@@ -1990,7 +1990,7 @@ if (denominator < -1e-10) {
             else if (peak.height > finalPeaks[finalPeaks.length - 1].height) finalPeaks[finalPeaks.length - 1] = peak;
         }
         const lambda = parseFloat(ui.wavelength.value) || 1.54178;
-        pickedPeaks = finalPeaks.map(p => { const d = lambda / (2 * Math.sin(p.tth * Math.PI / 360)); return { tth: p.tth, d: d, q: 1 / (d * d) }; });
+        pickedPeaks = finalPeaks.slice(0, -1).map(p => { const d = lambda / (2 * Math.sin(p.tth * Math.PI / 360)); return { tth: p.tth, d: d, q: 1 / (d * d) }; });
         updatePeakTable(); updateStartIndexingButtonState();
     };
 
@@ -3924,6 +3924,6 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 21 nov 2025</div>
+<div id="app-footer">Brutus, 13 dec 2025</div>
 </body>
 </html>
