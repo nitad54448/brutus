@@ -953,121 +953,133 @@
             
         </section>
 
-<section id="troubleshooting">
-            <h2>Troubleshooting & FAQ</h2>
+        <section id="troubleshooting">
+    <h2>Troubleshooting & FAQ</h2>
 
-            <h3>Error: "WebGPU not supported in this browser"</h3>
-            <p>
-                This error indicates a software or configuration issue, rather than a lack of hardware capability.
-                Even integrated graphics (like Intel UHD) support WebGPU if configured correctly.
-            </p>
-            <ul>
-                <li>
-                    <strong>Unsupported Browser:</strong>
-                    WebGPU is currently best supported on <strong>Google Chrome</strong> (v113+) and <strong>Microsoft Edge</strong>.
-                </li>
-                <li>
-                    <strong>Outdated Drivers:</strong>
-                    Old graphics drivers are frequently "blacklisted" by browsers to prevent instability.
-                    Update your GPU drivers (Intel, NVIDIA, or AMD) to the latest version via the manufacturer's website or Windows Update.
-                </li>
-                <li>
-                    <strong>Hardware Acceleration Disabled:</strong>
-                    Check your browser settings (usually under <code>Settings > System</code>) and ensure "Use graphics acceleration when available" is turned <strong>ON</strong>. Restart the browser afterwards.
-                </li>
-                <li>
-                    <strong>Linux / Special OS:</strong>
-                    On Linux, WebGPU is often disabled by default. You may need to manually enable flags in <code>chrome://flags</code>. Search for "Vulkan" and "WebGPU" and set them to Enabled.
-                </li>
-            </ul>
-            <p>
-                <strong>To verify:</strong> Type <code>chrome://gpu</code> in your address bar. Look for "WebGPU". If it says "Software only" or "Disabled", the program will not work.
-            </p>
+    <h3>Error: "WebGPU not supported in this browser"</h3>
+    <p>
+        This error indicates a software or configuration issue, rather than a lack of hardware capability.
+        Even integrated graphics (like Intel UHD) support WebGPU if configured correctly.
+    </p>
+    <ul>
+        <li>
+            <strong>Unsupported Browser:</strong>
+            WebGPU is currently best supported on <strong>Google Chrome</strong> (v113+) and <strong>Microsoft Edge</strong>.
+        </li>
+        <li>
+            <strong>Outdated Drivers:</strong>
+            Old graphics drivers are frequently "blacklisted" by browsers to prevent instability.
+            Update your GPU drivers (Intel, NVIDIA, or AMD) to the latest version via the manufacturer's website or Windows Update.
+        </li>
+        <li>
+            <strong>Hardware Acceleration Disabled:</strong>
+            Check your browser settings (usually under <code>Settings > System</code>) and ensure "Use graphics acceleration when available" is turned <strong>ON</strong>. Restart the browser afterwards.
+        </li>
+        <li>
+            <strong>Linux / Special OS:</strong>
+            On Linux, WebGPU is often disabled by default. You may need to manually enable flags in <code>chrome://flags</code>. Search for "Vulkan" and "WebGPU" and set them to Enabled.
+        </li>
+    </ul>
+    <p>
+        <strong>To verify:</strong> Type <code>chrome://gpu</code> in your address bar. Look for "WebGPU". If it says "Software only" or "Disabled", the program will not work.
+    </p>
 
-            <h3>Why were no solutions found?</h3>
-            <ul>
-    
-                <li>
-                    <strong>Poor peak list:</strong>
-                    This is the most common cause. Ensure the list is accurate, impurity peaks are removed,
-                    and positions are refined. A minimum of 15–20 clean peaks is recommended.
-                    For low symmetry, the first 10 peaks (largest d-spacings) must be especially reliable.
-                </li>
-                <li>
-                    <strong>Incorrect parameters:</strong>
-                    Check the wavelength, the selected <code>Radiation Preset</code>, and the <code>Max Volume</code> value.
-                </li>
-                <li>
-                    <strong>GPU parameters are too restrictive:</strong>
-                    The true solution might require HKLs or peaks beyond the default <code>HKL Basis Size</code> or <code>Peaks to Combine</code>. Try increasing these values.
-                </li>
-                <li>
-                    <strong>Large zero-point error:</strong>
-                    Brutus can correct moderate misalignments, but very large zero errors may still prevent indexing.
-                </li>
-                <li>
-                    <strong>Sample is a mixture:</strong>
-                    Successful indexing requires peaks from a single crystalline phase.
-                </li>
-            </ul>
+    <h3>Why were no solutions found?</h3>
+    <ul>
+        <li>
+            <strong>Poor peak list:</strong>
+            This is the most common cause. Ensure the list is accurate, impurity peaks are removed,
+            and positions are refined. A minimum of 15–20 clean peaks is recommended.
+            For low symmetry, the first 10 peaks (largest d-spacings) must be especially reliable.
+        </li>
+        <li>
+            <strong>Incorrect parameters:</strong>
+            Check the wavelength, the selected <code>Radiation Preset</code>, and the <code>Max Volume</code> value.
+        </li>
+        <li>
+            <strong>GPU parameters are too restrictive:</strong>
+            The true solution might require HKLs or peaks beyond the default <code>HKL Basis Size</code> or <code>Peaks to Combine</code>. Try increasing these values.
+        </li>
+        <li>
+            <strong>Large zero-point error:</strong>
+            Brutus can correct moderate misalignments, but very large zero errors may still prevent indexing.
+        </li>
+        <li>
+            <strong>Sample is a mixture:</strong>
+            Successful indexing requires peaks from a single crystalline phase.
+        </li>
+    </ul>
 
-            <h3>Why is M(20) low although the fit looks good?</h3>
-            <ul>
-                <li>
-                    <strong>Sub-multiple or super-multiple cell:</strong>
-                    The found cell may be a multiple or sub-cell of the true one. It can index only a subset of peaks
-                    and is penalized for being too sparse or too dense in calculated reflections.
-                </li>
-                <li>
-                    <strong>High error / low resolution:</strong>
-                    The <code>2θ Error</code> setting may be too strict for broad peaks. Try slightly increasing it.
-                </li>
-                <li>
-                    <strong>Spurious solution:</strong>
-                    Random solutions can fit a few peaks by chance. Always check whether major observed peaks are
-                    reproduced by the calculated pattern. If not, the solution is incorrect regardless of M(20).
-                </li>
-            </ul>
+    <h3>Why is M(20) low although the fit looks good?</h3>
+    <ul>
+        <li>
+            <strong>Sub-multiple or super-multiple cell:</strong>
+            The found cell may be a multiple or sub-cell of the true one. It can index only a subset of peaks
+            and is penalized for being too sparse or too dense in calculated reflections.
+        </li>
+        <li>
+            <strong>High error / low resolution:</strong>
+            The <code>2θ Error</code> setting may be too strict for broad peaks. Try slightly increasing it.
+        </li>
+        <li>
+            <strong>Spurious solution:</strong>
+            Random solutions can fit a few peaks by chance. Always check whether major observed peaks are
+            reproduced by the calculated pattern. If not, the solution is incorrect regardless of M(20).
+        </li>
+    </ul>
 
-            <h3>Test Files</h3>
-            <ul>
-                <li>The GitHub repository contains several example data sets:</li>
-                <li>
-                    <strong>Monoclinic_test_1.xy</strong> –
-                    Synchrotron XRD, monoclinic, monochromatic radiation λ = 0.79764 Å.
-                    Lattice parameters: a = 19.877 Å, b = 8.196 Å, c = 11.243 Å, β = 106.08°.
-                </li>
-                <li>
-                    <strong>C61Br2_079764.XY</strong> –
-                    Dibromo-methano fullerene measured at ESRF, λ = 0.79764 Å.
-                    Contains an impurity peak at about 16.24° 2θ.
-                    A likely solution is cubic I with a ≈ 18.92 Å.
-                </li>
-                <li>
-                    <strong>SPDDRR1_sample2_0692.xy</strong> –
-                    Round-robin data measured at Daresbury, λ = 0.692 Å.
-                    Probable cell: orthorhombic with a = 10.983 Å, b = 12.852 Å, c = 15.740 Å.
-                </li>
-                <li>
-                    <strong>SPDDRR1_sample2_Cu.xy</strong> –
-                    Same sample as above, measured with a Cu Kα laboratory source.
-                </li>
-                <li>
-                    <strong>SPDDRR1_zhu1_Cu.xy</strong> –
-                    Round-robin sample 1, measured with Cu Kα; likely monoclinic with
-                    a = 7.672 Å, b = 9.624 Å, c = 7.076 Å, β = 106.24°.
-                </li>
-                <li>
-                    <strong>PbSO4.xra</strong> and <strong>FAP.xra</strong> –
-                    Laboratory Cu Kα samples representative of orthorhombic and hexagonal structures (these datafiles were taken from GSAS-2 tutorials).
-                </li>
-                <li>
-                    <strong>P-1_sim_5_6_7_86_91_96.txt</strong> –
-                    Simulated powder pattern for a P−1 lattice, λ = 1.7 Å,
-                    a = 5.0 Å, b = 6.0 Å, c = 7.0 Å, α = 86.0°, β = 91.0°, γ = 96.0° (volume of 208.29 A^3)
-                </li>
-            </ul>
-        </section>
+    <h3>Test Files</h3>
+    <ul>
+        <li>The GitHub repository contains several example data sets:</li>
+        <li>
+            <strong>Monoclinic_test_1.xy</strong> –
+            Synchrotron XRD, monoclinic, monochromatic radiation λ = 0.79764 Å.
+            Lattice parameters: a = 19.877 Å, b = 8.196 Å, c = 11.243 Å, β = 106.08°.
+        </li>
+        <li>
+            <strong>C61Br2_079764.XY</strong> –
+            Dibromo-methano fullerene measured at ESRF, λ = 0.79764 Å.
+            Contains an impurity peak at about 16.24° 2θ.
+            A likely solution is cubic I with a ≈ 18.92 Å.
+        </li>
+        <li>
+            <strong>SPDDRR1_sample2_0692.xy</strong> –
+            Round-robin data measured at Daresbury, λ = 0.692 Å.
+            Probable cell: orthorhombic with a = 10.983 Å, b = 12.852 Å, c = 15.740 Å.
+        </li>
+        <li>
+            <strong>SPDDRR1_sample2_Cu.xy</strong> –
+            Same sample as above, measured with a Cu Kα laboratory source.
+        </li>
+        <li>
+            <strong>SPDDRR1_zhu1_Cu.xy</strong> –
+            Round-robin sample 1, measured with Cu Kα; likely monoclinic with
+            a = 7.672 Å, b = 9.624 Å, c = 7.076 Å, β = 106.24°.
+        </li>
+        <li>
+            <strong>PbSO4.xra</strong> and <strong>FAP.xra</strong> –
+            Laboratory Cu Kα samples representative of orthorhombic and hexagonal structures (these datafiles were taken from GSAS-2 tutorials).
+        </li>
+        <li>
+            <strong>P-1_sim_5_6_7_86_91_96.txt</strong> –
+            Simulated powder pattern for a P−1 lattice, λ = 1.7 Å,
+            a = 5.0 Å, b = 6.0 Å, c = 7.0 Å, α = 86.0°, β = 91.0°, γ = 96.0° (volume of 208.29 A^3)
+        </li>
+    </ul>
+
+    <h3>Found a Bug?</h3>
+    <p>
+        If you suspect you have found a bug in the software (e.g., the interface freezes unexpectedly, or valid data crashes the GPU search), please report it.
+    </p>
+    <p>
+        <a href="https://github.com/nitad54448/brutus/issues/new?template=bug_report.yml" target="_blank" style="background-color: #3b82f6; color: white; padding: 0.5rem 1rem; border-radius: 0.375rem; text-decoration: none; font-weight: 600; display: inline-block;">
+            Report a Bug on GitHub
+        </a>
+    </p>
+    <p style="font-size: 0.9em; color: #6b7280; margin-top: 0.5rem;">
+        <em>Note: You will need a free GitHub account. The form will ask for your browser version and GPU model to help us reproduce the issue.</em>
+    </p>
+</section>
 
         <!-- REFERENCES -->
         <section id="references">
