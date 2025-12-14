@@ -173,11 +173,11 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 
             /* - Force wrapping on long text - */
-            max-width: 400px;        /* Limits width so text must wrap */
-            white-space: normal;     /* Explicitly allows wrapping */
-            word-wrap: break-word;   /* Breaks long words/numbers if needed */
-            line-height: 1.4;        /* Improves readability on multiple lines */
-            text-align: right;       /* (Optional) Keeps text aligned to the corner */
+            max-width: 400px;        
+            white-space: normal;     
+            word-wrap: break-word;   
+            line-height: 1.4;        
+            text-align: right;       
         }
 
 
@@ -189,7 +189,7 @@
         #status-box.error { background-color: var(--error-red); }
         #status-box.info { background-color: var(--border-color); }
 
-        /* --- Help Tooltip Styles --- */
+        /* --- Help Tooltip  */
         .help-tooltip-container { position: relative; display: inline-block; }
         .help-icon {
             display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;
@@ -257,7 +257,7 @@
     z-index: 1001;     
 }
 
-        /* --- Compact Slider Styles --- */
+        /* --- Compact Slider  */
         .slider-group {
             display: grid;
             grid-template-columns: minmax(100px, auto) 1fr;
@@ -334,7 +334,7 @@
             background: var(--border-color);
         }
 
-                /* --- GPU Params specific style --- */
+                /*  GPU Params style  */
         #gpu-params-container {
             border-top: 1px solid var(--light-bg);
             padding-top: 1.5rem;
@@ -743,7 +743,7 @@ const WAVELENGTH_PRESETS = {
             webGPUSupportsCompute = false; 
             
             // error message, 10 secondes
-            showStatus("WebGPU init failed. Orthorhombic, Monoclinic and Triclinic searches are disabled.", "error", 10000); // <-- UPDATE TEXT
+            showStatus("WebGPU init failed. Orthorhombic, Monoclinic and Triclinic searches are disabled.", "error", 10000);
             
             // Disable and gray out the monoclinic checkbox
             if (monoCheckbox) {
@@ -805,10 +805,6 @@ const WAVELENGTH_PRESETS = {
     
 
 
-
-
-
-
 // Make Monoclinic, Triclinic, and Orthorhombic mutually exclusive (only one GPU task, 16 nov)
     const monoCheckbox = document.querySelector('.system-checkbox[value="monoclinic"]');
     const triCheckbox = document.querySelector('.system-checkbox[value="triclinic"]');
@@ -855,11 +851,6 @@ const WAVELENGTH_PRESETS = {
     }
 
 
-
-
-
-
-
     /* * Calculates combinations C(n, k) = "n choose k"
      * Uses the stable multiplicative formula: (n/1) * ((n-1)/2) * ... * ((n-k+1)/k)
      */
@@ -883,7 +874,6 @@ const WAVELENGTH_PRESETS = {
         
         return Math.round(res);
     }
-
 
 
     /**
@@ -1101,7 +1091,7 @@ const getOrthogonalityScore = (cell) => {
     const PRUNE_TO_COUNT = 40; // Prune down to this many
 
 
-// Add this new function to centralize updates
+//  new function to centralize updates
 const handleNewSolution = (newSolution) => {
     solutions.push(newSolution);
 
@@ -1465,7 +1455,7 @@ const setupWorker = () => {
             }
 
             // --- Fallback for all other 2-column-like formats ---
-            // This will attempt to parse: .xy, .csv, .txt, .dat, .asc, etc.... à revoir les fichiers type dans Convert 2
+            // This will attempt to parse: .xy, .csv, .txt, .dat, .asc, etc.... à revoir les fichiers type dans Convert 2 ?
             return parseDataFile(fileContent, fileName);
         };
     
@@ -1684,7 +1674,7 @@ const setupWorker = () => {
             return;
         }
 
-        // --some Hack... trim trailing zeros
+        // --some hack... trim trailing zeros, need to rewrite this part... it's a bit shady
         let lastNonZeroIndex = tth_out.length - 1;
         
         // Search backwards from the end
@@ -1951,9 +1941,6 @@ ui.tthMinSlider.addEventListener('input', () => {
                     }
                 }
 
-
-
-
                 
             // --- FALLBACK: Use 3-point fit if 5-point fails or is near edge ---
             } else if (idx > 0 && idx < n - 1) { 
@@ -1973,14 +1960,9 @@ if (denominator < -1e-10) {
             }
 
 
-
             refinedPeaks.push({ ...peak, tth: refinedTth });
         }
         
-
-
-
-
 
         // --- Continue 
         refinedPeaks.sort((a, b) => a.tth - b.tth);
@@ -2012,13 +1994,10 @@ if (denominator < -1e-10) {
     };
     
 
-// ============================================================
-    // === SAFETY & UI LOGIC (Replace updateStartIndexingButtonState) ===
-    // ============================================================
 
     const UINT32_MAX = 4294967295n; // 2^32 - 1 (BigInt)
 
-    // Helper: BigInt combinations to prevent JS precision loss
+    // Helper: BigInt combinations to prevent JS precision loss ? 
     const bigCombinations = (n, k) => {
         if (k < 0 || k > n) return 0n;
         if (k === 0 || k === n) return 1n;
@@ -2119,13 +2098,12 @@ if (denominator < -1e-10) {
     updateStartIndexingButtonState();
 
 
-
 ui.peakListBody.addEventListener('change', (e) => {
         if (e.target.classList.contains('peak-tth-input')) {
             const index = parseInt(e.target.dataset.index); 
-            let tth = parseFloat(e.target.value); // 'const' to 'let'
-            if (tth <= 1e-4) tth = 1e-4; // <-- ADD THIS LINE
-            e.target.value = tth.toFixed(4); // <-- ADD THIS LINE to update the UI
+            let tth = parseFloat(e.target.value); // 'const' to 'let', 16 nov 2025
+            if (tth <= 1e-4) tth = 1e-4; 
+            e.target.value = tth.toFixed(4); 
             const lambda = parseFloat(ui.wavelength.value);
             const d = lambda / (2 * Math.sin(tth * Math.PI / 360)); const q = 1 / (d*d);
             pickedPeaks[index] = {tth, d, q};
@@ -2133,8 +2111,6 @@ ui.peakListBody.addEventListener('change', (e) => {
             updateAllMarkers(); updateStartIndexingButtonState();
         }
     });
-
-
 
 
 
@@ -2168,9 +2144,9 @@ ui.peakListBody.addEventListener('change', (e) => {
                     cb.disabled = false; // Re-enable all
                 } else {
                     // Only re-enable non-GPU ones
-                    // --- MODIFIED LINE ---
+                    
                     if (cb.value === 'monoclinic' || cb.value === 'triclinic' || cb.value === 'orthorhombic') {
-                    // --- END MODIFIED LINE ---
+                    
                         cb.disabled = true; 
                         cb.checked = false; 
                     } else {
@@ -2856,10 +2832,6 @@ systemsToSearch.forEach(system => {
         taskPromises.push(monoTask);
     }
 
-
-
-
-
 // --- TASK 4: TRICLINIC (GPU) ---
     if (webgpuSystems.includes('triclinic')) {
         const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
@@ -2918,7 +2890,7 @@ systemsToSearch.forEach(system => {
                     qObsArray, 
                     hklBasisArray, 
                     peakCombos, 
-                    null, // <--- HKL Combos ignored (Combinadics used)
+                    null,
                     qTolerancesArray,
                     (p, n) => progressCallback(p, n),
                     gpuStopSignal, 
@@ -2936,8 +2908,6 @@ systemsToSearch.forEach(system => {
         })();
         taskPromises.push(triTask);
     }
-
-
 
 
     // --- FINALIZE ---
@@ -2981,7 +2951,6 @@ const finalizeIndexing = (stoppedByUser = false) => {
     lastIndexingStats = finalStatus; 
     
     // -------------------------------------------------
-
     // Update screen status temporarily
     if (statusTextElement) statusTextElement.textContent = 'Applying final sieve...';
     
@@ -3342,7 +3311,6 @@ ui.chartCanvas.addEventListener('click', (e) => {
         pickedPeaks.push({ tth, d, q }); pickedPeaks.sort((a, b) => a.tth - b.tth);
         updatePeakTable(); updateStartIndexingButtonState(); showStatus(`Peak added at ${tth.toFixed(3)}°`, 'success', 2000);
     });
-
 
 
 
@@ -3716,7 +3684,7 @@ const generatePDFReport = async () => {
             	  doc.text(line, extinctionX, yPos);
             	  yPos += 4; // Move down for the next line (adjust line spacing if needed)
           	 });
-          	 yPos += 3; // Total spacing after extinctions (was 7 before)
+          	 yPos += 3; // Total spacing after extinctions (was 7 before 16 nov update)
 
 
           	 // --- 7. POSSIBLE SPACE GROUPS 
@@ -3840,7 +3808,6 @@ const generatePDFReport = async () => {
       	yPos += 4; 
       	if (yPos > 255) { doc.addPage(); yPos = 20; }
     
-    	/* --- REFLECTION TABLE ... */
     
     	 	doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.TABLE_HEADER);
 const tableHeader = ' h  k  l| 2th_exp 2theta 2th_calc |   d_corr    d_calc  | diff(2th)';
@@ -3924,6 +3891,6 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 13 dec 2025</div>
+<div id="app-footer">Brutus, 14 dec 2025</div>
 </body>
 </html>
