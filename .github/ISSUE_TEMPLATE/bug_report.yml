@@ -1,32 +1,78 @@
-name: Bug Report
-description: File a bug report
+name: 🐛 Brutus Bug Report
+description: Create a report to help us improve Brutus Powder Indexing
 title: "[Bug]: "
 labels: ["bug", "triage"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to fill out this bug report!
+        ## Before you start
+        Please review the **Troubleshooting** section in the Help Guide. 
+        Ensure your browser supports WebGPU (Chrome v113+ or Edge recommended).
+        
   - type: textarea
-    id: what-happened
+    id: description
     attributes:
-      label: What happened?
-      description: Also tell us, what did you expect to happen?
-      placeholder: Tell us what you see!
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: The indexing stops at 50% or the chart does not render...
     validations:
       required: true
+
   - type: dropdown
-    id: version
+    id: browser
     attributes:
-      label: Version
+      label: Browser
+      description: WebGPU support is critical for this application.
       options:
-        - 1.0.0
-        - 1.0.1
-        - 1.1.0 (Beta)
+        - Google Chrome (Recommended)
+        - Microsoft Edge (Recommended)
+        - Firefox (Experimental)
+        - Safari
+        - Other
     validations:
       required: true
+
+  - type: input
+    id: gpu_model
+    attributes:
+      label: GPU Hardware
+      description: What GPU are you using? (e.g., Nvidia T1000, Intel UHD, AMD Radeon). This is vital for memory buffer issues.
+      placeholder: e.g., Nvidia RTX 3060
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Please include the specific parameters used.
+      placeholder: |
+        1. Loaded .xy file
+        2. Set Max Volume to 2000
+        3. Selected 'Monoclinic' search
+        4. Set HKL Basis Size to 100 and Peaks to Combine to 7
+        5. Clicked 'Start Indexing'
+        6. Error occurred...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: file_format
+    attributes:
+      label: Input Data Format
+      options:
+        - .xy
+        - .xrdml
+        - .ras
+        - .txt
+        - Other
+    validations:
+      required: false
+
   - type: textarea
     id: logs
     attributes:
-      label: Log Output
+      label: Console Output / Screenshots
+      description: Please paste any errors from the Developer Console (F12) or attach screenshots. Look for "WebGPU not supported" or "Buffer Full" errors.
       render: shell
