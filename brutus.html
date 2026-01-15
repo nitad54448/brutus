@@ -536,7 +536,7 @@
             </div>
             <div>
                 <label for="gpu-buffer-size" class="control-label">Candidates (kCells)</label>
-                <input type="number" id="gpu-buffer-size" value="20" min="1" max="200" step="1" class="control-input">
+                <input type="number" id="gpu-buffer-size" value="50" min="1" max="500" step="1" class="control-input">
             </div>
         </div>
     </div>
@@ -711,7 +711,7 @@ const WAVELENGTH_PRESETS = {
     });
 
     ui.gpuFomThreshold.addEventListener('blur', () => validateNumberInput(ui.gpuFomThreshold, 3.0));
-    ui.gpuBufferSize.addEventListener('blur', () => validateNumberInput(ui.gpuBufferSize, 20));
+    ui.gpuBufferSize.addEventListener('blur', () => validateNumberInput(ui.gpuBufferSize, 50));
 
 
     /**
