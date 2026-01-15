@@ -488,7 +488,7 @@
     <div class="parameter-grid">
         <div>
             <label for="max-volume" class="control-label">Max Volume (Å³)</label>
-            <input type="number" id="max-volume" value="3000" step="100" min="25" max="12500" class="control-input">
+            <input type="number" id="max-volume" value="2000" step="100" min="25" max="12500" class="control-input">
         </div>
         <div>
             <label for="impurity-peaks" class="control-label">Impurity Peaks</label>
@@ -1355,9 +1355,9 @@ const setupWorker = () => {
         debouncedUpdateAndRedraw();
     });
 
-    // --- Validation and Wavelength Listener ---
+    // --- Validation 
     const inputsToValidate = [
-        { id: 'max-volume', el: ui.maxVolume, default: 1000 },
+        { id: 'max-volume', el: ui.maxVolume, default: 2000 },
         { id: 'tth-error', el: ui.tthError, default: 0.06 },
         { id: 'impurity-peaks', el: ui.impurityPeaksInput, default: 0 },
     ];
@@ -3592,67 +3592,67 @@ const generatePDFReport = async () => {
     
   	yPos += 3; // Add back spacing after the block
   	
-  	// --- 3. NIGGLI REDUCED CELL 
-  	// --- Do not show for triclinic (it's already reduced)
-  	if (sol.system !== 'triclinic') {
-      	doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Niggli Reduced Cell:', margin, yPos); // Changed to H2, normal
-      	yPos += 6;
 
-      	try {
-        	 	const niggliResult = reduceToNiggliCell(sol);
-        	 	const nCell = niggliResult.cell;
 
-        	 	// Define labels and data separately
-        	 	const niggliData = [
-            	 	{ label: 'a', value: `= ${nCell.a.toFixed(4)} A` },
-            	 	{ label: 'b', value: `= ${nCell.b.toFixed(4)} A` },
-            	 	{ label: 'c', value: `= ${nCell.c.toFixed(4)} A` },
-            	 	{ label: 'alpha', value: `= ${nCell.alpha.toFixed(3)} deg` },
-            	 	{ label: 'beta', value: `= ${nCell.beta.toFixed(3)} deg` },
-            	 	{ label: 'gamma', value: `= ${nCell.gamma.toFixed(3)} deg` }
-        	 	];
 
-        	 	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); // Use smaller table body font
+// --- 3. NIGGLI REDUCED CELL 
+    // Show for ALL systems (including triclinic) to confirm standard setting
+    doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Niggli Reduced Cell:', margin, yPos); 
+    yPos += 6;
 
-        	 	// Define column X positions
-        	 	const col1LabelEndX = margin + 15;
-        	 	const col1DataStartX = col1LabelEndX + 2;
-        	 	const col2LabelEndX = margin + 78;
-        	 	const col2DataStartX = col2LabelEndX + 2;
+    try {
+        const niggliResult = reduceToNiggliCell(sol);
+        const nCell = niggliResult.cell;
 
-        	 	// Row 1
-        	 	doc.text(niggliData[0].label, col1LabelEndX, yPos, { align: 'right' }); // 'a'
-        	 	doc.text(niggliData[0].value, col1DataStartX, yPos); // '= 5.xxxx A'
-        	 	doc.text(niggliData[3].label, col2LabelEndX, yPos, { align: 'right' }); // 'alpha'
-        	 	doc.text(niggliData[3].value, col2DataStartX, yPos); // '= 90.xxx deg'
-        	 	yPos += 4;
+        // Define labels and data separately
+        const niggliData = [
+            { label: 'a', value: `= ${nCell.a.toFixed(4)} A` },
+            { label: 'b', value: `= ${nCell.b.toFixed(4)} A` },
+            { label: 'c', value: `= ${nCell.c.toFixed(4)} A` },
+            { label: 'alpha', value: `= ${nCell.alpha.toFixed(3)} deg` },
+            { label: 'beta', value: `= ${nCell.beta.toFixed(3)} deg` },
+            { label: 'gamma', value: `= ${nCell.gamma.toFixed(3)} deg` }
+        ];
 
-        	 	// Row 2
-        	 	doc.text(niggliData[1].label, col1LabelEndX, yPos, { align: 'right' }); // 'b'
-        	 	doc.text(niggliData[1].value, col1DataStartX, yPos); // '= 6.xxxx A'
-        	 	doc.text(niggliData[4].label, col2LabelEndX, yPos, { align: 'right' }); // 'beta'
-        	 	doc.text(niggliData[4].value, col2DataStartX, yPos); // '= 90.xxx deg'
-        	 	yPos += 4;
+        doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); // Use smaller table body font
 
-        	 	// Row 3
-        	 	doc.text(niggliData[2].label, col1LabelEndX, yPos, { align: 'right' }); // 'c'
-        	 	doc.text(niggliData[2].value, col1DataStartX, yPos); // '= 8.xxxx A'
-        	 	doc.text(niggliData[5].label, col2LabelEndX, yPos, { align: 'right' }); // 'gamma'
-        	 	doc.text(niggliData[5].value, col2DataStartX, yPos); // '= 90.xxx deg'
-        	 	yPos += 5;
+        // Define column X positions
+        const col1LabelEndX = margin + 15;
+        const col1DataStartX = col1LabelEndX + 2;
+        const col2LabelEndX = margin + 78;
+        const col2DataStartX = col2LabelEndX + 2;
 
-      	} catch (niggliError) {
-        	 	console.error("Niggli reduction failed:", niggliError);
-        	 	doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY);
-        	 	doc.text('Reduction failed. See console for error.', margin + 5, yPos);
-        	 	yPos += 5;
-      	}
+        // Row 1
+        doc.text(niggliData[0].label, col1LabelEndX, yPos, { align: 'right' }); // 'a'
+        doc.text(niggliData[0].value, col1DataStartX, yPos); // '= 5.xxxx A'
+        doc.text(niggliData[3].label, col2LabelEndX, yPos, { align: 'right' }); // 'alpha'
+        doc.text(niggliData[3].value, col2DataStartX, yPos); // '= 90.xxx deg'
+        yPos += 4;
 
-      	
-       	yPos += 4;
-      	}
-      
- 
+        // Row 2
+        doc.text(niggliData[1].label, col1LabelEndX, yPos, { align: 'right' }); // 'b'
+        doc.text(niggliData[1].value, col1DataStartX, yPos); // '= 6.xxxx A'
+        doc.text(niggliData[4].label, col2LabelEndX, yPos, { align: 'right' }); // 'beta'
+        doc.text(niggliData[4].value, col2DataStartX, yPos); // '= 90.xxx deg'
+        yPos += 4;
+
+        // Row 3
+        doc.text(niggliData[2].label, col1LabelEndX, yPos, { align: 'right' }); // 'c'
+        doc.text(niggliData[2].value, col1DataStartX, yPos); // '= 8.xxxx A'
+        doc.text(niggliData[5].label, col2LabelEndX, yPos, { align: 'right' }); // 'gamma'
+        doc.text(niggliData[5].value, col2DataStartX, yPos); // '= 90.xxx deg'
+        yPos += 5;
+
+    } catch (niggliError) {
+        console.error("Niggli reduction failed:", niggliError);
+        doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY);
+        doc.text('Reduction failed. See console for error.', margin + 5, yPos);
+        yPos += 5;
+    }
+
+    yPos += 4;
+
+
       	// --- 5. LATTICE CENTERING (Non-bold) ---
       	if (sol.analysis) {
           	 doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text(`Lattice Centering:`, margin, yPos); // Changed to H2, normal
