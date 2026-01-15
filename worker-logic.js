@@ -399,13 +399,20 @@ const solveLeastSquares = (M, q_vec, weights) => {
     return { solution: x, covarianceMatrix: V };
 };
 
+
 const propagateErrors = (system, fitResult, cell) => {
     if (!fitResult || !fitResult.covarianceMatrix) return {};
-    const V = fitResult.covarianceMatrix, errors = {}, num_params = V.length;
+    const V = fitResult.covarianceMatrix;
+    const errors = {};
+    const num_params = V.length; // 6 or 7 (if zero shift included)
+
     try {
         switch (system) {
-            case 'cubic': errors.s_a = 0.5 * cell.a**3 * Math.sqrt(Math.abs(V[0][0])); break;
-            case 'tetragonal': case 'hexagonal':
+            case 'cubic': 
+                errors.s_a = 0.5 * cell.a**3 * Math.sqrt(Math.abs(V[0][0])); 
+                break;
+            case 'tetragonal': 
+            case 'hexagonal':
                 errors.s_a = 0.5 * cell.a**3 * Math.sqrt(Math.abs(V[0][0]));
                 errors.s_c = 0.5 * cell.c**3 * Math.sqrt(Math.abs(V[1][1]));
                 break;
@@ -423,13 +430,75 @@ const propagateErrors = (system, fitResult, cell) => {
                 errors.s_a = (cell.a / (2*A)) * Math.sqrt(Math.abs(V[0][0]));
                 errors.s_c = (cell.c / (2*C)) * Math.sqrt(Math.abs(V[2][2]));
                 break;
-            case 'triclinic': errors.s_a = 0; errors.s_b = 0; errors.s_c = 0; errors.s_alpha = 0; errors.s_beta = 0; errors.s_gamma = 0; break;
+            case 'triclinic': 
+                // --- Numerical Differentiation for Triclinic
+                //maybe need some changes here... à voir, si 0 on nan, ça devrait marcher
+                
+                // 1. Define helper to go from Params -> [a, b, c, alpha, beta, gamma]
+                const calcTriclinic = (p) => {
+                    // Reconstruct Reciprocal Metric Tensor (G_star) from 6 LS params
+                    const Gs = [[p[0], p[5]/2, p[4]/2], [p[5]/2, p[1], p[3]/2], [p[4]/2, p[3]/2, p[2]]];
+                    const G = metricFromReciprocalMetric(Gs); // Invert to Real Metric Tensor
+                    if (!G) return null;
+                    const c = cellFromMetric_worker(G); // Extract cell constants
+                    if (!c) return null;
+                    return [c.a, c.b, c.c, c.alpha, c.beta, c.gamma];
+                };
+
+                const vals = [...fitResult.solution]; // Copy params
+                const base = calcTriclinic(vals);
+
+                if (base) {
+                    const J = Array(6).fill(0).map(() => Array(6).fill(0)); // 6 cell params x 6 fit params
+                    const delta = 1e-7;
+
+                    // 2. Compute Jacobian Column by Column
+                    for (let j = 0; j < 6; j++) { // Loop over fit params p1...p6
+                        const original = vals[j];
+                        const step = (Math.abs(original) * 1e-5) || delta; // Adaptive step
+
+                        vals[j] = original + step;
+                        const forward = calcTriclinic(vals);
+                        
+                        vals[j] = original - step;
+                        const backward = calcTriclinic(vals);
+                        
+                        vals[j] = original; // Restore
+
+                        if (forward && backward) {
+                            for (let i = 0; i < 6; i++) { // Loop over cell params a...gamma
+                                // Central difference derivative
+                                J[i][j] = (forward[i] - backward[i]) / (2 * step);
+                            }
+                        }
+                    }
+
+                    // 3. Matrix Multiplication: Error[i] = sqrt( sum( J[i][j] * V[j][k] * J[i][k] ) )
+                    const indices = ['s_a', 's_b', 's_c', 's_alpha', 's_beta', 's_gamma'];
+                    for (let i = 0; i < 6; i++) {
+                        let variance = 0;
+                        for (let j = 0; j < 6; j++) {
+                            for (let k = 0; k < 6; k++) {
+                                variance += J[i][j] * V[j][k] * J[i][k];
+                            }
+                        }
+                        errors[indices[i]] = Math.sqrt(Math.max(0, variance));
+                    }
+                }
+                break;
         }
+        
+        // Zero error calculation (common to all systems if refined)
         const cell_param_count = { cubic: 1, tetragonal: 2, hexagonal: 2, orthorhombic: 3, monoclinic: 4, triclinic: 6 };
-        if (num_params > cell_param_count[system]) { errors.s_zero = Math.sqrt(Math.abs(V[num_params - 1][num_params - 1])) * DEG; }
+        if (num_params > cell_param_count[system]) { 
+            errors.s_zero = Math.sqrt(Math.abs(V[num_params - 1][num_params - 1])) * DEG; 
+        }
+
     } catch (e) { console.error("Error during propagation:", e); }
+    
     return errors;
 };
+
 
 const hkl_search_list_cache = {};
 const get_hkl_search_list = (system) => {
@@ -1079,50 +1148,192 @@ function I3() { return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]; }
 function signStrict(x) { return x >= 0 ? 1 : -1; }
 const primitiveTransformByCentering = { P: [[1,0,0],[0,1,0],[0,0,1]], A: [[0.5, 0.5, 0], [0.5, -0.5, 0], [0, 0, 1]], B: [[0.5, 0, 0.5], [0.5, 0, -0.5], [0, 1, 0]], C: [[1, 0, 0], [0, 0.5, 0.5], [0, -0.5, 0.5]], I: [[-0.5,  0.5,  0.5], [ 0.5, -0.5,  0.5], [ 0.5,  0.5, -0.5]], F: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]], R: [[ 2/3, -1/3, -1/3], [ 1/3,  1/3, -2/3], [ 1/3,  1/3,  1/3]], };
 
-function niggliReduceFromCell(cell, opts = {}) {
-  const { a, b, c, alpha, beta, gamma, centering = 'P' } = cell;
-  const epsUser = opts.eps; const maxIter = opts.maxIterations || 1000;
-  let B = cellToBasis(a, b, c, alpha, beta, gamma);
-  let centeringKey = (centering || 'P').toUpperCase();
-  const match = centeringKey.match(/\(([A-Z])\)/);
-  if (match) { centeringKey = match[1]; } else if (centeringKey.length > 1) { centeringKey = centeringKey.charAt(0); }
-  const Cp = primitiveTransformByCentering[centeringKey];
-  if (!Cp) { console.warn(`Unknown centering type: ${centering}. Defaulting to 'P'.`); B = cellToBasis(a, b, c, alpha, beta, gamma); }
-  if (Cp && centeringKey !== 'P') { B = rightMul(B, Cp); }
-  let T = (Cp && centeringKey !== 'P') ? Cp.map(row => row.slice()) : I3();
-  let { A, B: BB, C, xi, eta, zeta } = basisToMetric(B);
-  const scale = Math.max(A, BB, C) || 1; const eps = typeof epsUser === 'number' ? epsUser : 1e-8 * scale;
-  function updateState() { const s = basisToMetric(B); A = s.A; BB = s.B; C = s.C; xi = s.xi; eta = s.eta; zeta = s.zeta; }
-  function angleSigns() { let l = 0, m = 0, n = 0; if (xi < -eps) l = -1; else if (xi > eps) l = 1; if (eta < -eps) m = -1; else if (eta > eps) m = 1; if (zeta < -eps) n = -1; else if (zeta > eps) n = 1; return { l, m, n, lmn: l * m * n }; }
-  let iter;
-  for (iter = 0; iter < maxIter; iter++) {
-    let changed = false;
-    if ((A > BB + eps) || (Math.abs(A - BB) <= eps && Math.abs(xi) > Math.abs(eta) + eps)) { const C1 = [[0, -1, 0], [-1, 0, 0], [0, 0, -1]]; B = rightMul(B, C1); T = matMul3(T, C1); updateState(); changed = true; }
-    if (!changed && ((BB > C + eps) || (Math.abs(BB - C) <= eps && Math.abs(eta) > Math.abs(zeta) + eps))) { const C2 = [[-1, 0, 0], [0, 0, -1], [0, -1, 0]]; B = rightMul(B, C2); T = matMul3(T, C2); updateState(); changed = true; }
-    if (changed) continue;
-    const { l, m, n, lmn } = angleSigns();
-    if (lmn === 1) { const i = (l === -1) ? -1 : 1; const j = (m === -1) ? -1 : 1; const k = (n === -1) ? -1 : 1; const C3 = [[i, 0, 0], [0, j, 0], [0, 0, k]]; B = rightMul(B, C3); T = matMul3(T, C3); updateState(); continue; }
-    if (lmn !== 1) { let i = 1, j = 1, k = 1; if (l === 1) i = -1; if (m === 1) j = -1; if (n === 1) k = -1; const C4 = [[i, 0, 0], [0, j, 0], [0, 0, k]]; B = rightMul(B, C4); T = matMul3(T, C4); updateState(); }
-    if ((Math.abs(xi) > BB + eps) || (Math.abs(BB - xi) <= eps && (2 * eta < zeta - eps)) || (Math.abs(BB + xi) <= eps && (zeta < -eps))) { const C5 = [[1, 0, 0], [0, 1, -signStrict(xi)], [0, 0, 1]]; B = rightMul(B, C5); T = matMul3(T, C5); updateState(); continue; }
-    if ((Math.abs(eta) > A + eps) || (Math.abs(A - eta) <= eps && (2 * xi < zeta - eps)) || (Math.abs(A + eta) <= eps && (zeta < -eps))) { const C6 = [[1, 0, -signStrict(eta)], [0, 1, 0], [0, 0, 1]]; B = rightMul(B, C6); T = matMul3(T, C6); updateState(); continue; }
-    if ((Math.abs(zeta) > A + eps) || (Math.abs(A - zeta) <= eps && (2 * xi < eta - eps)) || (Math.abs(A + zeta) <= eps && (eta < -eps))) { const C7 = [[1, -signStrict(zeta), 0], [0, 1, 0], [0, 0, 1]]; B = rightMul(B, C7); T = matMul3(T, C7); updateState(); continue; }
-    if ((xi + eta + zeta + A + BB < -eps) || (Math.abs(xi + eta + zeta + A + BB) <= eps && (2 * (A + eta) + zeta > eps))) { const C8 = [[1, 0, 1], [0, 1, 1], [0, 0, 1]]; B = rightMul(B, C8); T = matMul3(T, C8); updateState(); continue; }
-    break;
-  }
-  const reduced = basisToCell(B); const finalMetric = basisToMetric(B);
-  return {
-    cell: { a: reduced.a, b: reduced.b, c: reduced.c, alpha: reduced.alpha, beta: reduced.beta, gamma: reduced.gamma },
-    transform: T, basis: B, metric: finalMetric.G,
-    g6: { A: finalMetric.A, B: finalMetric.B, C: finalMetric.C, xi: finalMetric.xi, eta: finalMetric.eta, zeta: finalMetric.zeta },
-    iterations: iter, converged: iter < maxIter
-  };
-}
+
+
+
+
+
+// ==========================================
+// 1. THE ADAPTER (Call this one from your main code)
+// ==========================================
 function reduceToNiggliCell(sol, opts) {
-  const a = sol.a, b = sol.b || sol.a, c = sol.c || sol.a;
-  const alpha = sol.alpha ?? 90; const beta = sol.beta ?? 90; const gamma = sol.gamma ?? (sol.system === 'hexagonal' ? 120 : 90);
-  const centering = (sol.analysis?.centering) || 'P';
-  return niggliReduceFromCell({ a, b, c, alpha, beta, gamma, centering }, opts);
+    const a = sol.a, b = sol.b || sol.a, c = sol.c || sol.a;
+    const alpha = sol.alpha ?? 90;
+    const beta = sol.beta ?? 90;
+    const gamma = sol.gamma ?? (sol.system === 'hexagonal' ? 120 : 90);
+    const centering = (sol.analysis?.centering) || 'P';
+    
+    // Call the engine
+    return niggliReduceFromCell({ a, b, c, alpha, beta, gamma, centering }, opts);
 }
+
+// ==========================================
+// 2. THE ENGINE (Robust Krivy-Gruber)
+// ==========================================
+function niggliReduceFromCell(cell, opts = {}) {
+    const { a, b, c, alpha, beta, gamma, centering = 'P' } = cell;
+    const maxIter = opts.maxIterations || 1000;
+    const eps = opts.eps || 1e-5; 
+
+    // Initialize Basis
+    let B = cellToBasis(a, b, c, alpha, beta, gamma);
+    let T = I3(); 
+
+    // Handle Centering
+    let centeringKey = (centering || 'P').toUpperCase();
+    const match = centeringKey.match(/\(([A-Z])\)/);
+    if (match) centeringKey = match[1];
+    else if (centeringKey.length > 1) centeringKey = centeringKey.charAt(0);
+
+    const Cp = primitiveTransformByCentering[centeringKey];
+    if (Cp && centeringKey !== 'P') {
+        B = rightMul(B, Cp);
+        T = matMul3(T, Cp);
+    }
+
+    // Metric Tensor Components
+    let A, Bm, C_val, xi, eta, zeta;
+    const updateMetric = () => {
+        const dot = (i, j) => B[0][i]*B[0][j] + B[1][i]*B[1][j] + B[2][i]*B[2][j];
+        A = dot(0,0); Bm = dot(1,1); C_val = dot(2,2);
+        xi = 2 * dot(1,2); eta = 2 * dot(0,2); zeta = 2 * dot(0,1);
+    };
+    updateMetric();
+
+    let iterations = 0; // FIXED: Variable name matches usage
+    let changed = true;
+
+    // Helper to apply transform and update
+    const applyTrans = (M) => {
+        B = rightMul(B, M);
+        T = matMul3(T, M);
+        updateMetric();
+        changed = true;
+    };
+
+    while (changed && iterations < maxIter) {
+        changed = false;
+        iterations++;
+
+        // Step 1: Sort A <= B <= C
+        if (A > Bm + eps || (Math.abs(A - Bm) <= eps && Math.abs(xi) > Math.abs(eta) + eps)) {
+            applyTrans([[0,1,0],[1,0,0],[0,0,1]]); continue;
+        }
+        if (Bm > C_val + eps || (Math.abs(Bm - C_val) <= eps && Math.abs(eta) > Math.abs(zeta) + eps)) {
+            applyTrans([[1,0,0],[0,0,1],[0,1,0]]); continue;
+        }
+
+        // Step 2: Sign Adjustment (Type I / II)
+        const s_xi = xi > eps ? 1 : (xi < -eps ? -1 : 0);
+        const s_eta = eta > eps ? 1 : (eta < -eps ? -1 : 0);
+        const s_zeta = zeta > eps ? 1 : (zeta < -eps ? -1 : 0);
+        
+        // If mixed signs, flip axes to force Type II (---) or Type I (+++)
+        if (s_xi * s_eta * s_zeta !== 1 && !(s_xi===0 || s_eta===0 || s_zeta===0)) {
+            if (s_xi >= 0 && s_eta >= 0 && s_zeta <= 0) { applyTrans([[1,0,0],[0,1,0],[0,0,-1]]); continue; } 
+            if (s_xi >= 0 && s_eta <= 0 && s_zeta >= 0) { applyTrans([[1,0,0],[0,-1,0],[0,0,1]]); continue; } 
+            if (s_xi <= 0 && s_eta >= 0 && s_zeta >= 0) { applyTrans([[-1,0,0],[0,1,0],[0,0,1]]); continue; } 
+            if (s_xi <= 0 && s_eta <= 0 && s_zeta >= 0) { applyTrans([[1,0,0],[0,1,0],[0,0,-1]]); continue; } 
+        }
+
+        // Step 3: Reduction
+        if (Math.abs(xi) > Bm + eps || (Math.abs(xi - Bm) <= eps && 2*eta < zeta - eps) || (Math.abs(xi + Bm) <= eps && zeta < -eps)) {
+            const s = Math.sign(xi) || 1; applyTrans([[1,0,0],[0,1,-s],[0,0,1]]); continue;
+        }
+        if (Math.abs(eta) > A + eps || (Math.abs(eta - A) <= eps && 2*xi < zeta - eps) || (Math.abs(eta + A) <= eps && zeta < -eps)) {
+            const s = Math.sign(eta) || 1; applyTrans([[1,0,-s],[0,1,0],[0,0,1]]); continue;
+        }
+        if (Math.abs(zeta) > A + eps || (Math.abs(zeta - A) <= eps && 2*xi < eta - eps) || (Math.abs(zeta + A) <= eps && eta < -eps)) {
+            const s = Math.sign(zeta) || 1; applyTrans([[1,-s,0],[0,1,0],[0,0,1]]); continue;
+        }
+
+        // Step 4: Body Diagonal 
+        if ((xi + eta + zeta + A + Bm) < -eps || (Math.abs(xi+eta+zeta+A+Bm) <= eps && (2*A + 2*eta + zeta) > eps )) {
+             applyTrans([[1, 0, 1], [0, 1, 1], [0, 0, 1]]); continue;
+        }
+    }
+    
+    // Return standard format
+    const finalMetric = basisToMetric(B);
+    return {
+        cell: basisToCell(B),
+        transform: T,
+        basis: B,
+        metric: finalMetric.G,
+        iterations: iterations // Now defined
+    };
+}
+
+// ==========================================
+// 3. MATH HELPERS
+// ==========================================
+
+function rightMul(B, M) {
+  const out = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (let r = 0; r < 3; r++) 
+      for (let c = 0; c < 3; c++) 
+          for (let k = 0; k < 3; k++) 
+              out[r][c] += B[r][k] * M[k][c]; 
+  return out;
+}
+
+function matMul3(A, B) {
+    const out = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (let r = 0; r < 3; r++) 
+        for (let c = 0; c < 3; c++) 
+            for (let k = 0; k < 3; k++) 
+                out[r][c] += A[r][k] * B[k][c]; 
+    return out;
+}
+
+function I3() { return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]; }
+
+function cellToBasis(a, b, c, alpha, beta, gamma) {
+  const ar = alpha * Math.PI / 180.0, br = beta * Math.PI / 180.0, gr = gamma * Math.PI / 180.0;
+  const ca = Math.cos(ar), cb = Math.cos(br), cg = Math.cos(gr), sg = Math.sin(gr);
+  const ax = a, ay = 0, az = 0;
+  const bx = b * cg, by = b * sg, bz = 0;
+  const cx = c * cb;
+  const cy = (c * ca - cx * cg) / sg;
+  const cz = Math.sqrt(Math.max(0, c*c - cx*cx - cy*cy));
+  return [[ax, bx, cx], [ay, by, cy], [az, bz, cz]];
+}
+
+function basisToCell(B) {
+  const ax = B[0][0], ay = B[1][0], az = B[2][0];
+  const bx = B[0][1], by = B[1][1], bz = B[2][1];
+  const cx = B[0][2], cy = B[1][2], cz = B[2][2];
+  
+  const a = Math.sqrt(ax*ax + ay*ay + az*az);
+  const b = Math.sqrt(bx*bx + by*by + bz*bz);
+  const c = Math.sqrt(cx*cx + cy*cy + cz*cz);
+  
+  const dot_ab = ax*bx + ay*by + az*bz;
+  const dot_ac = ax*cx + ay*cy + az*cz;
+  const dot_bc = bx*cx + by*cy + bz*cz;
+  
+  const clamp = v => Math.max(-1, Math.min(1, v));
+  const alpha = Math.acos(clamp(dot_bc / (b * c))) * 180.0 / Math.PI;
+  const beta = Math.acos(clamp(dot_ac / (a * c))) * 180.0 / Math.PI;
+  const gamma = Math.acos(clamp(dot_ab / (a * b))) * 180.0 / Math.PI;
+  
+  return { a, b, c, alpha, beta, gamma };
+}
+
+function basisToMetric(B) {
+    const dot = (i, j) => B[0][i]*B[0][j] + B[1][i]*B[1][j] + B[2][i]*B[2][j];
+    const G = [ [dot(0,0), dot(0,1), dot(0,2)], [dot(1,0), dot(1,1), dot(1,2)], [dot(2,0), dot(2,1), dot(2,2)] ];
+    return { G, A: G[0][0], B: G[1][1], C: G[2][2], xi: 2*G[1][2], eta: 2*G[0][2], zeta: 2*G[0][1] };
+}
+
+
+
+
+
+
+
+
+
 function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
     const results = { primitiveCells: [], centeredCells: {} };
     if (!niggliCell || typeof niggliCell !== 'object' || !niggliCell.a) { console.error("Invalid Niggli cell provided."); return results; }
