@@ -481,18 +481,21 @@
                 (e.g. $h^2$, $k^2$, $l^2$), and $P_i$ are the reciprocal lattice parameters (e.g. $A = 1/a^2$, $B = 1/b^2$, …).
             </p>
 
+
             <h3>CPU Searches (High Symmetry)</h3>
             <p>
-                High-symmetry systems have fewer degrees of freedom and are solved instantly on the CPU.
+                High-symmetry systems have fewer degrees of freedom and are solved on the CPU. Recent updates have significantly expanded the search scope to ensure large unit cells are not missed.
             </p>
             <ul>
                 <li>
                     <strong>Cubic (1 parameter):</strong>
                     Solves a 1×1 system by iterating through the first 12 observed peaks.
+                    The search range extends up to index 40 ($h=40$), testing approximately 150,000 combinations. This allows for the detection of large cubic cells.
                 </li>
                 <li>
                     <strong>Tetragonal & Hexagonal (2 parameters):</strong>
                     Solves a 2×2 system using pairs of peaks from the first 12.
+                    The search range extends up to index 12 ($h=12$), testing approximately 92 million combinations. While more computationally intensive (1–3 seconds), this exhaustive search ensures robust results for standard inorganic materials.
                 </li>
             </ul>
 
