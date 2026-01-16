@@ -3021,11 +3021,15 @@ const finalizeIndexing = (stoppedByUser = false) => {
         });
     } else {
         console.warn('Space group data not available');
+        const lambda = parseFloat(ui.wavelength.value);
+        
         solutions.forEach(sol => {
+            const basicHklList = generateHKL_for_analysis(sol, lambda, tthMaxVal);
             sol.analysis = {
                 centering: 'Unknown (data not loaded)',
                 rankedSpaceGroups: [],
-                detectedExtinctions: []
+                detectedExtinctions: [],
+                hklList: basicHklList 
             };
         });
     }
