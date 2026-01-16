@@ -341,6 +341,33 @@
             margin-top: 1.5rem;
         }
 
+
+        /* right click */
+
+        #context-menu {
+            display: none;
+            position: absolute;
+            z-index: 2000;
+            background-color: var(--medium-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            min-width: 150px;
+            padding: 4px 0;
+        }
+        #context-menu div {
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            color: var(--text-light);
+            transition: background-color 0.1s;
+        }
+        #context-menu div:hover {
+            background-color: var(--primary-accent);
+            color: white;
+        }
+
+
     </style>
 </head>
 <body>
@@ -964,23 +991,22 @@ const WAVELENGTH_PRESETS = {
             }
 
             sortSolutions();
-            const selectedSystems = Array.from(ui.systemCheckboxes)
-                                         .filter(cb => cb.checked)
-                                         .map(cb => cb.value);
-            displayedSolutions = solutions.filter(sol => selectedSystems.includes(sol.system));
+  //          const selectedSystems = Array.from(ui.systemCheckboxes)
+  //                                       .filter(cb => cb.checked)
+  //                                       .map(cb => cb.value);
+            displayedSolutions = solutions; //filtering removed, keep the list as a ledger
             updateSolutionsTable();
         });
     });
 
+
     ui.systemCheckboxes.forEach(checkbox => {
         checkbox.addEventListener('change', () => {
-            const selectedSystems = Array.from(ui.systemCheckboxes)
-                                         .filter(cb => cb.checked)
-                                         .map(cb => cb.value);
-            displayedSolutions = solutions.filter(sol => selectedSystems.includes(sol.system));
-            updateSolutionsTable();
+            // avant le 16 janv 2026, there was a filter here
+            updateStartIndexingButtonState();
         });
     });
+
 
     // ---echelle log, 0.1% c'est suffisant ?
     const minPeak = 0.1;
@@ -1093,28 +1119,25 @@ const getOrthogonalityScore = (cell) => {
 
 //  new function to centralize updates
 const handleNewSolution = (newSolution) => {
+    // --- verif, si pas vide
+    if (!newSolution || !newSolution.system) return;
     solutions.push(newSolution);
 
-    // 1. Prune (Maintain Max Limit)
+    //  Max Limit
     if (solutions.length > MAX_SOLUTIONS_BEFORE_PRUNING) {
         // Always sort by quality (M20) before cutting
         solutions.sort((a, b) => b.m20 - a.m20); 
         solutions = solutions.slice(0, PRUNE_TO_COUNT);
     }
 
-    // 2. Visual Feedback
+    // LEd
     if (solutions.length === 1) ui.solutionsLed.className = 'led-indicator green';
 
-    // 3. Apply User Sort Preference (e.g., by Volume or System)
+    // sort ?
     sortSolutions();
 
-    // 4. Re-Sync Displayed List (Critical Step)
-    // We must re-read the checkboxes to ensure displayedSolutions matches visible systems
-    const activeSystems = Array.from(ui.systemCheckboxes)
-                               .filter(cb => cb.checked)
-                               .map(cb => cb.value);
-    
-    displayedSolutions = solutions.filter(sol => activeSystems.includes(sol.system));
+    // 4. Re-Sync the ledger
+    displayedSolutions = [...solutions];
 
     // 5. Update DOM
     updateSolutionsTable();
@@ -2192,16 +2215,15 @@ ui.peakListBody.addEventListener('change', (e) => {
 
     const applyFinalSieve = (solutions) => {
     
-    
-    // filter strange entries
+    // Filter strange entries
     const validSolutions = solutions.filter(s => s && s.volume && s.m20);
 
     if (validSolutions.length <= 1) return validSolutions;
     
     showStatus('Applying final sieve to results...', 'info', 2000);
-    const symmetryOrder = { 'cubic': 5, 'hexagonal': 4, 'tetragonal': 4, 'orthorhombic': 3, 'monoclinic': 2 };
+    const symmetryOrder = { 'cubic': 5, 'hexagonal': 4, 'tetragonal': 4, 'orthorhombic': 3, 'monoclinic': 2, 'triclinic': 1 };
     
-    // Sort the *filtered* array
+    // 1. Sort by Volume for the duplicate detection algorithm
     validSolutions.sort((a, b) => a.volume - b.volume);
     
     const toKeep = new Array(validSolutions.length).fill(true);
@@ -2211,14 +2233,26 @@ ui.peakListBody.addEventListener('change', (e) => {
         for (let j = i + 1; j < validSolutions.length; j++) {
             if (!toKeep[j]) continue;
             
+            // --- Check Zero Shift Mode, version 16 jan 2026
+            // If one solution has a refined zero shift (property exists) and the other doesn't (undefined),
+            // we consider them DISTINCT models (e.g. 0-DoF shift vs 1-DoF shift).
+            // We skip the comparison, keeping both.
+            const hasZero_i = (validSolutions[i].zero_correction !== undefined && validSolutions[i].zero_correction !== null);
+            const hasZero_j = (validSolutions[j].zero_correction !== undefined && validSolutions[j].zero_correction !== null);
+            
+            if (hasZero_i !== hasZero_j) {
+                continue; 
+            }
+            // ----------------------------------
+
             // Use the filtered array for all comparisons
             const vol_i = validSolutions[i].volume; const vol_j = validSolutions[j].volume;
             
-            // Break if volumes are different by more than 1%
+            // Break if volumes are different by more than 1% (sorted list)
             if (vol_j > vol_i * 1.01) break;
             
-            const sym_i = symmetryOrder[validSolutions[i].system]; 
-            const sym_j = symmetryOrder[validSolutions[j].system];
+            const sym_i = symmetryOrder[validSolutions[i].system] || 0; 
+            const sym_j = symmetryOrder[validSolutions[j].system] || 0;
             
             if (sym_i > sym_j) {
                 toKeep[j] = false; // i has higher symmetry
@@ -2242,34 +2276,44 @@ ui.peakListBody.addEventListener('change', (e) => {
                     break;
                 
                 } else {
-                    // M(20) are "equal", check for monoclinic beta convention
+                    // M(20) are "equal"
                     if (validSolutions[i].system === 'monoclinic') {
+                        // Keep conventional setting for Monoclinic
                         const beta_i = validSolutions[i].beta || 90;
                         const beta_j = validSolutions[j].beta || 90;
-                        
                         const conventional_i = Math.abs(beta_i - 90);
                         const conventional_j = Math.abs(beta_j - 90);
 
                         if (conventional_i <= conventional_j) {
-                             toKeep[j] = false; // i is more conventional (or equal), keep i
+                             toKeep[j] = false; 
                         } else {
-                             toKeep[i] = false; // j is more conventional, keep j
+                             toKeep[i] = false; 
                              break;
                         }
                     } else {
-                        // For other systems with a tie, just keep the first one
-                        toKeep[j] = false;
+                        // For other systems, just prune the one with lower M20 (even if slight)
+                        if (m20_j > m20_i) {
+                            toKeep[i] = false;
+                            break;
+                        } else {
+                            toKeep[j] = false;
+                        }
                     }
                 }
             }
         }
     }
     
-    const filteredSolutions = validSolutions.filter((_, index) => toKeep[index]);
+    let filteredSolutions = validSolutions.filter((_, index) => toKeep[index]);
     const numDiscarded = validSolutions.length - filteredSolutions.length;
+    
+    // Sort final list by quality (M20) instead of volume
+    filteredSolutions.sort((a, b) => b.m20 - a.m20);
+
     if (numDiscarded > 0) showStatus(`Sieve discarded ${numDiscarded} redundant solution(s).`, 'success');
     return filteredSolutions.slice(0, 50);
 };
+
 
 const formatWithError = (value, error) => {
         if (error === undefined || error === null || !isFinite(error) || error <= 0) {
@@ -2477,18 +2521,18 @@ systemsToSearch.forEach(system => {
     
     setUIState(true); // Disable UI
 
-    // --- Clear previous state ---
+    // modif le 16 janvier 2025, garder les mailles trouvées avant
     ui.tabButtons.forEach(btn => btn.classList.remove('active'));
     ui.tabPanels.forEach(panel => panel.classList.remove('active'));
     document.querySelector('.tab-btn[data-tab="solutions"]').classList.add('active');
     document.getElementById('solutions-tab-content').classList.add('active');
     
-    solutions = []; 
-    displayedSolutions = [];
+   // solutions = []; 
+   // displayedSolutions = [];
     selectedSolution = null; 
     currentHklList = []; 
     activeWorkers = [];
-    foundSolutionMap.clear(); 
+    //foundSolutionMap.clear(); 
     updateSolutionsTable(); 
     updateAllMarkers();
     showStatus(`Indexing started...`, 'info');
@@ -3051,9 +3095,13 @@ showStatus("Indexing stopped, please wait…", "info", 60000);
             }
         });
     };
+    
     const updateSolutionsTable = () => {
         ui.solutionsTableBody.innerHTML = '';
         displayedSolutions.forEach((sol, index) => {
+           
+            if (!sol || !sol.system) return;
+           
             const row = document.createElement('tr'); row.dataset.index = index; 
             let paramsCell = '', anglesCell = '';
             switch(sol.system) {
@@ -3072,6 +3120,11 @@ showStatus("Indexing stopped, please wait…", "info", 60000);
             if (sol.zero_correction) {
                 anglesCell += `<br><span style="font-size:0.9em; color: var(--text-dark);">(Z=${sol.zero_correction.toFixed(4)}°)</span>`;
             }
+
+
+            const vol = sol.volume ? sol.volume.toFixed(2) : '0.00';
+            const m20 = sol.m20 ? sol.m20.toFixed(2) : '0.00';
+
             row.innerHTML = `<td>${sol.system.substring(0,4)}</td><td>${paramsCell}</td><td>${anglesCell}</td><td>${sol.volume.toFixed(2)}</td><td>${sol.m20.toFixed(2)}</td>`;
             ui.solutionsTableBody.appendChild(row);
         });
@@ -3095,6 +3148,63 @@ showStatus("Indexing stopped, please wait…", "info", 60000);
         currentHklList = generateHKL(maxTth, {...selectedSolution, lambda}, selectedSolution.system);
         updateAllMarkers();
     });
+
+
+    // --- Context Menu Logic ---
+    const contextMenu = document.getElementById('context-menu');
+    let ctxMenuTargetIndex = -1;
+
+    // 1. Show Menu on Right Click
+    ui.solutionsTableBody.addEventListener('contextmenu', (e) => {
+        const row = e.target.closest('tr');
+        if (!row) return;
+        
+        e.preventDefault(); // Stop default browser menu
+        
+        // Select the row visually (optional, but good UX)
+        document.querySelectorAll('#solutions-table-body tr').forEach(r => r.classList.remove('selected'));
+        row.classList.add('selected');
+        
+        // Store the index
+        ctxMenuTargetIndex = parseInt(row.dataset.index);
+        selectedSolution = displayedSolutions[ctxMenuTargetIndex]; // Update global selection
+        
+        // Position and show menu
+        contextMenu.style.top = `${e.pageY}px`;
+        contextMenu.style.left = `${e.pageX}px`;
+        contextMenu.style.display = 'block';
+    });
+
+    // 2. Hide Menu on any click elsewhere
+    document.addEventListener('click', () => {
+        contextMenu.style.display = 'none';
+    });
+
+    // 3. Action: Erase Solution
+    document.getElementById('ctx-erase').addEventListener('click', () => {
+        if (ctxMenuTargetIndex > -1) {
+            // Remove from main list
+            solutions.splice(ctxMenuTargetIndex, 1);
+            
+            // Re-sync displayed list (since displayedSolutions = solutions now)
+            displayedSolutions = [...solutions]; 
+            
+            foundSolutionMap.clear(); //= vérifier.. une fois une solution effacée...?
+
+            updateSolutionsTable();
+            updateAllMarkers(); // Clear blue lines if we deleted the selected one
+            ctxMenuTargetIndex = -1;
+        }
+    });
+
+    // 4. Action: Single Report
+    document.getElementById('ctx-report').addEventListener('click', () => {
+        if (ctxMenuTargetIndex > -1) {
+            // Call report function with the specific solution
+            generatePDFReport(solutions[ctxMenuTargetIndex]);
+        }
+    });
+
 
     Chart.register({ id: 'verticalCursorLine', afterDraw: chart => { if (chart.tooltip?._active?.length) { let x = chart.tooltip._active[0].element.x; let yAxis = chart.scales.y; let ctx = chart.ctx; ctx.save(); ctx.beginPath(); ctx.moveTo(x, yAxis.top); ctx.lineTo(x, yAxis.bottom); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(156, 163, 175, 0.7)'; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.restore(); } } });
     Chart.register({ id: 'legendMargin', beforeInit(chart) { const originalFit = chart.legend.fit; chart.legend.fit = function() { originalFit.bind(chart.legend)(); this.height += 15; }; } });
@@ -3315,8 +3425,10 @@ ui.chartCanvas.addEventListener('click', (e) => {
 
 
 //main report function, on peut optimiser...
-const generatePDFReport = async () => {
-        if (displayedSolutions.length === 0) {
+const generatePDFReport = async (singleSolution = null) => {
+    const solutionsToReport = singleSolution ? [singleSolution] : displayedSolutions;    
+    
+    if (displayedSolutions.length === 0) {
             showStatus("No solutions found to generate a report.", 'info');
             return;
         }
@@ -3475,7 +3587,7 @@ const generatePDFReport = async () => {
   	yPos += 5;
     
   	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
-  	displayedSolutions.slice(0, 30).forEach(sol => {
+  	solutionsToReport.slice(0, 30).forEach(sol => {
       	if (yPos > 280) { doc.addPage(); yPos = 20; }
       	let paramStr = '';
       	const p = sol.errors || {};
@@ -3508,7 +3620,7 @@ const generatePDFReport = async () => {
   	});
     
   	// --- Detailed Solution Pages ---
-  	displayedSolutions.forEach((sol, solIndex) => {
+  	solutionsToReport.forEach((sol, solIndex) => {
       	doc.addPage(); yPos = 20;
       	
       	// --- 1. MAIN TITLE (Large, Bold) ---
@@ -3891,6 +4003,10 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 14 dec 2025</div>
+<div id="app-footer">Brutus, 16 Jan 2026</div>
+<div id="context-menu">
+    <div id="ctx-erase">Erase Solution</div>
+    <div id="ctx-report">Generate Report</div>
+</div>
 </body>
 </html>

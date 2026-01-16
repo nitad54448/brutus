@@ -628,14 +628,14 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
             }
 
             // 2. solve for all parameters (cell + zero) from scratch
-            if (final_indexed_pairs.length > min_indexed[system]) {
+            if (final_indexed_pairs.length >= min_indexed[system]) {
                 let M_with_zero_final = final_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
                 const q_vec_final = final_indexed_pairs.map(p => p.q_obs);
                 
                 // Add the zero-error column to the matrix
                 M_with_zero_final.forEach((row, i) => { 
                     const tth_rad = tth_obs_rad[final_peak_indices_for_ls[i]]; 
-                    row.push((-4 / (wavelength**2)) * Math.sin(tth_rad)); 
+                    row.push((2 / (wavelength**2)) * Math.sin(tth_rad)); 
                 });
                         
                 const fitResult_with_zero_final = solveLeastSquares(M_with_zero_final, q_vec_final, q_vec_final);
@@ -709,12 +709,12 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
                 }
             }
 
-            if (final_indexed_pairs.length > min_indexed[system]) {
+            if (final_indexed_pairs.length >= min_indexed[system]) {
                 let M_with_zero_final = final_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
                 const q_vec_final = final_indexed_pairs.map(p => p.q_obs);
                 M_with_zero_final.forEach((row, i) => { 
                     const tth_rad = tth_obs_rad[final_peak_indices_for_ls[i]]; 
-                    row.push((-4 / (wavelength**2)) * Math.sin(tth_rad)); 
+                    row.push((2 / (wavelength**2)) * Math.sin(tth_rad)); 
                 });
                         
                 const fitResult_with_zero_final = solveLeastSquares(M_with_zero_final, q_vec_final, q_vec_final);

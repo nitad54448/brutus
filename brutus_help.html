@@ -361,15 +361,31 @@
                 When you select a GPU system, the status text at the bottom of the panel will show you the total number of cells to be tested, which is a direct result of these two parameters. Be careful, this number can increase very fast. For a regular GPU card at the time of this writting (like Nvidia 8Gb T1000) the search speed is in the range of millions/sec cells tested.
             </p>
 
+
             <h4>3. Solutions Tab</h4>
             <ul>
                 <li>
-                    <strong>Solutions table:</strong>
-                    Shows each valid solution with crystal system, unit-cell parameters, volume and M(20).
-                    Selecting a row updates the main chart.
-                    After the search finishes, you can filter visible solutions by enabling or disabling crystal systems.
+                    <strong>Solutions table (The Ledger):</strong>
+                    Shows valid solutions found during your session, including crystal system, unit-cell parameters, volume, and M(20).
+                    
+                </li>
+                <li>
+                    <strong>Cumulative Search Behavior:</strong>
+                    The table acts as a "ledger" or cumulative record. If you run a search for Orthorhombic cells, and then run a second search for Monoclinic cells, the previous results are <strong>retained</strong>. 
+                    New solutions are added to the existing list, and the entire table is automatically re-ranked by the M(20) figure of merit.
+                    <br><br>
+                    This allows you to directly compare the quality of solutions across different crystal systems (e.g., comparing a high-ranking Orthorhombic cell against a new Monoclinic candidate). The list is only cleared when you load a new data file.
+                </li>
+                <li>
+                    <strong>Context Menu (Right-Click):</strong>
+                    Right-clicking on any solution in the table opens a context menu with two options:
+                    <ul>
+                        <li><strong>Erase Solution:</strong> Permanently removes the selected solution from the ledger.</li>
+                        <li><strong>Generate Report:</strong> Creates a PDF report specifically for the selected solution only, ignoring others in the list.</li>
+                    </ul>
                 </li>
             </ul>
+
 
             <h3>Results Area</h3>
             <ul>
@@ -1150,7 +1166,7 @@
             </ol>
 
             <div class="footer">
-                <p>Help guide generated with the assistance of an AI, last updated 14 December 2025.</p>
+                <p>Help guide generated with the assistance of an AI, last updated 16 January 2026.</p>
             </div>
         </section>
     </main>
