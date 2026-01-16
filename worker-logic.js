@@ -907,10 +907,10 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
 
 
 
-// --- TOP-LEVEL INDEXING FUNCTIONS (now accept state) ---
+// --- cpu index, with status, hmax changed to 40 for cubic
 function indexCubic(data, state, postMessage_func) {
     const { peaks } = data; const { q_obs, refineAndTestSolution } = state;
-    const h_max = 8;
+    const h_max = 40;
     const peak_depth = Math.min(peaks.length, 12);
     const hkls = []; for (let h = 1; h <= h_max; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= k; l++) { if (!h && !k && !l) continue; hkls.push([h,k,l]); }
     
@@ -938,7 +938,7 @@ function indexCubic(data, state, postMessage_func) {
 
 function indexTetragonalOrHexagonal(data, state, postMessage_func, system) {
     const { peaks } = data; const { q_obs, refineAndTestSolution } = state;
-    const max_hkl = 5, i_depth = Math.min(12, peaks.length), j_depth = Math.min(12, peaks.length);
+    const max_hkl = 12, i_depth = Math.min(12, peaks.length), j_depth = Math.min(12, peaks.length);
     const hkls = []; for (let h = 0; h <= max_hkl; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= max_hkl; l++) { if (!h && !k && !l) continue; hkls.push([h,k,l]); }
 
     
