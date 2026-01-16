@@ -3228,7 +3228,7 @@ showStatus("Indexing stopped, please wait…", "info", 60000);
             },
             options: {
                 responsive: true, maintainAspectRatio: false, animation: false,
-/* echelle par défaut, changée le 6 nov pour éviter affichage de 10 chiffres 
+/* echelle par défaut, changée le 6 nov 2024 pour éviter affichage de 10 chiffres 
   scales: {
                     x: { type: 'linear', title: { display: true, text: '2-theta (degrees)' } },
                     y: { title: { display: true, text: 'Intensity (a.u.)' }, min: -yMax * 0.05, max: yMax * 1.1, suggestedMin: 0 }
@@ -3283,10 +3283,6 @@ scales: {
                     legend: { position: 'top' },
                     tooltip: {
                         callbacks: {
-
-
-
-
 
                             title: function(tooltipItems) {
                                 if (!tooltipItems.length) return '';
