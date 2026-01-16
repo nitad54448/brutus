@@ -77,13 +77,27 @@ const cellFromMetric_worker = (G) => {
         return { a, b, c, alpha, beta, gamma };
     } catch { return null; }
 };
-
+/* version avant 16 janvier 2026
 const getVolumeTriclinic = (cell) => {
     const { a, b, c, alpha, beta, gamma } = cell;
     const ca = Math.cos(alpha * RAD), cb = Math.cos(beta * RAD), cg = Math.cos(gamma * RAD);
     const V_sq = a*a*b*b*c*c * (1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
     return (V_sq > 0) ? Math.sqrt(V_sq) : 0;
 };
+*/
+
+const getVolumeTriclinic = (cell) => {
+    const { a, b, c, alpha, beta, gamma } = cell;
+    const ca = Math.cos(alpha * RAD), cb = Math.cos(beta * RAD), cg = Math.cos(gamma * RAD);
+    
+    // Formula for volume squared
+    const term = 1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg;
+    // if angles are impossible (term < 0), return 0
+    if (term <= 0) return 0;
+    
+    return a * b * c * Math.sqrt(term);
+};
+
 
 // HKL generator... 
 function generateHKL_for_analysis(params, lambda, maxTth) {
@@ -150,24 +164,59 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
                     }
                 }
             } break;
-        case 'triclinic':
+       
+            case 'triclinic':
+            // Robust calculation of Reciprocal Metric Tensor components
             const ca = Math.cos(alpha * RAD), cb = Math.cos(beta * RAD), cg = Math.cos(gamma * RAD);
-            const V_sq = a*a*b*b*c*c * (1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
-            if (V_sq < 1e-6) return [];
-            const Gs_11 = (b*b*c*c * (1 - ca*ca)) / V_sq, Gs_22 = (a*a*c*c * (1 - cb*cb)) / V_sq, Gs_33 = (a*a*b*b * (1 - cg*cg)) / V_sq;
-            const Gs_23 = 2 * b*c*a*a * (cb*cg - ca) / V_sq, Gs_13 = 2 * a*c*b*b * (ca*cg - cb) / V_sq, Gs_12 = 2 * a*b*c*c * (ca*cb - cg) / V_sq;
+            const sa = Math.sin(alpha * RAD), sb = Math.sin(beta * RAD), sg = Math.sin(gamma * RAD);
+            
+            // Calculate Volume first to ensure validity
+            const term = 1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg;
+            if (term <= 0) return []; 
+            const V = a * b * c * Math.sqrt(term);
+
+            // Reciprocal lattice parameters (a*, b*, c*, alpha*, beta*, gamma*)
+            // using standard crystallographic formulas
+            const a_star = (b * c * sa) / V;
+            const b_star = (a * c * sb) / V;
+            const c_star = (a * b * sg) / V;
+            
+            const ca_star = (cb * cg - ca) / (sb * sg);
+            const cb_star = (ca * cg - cb) / (sa * sg);
+            const cg_star = (ca * cb - cg) / (sa * sb);
+            
+            // Components for d*^2 calculation: d*^2 = h^2 a*^2 + ... + 2hk a*b* cos(gamma*)
+            const S11 = a_star * a_star;
+            const S22 = b_star * b_star;
+            const S33 = c_star * c_star;
+            const S12 = 2 * a_star * b_star * cg_star;
+            const S13 = 2 * a_star * c_star * cb_star;
+            const S23 = 2 * b_star * c_star * ca_star;
+
             for (let h = -h_max; h <= h_max; h++) {
-                const h_term = h * h * Gs_11;
+                const h_term = h * h * S11;
                 for (let k = -k_max; k <= k_max; k++) {
-                    const k_term = k * k * Gs_22, hk_term = h_term + k_term + h * k * Gs_12;
+                    const k_term = k * k * S22;
+                    const hk_term = h_term + k_term + h * k * S12;
+                    
                     for (let l = -l_max; l <= l_max; l++) {
+                        // Skip (0,0,0)
                         if (h === 0 && k === 0 && l === 0) continue;
-                        if (l < 0) continue; if (l === 0 && k < 0) continue; if (l === 0 && k === 0 && h <= 0) continue;
-                        const inv_d_sq = hk_term + (l * l * Gs_33) + (k * l * Gs_23) + (h * l * Gs_13);
+                        
+                        // Friedel's Law: We only need half of reciprocal space.
+                        // Standard convention: l > 0, or (l=0, k>0), or (l=0, k=0, h>0)
+                        if (l < 0) continue; 
+                        if (l === 0 && k < 0) continue; 
+                        if (l === 0 && k === 0 && h <= 0) continue;
+                        
+                        const inv_d_sq = hk_term + (l * l * S33) + (k * l * S23) + (h * l * S13);
                         processReflection(h, k, l, inv_d_sq);
                     }
                 }
-            } break;
+            } 
+            break;
+
+
     }
     const uniqueReflections = []; const tolerance = 1e-4;
     if (reflections.length > 0) {
