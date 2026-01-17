@@ -805,9 +805,8 @@ const WAVELENGTH_PRESETS = {
         }
     }
 
-
-
-    // --- space group, fichier crée avec Gemmi, je mets le script aussi sur git
+    // space group, fichier crée avec Gemmi, je mets le script aussi sur git
+    // nouvelle version, règles de CCTBX, depuis le 17 janvier 2026
     let spaceGroupData = null;
     let webGPUSupportsCompute = true; 
   
@@ -826,13 +825,13 @@ const WAVELENGTH_PRESETS = {
         }
     }
     
-    // --Load data on startup, add message to console, see file event 
+    // Load data on startup, add message to console, see file event 
     loadSpaceGroupData();
     checkWebGPUCapabilities(); //check webGPU
     
 
 
-// Make Monoclinic, Triclinic, and Orthorhombic mutually exclusive (only one GPU task, 16 nov)
+// Make Monoclinic, Triclinic, and Orthorhombic mutually exclusive (only one GPU task, 16 nov 2025)
     const monoCheckbox = document.querySelector('.system-checkbox[value="monoclinic"]');
     const triCheckbox = document.querySelector('.system-checkbox[value="triclinic"]');
     const orthoCheckbox = document.querySelector('.system-checkbox[value="orthorhombic"]');
@@ -4003,7 +4002,7 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 16 Jan 2026</div>
+<div id="app-footer">Brutus, 17 Jan 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-report">Generate Report</div>

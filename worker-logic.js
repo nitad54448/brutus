@@ -1411,7 +1411,7 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
     return results;
 }
 
-// --- SPACE GROUP ANALYSIS FUNCTIONS ---
+// --- groups; utilise cctbx
 function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, wavelength, tthError, tthMax) {
     const MAX_VIOLATIONS = 2;
     const fallbackResult = {
