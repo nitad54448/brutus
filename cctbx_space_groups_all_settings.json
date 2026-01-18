@@ -10,6 +10,7 @@
         {
           "symbol": "P1",
           "description": "standard",
+          "hall": "P 1",
           "reflection_conditions": {}
         }
       ]
@@ -24,6 +25,7 @@
         {
           "symbol": "P-1",
           "description": "standard",
+          "hall": "-P 1",
           "reflection_conditions": {}
         }
       ]
@@ -38,16 +40,19 @@
         {
           "symbol": "P112",
           "description": "c",
+          "hall": "P 2",
           "reflection_conditions": {}
         },
         {
           "symbol": "P121",
           "description": "b",
+          "hall": "P 2y",
           "reflection_conditions": {}
         },
         {
           "symbol": "P211",
           "description": "a",
+          "hall": "P 2x",
           "reflection_conditions": {}
         }
       ]
@@ -62,6 +67,7 @@
         {
           "symbol": "P1121",
           "description": "c",
+          "hall": "P 2c",
           "reflection_conditions": {
             "00l": [
               "l=2n"
@@ -71,6 +77,7 @@
         {
           "symbol": "P1211",
           "description": "b",
+          "hall": "P 2yb",
           "reflection_conditions": {
             "0k0": [
               "k=2n"
@@ -80,6 +87,7 @@
         {
           "symbol": "P2111",
           "description": "a",
+          "hall": "P 2xa",
           "reflection_conditions": {
             "h00": [
               "h=2n"
@@ -98,6 +106,7 @@
         {
           "symbol": "A112",
           "description": "c1",
+          "hall": "A 2",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -107,12 +116,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "A121",
           "description": "b2",
+          "hall": "A 2y",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -122,12 +135,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "B112",
           "description": "c2",
+          "hall": "B 2",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -137,12 +154,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "B211",
           "description": "a1",
+          "hall": "B 2x",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -152,12 +173,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "C121",
           "description": "b1",
+          "hall": "C 2y",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -173,6 +198,7 @@
         {
           "symbol": "C211",
           "description": "a2",
+          "hall": "C 2x",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -188,6 +214,7 @@
         {
           "symbol": "I112",
           "description": "c3",
+          "hall": "I 2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -200,6 +227,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -209,6 +239,7 @@
         {
           "symbol": "I121",
           "description": "b3",
+          "hall": "I 2y",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -221,6 +252,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -230,6 +264,7 @@
         {
           "symbol": "I211",
           "description": "a3",
+          "hall": "I 2x",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -242,6 +277,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -260,16 +298,19 @@
         {
           "symbol": "P11m",
           "description": "c",
+          "hall": "P -2",
           "reflection_conditions": {}
         },
         {
           "symbol": "P1m1",
           "description": "b",
+          "hall": "P -2y",
           "reflection_conditions": {}
         },
         {
           "symbol": "Pm11",
           "description": "a",
+          "hall": "P -2x",
           "reflection_conditions": {}
         }
       ]
@@ -284,6 +325,7 @@
         {
           "symbol": "P11a",
           "description": "c1",
+          "hall": "P -2a",
           "reflection_conditions": {
             "hk0": [
               "h=2n"
@@ -293,6 +335,7 @@
         {
           "symbol": "P11b",
           "description": "c3",
+          "hall": "P -2b",
           "reflection_conditions": {
             "hk0": [
               "k=2n"
@@ -302,6 +345,7 @@
         {
           "symbol": "P11n",
           "description": "c2",
+          "hall": "P -2ab",
           "reflection_conditions": {
             "hk0": [
               "h+k=2n"
@@ -314,6 +358,7 @@
         {
           "symbol": "P1a1",
           "description": "b3",
+          "hall": "P -2ya",
           "reflection_conditions": {
             "h0l": [
               "h=2n"
@@ -323,6 +368,7 @@
         {
           "symbol": "P1c1",
           "description": "b1",
+          "hall": "P -2yc",
           "reflection_conditions": {
             "h0l": [
               "l=2n"
@@ -332,6 +378,7 @@
         {
           "symbol": "P1n1",
           "description": "b2",
+          "hall": "P -2yac",
           "reflection_conditions": {
             "h0l": [
               "h+l=2n"
@@ -344,6 +391,7 @@
         {
           "symbol": "Pb11",
           "description": "a1",
+          "hall": "P -2xb",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -353,6 +401,7 @@
         {
           "symbol": "Pc11",
           "description": "a3",
+          "hall": "P -2xc",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -362,6 +411,7 @@
         {
           "symbol": "Pn11",
           "description": "a2",
+          "hall": "P -2xbc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -383,6 +433,7 @@
         {
           "symbol": "A11m",
           "description": "c1",
+          "hall": "A -2",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -392,12 +443,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "A1m1",
           "description": "b2",
+          "hall": "A -2y",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -407,12 +462,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "B11m",
           "description": "c2",
+          "hall": "B -2",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -422,12 +481,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Bm11",
           "description": "a1",
+          "hall": "B -2x",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -437,12 +500,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "C1m1",
           "description": "b1",
+          "hall": "C -2y",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -458,6 +525,7 @@
         {
           "symbol": "Cm11",
           "description": "a2",
+          "hall": "C -2x",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -473,6 +541,7 @@
         {
           "symbol": "I11m",
           "description": "c3",
+          "hall": "I -2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -485,6 +554,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -494,6 +566,7 @@
         {
           "symbol": "I1m1",
           "description": "b3",
+          "hall": "I -2y",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -506,6 +579,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -515,6 +591,7 @@
         {
           "symbol": "Im11",
           "description": "a3",
+          "hall": "I -2x",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -527,6 +604,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -545,6 +625,7 @@
         {
           "symbol": "A11a",
           "description": "c1",
+          "hall": "A -2a",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -554,6 +635,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -563,6 +647,7 @@
         {
           "symbol": "A11n",
           "description": "-c2",
+          "hall": "A -2ab",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -572,6 +657,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -581,6 +669,7 @@
         {
           "symbol": "A1a1",
           "description": "-b1",
+          "hall": "A -2ya",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -593,12 +682,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "A1n1",
           "description": "b2",
+          "hall": "A -2yab",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -611,12 +704,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "B11b",
           "description": "-c1",
+          "hall": "B -2b",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -626,6 +723,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -635,6 +735,7 @@
         {
           "symbol": "B11n",
           "description": "c2",
+          "hall": "B -2ab",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -644,6 +745,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -653,6 +757,7 @@
         {
           "symbol": "Bb11",
           "description": "a1",
+          "hall": "B -2xb",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -665,12 +770,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Bn11",
           "description": "-a2",
+          "hall": "B -2xab",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -683,12 +792,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "C1c1",
           "description": "b1",
+          "hall": "C -2yc",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -707,6 +820,7 @@
         {
           "symbol": "C1n1",
           "description": "-b2",
+          "hall": "C -2yac",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -725,6 +839,7 @@
         {
           "symbol": "Cc11",
           "description": "-a1",
+          "hall": "C -2xc",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -743,6 +858,7 @@
         {
           "symbol": "Cn11",
           "description": "a2",
+          "hall": "C -2xac",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -761,6 +877,7 @@
         {
           "symbol": "I11a",
           "description": "-c3",
+          "hall": "I -2a",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -773,6 +890,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -782,6 +902,7 @@
         {
           "symbol": "I11b",
           "description": "c3",
+          "hall": "I -2b",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -794,6 +915,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -803,6 +927,7 @@
         {
           "symbol": "I1a1",
           "description": "b3",
+          "hall": "I -2ya",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -815,12 +940,16 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         },
         {
           "symbol": "I1c1",
           "description": "-b3",
+          "hall": "I -2yc",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -833,12 +962,16 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         },
         {
           "symbol": "Ib11",
           "description": "-a3",
+          "hall": "I -2xb",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -851,6 +984,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -860,6 +996,7 @@
         {
           "symbol": "Ic11",
           "description": "a3",
+          "hall": "I -2xc",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -872,6 +1009,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -890,16 +1030,19 @@
         {
           "symbol": "P112/m",
           "description": "c",
+          "hall": "-P 2",
           "reflection_conditions": {}
         },
         {
           "symbol": "P12/m1",
           "description": "b",
+          "hall": "-P 2y",
           "reflection_conditions": {}
         },
         {
           "symbol": "P2/m11",
           "description": "a",
+          "hall": "-P 2x",
           "reflection_conditions": {}
         }
       ]
@@ -914,6 +1057,7 @@
         {
           "symbol": "P1121/m",
           "description": "c",
+          "hall": "-P 2c",
           "reflection_conditions": {
             "00l": [
               "l=2n"
@@ -923,6 +1067,7 @@
         {
           "symbol": "P121/m1",
           "description": "b",
+          "hall": "-P 2yb",
           "reflection_conditions": {
             "0k0": [
               "k=2n"
@@ -932,6 +1077,7 @@
         {
           "symbol": "P21/m11",
           "description": "a",
+          "hall": "-P 2xa",
           "reflection_conditions": {
             "h00": [
               "h=2n"
@@ -950,6 +1096,7 @@
         {
           "symbol": "A112/m",
           "description": "c1",
+          "hall": "-A 2",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -959,12 +1106,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "A12/m1",
           "description": "b2",
+          "hall": "-A 2y",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -974,12 +1125,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "B112/m",
           "description": "c2",
+          "hall": "-B 2",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -989,12 +1144,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "B2/m11",
           "description": "a1",
+          "hall": "-B 2x",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -1004,12 +1163,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "C12/m1",
           "description": "b1",
+          "hall": "-C 2y",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -1025,6 +1188,7 @@
         {
           "symbol": "C2/m11",
           "description": "a2",
+          "hall": "-C 2x",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -1040,6 +1204,7 @@
         {
           "symbol": "I112/m",
           "description": "c3",
+          "hall": "-I 2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -1052,6 +1217,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -1061,6 +1229,7 @@
         {
           "symbol": "I12/m1",
           "description": "b3",
+          "hall": "-I 2y",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -1073,6 +1242,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -1082,6 +1254,7 @@
         {
           "symbol": "I2/m11",
           "description": "a3",
+          "hall": "-I 2x",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -1094,6 +1267,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -1112,6 +1288,7 @@
         {
           "symbol": "P112/a",
           "description": "c1",
+          "hall": "-P 2a",
           "reflection_conditions": {
             "hk0": [
               "h=2n"
@@ -1121,6 +1298,7 @@
         {
           "symbol": "P112/b",
           "description": "c3",
+          "hall": "-P 2b",
           "reflection_conditions": {
             "hk0": [
               "k=2n"
@@ -1130,6 +1308,7 @@
         {
           "symbol": "P112/n",
           "description": "c2",
+          "hall": "-P 2ab",
           "reflection_conditions": {
             "hk0": [
               "h+k=2n"
@@ -1142,6 +1321,7 @@
         {
           "symbol": "P12/a1",
           "description": "b3",
+          "hall": "-P 2ya",
           "reflection_conditions": {
             "h0l": [
               "h=2n"
@@ -1151,6 +1331,7 @@
         {
           "symbol": "P12/c1",
           "description": "b1",
+          "hall": "-P 2yc",
           "reflection_conditions": {
             "h0l": [
               "l=2n"
@@ -1160,6 +1341,7 @@
         {
           "symbol": "P12/n1",
           "description": "b2",
+          "hall": "-P 2yac",
           "reflection_conditions": {
             "h0l": [
               "h+l=2n"
@@ -1172,6 +1354,7 @@
         {
           "symbol": "P2/b11",
           "description": "a1",
+          "hall": "-P 2xb",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -1181,6 +1364,7 @@
         {
           "symbol": "P2/c11",
           "description": "a3",
+          "hall": "-P 2xc",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -1190,6 +1374,7 @@
         {
           "symbol": "P2/n11",
           "description": "a2",
+          "hall": "-P 2xbc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -1211,6 +1396,7 @@
         {
           "symbol": "P1121/a",
           "description": "c1",
+          "hall": "-P 2ac",
           "reflection_conditions": {
             "hk0": [
               "h=2n"
@@ -1223,6 +1409,7 @@
         {
           "symbol": "P1121/b",
           "description": "c3",
+          "hall": "-P 2bc",
           "reflection_conditions": {
             "hk0": [
               "k=2n"
@@ -1235,6 +1422,7 @@
         {
           "symbol": "P1121/n",
           "description": "c2",
+          "hall": "-P 2n",
           "reflection_conditions": {
             "hk0": [
               "h+k=2n"
@@ -1250,6 +1438,7 @@
         {
           "symbol": "P121/a1",
           "description": "b3",
+          "hall": "-P 2yab",
           "reflection_conditions": {
             "h0l": [
               "h=2n"
@@ -1262,6 +1451,7 @@
         {
           "symbol": "P121/c1",
           "description": "b1",
+          "hall": "-P 2ybc",
           "reflection_conditions": {
             "h0l": [
               "l=2n"
@@ -1274,6 +1464,7 @@
         {
           "symbol": "P121/n1",
           "description": "b2",
+          "hall": "-P 2yn",
           "reflection_conditions": {
             "h0l": [
               "h+l=2n"
@@ -1289,6 +1480,7 @@
         {
           "symbol": "P21/b11",
           "description": "a1",
+          "hall": "-P 2xab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -1301,6 +1493,7 @@
         {
           "symbol": "P21/c11",
           "description": "a3",
+          "hall": "-P 2xac",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -1313,6 +1506,7 @@
         {
           "symbol": "P21/n11",
           "description": "a2",
+          "hall": "-P 2xn",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -1337,6 +1531,7 @@
         {
           "symbol": "A112/a",
           "description": "c1",
+          "hall": "-A 2a",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -1346,6 +1541,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -1355,6 +1553,7 @@
         {
           "symbol": "A112/n",
           "description": "-c2",
+          "hall": "-A 2ab",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -1364,6 +1563,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -1373,6 +1575,7 @@
         {
           "symbol": "A12/a1",
           "description": "-b1",
+          "hall": "-A 2ya",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -1385,12 +1588,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "A12/n1",
           "description": "b2",
+          "hall": "-A 2yab",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -1403,12 +1610,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "B112/b",
           "description": "-c1",
+          "hall": "-B 2b",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -1418,6 +1629,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -1427,6 +1641,7 @@
         {
           "symbol": "B112/n",
           "description": "c2",
+          "hall": "-B 2ab",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -1436,6 +1651,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -1445,6 +1663,7 @@
         {
           "symbol": "B2/b11",
           "description": "a1",
+          "hall": "-B 2xb",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -1457,12 +1676,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "B2/n11",
           "description": "-a2",
+          "hall": "-B 2xab",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -1475,12 +1698,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "C12/c1",
           "description": "b1",
+          "hall": "-C 2yc",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -1499,6 +1726,7 @@
         {
           "symbol": "C12/n1",
           "description": "-b2",
+          "hall": "-C 2yac",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -1517,6 +1745,7 @@
         {
           "symbol": "C2/c11",
           "description": "-a1",
+          "hall": "-C 2xc",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -1535,6 +1764,7 @@
         {
           "symbol": "C2/n11",
           "description": "a2",
+          "hall": "-C 2xac",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -1553,6 +1783,7 @@
         {
           "symbol": "I112/a",
           "description": "-c3",
+          "hall": "-I 2a",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -1565,6 +1796,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -1574,6 +1808,7 @@
         {
           "symbol": "I112/b",
           "description": "c3",
+          "hall": "-I 2b",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -1586,6 +1821,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -1595,6 +1833,7 @@
         {
           "symbol": "I12/a1",
           "description": "b3",
+          "hall": "-I 2ya",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -1607,12 +1846,16 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         },
         {
           "symbol": "I12/c1",
           "description": "-b3",
+          "hall": "-I 2yc",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -1625,12 +1868,16 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         },
         {
           "symbol": "I2/b11",
           "description": "-a3",
+          "hall": "-I 2xb",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -1643,6 +1890,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -1652,6 +1902,7 @@
         {
           "symbol": "I2/c11",
           "description": "a3",
+          "hall": "-I 2xc",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -1664,6 +1915,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -1682,6 +1936,7 @@
         {
           "symbol": "P222",
           "description": "standard",
+          "hall": "P 2 2",
           "reflection_conditions": {}
         }
       ]
@@ -1696,6 +1951,7 @@
         {
           "symbol": "P2122",
           "description": "cab",
+          "hall": "P 2a 2a",
           "reflection_conditions": {
             "h00": [
               "h=2n"
@@ -1705,6 +1961,7 @@
         {
           "symbol": "P2212",
           "description": "bca",
+          "hall": "P 2 2b",
           "reflection_conditions": {
             "0k0": [
               "k=2n"
@@ -1714,6 +1971,7 @@
         {
           "symbol": "P2221",
           "description": "standard",
+          "hall": "P 2c 2",
           "reflection_conditions": {
             "00l": [
               "l=2n"
@@ -1732,6 +1990,7 @@
         {
           "symbol": "P21212",
           "description": "standard",
+          "hall": "P 2 2ab",
           "reflection_conditions": {
             "h00": [
               "h=2n"
@@ -1744,6 +2003,7 @@
         {
           "symbol": "P21221",
           "description": "bca",
+          "hall": "P 2ac 2ac",
           "reflection_conditions": {
             "h00": [
               "h=2n"
@@ -1756,6 +2016,7 @@
         {
           "symbol": "P22121",
           "description": "cab",
+          "hall": "P 2bc 2",
           "reflection_conditions": {
             "0k0": [
               "k=2n"
@@ -1777,6 +2038,7 @@
         {
           "symbol": "P212121",
           "description": "standard",
+          "hall": "P 2ac 2ab",
           "reflection_conditions": {
             "h00": [
               "h=2n"
@@ -1801,6 +2063,7 @@
         {
           "symbol": "A2122",
           "description": "cab",
+          "hall": "A 2a 2a",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -1811,6 +2074,9 @@
             "hk0": [
               "k=2n"
             ],
+            "hhl": [
+              "h+l=2n"
+            ],
             "h00": [
               "h=2n"
             ]
@@ -1819,6 +2085,7 @@
         {
           "symbol": "B2212",
           "description": "bca",
+          "hall": "B 2 2b",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -1829,6 +2096,9 @@
             "hk0": [
               "h=2n"
             ],
+            "hhl": [
+              "h+l=2n"
+            ],
             "0k0": [
               "k=2n"
             ]
@@ -1837,6 +2107,7 @@
         {
           "symbol": "C2221",
           "description": "standard",
+          "hall": "C 2c 2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -1864,6 +2135,7 @@
         {
           "symbol": "A222",
           "description": "cab",
+          "hall": "A 2 2",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -1873,12 +2145,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "B222",
           "description": "bca",
+          "hall": "B 2 2",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -1888,12 +2164,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "C222",
           "description": "standard",
+          "hall": "C 2 2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -1918,6 +2198,7 @@
         {
           "symbol": "F222",
           "description": "standard",
+          "hall": "F 2 2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -1932,6 +2213,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         }
@@ -1947,6 +2231,7 @@
         {
           "symbol": "I222",
           "description": "standard",
+          "hall": "I 2 2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -1959,6 +2244,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -1977,6 +2265,7 @@
         {
           "symbol": "I212121",
           "description": "standard",
+          "hall": "I 2b 2c",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -1989,6 +2278,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -2007,16 +2299,19 @@
         {
           "symbol": "P2mm",
           "description": "cab",
+          "hall": "P -2 2",
           "reflection_conditions": {}
         },
         {
           "symbol": "Pm2m",
           "description": "bca",
+          "hall": "P -2 -2",
           "reflection_conditions": {}
         },
         {
           "symbol": "Pmm2",
           "description": "standard",
+          "hall": "P 2 -2",
           "reflection_conditions": {}
         }
       ]
@@ -2031,6 +2326,7 @@
         {
           "symbol": "P21am",
           "description": "-cba",
+          "hall": "P -2 2a",
           "reflection_conditions": {
             "h0l": [
               "h=2n"
@@ -2040,6 +2336,7 @@
         {
           "symbol": "P21ma",
           "description": "cab",
+          "hall": "P -2a 2a",
           "reflection_conditions": {
             "hk0": [
               "h=2n"
@@ -2049,6 +2346,7 @@
         {
           "symbol": "Pb21m",
           "description": "bca",
+          "hall": "P -2 -2b",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -2058,6 +2356,7 @@
         {
           "symbol": "Pcm21",
           "description": "ba-c",
+          "hall": "P 2c -2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -2067,6 +2366,7 @@
         {
           "symbol": "Pm21b",
           "description": "a-cb",
+          "hall": "P -2b -2",
           "reflection_conditions": {
             "hk0": [
               "k=2n"
@@ -2076,6 +2376,7 @@
         {
           "symbol": "Pmc21",
           "description": "standard",
+          "hall": "P 2c -2",
           "reflection_conditions": {
             "h0l": [
               "l=2n"
@@ -2094,6 +2395,7 @@
         {
           "symbol": "P2aa",
           "description": "cab",
+          "hall": "P -2a 2",
           "reflection_conditions": {
             "h0l": [
               "h=2n"
@@ -2106,6 +2408,7 @@
         {
           "symbol": "Pb2b",
           "description": "bca",
+          "hall": "P -2b -2b",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -2118,6 +2421,7 @@
         {
           "symbol": "Pcc2",
           "description": "standard",
+          "hall": "P 2 -2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -2139,6 +2443,7 @@
         {
           "symbol": "P2cm",
           "description": "-cba",
+          "hall": "P -2c 2",
           "reflection_conditions": {
             "h0l": [
               "l=2n"
@@ -2148,6 +2453,7 @@
         {
           "symbol": "P2mb",
           "description": "cab",
+          "hall": "P -2b 2",
           "reflection_conditions": {
             "hk0": [
               "k=2n"
@@ -2157,6 +2463,7 @@
         {
           "symbol": "Pbm2",
           "description": "ba-c",
+          "hall": "P 2 -2b",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -2166,6 +2473,7 @@
         {
           "symbol": "Pc2m",
           "description": "bca",
+          "hall": "P -2c -2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -2175,6 +2483,7 @@
         {
           "symbol": "Pm2a",
           "description": "a-cb",
+          "hall": "P -2a -2a",
           "reflection_conditions": {
             "hk0": [
               "h=2n"
@@ -2184,6 +2493,7 @@
         {
           "symbol": "Pma2",
           "description": "standard",
+          "hall": "P 2 -2a",
           "reflection_conditions": {
             "h0l": [
               "h=2n"
@@ -2202,6 +2512,7 @@
         {
           "symbol": "P21ab",
           "description": "cab",
+          "hall": "P -2b 2a",
           "reflection_conditions": {
             "h0l": [
               "h=2n"
@@ -2214,6 +2525,7 @@
         {
           "symbol": "P21ca",
           "description": "-cba",
+          "hall": "P -2ac 2a",
           "reflection_conditions": {
             "h0l": [
               "l=2n"
@@ -2226,6 +2538,7 @@
         {
           "symbol": "Pb21a",
           "description": "a-cb",
+          "hall": "P -2a -2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -2238,6 +2551,7 @@
         {
           "symbol": "Pbc21",
           "description": "ba-c",
+          "hall": "P 2c -2b",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -2250,6 +2564,7 @@
         {
           "symbol": "Pc21b",
           "description": "bca",
+          "hall": "P -2bc -2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -2262,6 +2577,7 @@
         {
           "symbol": "Pca21",
           "description": "standard",
+          "hall": "P 2c -2ac",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -2283,6 +2599,7 @@
         {
           "symbol": "P2an",
           "description": "-cba",
+          "hall": "P -2ab 2",
           "reflection_conditions": {
             "h0l": [
               "h=2n"
@@ -2295,6 +2612,7 @@
         {
           "symbol": "P2na",
           "description": "cab",
+          "hall": "P -2ac 2",
           "reflection_conditions": {
             "h0l": [
               "h+l=2n"
@@ -2307,6 +2625,7 @@
         {
           "symbol": "Pb2n",
           "description": "bca",
+          "hall": "P -2ab -2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -2322,6 +2641,7 @@
         {
           "symbol": "Pcn2",
           "description": "ba-c",
+          "hall": "P 2 -2ac",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -2337,6 +2657,7 @@
         {
           "symbol": "Pn2b",
           "description": "a-cb",
+          "hall": "P -2bc -2bc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -2349,6 +2670,7 @@
         {
           "symbol": "Pnc2",
           "description": "standard",
+          "hall": "P 2 -2bc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -2373,6 +2695,7 @@
         {
           "symbol": "P21mn",
           "description": "cab",
+          "hall": "P -2ab 2ab",
           "reflection_conditions": {
             "hk0": [
               "h+k=2n"
@@ -2385,6 +2708,7 @@
         {
           "symbol": "P21nm",
           "description": "-cba",
+          "hall": "P -2 2ac",
           "reflection_conditions": {
             "h0l": [
               "h+l=2n"
@@ -2397,6 +2721,7 @@
         {
           "symbol": "Pm21n",
           "description": "a-cb",
+          "hall": "P -2ab -2",
           "reflection_conditions": {
             "hk0": [
               "h+k=2n"
@@ -2409,6 +2734,7 @@
         {
           "symbol": "Pmn21",
           "description": "standard",
+          "hall": "P 2ac -2",
           "reflection_conditions": {
             "h0l": [
               "h+l=2n"
@@ -2421,6 +2747,7 @@
         {
           "symbol": "Pn21m",
           "description": "bca",
+          "hall": "P -2 -2bc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -2433,6 +2760,7 @@
         {
           "symbol": "Pnm21",
           "description": "ba-c",
+          "hall": "P 2bc -2bc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -2454,6 +2782,7 @@
         {
           "symbol": "P2cb",
           "description": "cab",
+          "hall": "P -2bc 2",
           "reflection_conditions": {
             "h0l": [
               "l=2n"
@@ -2466,6 +2795,7 @@
         {
           "symbol": "Pba2",
           "description": "standard",
+          "hall": "P 2 -2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -2478,6 +2808,7 @@
         {
           "symbol": "Pc2a",
           "description": "bca",
+          "hall": "P -2ac -2ac",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -2499,6 +2830,7 @@
         {
           "symbol": "P21cn",
           "description": "-cba",
+          "hall": "P -2n 2a",
           "reflection_conditions": {
             "h0l": [
               "l=2n"
@@ -2514,6 +2846,7 @@
         {
           "symbol": "P21nb",
           "description": "cab",
+          "hall": "P -2bc 2a",
           "reflection_conditions": {
             "h0l": [
               "h+l=2n"
@@ -2529,6 +2862,7 @@
         {
           "symbol": "Pbn21",
           "description": "ba-c",
+          "hall": "P 2c -2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -2544,6 +2878,7 @@
         {
           "symbol": "Pc21n",
           "description": "bca",
+          "hall": "P -2n -2ac",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -2559,6 +2894,7 @@
         {
           "symbol": "Pn21a",
           "description": "a-cb",
+          "hall": "P -2ac -2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -2574,6 +2910,7 @@
         {
           "symbol": "Pna21",
           "description": "standard",
+          "hall": "P 2c -2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -2598,6 +2935,7 @@
         {
           "symbol": "P2nn",
           "description": "cab",
+          "hall": "P -2n 2",
           "reflection_conditions": {
             "h0l": [
               "h+l=2n"
@@ -2613,6 +2951,7 @@
         {
           "symbol": "Pn2n",
           "description": "bca",
+          "hall": "P -2n -2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -2628,6 +2967,7 @@
         {
           "symbol": "Pnn2",
           "description": "standard",
+          "hall": "P 2 -2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -2655,6 +2995,7 @@
         {
           "symbol": "A2mm",
           "description": "cab",
+          "hall": "A -2 2",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -2664,12 +3005,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Bm2m",
           "description": "bca",
+          "hall": "B -2 -2",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -2679,12 +3024,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Cmm2",
           "description": "standard",
+          "hall": "C 2 -2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -2709,6 +3058,7 @@
         {
           "symbol": "A21am",
           "description": "-cba",
+          "hall": "A -2 2a",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -2721,12 +3071,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "A21ma",
           "description": "cab",
+          "hall": "A -2a 2a",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -2736,6 +3090,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -2745,6 +3102,7 @@
         {
           "symbol": "Bb21m",
           "description": "bca",
+          "hall": "B -2 -2b",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -2757,12 +3115,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Bm21b",
           "description": "a-cb",
+          "hall": "B -2b -2",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -2773,6 +3135,9 @@
             "hk0": [
               "h=2n"
             ],
+            "hhl": [
+              "h+l=2n"
+            ],
             "0k0": [
               "k=2n"
             ]
@@ -2781,6 +3146,7 @@
         {
           "symbol": "Ccm21",
           "description": "ba-c",
+          "hall": "C 2c -2c",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -2799,6 +3165,7 @@
         {
           "symbol": "Cmc21",
           "description": "standard",
+          "hall": "C 2c -2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -2826,6 +3193,7 @@
         {
           "symbol": "A2aa",
           "description": "cab",
+          "hall": "A -2a 2",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -2838,6 +3206,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -2847,6 +3218,7 @@
         {
           "symbol": "Bb2b",
           "description": "bca",
+          "hall": "B -2b -2b",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -2859,12 +3231,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Ccc2",
           "description": "standard",
+          "hall": "C 2 -2c",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -2892,6 +3268,7 @@
         {
           "symbol": "Am2m",
           "description": "a-cb",
+          "hall": "A -2 -2",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -2901,12 +3278,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Amm2",
           "description": "standard",
+          "hall": "A 2 -2",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -2916,12 +3297,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "B2mm",
           "description": "cab",
+          "hall": "B -2 2",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -2931,12 +3316,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Bmm2",
           "description": "ba-c",
+          "hall": "B 2 -2",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -2946,12 +3335,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "C2mm",
           "description": "-cba",
+          "hall": "C -2 2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -2967,6 +3360,7 @@
         {
           "symbol": "Cm2m",
           "description": "bca",
+          "hall": "C -2 -2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -2991,6 +3385,7 @@
         {
           "symbol": "Abm2",
           "description": "standard",
+          "hall": "A 2 -2b",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -3000,12 +3395,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Ac2m",
           "description": "a-cb",
+          "hall": "A -2b -2b",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -3015,12 +3414,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "B2cm",
           "description": "cab",
+          "hall": "B -2a 2",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -3030,12 +3433,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Bma2",
           "description": "ba-c",
+          "hall": "B 2 -2a",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -3045,12 +3452,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "C2mb",
           "description": "-cba",
+          "hall": "C -2a 2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -3066,6 +3477,7 @@
         {
           "symbol": "Cm2a",
           "description": "bca",
+          "hall": "C -2a -2a",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -3090,6 +3502,7 @@
         {
           "symbol": "Am2a",
           "description": "a-cb",
+          "hall": "A -2a -2a",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -3099,6 +3512,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -3108,6 +3524,7 @@
         {
           "symbol": "Ama2",
           "description": "standard",
+          "hall": "A 2 -2a",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -3120,12 +3537,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "B2mb",
           "description": "cab",
+          "hall": "B -2b 2",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -3135,6 +3556,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -3144,6 +3568,7 @@
         {
           "symbol": "Bbm2",
           "description": "ba-c",
+          "hall": "B 2 -2b",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -3156,12 +3581,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "C2cm",
           "description": "-cba",
+          "hall": "C -2c 2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -3180,6 +3609,7 @@
         {
           "symbol": "Cc2m",
           "description": "bca",
+          "hall": "C -2c -2c",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -3207,6 +3637,7 @@
         {
           "symbol": "Aba2",
           "description": "standard",
+          "hall": "A 2 -2ab",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -3219,12 +3650,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Ac2a",
           "description": "a-cb",
+          "hall": "A -2ab -2ab",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -3234,12 +3669,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "B2cb",
           "description": "cab",
+          "hall": "B -2ab 2",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -3249,6 +3688,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -3258,6 +3700,7 @@
         {
           "symbol": "Bba2",
           "description": "ba-c",
+          "hall": "B 2 -2ab",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -3270,12 +3713,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "C2cb",
           "description": "-cba",
+          "hall": "C -2ac 2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -3294,6 +3741,7 @@
         {
           "symbol": "Cc2a",
           "description": "bca",
+          "hall": "C -2ac -2ac",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -3321,6 +3769,7 @@
         {
           "symbol": "F2mm",
           "description": "cab",
+          "hall": "F -2 2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -3335,12 +3784,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Fm2m",
           "description": "bca",
+          "hall": "F -2 -2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -3355,12 +3808,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Fmm2",
           "description": "standard",
+          "hall": "F 2 -2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -3375,6 +3832,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         }
@@ -3390,6 +3850,7 @@
         {
           "symbol": "F2dd",
           "description": "cab",
+          "hall": "F -2d 2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -3400,25 +3861,23 @@
               "k=2n"
             ],
             "h0l": [
-              "h=2n"
+              "h+l=4n"
             ],
             "hk0": [
-              "h=2n"
+              "h+k=4n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "h00": [
               "h=4n"
-            ],
-            "0k0": [
-              "k=4n"
-            ],
-            "00l": [
-              "l=4n"
             ]
           }
         },
         {
           "symbol": "Fd2d",
           "description": "bca",
+          "hall": "F -2d -2d",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -3426,28 +3885,26 @@
               "k+l=2n"
             ],
             "0kl": [
-              "k=2n"
+              "k+l=4n"
             ],
             "h0l": [
               "h=2n"
             ],
             "hk0": [
-              "h=2n"
+              "h+k=4n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "h00": [
               "h=4n"
-            ],
-            "0k0": [
-              "k=4n"
-            ],
-            "00l": [
-              "l=4n"
             ]
           }
         },
         {
           "symbol": "Fdd2",
           "description": "standard",
+          "hall": "F 2 -2d",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -3455,22 +3912,22 @@
               "k+l=2n"
             ],
             "0kl": [
-              "k=2n"
+              "k+l=4n"
             ],
             "h0l": [
-              "h=2n"
+              "h+l=4n"
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "h00": [
               "h=4n"
             ],
             "0k0": [
               "k=4n"
-            ],
-            "00l": [
-              "l=4n"
             ]
           }
         }
@@ -3486,6 +3943,7 @@
         {
           "symbol": "I2mm",
           "description": "cab",
+          "hall": "I -2 2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -3498,6 +3956,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -3507,6 +3968,7 @@
         {
           "symbol": "Im2m",
           "description": "bca",
+          "hall": "I -2 -2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -3519,6 +3981,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -3528,6 +3993,7 @@
         {
           "symbol": "Imm2",
           "description": "standard",
+          "hall": "I 2 -2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -3540,6 +4006,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -3558,6 +4027,7 @@
         {
           "symbol": "I2cb",
           "description": "cab",
+          "hall": "I -2a 2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -3571,6 +4041,9 @@
             "hk0": [
               "h=2n"
             ],
+            "hhl": [
+              "l=2n"
+            ],
             "0k0": [
               "k=2n"
             ]
@@ -3579,6 +4052,7 @@
         {
           "symbol": "Iba2",
           "description": "standard",
+          "hall": "I 2 -2c",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -3591,12 +4065,16 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         },
         {
           "symbol": "Ic2a",
           "description": "bca",
+          "hall": "I -2b -2b",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -3609,6 +4087,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         }
@@ -3624,6 +4105,7 @@
         {
           "symbol": "I2cm",
           "description": "-cba",
+          "hall": "I -2c 2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -3636,12 +4118,16 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         },
         {
           "symbol": "I2mb",
           "description": "cab",
+          "hall": "I -2b 2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -3654,6 +4140,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -3663,6 +4152,7 @@
         {
           "symbol": "Ibm2",
           "description": "ba-c",
+          "hall": "I 2 -2b",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -3675,6 +4165,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -3684,6 +4177,7 @@
         {
           "symbol": "Ic2m",
           "description": "bca",
+          "hall": "I -2c -2c",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -3696,6 +4190,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -3705,6 +4202,7 @@
         {
           "symbol": "Im2a",
           "description": "a-cb",
+          "hall": "I -2a -2a",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -3718,6 +4216,9 @@
             "hk0": [
               "h=2n"
             ],
+            "hhl": [
+              "l=2n"
+            ],
             "0k0": [
               "k=2n"
             ]
@@ -3726,6 +4227,7 @@
         {
           "symbol": "Ima2",
           "description": "standard",
+          "hall": "I 2 -2a",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -3738,6 +4240,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         }
@@ -3753,13 +4258,14 @@
         {
           "symbol": "Pmmm",
           "description": "standard",
+          "hall": "-P 2 2",
           "reflection_conditions": {}
         }
       ]
     },
     "48": {
       "number": 48,
-      "standard_symbol": "P n n n :2",
+      "standard_symbol": "P n n n :1",
       "crystal_system": "orthorhombic",
       "point_group": "mmm",
       "centrosymmetric": true,
@@ -3767,6 +4273,7 @@
         {
           "symbol": "Pnnn",
           "description": "standard",
+          "hall": "P 2 2 -1n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -3785,6 +4292,7 @@
         {
           "symbol": "Pnnn",
           "description": "standard",
+          "hall": "-P 2ab 2bc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -3812,6 +4320,7 @@
         {
           "symbol": "Pbmb",
           "description": "bca",
+          "hall": "-P 2b 2b",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -3824,6 +4333,7 @@
         {
           "symbol": "Pccm",
           "description": "standard",
+          "hall": "-P 2 2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -3836,6 +4346,7 @@
         {
           "symbol": "Pmaa",
           "description": "cab",
+          "hall": "-P 2a 2",
           "reflection_conditions": {
             "h0l": [
               "h=2n"
@@ -3849,7 +4360,7 @@
     },
     "50": {
       "number": 50,
-      "standard_symbol": "P b a n :2",
+      "standard_symbol": "P b a n :1",
       "crystal_system": "orthorhombic",
       "point_group": "mmm",
       "centrosymmetric": true,
@@ -3857,6 +4368,7 @@
         {
           "symbol": "Pban",
           "description": "standard",
+          "hall": "P 2 2 -1ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -3872,6 +4384,7 @@
         {
           "symbol": "Pban",
           "description": "standard",
+          "hall": "-P 2ab 2b",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -3887,6 +4400,7 @@
         {
           "symbol": "Pcna",
           "description": "bca",
+          "hall": "P 2 2 -1ac",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -3902,6 +4416,7 @@
         {
           "symbol": "Pcna",
           "description": "bca",
+          "hall": "-P 2a 2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -3917,6 +4432,7 @@
         {
           "symbol": "Pncb",
           "description": "cab",
+          "hall": "P 2 2 -1bc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -3932,6 +4448,7 @@
         {
           "symbol": "Pncb",
           "description": "cab",
+          "hall": "-P 2b 2bc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -3956,6 +4473,7 @@
         {
           "symbol": "Pbmm",
           "description": "cab",
+          "hall": "-P 2 2b",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -3965,6 +4483,7 @@
         {
           "symbol": "Pcmm",
           "description": "-cba",
+          "hall": "-P 2c 2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -3974,6 +4493,7 @@
         {
           "symbol": "Pmam",
           "description": "a-cb",
+          "hall": "-P 2 2a",
           "reflection_conditions": {
             "h0l": [
               "h=2n"
@@ -3983,6 +4503,7 @@
         {
           "symbol": "Pmcm",
           "description": "bca",
+          "hall": "-P 2c 2",
           "reflection_conditions": {
             "h0l": [
               "l=2n"
@@ -3992,6 +4513,7 @@
         {
           "symbol": "Pmma",
           "description": "standard",
+          "hall": "-P 2a 2a",
           "reflection_conditions": {
             "hk0": [
               "h=2n"
@@ -4001,6 +4523,7 @@
         {
           "symbol": "Pmmb",
           "description": "ba-c",
+          "hall": "-P 2b 2",
           "reflection_conditions": {
             "hk0": [
               "k=2n"
@@ -4019,6 +4542,7 @@
         {
           "symbol": "Pbnn",
           "description": "cab",
+          "hall": "-P 2n 2b",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -4037,6 +4561,7 @@
         {
           "symbol": "Pcnn",
           "description": "-cba",
+          "hall": "-P 2ab 2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -4055,6 +4580,7 @@
         {
           "symbol": "Pnan",
           "description": "a-cb",
+          "hall": "-P 2n 2bc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -4070,6 +4596,7 @@
         {
           "symbol": "Pncn",
           "description": "bca",
+          "hall": "-P 2ab 2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -4088,6 +4615,7 @@
         {
           "symbol": "Pnna",
           "description": "standard",
+          "hall": "-P 2a 2bc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -4106,6 +4634,7 @@
         {
           "symbol": "Pnnb",
           "description": "ba-c",
+          "hall": "-P 2b 2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -4133,6 +4662,7 @@
         {
           "symbol": "Pbmn",
           "description": "cab",
+          "hall": "-P 2ab 2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -4148,6 +4678,7 @@
         {
           "symbol": "Pcnm",
           "description": "-cba",
+          "hall": "-P 2 2ac",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -4163,6 +4694,7 @@
         {
           "symbol": "Pman",
           "description": "a-cb",
+          "hall": "-P 2ab 2",
           "reflection_conditions": {
             "h0l": [
               "h=2n"
@@ -4175,6 +4707,7 @@
         {
           "symbol": "Pmna",
           "description": "standard",
+          "hall": "-P 2ac 2",
           "reflection_conditions": {
             "h0l": [
               "h+l=2n"
@@ -4187,6 +4720,7 @@
         {
           "symbol": "Pncm",
           "description": "bca",
+          "hall": "-P 2 2bc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -4202,6 +4736,7 @@
         {
           "symbol": "Pnmb",
           "description": "ba-c",
+          "hall": "-P 2bc 2bc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -4223,6 +4758,7 @@
         {
           "symbol": "Pbaa",
           "description": "cab",
+          "hall": "-P 2a 2b",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -4238,6 +4774,7 @@
         {
           "symbol": "Pbab",
           "description": "a-cb",
+          "hall": "-P 2b 2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -4253,6 +4790,7 @@
         {
           "symbol": "Pbcb",
           "description": "bca",
+          "hall": "-P 2bc 2b",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -4268,6 +4806,7 @@
         {
           "symbol": "Pcaa",
           "description": "-cba",
+          "hall": "-P 2ac 2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -4283,6 +4822,7 @@
         {
           "symbol": "Pcca",
           "description": "standard",
+          "hall": "-P 2a 2ac",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -4298,6 +4838,7 @@
         {
           "symbol": "Pccb",
           "description": "ba-c",
+          "hall": "-P 2b 2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -4322,6 +4863,7 @@
         {
           "symbol": "Pbam",
           "description": "standard",
+          "hall": "-P 2 2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -4334,6 +4876,7 @@
         {
           "symbol": "Pcma",
           "description": "bca",
+          "hall": "-P 2ac 2ac",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -4346,6 +4889,7 @@
         {
           "symbol": "Pmcb",
           "description": "cab",
+          "hall": "-P 2bc 2",
           "reflection_conditions": {
             "h0l": [
               "l=2n"
@@ -4367,6 +4911,7 @@
         {
           "symbol": "Pbnb",
           "description": "bca",
+          "hall": "-P 2bc 2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -4385,6 +4930,7 @@
         {
           "symbol": "Pccn",
           "description": "standard",
+          "hall": "-P 2ab 2ac",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -4403,6 +4949,7 @@
         {
           "symbol": "Pnaa",
           "description": "cab",
+          "hall": "-P 2ac 2bc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -4430,6 +4977,7 @@
         {
           "symbol": "Pbcm",
           "description": "standard",
+          "hall": "-P 2c 2b",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -4442,6 +4990,7 @@
         {
           "symbol": "Pbma",
           "description": "bca",
+          "hall": "-P 2a 2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -4454,6 +5003,7 @@
         {
           "symbol": "Pcam",
           "description": "ba-c",
+          "hall": "-P 2c 2ac",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -4466,6 +5016,7 @@
         {
           "symbol": "Pcmb",
           "description": "a-cb",
+          "hall": "-P 2bc 2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -4478,6 +5029,7 @@
         {
           "symbol": "Pmab",
           "description": "-cba",
+          "hall": "-P 2b 2a",
           "reflection_conditions": {
             "h0l": [
               "h=2n"
@@ -4490,6 +5042,7 @@
         {
           "symbol": "Pmca",
           "description": "cab",
+          "hall": "-P 2ac 2a",
           "reflection_conditions": {
             "h0l": [
               "l=2n"
@@ -4511,6 +5064,7 @@
         {
           "symbol": "Pmnn",
           "description": "cab",
+          "hall": "-P 2n 2",
           "reflection_conditions": {
             "h0l": [
               "h+l=2n"
@@ -4526,6 +5080,7 @@
         {
           "symbol": "Pnmn",
           "description": "bca",
+          "hall": "-P 2n 2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -4541,6 +5096,7 @@
         {
           "symbol": "Pnnm",
           "description": "standard",
+          "hall": "-P 2 2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -4560,7 +5116,7 @@
     },
     "59": {
       "number": 59,
-      "standard_symbol": "P m m n :2",
+      "standard_symbol": "P m m n :1",
       "crystal_system": "orthorhombic",
       "point_group": "mmm",
       "centrosymmetric": true,
@@ -4568,6 +5124,7 @@
         {
           "symbol": "Pmmn",
           "description": "standard",
+          "hall": "P 2 2ab -1ab",
           "reflection_conditions": {
             "hk0": [
               "h+k=2n"
@@ -4580,6 +5137,7 @@
         {
           "symbol": "Pmmn",
           "description": "standard",
+          "hall": "-P 2ab 2a",
           "reflection_conditions": {
             "hk0": [
               "h+k=2n"
@@ -4592,6 +5150,7 @@
         {
           "symbol": "Pmnm",
           "description": "bca",
+          "hall": "P 2ac 2ac -1ac",
           "reflection_conditions": {
             "h0l": [
               "h+l=2n"
@@ -4604,6 +5163,7 @@
         {
           "symbol": "Pmnm",
           "description": "bca",
+          "hall": "-P 2c 2a",
           "reflection_conditions": {
             "h0l": [
               "h+l=2n"
@@ -4616,6 +5176,7 @@
         {
           "symbol": "Pnmm",
           "description": "cab",
+          "hall": "P 2bc 2 -1bc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -4628,6 +5189,7 @@
         {
           "symbol": "Pnmm",
           "description": "cab",
+          "hall": "-P 2c 2bc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -4649,6 +5211,7 @@
         {
           "symbol": "Pbcn",
           "description": "standard",
+          "hall": "-P 2n 2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -4667,6 +5230,7 @@
         {
           "symbol": "Pbna",
           "description": "bca",
+          "hall": "-P 2ac 2b",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -4682,6 +5246,7 @@
         {
           "symbol": "Pcan",
           "description": "ba-c",
+          "hall": "-P 2n 2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -4697,6 +5262,7 @@
         {
           "symbol": "Pcnb",
           "description": "a-cb",
+          "hall": "-P 2b 2ac",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -4715,6 +5281,7 @@
         {
           "symbol": "Pnab",
           "description": "-cba",
+          "hall": "-P 2bc 2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -4730,6 +5297,7 @@
         {
           "symbol": "Pnca",
           "description": "cab",
+          "hall": "-P 2a 2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -4757,6 +5325,7 @@
         {
           "symbol": "Pbca",
           "description": "standard",
+          "hall": "-P 2ac 2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -4772,6 +5341,7 @@
         {
           "symbol": "Pcab",
           "description": "ba-c",
+          "hall": "-P 2bc 2ac",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -4796,6 +5366,7 @@
         {
           "symbol": "Pbnm",
           "description": "cab",
+          "hall": "-P 2c 2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -4811,6 +5382,7 @@
         {
           "symbol": "Pcmn",
           "description": "-cba",
+          "hall": "-P 2n 2ac",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -4826,6 +5398,7 @@
         {
           "symbol": "Pmcn",
           "description": "bca",
+          "hall": "-P 2n 2a",
           "reflection_conditions": {
             "h0l": [
               "l=2n"
@@ -4841,6 +5414,7 @@
         {
           "symbol": "Pmnb",
           "description": "ba-c",
+          "hall": "-P 2bc 2a",
           "reflection_conditions": {
             "h0l": [
               "h+l=2n"
@@ -4856,6 +5430,7 @@
         {
           "symbol": "Pnam",
           "description": "a-cb",
+          "hall": "-P 2c 2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -4871,6 +5446,7 @@
         {
           "symbol": "Pnma",
           "description": "standard",
+          "hall": "-P 2ac 2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -4895,6 +5471,7 @@
         {
           "symbol": "Amam",
           "description": "-cba",
+          "hall": "-A 2 2a",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -4907,12 +5484,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Amma",
           "description": "cab",
+          "hall": "-A 2a 2a",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -4922,6 +5503,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -4931,6 +5515,7 @@
         {
           "symbol": "Bbmm",
           "description": "bca",
+          "hall": "-B 2 2b",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -4943,12 +5528,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Bmmb",
           "description": "a-cb",
+          "hall": "-B 2b 2",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -4959,6 +5548,9 @@
             "hk0": [
               "h=2n"
             ],
+            "hhl": [
+              "h+l=2n"
+            ],
             "0k0": [
               "k=2n"
             ]
@@ -4967,6 +5559,7 @@
         {
           "symbol": "Ccmm",
           "description": "ba-c",
+          "hall": "-C 2c 2c",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -4985,6 +5578,7 @@
         {
           "symbol": "Cmcm",
           "description": "standard",
+          "hall": "-C 2c 2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -5012,6 +5606,7 @@
         {
           "symbol": "Abma",
           "description": "cab",
+          "hall": "-A 2ab 2ab",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -5021,12 +5616,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Acam",
           "description": "-cba",
+          "hall": "-A 2 2ab",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -5039,12 +5638,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Bbcm",
           "description": "bca",
+          "hall": "-B 2 2ab",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -5057,12 +5660,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Bmab",
           "description": "a-cb",
+          "hall": "-B 2ab 2",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -5072,6 +5679,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -5081,6 +5691,7 @@
         {
           "symbol": "Ccmb",
           "description": "ba-c",
+          "hall": "-C 2ac 2ac",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -5099,6 +5710,7 @@
         {
           "symbol": "Cmca",
           "description": "standard",
+          "hall": "-C 2ac 2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -5126,6 +5738,7 @@
         {
           "symbol": "Ammm",
           "description": "cab",
+          "hall": "-A 2 2",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -5135,12 +5748,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Bmmm",
           "description": "bca",
+          "hall": "-B 2 2",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -5150,12 +5767,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Cmmm",
           "description": "standard",
+          "hall": "-C 2 2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -5180,6 +5801,7 @@
         {
           "symbol": "Amaa",
           "description": "cab",
+          "hall": "-A 2a 2",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -5192,6 +5814,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -5201,6 +5826,7 @@
         {
           "symbol": "Bbmb",
           "description": "bca",
+          "hall": "-B 2b 2b",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -5213,12 +5839,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Cccm",
           "description": "standard",
+          "hall": "-C 2 2c",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -5246,6 +5876,7 @@
         {
           "symbol": "Abmm",
           "description": "cab",
+          "hall": "-A 2b 2b",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -5255,12 +5886,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Acmm",
           "description": "-cba",
+          "hall": "-A 2 2b",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -5270,12 +5905,16 @@
             ],
             "hk0": [
               "k=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Bmam",
           "description": "a-cb",
+          "hall": "-B 2a 2",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -5285,12 +5924,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Bmcm",
           "description": "bca",
+          "hall": "-B 2 2a",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -5300,12 +5943,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Cmma",
           "description": "standard",
+          "hall": "-C 2a 2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -5321,6 +5968,7 @@
         {
           "symbol": "Cmmb",
           "description": "ba-c",
+          "hall": "-C 2a 2a",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -5337,7 +5985,7 @@
     },
     "68": {
       "number": 68,
-      "standard_symbol": "C c c a :2",
+      "standard_symbol": "C c c a :1",
       "crystal_system": "orthorhombic",
       "point_group": "mmm",
       "centrosymmetric": true,
@@ -5345,6 +5993,7 @@
         {
           "symbol": "Abaa",
           "description": "cab",
+          "hall": "A 2 2 -1ab",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -5357,12 +6006,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Abaa",
           "description": "cab",
+          "hall": "-A 2a 2b",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -5375,12 +6028,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Acaa",
           "description": "-cba",
+          "hall": "-A 2ab 2b",
           "reflection_conditions": {
             "hkl": [
               "k+l=2n"
@@ -5393,30 +6050,16 @@
             ],
             "hk0": [
               "h=2n"
-            ]
-          }
-        },
-        {
-          "symbol": "Acaa",
-          "description": "-cba",
-          "reflection_conditions": {
-            "hkl": [
-              "k+l=2n"
             ],
-            "0kl": [
-              "k=2n"
-            ],
-            "h0l": [
-              "h=2n"
-            ],
-            "hk0": [
-              "h=2n"
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Bbab",
           "description": "a-cb",
+          "hall": "-B 2b 2ab",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -5429,30 +6072,16 @@
             ],
             "hk0": [
               "h=2n"
-            ]
-          }
-        },
-        {
-          "symbol": "Bbab",
-          "description": "a-cb",
-          "reflection_conditions": {
-            "hkl": [
+            ],
+            "hhl": [
               "h+l=2n"
-            ],
-            "0kl": [
-              "k=2n"
-            ],
-            "h0l": [
-              "h=2n"
-            ],
-            "hk0": [
-              "h=2n"
             ]
           }
         },
         {
           "symbol": "Bbcb",
           "description": "bca",
+          "hall": "B 2 2 -1ab",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -5465,12 +6094,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Bbcb",
           "description": "bca",
+          "hall": "-B 2ab 2b",
           "reflection_conditions": {
             "hkl": [
               "h+l=2n"
@@ -5483,12 +6116,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         },
         {
           "symbol": "Ccca",
           "description": "standard",
+          "hall": "C 2 2 -1ac",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -5507,6 +6144,7 @@
         {
           "symbol": "Ccca",
           "description": "standard",
+          "hall": "-C 2a 2ac",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -5525,24 +6163,7 @@
         {
           "symbol": "Cccb",
           "description": "ba-c",
-          "reflection_conditions": {
-            "hkl": [
-              "h+k=2n"
-            ],
-            "h0l": [
-              "h=2n"
-            ],
-            "hk0": [
-              "h=2n"
-            ],
-            "00l": [
-              "l=2n"
-            ]
-          }
-        },
-        {
-          "symbol": "Cccb",
-          "description": "ba-c",
+          "hall": "-C 2a 2c",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n"
@@ -5570,6 +6191,7 @@
         {
           "symbol": "Fmmm",
           "description": "standard",
+          "hall": "-F 2 2",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -5584,6 +6206,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         }
@@ -5591,7 +6216,7 @@
     },
     "70": {
       "number": 70,
-      "standard_symbol": "F d d d :2",
+      "standard_symbol": "F d d d :1",
       "crystal_system": "orthorhombic",
       "point_group": "mmm",
       "centrosymmetric": true,
@@ -5599,6 +6224,7 @@
         {
           "symbol": "Fddd",
           "description": "standard",
+          "hall": "F 2 2 -1d",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -5606,28 +6232,26 @@
               "k+l=2n"
             ],
             "0kl": [
-              "k=2n"
+              "k+l=4n"
             ],
             "h0l": [
-              "h=2n"
+              "h+l=4n"
             ],
             "hk0": [
-              "h=2n"
+              "h+k=4n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "h00": [
               "h=4n"
-            ],
-            "0k0": [
-              "k=4n"
-            ],
-            "00l": [
-              "l=4n"
             ]
           }
         },
         {
           "symbol": "Fddd",
           "description": "standard",
+          "hall": "-F 2uv 2vw",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -5635,22 +6259,19 @@
               "k+l=2n"
             ],
             "0kl": [
-              "k=2n"
+              "k+l=4n"
             ],
             "h0l": [
-              "h=2n"
+              "h+l=4n"
             ],
             "hk0": [
-              "h=2n"
+              "h+k=4n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "h00": [
               "h=4n"
-            ],
-            "0k0": [
-              "k=4n"
-            ],
-            "00l": [
-              "l=4n"
             ]
           }
         }
@@ -5666,6 +6287,7 @@
         {
           "symbol": "Immm",
           "description": "standard",
+          "hall": "-I 2 2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -5678,6 +6300,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -5696,6 +6321,7 @@
         {
           "symbol": "Ibam",
           "description": "standard",
+          "hall": "-I 2 2c",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -5708,12 +6334,16 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         },
         {
           "symbol": "Icma",
           "description": "bca",
+          "hall": "-I 2b 2b",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -5726,12 +6356,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         },
         {
           "symbol": "Imcb",
           "description": "cab",
+          "hall": "-I 2a 2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -5744,6 +6378,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -5762,6 +6399,7 @@
         {
           "symbol": "Ibca",
           "description": "standard",
+          "hall": "-I 2b 2c",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -5774,12 +6412,16 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         },
         {
           "symbol": "Icab",
           "description": "ba-c",
+          "hall": "-I 2a 2b",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -5792,6 +6434,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         }
@@ -5807,6 +6452,7 @@
         {
           "symbol": "Ibmm",
           "description": "cab",
+          "hall": "-I 2c 2c",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -5819,6 +6465,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -5828,6 +6477,7 @@
         {
           "symbol": "Icmm",
           "description": "-cba",
+          "hall": "-I 2 2b",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -5840,6 +6490,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -5849,6 +6502,7 @@
         {
           "symbol": "Imam",
           "description": "a-cb",
+          "hall": "-I 2c 2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -5861,12 +6515,16 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         },
         {
           "symbol": "Imcm",
           "description": "bca",
+          "hall": "-I 2 2a",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -5879,12 +6537,16 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         },
         {
           "symbol": "Imma",
           "description": "standard",
+          "hall": "-I 2b 2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -5897,6 +6559,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -5906,6 +6571,7 @@
         {
           "symbol": "Immb",
           "description": "ba-c",
+          "hall": "-I 2a 2a",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -5918,6 +6584,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -5936,6 +6605,7 @@
         {
           "symbol": "P4",
           "description": "standard",
+          "hall": "P 4",
           "reflection_conditions": {}
         }
       ]
@@ -5950,6 +6620,7 @@
         {
           "symbol": "P41",
           "description": "standard",
+          "hall": "P 4w",
           "reflection_conditions": {
             "00l": [
               "l=4n"
@@ -5968,6 +6639,7 @@
         {
           "symbol": "P42",
           "description": "standard",
+          "hall": "P 4c",
           "reflection_conditions": {
             "00l": [
               "l=2n"
@@ -5986,6 +6658,7 @@
         {
           "symbol": "P43",
           "description": "standard",
+          "hall": "P 4cw",
           "reflection_conditions": {
             "00l": [
               "l=4n"
@@ -6004,6 +6677,7 @@
         {
           "symbol": "I4",
           "description": "standard",
+          "hall": "I 4",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -6016,6 +6690,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -6034,6 +6711,7 @@
         {
           "symbol": "I41",
           "description": "standard",
+          "hall": "I 4bw",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -6046,6 +6724,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -6067,6 +6748,7 @@
         {
           "symbol": "P-4",
           "description": "standard",
+          "hall": "P -4",
           "reflection_conditions": {}
         }
       ]
@@ -6081,6 +6763,7 @@
         {
           "symbol": "I-4",
           "description": "standard",
+          "hall": "I -4",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -6093,6 +6776,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -6111,6 +6797,7 @@
         {
           "symbol": "P4/m",
           "description": "standard",
+          "hall": "-P 4",
           "reflection_conditions": {}
         }
       ]
@@ -6125,6 +6812,7 @@
         {
           "symbol": "P42/m",
           "description": "standard",
+          "hall": "-P 4c",
           "reflection_conditions": {
             "00l": [
               "l=2n"
@@ -6135,7 +6823,7 @@
     },
     "85": {
       "number": 85,
-      "standard_symbol": "P 4/n :2",
+      "standard_symbol": "P 4/n :1",
       "crystal_system": "tetragonal",
       "point_group": "4/m",
       "centrosymmetric": true,
@@ -6143,6 +6831,7 @@
         {
           "symbol": "P4/n",
           "description": "standard",
+          "hall": "P 4ab -1ab",
           "reflection_conditions": {
             "hk0": [
               "h+k=2n"
@@ -6155,6 +6844,7 @@
         {
           "symbol": "P4/n",
           "description": "standard",
+          "hall": "-P 4a",
           "reflection_conditions": {
             "hk0": [
               "h+k=2n"
@@ -6168,7 +6858,7 @@
     },
     "86": {
       "number": 86,
-      "standard_symbol": "P 42/n :2",
+      "standard_symbol": "P 42/n :1",
       "crystal_system": "tetragonal",
       "point_group": "4/m",
       "centrosymmetric": true,
@@ -6176,6 +6866,7 @@
         {
           "symbol": "P42/n",
           "description": "standard",
+          "hall": "P 4n -1n",
           "reflection_conditions": {
             "hk0": [
               "h+k=2n"
@@ -6191,6 +6882,7 @@
         {
           "symbol": "P42/n",
           "description": "standard",
+          "hall": "-P 4bc",
           "reflection_conditions": {
             "hk0": [
               "h+k=2n"
@@ -6215,6 +6907,7 @@
         {
           "symbol": "I4/m",
           "description": "standard",
+          "hall": "-I 4",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -6228,6 +6921,9 @@
             "hk0": [
               "h+k=2n"
             ],
+            "hhl": [
+              "l=2n"
+            ],
             "h00": [
               "h=2n"
             ]
@@ -6237,7 +6933,7 @@
     },
     "88": {
       "number": 88,
-      "standard_symbol": "I 41/a :2",
+      "standard_symbol": "I 41/a :1",
       "crystal_system": "tetragonal",
       "point_group": "4/m",
       "centrosymmetric": true,
@@ -6245,6 +6941,7 @@
         {
           "symbol": "I41/a",
           "description": "standard",
+          "hall": "I 4bw -1bw",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -6257,6 +6954,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -6269,6 +6969,7 @@
         {
           "symbol": "I41/a",
           "description": "standard",
+          "hall": "-I 4ad",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -6281,6 +6982,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "0k0": [
               "k=2n"
@@ -6302,6 +7006,7 @@
         {
           "symbol": "P422",
           "description": "standard",
+          "hall": "P 4 2",
           "reflection_conditions": {}
         }
       ]
@@ -6316,6 +7021,7 @@
         {
           "symbol": "P4212",
           "description": "standard",
+          "hall": "P 4ab 2ab",
           "reflection_conditions": {
             "h00": [
               "h=2n"
@@ -6337,6 +7043,7 @@
         {
           "symbol": "P4122",
           "description": "standard",
+          "hall": "P 4w 2c",
           "reflection_conditions": {
             "00l": [
               "l=4n"
@@ -6355,6 +7062,7 @@
         {
           "symbol": "P41212",
           "description": "standard",
+          "hall": "P 4abw 2nw",
           "reflection_conditions": {
             "h00": [
               "h=2n"
@@ -6379,6 +7087,7 @@
         {
           "symbol": "P4222",
           "description": "standard",
+          "hall": "P 4c 2",
           "reflection_conditions": {
             "00l": [
               "l=2n"
@@ -6397,6 +7106,7 @@
         {
           "symbol": "P42212",
           "description": "standard",
+          "hall": "P 4n 2n",
           "reflection_conditions": {
             "h00": [
               "h=2n"
@@ -6421,6 +7131,7 @@
         {
           "symbol": "P4322",
           "description": "standard",
+          "hall": "P 4cw 2c",
           "reflection_conditions": {
             "00l": [
               "l=4n"
@@ -6439,6 +7150,7 @@
         {
           "symbol": "P43212",
           "description": "standard",
+          "hall": "P 4nw 2abw",
           "reflection_conditions": {
             "h00": [
               "h=2n"
@@ -6463,6 +7175,7 @@
         {
           "symbol": "I422",
           "description": "standard",
+          "hall": "I 4 2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -6475,6 +7188,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -6493,6 +7209,7 @@
         {
           "symbol": "I4122",
           "description": "standard",
+          "hall": "I 4bw 2bw",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -6505,6 +7222,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -6526,6 +7246,7 @@
         {
           "symbol": "P4mm",
           "description": "standard",
+          "hall": "P 4 -2",
           "reflection_conditions": {}
         }
       ]
@@ -6540,6 +7261,7 @@
         {
           "symbol": "P4bm",
           "description": "standard",
+          "hall": "P 4 -2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -6561,6 +7283,7 @@
         {
           "symbol": "P42cm",
           "description": "standard",
+          "hall": "P 4c -2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -6582,6 +7305,7 @@
         {
           "symbol": "P42nm",
           "description": "standard",
+          "hall": "P 4n -2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -6609,11 +7333,15 @@
         {
           "symbol": "P4cc",
           "description": "standard",
+          "hall": "P 4 -2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
             ],
             "h0l": [
+              "l=2n"
+            ],
+            "hhl": [
               "l=2n"
             ]
           }
@@ -6630,12 +7358,16 @@
         {
           "symbol": "P4nc",
           "description": "standard",
+          "hall": "P 4 -2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
             ],
             "h0l": [
               "h+l=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -6657,8 +7389,9 @@
         {
           "symbol": "P42mc",
           "description": "standard",
+          "hall": "P 4c -2",
           "reflection_conditions": {
-            "00l": [
+            "hhl": [
               "l=2n"
             ]
           }
@@ -6675,6 +7408,7 @@
         {
           "symbol": "P42bc",
           "description": "standard",
+          "hall": "P 4c -2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -6682,7 +7416,7 @@
             "h0l": [
               "h=2n"
             ],
-            "00l": [
+            "hhl": [
               "l=2n"
             ]
           }
@@ -6699,6 +7433,7 @@
         {
           "symbol": "I4mm",
           "description": "standard",
+          "hall": "I 4 -2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -6711,6 +7446,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -6729,6 +7467,7 @@
         {
           "symbol": "I4cm",
           "description": "standard",
+          "hall": "I 4 -2c",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -6741,6 +7480,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         }
@@ -6756,6 +7498,7 @@
         {
           "symbol": "I41md",
           "description": "standard",
+          "hall": "I 4bw -2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -6768,6 +7511,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "2h+l=4n"
             ],
             "h00": [
               "h=2n"
@@ -6789,6 +7535,7 @@
         {
           "symbol": "I41cd",
           "description": "standard",
+          "hall": "I 4bw -2c",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -6801,6 +7548,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "2h+l=4n"
             ],
             "00l": [
               "l=4n"
@@ -6819,6 +7569,7 @@
         {
           "symbol": "P-42m",
           "description": "standard",
+          "hall": "P -4 2",
           "reflection_conditions": {}
         }
       ]
@@ -6833,8 +7584,9 @@
         {
           "symbol": "P-42c",
           "description": "standard",
+          "hall": "P -4 2c",
           "reflection_conditions": {
-            "00l": [
+            "hhl": [
               "l=2n"
             ]
           }
@@ -6851,6 +7603,7 @@
         {
           "symbol": "P-421m",
           "description": "standard",
+          "hall": "P -4 2ab",
           "reflection_conditions": {
             "h00": [
               "h=2n"
@@ -6872,15 +7625,16 @@
         {
           "symbol": "P-421c",
           "description": "standard",
+          "hall": "P -4 2n",
           "reflection_conditions": {
+            "hhl": [
+              "l=2n"
+            ],
             "h00": [
               "h=2n"
             ],
             "0k0": [
               "k=2n"
-            ],
-            "00l": [
-              "l=2n"
             ]
           }
         }
@@ -6896,6 +7650,7 @@
         {
           "symbol": "P-4m2",
           "description": "standard",
+          "hall": "P -4 -2",
           "reflection_conditions": {}
         }
       ]
@@ -6910,6 +7665,7 @@
         {
           "symbol": "P-4c2",
           "description": "standard",
+          "hall": "P -4 -2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -6931,6 +7687,7 @@
         {
           "symbol": "P-4b2",
           "description": "standard",
+          "hall": "P -4 -2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -6952,6 +7709,7 @@
         {
           "symbol": "P-4n2",
           "description": "standard",
+          "hall": "P -4 -2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -6979,6 +7737,7 @@
         {
           "symbol": "I-4m2",
           "description": "standard",
+          "hall": "I -4 -2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -6991,6 +7750,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -7009,6 +7771,7 @@
         {
           "symbol": "I-4c2",
           "description": "standard",
+          "hall": "I -4 -2c",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -7021,6 +7784,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         }
@@ -7036,6 +7802,7 @@
         {
           "symbol": "I-42m",
           "description": "standard",
+          "hall": "I -4 2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -7048,6 +7815,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -7066,6 +7836,7 @@
         {
           "symbol": "I-42d",
           "description": "standard",
+          "hall": "I -4 2bw",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -7078,6 +7849,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "2h+l=4n"
             ],
             "h00": [
               "h=2n"
@@ -7099,6 +7873,7 @@
         {
           "symbol": "P4/mmm",
           "description": "standard",
+          "hall": "-P 4 2",
           "reflection_conditions": {}
         }
       ]
@@ -7113,11 +7888,15 @@
         {
           "symbol": "P4/mcc",
           "description": "standard",
+          "hall": "-P 4 2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
             ],
             "h0l": [
+              "l=2n"
+            ],
+            "hhl": [
               "l=2n"
             ]
           }
@@ -7126,7 +7905,7 @@
     },
     "125": {
       "number": 125,
-      "standard_symbol": "P 4/n b m :2",
+      "standard_symbol": "P 4/n b m :1",
       "crystal_system": "tetragonal",
       "point_group": "4/mmm",
       "centrosymmetric": true,
@@ -7134,6 +7913,7 @@
         {
           "symbol": "P4/nbm",
           "description": "standard",
+          "hall": "P 4 2 -1ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -7149,6 +7929,7 @@
         {
           "symbol": "P4/nbm",
           "description": "standard",
+          "hall": "-P 4a 2b",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -7165,7 +7946,7 @@
     },
     "126": {
       "number": 126,
-      "standard_symbol": "P 4/n n c :2",
+      "standard_symbol": "P 4/n n c :1",
       "crystal_system": "tetragonal",
       "point_group": "4/mmm",
       "centrosymmetric": true,
@@ -7173,6 +7954,7 @@
         {
           "symbol": "P4/nnc",
           "description": "standard",
+          "hall": "P 4 2 -1n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -7182,6 +7964,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -7191,6 +7976,7 @@
         {
           "symbol": "P4/nnc",
           "description": "standard",
+          "hall": "-P 4a 2bc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -7200,6 +7986,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -7218,6 +8007,7 @@
         {
           "symbol": "P4/mbm",
           "description": "standard",
+          "hall": "-P 4 2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -7239,12 +8029,16 @@
         {
           "symbol": "P4/mnc",
           "description": "standard",
+          "hall": "-P 4 2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
             ],
             "h0l": [
               "h+l=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -7258,7 +8052,7 @@
     },
     "129": {
       "number": 129,
-      "standard_symbol": "P 4/n m m :2",
+      "standard_symbol": "P 4/n m m :1",
       "crystal_system": "tetragonal",
       "point_group": "4/mmm",
       "centrosymmetric": true,
@@ -7266,6 +8060,7 @@
         {
           "symbol": "P4/nmm",
           "description": "standard",
+          "hall": "P 4ab 2ab -1ab",
           "reflection_conditions": {
             "hk0": [
               "h+k=2n"
@@ -7278,6 +8073,7 @@
         {
           "symbol": "P4/nmm",
           "description": "standard",
+          "hall": "-P 4a 2a",
           "reflection_conditions": {
             "hk0": [
               "h+k=2n"
@@ -7291,7 +8087,7 @@
     },
     "130": {
       "number": 130,
-      "standard_symbol": "P 4/n c c :2",
+      "standard_symbol": "P 4/n c c :1",
       "crystal_system": "tetragonal",
       "point_group": "4/mmm",
       "centrosymmetric": true,
@@ -7299,6 +8095,7 @@
         {
           "symbol": "P4/ncc",
           "description": "standard",
+          "hall": "P 4ab 2n -1ab",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -7308,6 +8105,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -7317,6 +8117,7 @@
         {
           "symbol": "P4/ncc",
           "description": "standard",
+          "hall": "-P 4a 2ac",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -7326,6 +8127,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -7344,8 +8148,9 @@
         {
           "symbol": "P42/mmc",
           "description": "standard",
+          "hall": "-P 4c 2",
           "reflection_conditions": {
-            "00l": [
+            "hhl": [
               "l=2n"
             ]
           }
@@ -7362,6 +8167,7 @@
         {
           "symbol": "P42/mcm",
           "description": "standard",
+          "hall": "-P 4c 2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -7375,7 +8181,7 @@
     },
     "133": {
       "number": 133,
-      "standard_symbol": "P 42/n b c :2",
+      "standard_symbol": "P 42/n b c :1",
       "crystal_system": "tetragonal",
       "point_group": "4/mmm",
       "centrosymmetric": true,
@@ -7383,6 +8189,7 @@
         {
           "symbol": "P42/nbc",
           "description": "standard",
+          "hall": "P 4n 2c -1n",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -7393,7 +8200,7 @@
             "hk0": [
               "h+k=2n"
             ],
-            "00l": [
+            "hhl": [
               "l=2n"
             ]
           }
@@ -7401,6 +8208,7 @@
         {
           "symbol": "P42/nbc",
           "description": "standard",
+          "hall": "-P 4ac 2b",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -7411,7 +8219,7 @@
             "hk0": [
               "h+k=2n"
             ],
-            "00l": [
+            "hhl": [
               "l=2n"
             ]
           }
@@ -7420,7 +8228,7 @@
     },
     "134": {
       "number": 134,
-      "standard_symbol": "P 42/n n m :2",
+      "standard_symbol": "P 42/n n m :1",
       "crystal_system": "tetragonal",
       "point_group": "4/mmm",
       "centrosymmetric": true,
@@ -7428,6 +8236,7 @@
         {
           "symbol": "P42/nnm",
           "description": "standard",
+          "hall": "P 4n 2 -1n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -7446,6 +8255,7 @@
         {
           "symbol": "P42/nnm",
           "description": "standard",
+          "hall": "-P 4ac 2bc",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -7473,6 +8283,7 @@
         {
           "symbol": "P42/mbc",
           "description": "standard",
+          "hall": "-P 4c 2ab",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -7480,7 +8291,7 @@
             "h0l": [
               "h=2n"
             ],
-            "00l": [
+            "hhl": [
               "l=2n"
             ]
           }
@@ -7497,6 +8308,7 @@
         {
           "symbol": "P42/mnm",
           "description": "standard",
+          "hall": "-P 4n 2n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -7516,7 +8328,7 @@
     },
     "137": {
       "number": 137,
-      "standard_symbol": "P 42/n m c :2",
+      "standard_symbol": "P 42/n m c :1",
       "crystal_system": "tetragonal",
       "point_group": "4/mmm",
       "centrosymmetric": true,
@@ -7524,30 +8336,32 @@
         {
           "symbol": "P42/nmc",
           "description": "standard",
+          "hall": "P 4n 2n -1n",
           "reflection_conditions": {
             "hk0": [
               "h+k=2n"
             ],
+            "hhl": [
+              "l=2n"
+            ],
             "h00": [
               "h=2n"
-            ],
-            "00l": [
-              "l=2n"
             ]
           }
         },
         {
           "symbol": "P42/nmc",
           "description": "standard",
+          "hall": "-P 4ac 2a",
           "reflection_conditions": {
             "hk0": [
               "h+k=2n"
             ],
+            "hhl": [
+              "l=2n"
+            ],
             "h00": [
               "h=2n"
-            ],
-            "00l": [
-              "l=2n"
             ]
           }
         }
@@ -7555,7 +8369,7 @@
     },
     "138": {
       "number": 138,
-      "standard_symbol": "P 42/n c m :2",
+      "standard_symbol": "P 42/n c m :1",
       "crystal_system": "tetragonal",
       "point_group": "4/mmm",
       "centrosymmetric": true,
@@ -7563,6 +8377,7 @@
         {
           "symbol": "P42/ncm",
           "description": "standard",
+          "hall": "P 4n 2ab -1n",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -7581,6 +8396,7 @@
         {
           "symbol": "P42/ncm",
           "description": "standard",
+          "hall": "-P 4ac 2ac",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -7608,6 +8424,7 @@
         {
           "symbol": "I4/mmm",
           "description": "standard",
+          "hall": "-I 4 2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -7620,6 +8437,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -7638,6 +8458,7 @@
         {
           "symbol": "I4/mcm",
           "description": "standard",
+          "hall": "-I 4 2c",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -7650,6 +8471,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         }
@@ -7657,7 +8481,7 @@
     },
     "141": {
       "number": 141,
-      "standard_symbol": "I 41/a m d :2",
+      "standard_symbol": "I 41/a m d :1",
       "crystal_system": "tetragonal",
       "point_group": "4/mmm",
       "centrosymmetric": true,
@@ -7665,6 +8489,7 @@
         {
           "symbol": "I41/amd",
           "description": "standard",
+          "hall": "I 4bw 2bw -1bw",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -7677,6 +8502,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "2h+l=4n"
             ],
             "0k0": [
               "k=2n"
@@ -7689,6 +8517,7 @@
         {
           "symbol": "I41/amd",
           "description": "standard",
+          "hall": "-I 4bd 2",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -7701,6 +8530,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "2h+l=4n"
             ],
             "0k0": [
               "k=2n"
@@ -7714,7 +8546,7 @@
     },
     "142": {
       "number": 142,
-      "standard_symbol": "I 41/a c d :2",
+      "standard_symbol": "I 41/a c d :1",
       "crystal_system": "tetragonal",
       "point_group": "4/mmm",
       "centrosymmetric": true,
@@ -7722,6 +8554,7 @@
         {
           "symbol": "I41/acd",
           "description": "standard",
+          "hall": "I 4bw 2aw -1bw",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -7734,6 +8567,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "2h+l=4n"
             ],
             "00l": [
               "l=4n"
@@ -7743,6 +8579,7 @@
         {
           "symbol": "I41/acd",
           "description": "standard",
+          "hall": "-I 4bd 2c",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -7755,6 +8592,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "2h+l=4n"
             ],
             "00l": [
               "l=4n"
@@ -7773,6 +8613,7 @@
         {
           "symbol": "P3",
           "description": "standard",
+          "hall": "P 3",
           "reflection_conditions": {}
         }
       ]
@@ -7787,6 +8628,7 @@
         {
           "symbol": "P31",
           "description": "standard",
+          "hall": "P 31",
           "reflection_conditions": {
             "00l": [
               "l=3n"
@@ -7805,6 +8647,7 @@
         {
           "symbol": "P32",
           "description": "standard",
+          "hall": "P 32",
           "reflection_conditions": {
             "00l": [
               "l=3n"
@@ -7823,9 +8666,16 @@
         {
           "symbol": "R3",
           "description": "standard",
+          "hall": "R 3",
           "reflection_conditions": {
             "hkl": [
               "-h+k+l=3n"
+            ],
+            "0kl": [
+              "k+l=3n"
+            ],
+            "hk0": [
+              "h-k=3n"
             ],
             "h00": [
               "h=3n"
@@ -7838,17 +8688,8 @@
         {
           "symbol": "R3",
           "description": "standard",
-          "reflection_conditions": {
-            "hkl": [
-              "-h+k+l=3n"
-            ],
-            "h00": [
-              "h=3n"
-            ],
-            "0k0": [
-              "k=3n"
-            ]
-          }
+          "hall": "P 3*",
+          "reflection_conditions": {}
         }
       ]
     },
@@ -7862,6 +8703,7 @@
         {
           "symbol": "P-3",
           "description": "standard",
+          "hall": "-P 3",
           "reflection_conditions": {}
         }
       ]
@@ -7876,9 +8718,16 @@
         {
           "symbol": "R-3",
           "description": "standard",
+          "hall": "-R 3",
           "reflection_conditions": {
             "hkl": [
               "-h+k+l=3n"
+            ],
+            "0kl": [
+              "k+l=3n"
+            ],
+            "hk0": [
+              "h-k=3n"
             ],
             "h00": [
               "h=3n"
@@ -7891,17 +8740,8 @@
         {
           "symbol": "R-3",
           "description": "standard",
-          "reflection_conditions": {
-            "hkl": [
-              "-h+k+l=3n"
-            ],
-            "h00": [
-              "h=3n"
-            ],
-            "0k0": [
-              "k=3n"
-            ]
-          }
+          "hall": "-P 3*",
+          "reflection_conditions": {}
         }
       ]
     },
@@ -7915,6 +8755,7 @@
         {
           "symbol": "P312",
           "description": "standard",
+          "hall": "P 3 2",
           "reflection_conditions": {}
         }
       ]
@@ -7929,6 +8770,7 @@
         {
           "symbol": "P321",
           "description": "standard",
+          "hall": "P 3 2\"",
           "reflection_conditions": {}
         }
       ]
@@ -7943,6 +8785,7 @@
         {
           "symbol": "P3112",
           "description": "standard",
+          "hall": "P 31 2 (0 0 4)",
           "reflection_conditions": {
             "00l": [
               "l=3n"
@@ -7961,6 +8804,7 @@
         {
           "symbol": "P3121",
           "description": "standard",
+          "hall": "P 31 2\"",
           "reflection_conditions": {
             "00l": [
               "l=3n"
@@ -7979,6 +8823,7 @@
         {
           "symbol": "P3212",
           "description": "standard",
+          "hall": "P 32 2 (0 0 2)",
           "reflection_conditions": {
             "00l": [
               "l=3n"
@@ -7997,6 +8842,7 @@
         {
           "symbol": "P3221",
           "description": "standard",
+          "hall": "P 32 2\"",
           "reflection_conditions": {
             "00l": [
               "l=3n"
@@ -8015,9 +8861,16 @@
         {
           "symbol": "R32",
           "description": "standard",
+          "hall": "R 3 2\"",
           "reflection_conditions": {
             "hkl": [
               "-h+k+l=3n"
+            ],
+            "0kl": [
+              "k+l=3n"
+            ],
+            "hk0": [
+              "h-k=3n"
             ],
             "h00": [
               "h=3n"
@@ -8030,17 +8883,8 @@
         {
           "symbol": "R32",
           "description": "standard",
-          "reflection_conditions": {
-            "hkl": [
-              "-h+k+l=3n"
-            ],
-            "h00": [
-              "h=3n"
-            ],
-            "0k0": [
-              "k=3n"
-            ]
-          }
+          "hall": "P 3* 2",
+          "reflection_conditions": {}
         }
       ]
     },
@@ -8054,6 +8898,7 @@
         {
           "symbol": "P3m1",
           "description": "standard",
+          "hall": "P 3 -2\"",
           "reflection_conditions": {}
         }
       ]
@@ -8068,6 +8913,7 @@
         {
           "symbol": "P31m",
           "description": "standard",
+          "hall": "P 3 -2",
           "reflection_conditions": {}
         }
       ]
@@ -8082,6 +8928,7 @@
         {
           "symbol": "P3c1",
           "description": "standard",
+          "hall": "P 3 -2\"c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -8103,8 +8950,9 @@
         {
           "symbol": "P31c",
           "description": "standard",
+          "hall": "P 3 -2c",
           "reflection_conditions": {
-            "00l": [
+            "hhl": [
               "l=2n"
             ]
           }
@@ -8121,9 +8969,16 @@
         {
           "symbol": "R3m",
           "description": "standard",
+          "hall": "R 3 -2\"",
           "reflection_conditions": {
             "hkl": [
               "-h+k+l=3n"
+            ],
+            "0kl": [
+              "k+l=3n"
+            ],
+            "hk0": [
+              "h-k=3n"
             ],
             "h00": [
               "h=3n"
@@ -8136,17 +8991,8 @@
         {
           "symbol": "R3m",
           "description": "standard",
-          "reflection_conditions": {
-            "hkl": [
-              "-h+k+l=3n"
-            ],
-            "h00": [
-              "h=3n"
-            ],
-            "0k0": [
-              "k=3n"
-            ]
-          }
+          "hall": "P 3* -2",
+          "reflection_conditions": {}
         }
       ]
     },
@@ -8160,6 +9006,7 @@
         {
           "symbol": "R3c",
           "description": "standard",
+          "hall": "R 3 -2\"c",
           "reflection_conditions": {
             "hkl": [
               "-h+k+l=3n"
@@ -8169,6 +9016,9 @@
             ],
             "h0l": [
               "l=2n"
+            ],
+            "hk0": [
+              "h-k=3n"
             ],
             "h00": [
               "h=3n"
@@ -8184,24 +9034,16 @@
         {
           "symbol": "R3c",
           "description": "standard",
+          "hall": "P 3* -2n",
           "reflection_conditions": {
-            "hkl": [
-              "-h+k+l=3n"
-            ],
-            "0kl": [
-              "l=2n"
-            ],
-            "h0l": [
+            "hhl": [
               "l=2n"
             ],
             "h00": [
-              "h=3n"
+              "h=2n"
             ],
             "0k0": [
-              "k=3n"
-            ],
-            "00l": [
-              "l=6n"
+              "k=2n"
             ]
           }
         }
@@ -8217,6 +9059,7 @@
         {
           "symbol": "P-31m",
           "description": "standard",
+          "hall": "-P 3 2",
           "reflection_conditions": {}
         }
       ]
@@ -8231,8 +9074,9 @@
         {
           "symbol": "P-31c",
           "description": "standard",
+          "hall": "-P 3 2c",
           "reflection_conditions": {
-            "00l": [
+            "hhl": [
               "l=2n"
             ]
           }
@@ -8249,6 +9093,7 @@
         {
           "symbol": "P-3m1",
           "description": "standard",
+          "hall": "-P 3 2\"",
           "reflection_conditions": {}
         }
       ]
@@ -8263,6 +9108,7 @@
         {
           "symbol": "P-3c1",
           "description": "standard",
+          "hall": "-P 3 2\"c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -8284,9 +9130,16 @@
         {
           "symbol": "R-3m",
           "description": "standard",
+          "hall": "-R 3 2\"",
           "reflection_conditions": {
             "hkl": [
               "-h+k+l=3n"
+            ],
+            "0kl": [
+              "k+l=3n"
+            ],
+            "hk0": [
+              "h-k=3n"
             ],
             "h00": [
               "h=3n"
@@ -8299,17 +9152,8 @@
         {
           "symbol": "R-3m",
           "description": "standard",
-          "reflection_conditions": {
-            "hkl": [
-              "-h+k+l=3n"
-            ],
-            "h00": [
-              "h=3n"
-            ],
-            "0k0": [
-              "k=3n"
-            ]
-          }
+          "hall": "-P 3* 2",
+          "reflection_conditions": {}
         }
       ]
     },
@@ -8323,6 +9167,7 @@
         {
           "symbol": "R-3c",
           "description": "standard",
+          "hall": "-R 3 2\"c",
           "reflection_conditions": {
             "hkl": [
               "-h+k+l=3n"
@@ -8332,6 +9177,9 @@
             ],
             "h0l": [
               "l=2n"
+            ],
+            "hk0": [
+              "h-k=3n"
             ],
             "h00": [
               "h=3n"
@@ -8347,24 +9195,16 @@
         {
           "symbol": "R-3c",
           "description": "standard",
+          "hall": "-P 3* 2n",
           "reflection_conditions": {
-            "hkl": [
-              "-h+k+l=3n"
-            ],
-            "0kl": [
-              "l=2n"
-            ],
-            "h0l": [
+            "hhl": [
               "l=2n"
             ],
             "h00": [
-              "h=3n"
+              "h=2n"
             ],
             "0k0": [
-              "k=3n"
-            ],
-            "00l": [
-              "l=6n"
+              "k=2n"
             ]
           }
         }
@@ -8380,6 +9220,7 @@
         {
           "symbol": "P6",
           "description": "standard",
+          "hall": "P 6",
           "reflection_conditions": {}
         }
       ]
@@ -8394,6 +9235,7 @@
         {
           "symbol": "P61",
           "description": "standard",
+          "hall": "P 61",
           "reflection_conditions": {
             "00l": [
               "l=6n"
@@ -8412,6 +9254,7 @@
         {
           "symbol": "P65",
           "description": "standard",
+          "hall": "P 65",
           "reflection_conditions": {
             "00l": [
               "l=6n"
@@ -8430,6 +9273,7 @@
         {
           "symbol": "P62",
           "description": "standard",
+          "hall": "P 62",
           "reflection_conditions": {
             "00l": [
               "l=3n"
@@ -8448,6 +9292,7 @@
         {
           "symbol": "P64",
           "description": "standard",
+          "hall": "P 64",
           "reflection_conditions": {
             "00l": [
               "l=3n"
@@ -8466,6 +9311,7 @@
         {
           "symbol": "P63",
           "description": "standard",
+          "hall": "P 6c",
           "reflection_conditions": {
             "00l": [
               "l=2n"
@@ -8484,6 +9330,7 @@
         {
           "symbol": "P-6",
           "description": "standard",
+          "hall": "P -6",
           "reflection_conditions": {}
         }
       ]
@@ -8498,6 +9345,7 @@
         {
           "symbol": "P6/m",
           "description": "standard",
+          "hall": "-P 6",
           "reflection_conditions": {}
         }
       ]
@@ -8512,6 +9360,7 @@
         {
           "symbol": "P63/m",
           "description": "standard",
+          "hall": "-P 6c",
           "reflection_conditions": {
             "00l": [
               "l=2n"
@@ -8530,6 +9379,7 @@
         {
           "symbol": "P622",
           "description": "standard",
+          "hall": "P 6 2",
           "reflection_conditions": {}
         }
       ]
@@ -8544,6 +9394,7 @@
         {
           "symbol": "P6122",
           "description": "standard",
+          "hall": "P 61 2 (0 0 5)",
           "reflection_conditions": {
             "00l": [
               "l=6n"
@@ -8562,6 +9413,7 @@
         {
           "symbol": "P6522",
           "description": "standard",
+          "hall": "P 65 2 (0 0 1)",
           "reflection_conditions": {
             "00l": [
               "l=6n"
@@ -8580,6 +9432,7 @@
         {
           "symbol": "P6222",
           "description": "standard",
+          "hall": "P 62 2 (0 0 4)",
           "reflection_conditions": {
             "00l": [
               "l=3n"
@@ -8598,6 +9451,7 @@
         {
           "symbol": "P6422",
           "description": "standard",
+          "hall": "P 64 2 (0 0 2)",
           "reflection_conditions": {
             "00l": [
               "l=3n"
@@ -8616,6 +9470,7 @@
         {
           "symbol": "P6322",
           "description": "standard",
+          "hall": "P 6c 2c",
           "reflection_conditions": {
             "00l": [
               "l=2n"
@@ -8634,6 +9489,7 @@
         {
           "symbol": "P6mm",
           "description": "standard",
+          "hall": "P 6 -2",
           "reflection_conditions": {}
         }
       ]
@@ -8648,11 +9504,15 @@
         {
           "symbol": "P6cc",
           "description": "standard",
+          "hall": "P 6 -2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
             ],
             "h0l": [
+              "l=2n"
+            ],
+            "hhl": [
               "l=2n"
             ]
           }
@@ -8669,6 +9529,7 @@
         {
           "symbol": "P63cm",
           "description": "standard",
+          "hall": "P 6c -2",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -8690,8 +9551,9 @@
         {
           "symbol": "P63mc",
           "description": "standard",
+          "hall": "P 6c -2c",
           "reflection_conditions": {
-            "00l": [
+            "hhl": [
               "l=2n"
             ]
           }
@@ -8708,6 +9570,7 @@
         {
           "symbol": "P-6m2",
           "description": "standard",
+          "hall": "P -6 2",
           "reflection_conditions": {}
         }
       ]
@@ -8722,6 +9585,7 @@
         {
           "symbol": "P-6c2",
           "description": "standard",
+          "hall": "P -6c 2",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -8743,6 +9607,7 @@
         {
           "symbol": "P-62m",
           "description": "standard",
+          "hall": "P -6 -2",
           "reflection_conditions": {}
         }
       ]
@@ -8757,8 +9622,9 @@
         {
           "symbol": "P-62c",
           "description": "standard",
+          "hall": "P -6c -2c",
           "reflection_conditions": {
-            "00l": [
+            "hhl": [
               "l=2n"
             ]
           }
@@ -8775,6 +9641,7 @@
         {
           "symbol": "P6/mmm",
           "description": "standard",
+          "hall": "-P 6 2",
           "reflection_conditions": {}
         }
       ]
@@ -8789,11 +9656,15 @@
         {
           "symbol": "P6/mcc",
           "description": "standard",
+          "hall": "-P 6 2c",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
             ],
             "h0l": [
+              "l=2n"
+            ],
+            "hhl": [
               "l=2n"
             ]
           }
@@ -8810,6 +9681,7 @@
         {
           "symbol": "P63/mcm",
           "description": "standard",
+          "hall": "-P 6c 2",
           "reflection_conditions": {
             "0kl": [
               "l=2n"
@@ -8831,8 +9703,9 @@
         {
           "symbol": "P63/mmc",
           "description": "standard",
+          "hall": "-P 6c 2c",
           "reflection_conditions": {
-            "00l": [
+            "hhl": [
               "l=2n"
             ]
           }
@@ -8849,6 +9722,7 @@
         {
           "symbol": "P23",
           "description": "standard",
+          "hall": "P 2 2 3",
           "reflection_conditions": {}
         }
       ]
@@ -8863,6 +9737,7 @@
         {
           "symbol": "F23",
           "description": "standard",
+          "hall": "F 2 2 3",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -8877,6 +9752,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         }
@@ -8892,6 +9770,7 @@
         {
           "symbol": "I23",
           "description": "standard",
+          "hall": "I 2 2 3",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -8904,6 +9783,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -8922,6 +9804,7 @@
         {
           "symbol": "P213",
           "description": "standard",
+          "hall": "P 2ac 2ab 3",
           "reflection_conditions": {
             "h00": [
               "h=2n"
@@ -8946,6 +9829,7 @@
         {
           "symbol": "I213",
           "description": "standard",
+          "hall": "I 2b 2c 3",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -8958,6 +9842,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -8976,13 +9863,14 @@
         {
           "symbol": "Pm-3",
           "description": "standard",
+          "hall": "-P 2 2 3",
           "reflection_conditions": {}
         }
       ]
     },
     "201": {
       "number": 201,
-      "standard_symbol": "P n -3 :2",
+      "standard_symbol": "P n -3 :1",
       "crystal_system": "cubic",
       "point_group": "m-3",
       "centrosymmetric": true,
@@ -8990,6 +9878,7 @@
         {
           "symbol": "Pn-3",
           "description": "standard",
+          "hall": "P 2 2 3 -1n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -9008,6 +9897,7 @@
         {
           "symbol": "Pn-3",
           "description": "standard",
+          "hall": "-P 2ab 2bc 3",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -9035,6 +9925,7 @@
         {
           "symbol": "Fm-3",
           "description": "standard",
+          "hall": "-F 2 2 3",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -9049,6 +9940,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         }
@@ -9056,7 +9950,7 @@
     },
     "203": {
       "number": 203,
-      "standard_symbol": "F d -3 :2",
+      "standard_symbol": "F d -3 :1",
       "crystal_system": "cubic",
       "point_group": "m-3",
       "centrosymmetric": true,
@@ -9064,6 +9958,7 @@
         {
           "symbol": "Fd-3",
           "description": "standard",
+          "hall": "F 2 2 3 -1d",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -9071,28 +9966,26 @@
               "k+l=2n"
             ],
             "0kl": [
-              "k=2n"
+              "k+l=4n"
             ],
             "h0l": [
-              "h=2n"
+              "h+l=4n"
             ],
             "hk0": [
-              "h=2n"
+              "h+k=4n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "h00": [
               "h=4n"
-            ],
-            "0k0": [
-              "k=4n"
-            ],
-            "00l": [
-              "l=4n"
             ]
           }
         },
         {
           "symbol": "Fd-3",
           "description": "standard",
+          "hall": "-F 2uv 2vw 3",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -9100,22 +9993,19 @@
               "k+l=2n"
             ],
             "0kl": [
-              "k=2n"
+              "k+l=4n"
             ],
             "h0l": [
-              "h=2n"
+              "h+l=4n"
             ],
             "hk0": [
-              "h=2n"
+              "h+k=4n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "h00": [
               "h=4n"
-            ],
-            "0k0": [
-              "k=4n"
-            ],
-            "00l": [
-              "l=4n"
             ]
           }
         }
@@ -9131,6 +10021,7 @@
         {
           "symbol": "Im-3",
           "description": "standard",
+          "hall": "-I 2 2 3",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -9143,6 +10034,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -9161,6 +10055,7 @@
         {
           "symbol": "Pa-3",
           "description": "standard",
+          "hall": "-P 2ac 2ab 3",
           "reflection_conditions": {
             "0kl": [
               "k=2n"
@@ -9185,6 +10080,7 @@
         {
           "symbol": "Ia-3",
           "description": "standard",
+          "hall": "-I 2b 2c 3",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -9197,6 +10093,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ]
           }
         }
@@ -9212,6 +10111,7 @@
         {
           "symbol": "P432",
           "description": "standard",
+          "hall": "P 4 2 3",
           "reflection_conditions": {}
         }
       ]
@@ -9226,6 +10126,7 @@
         {
           "symbol": "P4232",
           "description": "standard",
+          "hall": "P 4n 2 3",
           "reflection_conditions": {
             "h00": [
               "h=2n"
@@ -9250,6 +10151,7 @@
         {
           "symbol": "F432",
           "description": "standard",
+          "hall": "F 4 2 3",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -9264,6 +10166,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         }
@@ -9279,6 +10184,7 @@
         {
           "symbol": "F4132",
           "description": "standard",
+          "hall": "F 4d 2 3",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -9293,6 +10199,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "h00": [
               "h=4n"
@@ -9317,6 +10226,7 @@
         {
           "symbol": "I432",
           "description": "standard",
+          "hall": "I 4 2 3",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -9329,6 +10239,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -9347,6 +10260,7 @@
         {
           "symbol": "P4332",
           "description": "standard",
+          "hall": "P 4acd 2ab 3",
           "reflection_conditions": {
             "h00": [
               "h=4n"
@@ -9371,6 +10285,7 @@
         {
           "symbol": "P4132",
           "description": "standard",
+          "hall": "P 4bd 2ab 3",
           "reflection_conditions": {
             "h00": [
               "h=4n"
@@ -9395,6 +10310,7 @@
         {
           "symbol": "I4132",
           "description": "standard",
+          "hall": "I 4bd 2c 3",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -9407,6 +10323,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=4n"
@@ -9431,6 +10350,7 @@
         {
           "symbol": "P-43m",
           "description": "standard",
+          "hall": "P -4 2 3",
           "reflection_conditions": {}
         }
       ]
@@ -9445,6 +10365,7 @@
         {
           "symbol": "F-43m",
           "description": "standard",
+          "hall": "F -4 2 3",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -9459,6 +10380,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         }
@@ -9474,6 +10398,7 @@
         {
           "symbol": "I-43m",
           "description": "standard",
+          "hall": "I -4 2 3",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -9486,6 +10411,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -9504,15 +10432,16 @@
         {
           "symbol": "P-43n",
           "description": "standard",
+          "hall": "P -4n 2 3",
           "reflection_conditions": {
+            "hhl": [
+              "l=2n"
+            ],
             "h00": [
               "h=2n"
             ],
             "0k0": [
               "k=2n"
-            ],
-            "00l": [
-              "l=2n"
             ]
           }
         }
@@ -9528,6 +10457,7 @@
         {
           "symbol": "F-43c",
           "description": "standard",
+          "hall": "F -4a 2 3",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -9541,6 +10471,9 @@
               "h=2n"
             ],
             "hk0": [
+              "h=2n"
+            ],
+            "hhl": [
               "h=2n"
             ]
           }
@@ -9557,6 +10490,7 @@
         {
           "symbol": "I-43d",
           "description": "standard",
+          "hall": "I -4bd 2c 3",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -9569,6 +10503,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "2h+l=4n"
             ],
             "h00": [
               "h=4n"
@@ -9593,13 +10530,14 @@
         {
           "symbol": "Pm-3m",
           "description": "standard",
+          "hall": "-P 4 2 3",
           "reflection_conditions": {}
         }
       ]
     },
     "222": {
       "number": 222,
-      "standard_symbol": "P n -3 n :2",
+      "standard_symbol": "P n -3 n :1",
       "crystal_system": "cubic",
       "point_group": "m-3m",
       "centrosymmetric": true,
@@ -9607,6 +10545,7 @@
         {
           "symbol": "Pn-3n",
           "description": "standard",
+          "hall": "P 4 2 3 -1n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -9616,6 +10555,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -9625,6 +10567,7 @@
         {
           "symbol": "Pn-3n",
           "description": "standard",
+          "hall": "-P 4a 2bc 3",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -9634,6 +10577,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -9652,15 +10598,16 @@
         {
           "symbol": "Pm-3n",
           "description": "standard",
+          "hall": "-P 4n 2 3",
           "reflection_conditions": {
+            "hhl": [
+              "l=2n"
+            ],
             "h00": [
               "h=2n"
             ],
             "0k0": [
               "k=2n"
-            ],
-            "00l": [
-              "l=2n"
             ]
           }
         }
@@ -9668,7 +10615,7 @@
     },
     "224": {
       "number": 224,
-      "standard_symbol": "P n -3 m :2",
+      "standard_symbol": "P n -3 m :1",
       "crystal_system": "cubic",
       "point_group": "m-3m",
       "centrosymmetric": true,
@@ -9676,6 +10623,7 @@
         {
           "symbol": "Pn-3m",
           "description": "standard",
+          "hall": "P 4n 2 3 -1n",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -9694,6 +10642,7 @@
         {
           "symbol": "Pn-3m",
           "description": "standard",
+          "hall": "-P 4bc 2bc 3",
           "reflection_conditions": {
             "0kl": [
               "k+l=2n"
@@ -9721,6 +10670,7 @@
         {
           "symbol": "Fm-3m",
           "description": "standard",
+          "hall": "-F 4 2 3",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -9735,6 +10685,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ]
           }
         }
@@ -9750,6 +10703,7 @@
         {
           "symbol": "Fm-3c",
           "description": "standard",
+          "hall": "-F 4a 2 3",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -9763,6 +10717,9 @@
               "h=2n"
             ],
             "hk0": [
+              "h=2n"
+            ],
+            "hhl": [
               "h=2n"
             ]
           }
@@ -9771,7 +10728,7 @@
     },
     "227": {
       "number": 227,
-      "standard_symbol": "F d -3 m :2",
+      "standard_symbol": "F d -3 m :1",
       "crystal_system": "cubic",
       "point_group": "m-3m",
       "centrosymmetric": true,
@@ -9779,6 +10736,7 @@
         {
           "symbol": "Fd-3m",
           "description": "standard",
+          "hall": "F 4d 2 3 -1d",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -9786,28 +10744,26 @@
               "k+l=2n"
             ],
             "0kl": [
-              "k=2n"
+              "k+l=4n"
             ],
             "h0l": [
-              "h=2n"
+              "h+l=4n"
             ],
             "hk0": [
-              "h=2n"
+              "h+k=4n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "h00": [
               "h=4n"
-            ],
-            "0k0": [
-              "k=4n"
-            ],
-            "00l": [
-              "l=4n"
             ]
           }
         },
         {
           "symbol": "Fd-3m",
           "description": "standard",
+          "hall": "-F 4vw 2vw 3",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -9815,22 +10771,19 @@
               "k+l=2n"
             ],
             "0kl": [
-              "k=2n"
+              "k+l=4n"
             ],
             "h0l": [
-              "h=2n"
+              "h+l=4n"
             ],
             "hk0": [
-              "h=2n"
+              "h+k=4n"
+            ],
+            "hhl": [
+              "h+l=2n"
             ],
             "h00": [
               "h=4n"
-            ],
-            "0k0": [
-              "k=4n"
-            ],
-            "00l": [
-              "l=4n"
             ]
           }
         }
@@ -9838,7 +10791,7 @@
     },
     "228": {
       "number": 228,
-      "standard_symbol": "F d -3 c :2",
+      "standard_symbol": "F d -3 c :1",
       "crystal_system": "cubic",
       "point_group": "m-3m",
       "centrosymmetric": true,
@@ -9846,6 +10799,7 @@
         {
           "symbol": "Fd-3c",
           "description": "standard",
+          "hall": "F 4d 2 3 -1ad",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -9853,28 +10807,26 @@
               "k+l=2n"
             ],
             "0kl": [
-              "k=2n"
+              "k+l=4n"
             ],
             "h0l": [
-              "h=2n"
+              "h+l=4n"
             ],
             "hk0": [
+              "h+k=4n"
+            ],
+            "hhl": [
               "h=2n"
             ],
             "h00": [
               "h=4n"
-            ],
-            "0k0": [
-              "k=4n"
-            ],
-            "00l": [
-              "l=4n"
             ]
           }
         },
         {
           "symbol": "Fd-3c",
           "description": "standard",
+          "hall": "-F 4ud 2vw 3",
           "reflection_conditions": {
             "hkl": [
               "h+k=2n",
@@ -9882,22 +10834,19 @@
               "k+l=2n"
             ],
             "0kl": [
-              "k=2n"
+              "k+l=4n"
             ],
             "h0l": [
-              "h=2n"
+              "h+l=4n"
             ],
             "hk0": [
+              "h+k=4n"
+            ],
+            "hhl": [
               "h=2n"
             ],
             "h00": [
               "h=4n"
-            ],
-            "0k0": [
-              "k=4n"
-            ],
-            "00l": [
-              "l=4n"
             ]
           }
         }
@@ -9913,6 +10862,7 @@
         {
           "symbol": "Im-3m",
           "description": "standard",
+          "hall": "-I 4 2 3",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -9925,6 +10875,9 @@
             ],
             "hk0": [
               "h+k=2n"
+            ],
+            "hhl": [
+              "l=2n"
             ],
             "h00": [
               "h=2n"
@@ -9943,6 +10896,7 @@
         {
           "symbol": "Ia-3d",
           "description": "standard",
+          "hall": "-I 4bd 2c 3",
           "reflection_conditions": {
             "hkl": [
               "h+k+l=2n"
@@ -9955,6 +10909,9 @@
             ],
             "hk0": [
               "h=2n"
+            ],
+            "hhl": [
+              "2h+l=4n"
             ],
             "h00": [
               "h=4n"
