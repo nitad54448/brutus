@@ -864,7 +864,7 @@ document.addEventListener('DOMContentLoaded', () => {
    // Function to load space group JSON data, error if not found, ..
     async function loadSpaceGroupData() {
         try {
-            const response = await fetch('space_groups_all_settings.json');
+            const response = await fetch('cctbx_space_groups_all_settings.json');
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
@@ -872,7 +872,7 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log("Space group data (all settings) loaded successfully.");
         } catch (error) {
             console.error("Could not load space group data:", error);
-            showStatus("Warning: Could not load space_groups_all_settings.json. Space group analysis will be disabled.", "error", 8000);
+            showStatus("Warning: Could not load cctbx_space_groups_all_settings.json. Space group analysis will be disabled.", "error", 8000);
         }
     }
     
