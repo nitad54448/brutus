@@ -1004,7 +1004,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const totalTests = peakCombos * hklCombos * 720; // 720 permutations
             statusTextElement.textContent = `Triclinic: ${totalTests.toLocaleString()} cells to test.`;
         } else {
-            statusTextElement.textContent = lastIndexingStats || '';
+            statusTextElement.textContent = '';
         }
     }
     
@@ -1020,7 +1020,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             ui.gpuParamsContainer.classList.add('hidden');
             if (statusTextElement) {
-                statusTextElement.textContent = lastIndexingStats || ''; // Restore last indexing status or clear
+                statusTextElement.textContent = ''; // Restore last indexing status or clear
             }
         }
     }
@@ -1144,6 +1144,9 @@ const getOrthogonalityScore = (cell) => {
     let workingExperimentalData = { tth: [], intensity: [] }; // The data to be plotted and analyzed (raw or stripped)
 
     let pickedPeaks = [];
+    let taskProgress = [];
+    let taskTotals = [];
+    let lastDurationStr = "";
     let solutions = [];
     let displayedSolutions = [];
     let selectedSolution = null;
@@ -2586,7 +2589,8 @@ systemsToSearch.forEach(system => {
     let currentGpuTaskIndex = 0;
     let currentWorkerTaskIndex = 0;
     const totalTasks = workerSystems.length + webgpuSystems.length;
-    let taskProgress = new Array(totalTasks).fill(0); 
+    taskProgress = new Array(totalTasks).fill(0); 
+    taskTotals = new Array(totalTasks).fill(0);
 
     const updateProgressBar = () => {
         if (totalTasks === 0) return;
@@ -2674,6 +2678,8 @@ systemsToSearch.forEach(system => {
                 const absoluteTaskIndex = currentWorkerTaskIndex;
                 currentWorkerTaskIndex++;
 
+                taskTotals[absoluteTaskIndex] = 0;
+
                 const worker = new Worker(workerURL);
                 activeWorkers.push(worker);
 
@@ -2694,8 +2700,13 @@ systemsToSearch.forEach(system => {
                         taskProgress[absoluteTaskIndex] = payload; 
                         updateProgressBar();
                     } else if (type === 'done') {
-                        taskProgress[absoluteTaskIndex] = 100;
-                        updateProgressBar();
+
+                        if (!gpuStopSignal.stop) {
+                            taskProgress[absoluteTaskIndex] = 100;
+                            updateProgressBar();
+                        }
+
+
                         worker.terminate();
                         activeWorkers = activeWorkers.filter(w => w !== worker);
                         workersRemaining--;
@@ -2780,8 +2791,9 @@ systemsToSearch.forEach(system => {
                 const num_hkls = hkl_basis_raw.length;
                 const totalHklCombos = combinations(num_hkls, K_VALUE);
                 
-                // Orthorhombic has 6 permutations (3!)
-                gpuTotalTrials += totalHklCombos * combinations(max_p, 3) * 6;
+                const taskTotalTrials = totalHklCombos * combinations(max_p, 3) * 6; // Local var
+                gpuTotalTrials += taskTotalTrials; 
+                taskTotals[absoluteTaskIndex] = taskTotalTrials;
 
                 // 4. Execution
                 const progressCallback = getGpuProgressCallback('Ortho', absoluteTaskIndex);
@@ -2805,8 +2817,10 @@ systemsToSearch.forEach(system => {
                 console.error("WebGPU Error (Orthorhombic):", err);
                 showStatus(`Ortho GPU Error: ${err.message}`, 'error');
             } finally {
-                taskProgress[absoluteTaskIndex] = 100;
-                updateProgressBar();
+
+                    updateProgressBar();
+                
+
             }
         })(); 
         taskPromises.push(orthoTask);
@@ -2867,8 +2881,12 @@ systemsToSearch.forEach(system => {
                 // 3. Update Global Stats (Estimation)
                 // We recalculate the math here just for the UI "Total Trials" display
                 const num_hkls = hkl_basis_raw.length;
+
                 const totalHklCombos = combinations(num_hkls, K_VALUE);
-                gpuTotalTrials += totalHklCombos * combinations(max_p, 4) * 24;
+                const taskTotalTrials = totalHklCombos * combinations(max_p, 4) * 24; // Local var
+                gpuTotalTrials += taskTotalTrials;
+                taskTotals[absoluteTaskIndex] = taskTotalTrials;
+
 
                 // 4. Setup Callbacks
                 const progressCallback = getGpuProgressCallback('Monoclinic', absoluteTaskIndex);
@@ -2894,8 +2912,9 @@ systemsToSearch.forEach(system => {
                 console.error("WebGPU Error (Monoclinic):", err);
                 showStatus(`Monoclinic GPU Error: ${err.message}`, 'error');
             } finally {
-                taskProgress[absoluteTaskIndex] = 100;
-                updateProgressBar();
+
+                    updateProgressBar();
+                
             }
         })(); 
         taskPromises.push(monoTask);
@@ -2945,7 +2964,11 @@ systemsToSearch.forEach(system => {
                 // 3. Update Global Stats (Estimation)
                 const num_hkls = hkl_basis_raw.length;
                 const totalHklCombos = combinations(num_hkls, K_VALUE);
-                gpuTotalTrials += totalHklCombos * combinations(max_p, 6) * 720;
+
+                const taskTotalTrials = totalHklCombos * combinations(max_p, 6) * 720; // Local var
+                gpuTotalTrials += taskTotalTrials;
+                taskTotals[absoluteTaskIndex] = taskTotalTrials;
+
 
                 // 4. Setup Callbacks
                 const progressCallback = getGpuProgressCallback('Triclinic', absoluteTaskIndex);
@@ -2971,8 +2994,9 @@ systemsToSearch.forEach(system => {
                 console.error("WebGPU Error (Triclinic):", err);
                 showStatus(`Triclinic GPU Error: ${err.message}`, 'error');
             } finally {
-                taskProgress[absoluteTaskIndex] = 100;
-                updateProgressBar();
+                    updateProgressBar();
+                
+
             }
         })();
         taskPromises.push(triTask);
@@ -2985,36 +3009,52 @@ systemsToSearch.forEach(system => {
 };
 
 
+
 const finalizeIndexing = (stoppedByUser = false) => {
     const statusTextElement = document.getElementById('status-text');
 
-    // 1. Calculate Counts
+    // 1. Calculate Duration with seconds
+    const durationMs = performance.now() - indexingStartTime;
+    const durationSec = (durationMs / 1000).toFixed(1);
+    const durationStr = durationMs > 60000 
+        ? `${Math.floor(durationMs/60000)}m ${(durationMs % 60000 / 1000).toFixed(0)}s` 
+        : `${durationSec}s`;
+    lastDurationStr = durationStr; 
+
+    // 2. Calculate Real GPU Trials based on actual progress %
+    let gpuActualTrials = 0;
+    if (taskTotals && taskProgress) {
+        taskTotals.forEach((total, i) => {
+            const progress = taskProgress[i] || 0;
+            gpuActualTrials += total * (progress / 100.0);
+        });
+    }
+
+    // 3. Compile Totals
     const totalCpuTrials = cumulativeTrials; 
-    const totalFinalTrials = totalCpuTrials + gpuTotalTrials; 
-    const fmtTrials = totalFinalTrials.toLocaleString('en-US');
+    const totalActualTrials = totalCpuTrials + gpuActualTrials;
+    const totalMaxTrials = totalCpuTrials + gpuTotalTrials; 
     
-    // 2. Check if a GPU system was actually run
+    const fmtActual = totalActualTrials.toLocaleString('en-US', {maximumFractionDigits: 0});
+    const fmtMax = totalMaxTrials.toLocaleString('en-US', {maximumFractionDigits: 0});
+    
     const isGpuRun = (orthoCheckbox && orthoCheckbox.checked) || 
                      (monoCheckbox && monoCheckbox.checked) || 
                      (triCheckbox && triCheckbox.checked);
 
-    // 3. Construct the Status String for the PDF Report based on mode
+    // 4. Construct Report String
     let finalStatus = "";
-
     if (isGpuRun) {
-        // GPU Mode: Show Max Trials and Settings
         const hklSize = ui.gpuHklTriplets.value;
         const peaksComb = ui.gpuPeaksCount.value;
-        
-        // Note: We use "Max Trials" because Fail-Fast skips many, so this is the search space size
-        finalStatus = `Max Trials: ${fmtTrials}    HKL Basis: ${hklSize}    Peaks Combined: ${peaksComb}`;
+        // Format: Trials: Actual / Max
+        finalStatus = `Trials: ${fmtActual} / ${fmtMax}    Time: ${durationStr}    HKL: ${hklSize}    Peaks: ${peaksComb}`;
     } else {
-        // CPU Mode: Show Exact Count
-        finalStatus = `CPU, trials made: ${fmtTrials}`;
+        finalStatus = `CPU Trials: ${fmtActual}    Time: ${durationStr}`;
     }
 
-    // 4. Store this global variable (used by generatePDFReport)
     lastIndexingStats = finalStatus; 
+    
     
     // Update screen status temporarily
     if (statusTextElement) statusTextElement.textContent = 'Applying final sieve...';
@@ -3499,7 +3539,9 @@ const generatePDFReport = async (singleSolution = null) => {
     
             // header
             const now = new Date();
-            const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+            const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+
             const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 21 nov 2025';
           	const programURL = window.location.href;
             
@@ -3547,7 +3589,8 @@ const generatePDFReport = async (singleSolution = null) => {
   	const presetText = ui.wavelengthPreset.options[ui.wavelengthPreset.selectedIndex].text;
   	const paramData = [
       	{ label: 'Radiation:', value: presetText },
-      	{ label: 'Max Volume (A^3):', value: ui.maxVolume.value },
+//{ label: 'Time Elapsed:', value: lastDurationStr || '-' },      
+	{ label: 'Max Volume (A^3):', value: ui.maxVolume.value },
       	{ label: 'Ka1 Wavelength (A):', value: parseFloat(ui.wavelength.value).toFixed(5) },
       	{ label: 'Tolerance (2theta):', value: ui.tthError.value },
       	{ label: 'Ka2 Stripped:', value: ui.stripKa2Checkbox.checked ? 'True' : 'False' },
@@ -4021,7 +4064,7 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 17 Jan 2026</div>
+<div id="app-footer">Brutus, 18 Jan 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-report">Generate Report</div>
