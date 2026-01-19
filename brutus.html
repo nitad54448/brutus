@@ -3775,9 +3775,23 @@ const generatePDFReport = async (singleSolution = null) => {
     doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Niggli Reduced Cell:', margin, yPos); 
     yPos += 6;
 
+
+
+
+
+ 
+
     try {
         const niggliResult = reduceToNiggliCell(sol);
         const nCell = niggliResult.cell;
+
+        // Calculate Niggli Volume
+        const r = Math.PI / 180.0;
+        const ca = Math.cos(nCell.alpha * r);
+        const cb = Math.cos(nCell.beta * r);
+        const cg = Math.cos(nCell.gamma * r);
+        const term = 1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg;
+        const nVol = (term > 0) ? (nCell.a * nCell.b * nCell.c * Math.sqrt(term)) : 0;
 
         // Define labels and data separately
         const niggliData = [
@@ -3816,9 +3830,16 @@ const generatePDFReport = async (singleSolution = null) => {
         doc.text(niggliData[2].value, col1DataStartX, yPos); // '= 8.xxxx A'
         doc.text(niggliData[5].label, col2LabelEndX, yPos, { align: 'right' }); // 'gamma'
         doc.text(niggliData[5].value, col2DataStartX, yPos); // '= 90.xxx deg'
+        yPos += 4;
+
+        // vol
+        doc.text("Volume", col1LabelEndX, yPos, { align: 'right' }); 
+        doc.text(`= ${nVol.toFixed(2)} A^3`, col1DataStartX, yPos);
         yPos += 5;
 
     } catch (niggliError) {
+
+
         console.error("Niggli reduction failed:", niggliError);
         doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY);
         doc.text('Reduction failed. See console for error.', margin + 5, yPos);
