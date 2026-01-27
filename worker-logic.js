@@ -1105,7 +1105,7 @@ const theoretical_hkls_for_tf = generateHKL_for_worker(sol, q_max, d_min, wavele
         }
         try {
             const system = sol.system;
-            const min_peaks_needed = {cubic: 1, tetragonal: 2, hexagonal: 2, orthorhombic: 3, monoclinic: 4}[system];
+            const min_peaks_needed = {cubic: 1, tetragonal: 2, hexagonal: 2, orthorhombic: 3, monoclinic: 4, triclinic: 6}[system];
             if (!min_peaks_needed || data.peaks.length < min_peaks_needed) return;
 
             // add send wave
@@ -1312,76 +1312,6 @@ function niggliReduceFromCell(cell, opts = {}) {
         iterations: iterations // Now defined
     };
 }
-
-// ==========================================
-// 3. MATH HELPERS
-// ==========================================
-
-function rightMul(B, M) {
-  const out = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-  for (let r = 0; r < 3; r++) 
-      for (let c = 0; c < 3; c++) 
-          for (let k = 0; k < 3; k++) 
-              out[r][c] += B[r][k] * M[k][c]; 
-  return out;
-}
-
-function matMul3(A, B) {
-    const out = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-    for (let r = 0; r < 3; r++) 
-        for (let c = 0; c < 3; c++) 
-            for (let k = 0; k < 3; k++) 
-                out[r][c] += A[r][k] * B[k][c]; 
-    return out;
-}
-
-function I3() { return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]; }
-
-function cellToBasis(a, b, c, alpha, beta, gamma) {
-  const ar = alpha * Math.PI / 180.0, br = beta * Math.PI / 180.0, gr = gamma * Math.PI / 180.0;
-  const ca = Math.cos(ar), cb = Math.cos(br), cg = Math.cos(gr), sg = Math.sin(gr);
-  const ax = a, ay = 0, az = 0;
-  const bx = b * cg, by = b * sg, bz = 0;
-  const cx = c * cb;
-  const cy = (c * ca - cx * cg) / sg;
-  const cz = Math.sqrt(Math.max(0, c*c - cx*cx - cy*cy));
-  return [[ax, bx, cx], [ay, by, cy], [az, bz, cz]];
-}
-
-function basisToCell(B) {
-  const ax = B[0][0], ay = B[1][0], az = B[2][0];
-  const bx = B[0][1], by = B[1][1], bz = B[2][1];
-  const cx = B[0][2], cy = B[1][2], cz = B[2][2];
-  
-  const a = Math.sqrt(ax*ax + ay*ay + az*az);
-  const b = Math.sqrt(bx*bx + by*by + bz*bz);
-  const c = Math.sqrt(cx*cx + cy*cy + cz*cz);
-  
-  const dot_ab = ax*bx + ay*by + az*bz;
-  const dot_ac = ax*cx + ay*cy + az*cz;
-  const dot_bc = bx*cx + by*cy + bz*cz;
-  
-  const clamp = v => Math.max(-1, Math.min(1, v));
-  const alpha = Math.acos(clamp(dot_bc / (b * c))) * 180.0 / Math.PI;
-  const beta = Math.acos(clamp(dot_ac / (a * c))) * 180.0 / Math.PI;
-  const gamma = Math.acos(clamp(dot_ab / (a * b))) * 180.0 / Math.PI;
-  
-  return { a, b, c, alpha, beta, gamma };
-}
-
-function basisToMetric(B) {
-    const dot = (i, j) => B[0][i]*B[0][j] + B[1][i]*B[1][j] + B[2][i]*B[2][j];
-    const G = [ [dot(0,0), dot(0,1), dot(0,2)], [dot(1,0), dot(1,1), dot(1,2)], [dot(2,0), dot(2,1), dot(2,2)] ];
-    return { G, A: G[0][0], B: G[1][1], C: G[2][2], xi: 2*G[1][2], eta: 2*G[0][2], zeta: 2*G[0][1] };
-}
-
-
-
-
-
-
-
-
 
 function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
     const results = { primitiveCells: [], centeredCells: {} };
