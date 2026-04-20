@@ -94,27 +94,42 @@
         .checkbox-label input:disabled + span { opacity: 0.5; cursor: not-allowed; }
         .checkbox-label input:disabled { cursor: not-allowed; }
 
-        /*
-         * System-checkbox variants.
-         * Cubic/Tetragonal/Hexagonal run on a CPU Web Worker (amber left-border).
-         * Orthorhombic/Monoclinic/Triclinic run via the GPU compute pipeline (teal left-border).
-         * Subtle visual cue only; does not affect behavior. Colors chosen to harmonise with
-         * the dark theme and primary blue accent.
+
+        /* * System-checkbox variants (Updated for shorter bars).
+         * Set the container to relative so we can position the new lines inside it.
          */
-        .checkbox-label.system-cpu {
-            border-left: 2px solid #d97706; /* amber-600 */
-            padding-left: 0.45rem;
-        }
+        .checkbox-label.system-cpu,
         .checkbox-label.system-gpu {
-            border-left: 2px solid #0d9488; /* teal-600 */
-            padding-left: 0.45rem;
+            position: relative;
+            padding-left: 0.5rem; /* Standardized padding for both so they align perfectly */
         }
-        /* Fade the category border when the checkbox is disabled, matching the
-         * existing disabled treatment on the label text. */
-        .checkbox-label.system-cpu:has(input:disabled),
-        .checkbox-label.system-gpu:has(input:disabled) {
-            opacity: 0.5;
+
+        /* Create the custom vertical bars */
+        .checkbox-label.system-cpu::before,
+        .checkbox-label.system-gpu::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%); 
+            width: 2px;
+            height: 80%; 
+            border-radius: 2px; 
         }
+
+        .checkbox-label.system-cpu::before {
+            background-color: #0d9488; /* Teal */
+        }
+
+        .checkbox-label.system-gpu::before {
+            background-color: #d97706; /* Amber */
+        }
+
+/* Fades the label if the checkbox is NOT checked */
+.checkbox-label.system-cpu:has(input:not(:checked)),
+.checkbox-label.system-gpu:has(input:not(:checked)) {
+    opacity: 0.6;
+}
 
 
         input[type="checkbox"] {
@@ -566,13 +581,15 @@
         </label>
     </div>
 
-    <label class="control-label" style="margin-top: 1.5rem; margin-bottom: 1rem;">Crystal Systems to Search:</label>
+<label class="control-label" style="margin-top: 1.5rem; margin-bottom: 1rem;">Crystal Systems to Search:</label>
     <div class="parameter-grid">
         <label class="checkbox-label system-cpu"><input type="checkbox" class="system-checkbox" value="cubic"> <span>Cubic</span></label>
-        <label class="checkbox-label system-cpu"><input type="checkbox" class="system-checkbox" value="tetragonal"> <span>Tetragonal</span></label>
-        <label class="checkbox-label system-cpu"><input type="checkbox" class="system-checkbox" value="hexagonal"> <span>Hexagonal</span></label>
         <label class="checkbox-label system-gpu"><input type="checkbox" class="system-checkbox" value="orthorhombic"> <span>Orthorhombic</span></label>
+
+        <label class="checkbox-label system-cpu"><input type="checkbox" class="system-checkbox" value="tetragonal"> <span>Tetragonal</span></label>
         <label class="checkbox-label system-gpu"><input type="checkbox" class="system-checkbox" value="monoclinic"> <span>Monoclinic</span></label>
+
+        <label class="checkbox-label system-cpu"><input type="checkbox" class="system-checkbox" value="hexagonal"> <span>Hexagonal</span></label>
         <label class="checkbox-label system-gpu"><input type="checkbox" class="system-checkbox" value="triclinic"> <span>Triclinic</span></label>
     </div>
 
@@ -1643,8 +1660,9 @@ const setupWorker = () => {
         });
     }
 
-    // Validation 
+    // Validation , added wave, april 20
     const inputsToValidate = [
+        { id: 'wavelength', el: ui.wavelength, default: 1.54056 },
         { id: 'max-volume', el: ui.maxVolume, default: 2000 },
         { id: 'tth-error', el: ui.tthError, default: 0.06 },
         { id: 'impurity-peaks', el: ui.impurityPeaksInput, default: 0 },
