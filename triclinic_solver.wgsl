@@ -438,24 +438,8 @@ fn main(
                 if (idx < config.u_params2.z) {
                     results_list[idx] = cell;
                 }
-                // Debug Log Logic
-                let debug_idx = atomicAdd(&debug_counter, 1u);
-                if (debug_idx < MAX_DEBUG_CELLS) {
-                    let debug_cell_offset = debug_idx * 30u; 
-                    for(var k_log: u32 = 0u; k_log < 6u; k_log = k_log + 1u) {
-                        let log_offset = debug_cell_offset + (k_log * 5u);
-                        let hkl_idx = hkl_indices[k_log]; 
-                        let q_obs_val = q_perm[k_log];
-                        let q_calc = (fit_params[0]*M[k_log*6u+0u] + fit_params[1]*M[k_log*6u+1u] +
-                                      fit_params[2]*M[k_log*6u+2u] + fit_params[3]*M[k_log*6u+3u] +
-                                      fit_params[4]*M[k_log*6u+4u] + fit_params[5]*M[k_log*6u+5u]);
-                        debug_log[log_offset + 0u] = hkl_basis[hkl_idx * 4u + 0u]; 
-                        debug_log[log_offset + 1u] = hkl_basis[hkl_idx * 4u + 1u]; 
-                        debug_log[log_offset + 2u] = hkl_basis[hkl_idx * 4u + 2u]; 
-                        debug_log[log_offset + 3u] = 1.0 / sqrt(q_obs_val); 
-                        debug_log[log_offset + 4u] = 1.0 / sqrt(q_calc);
-                    }
-                }
+                // Debug log removed (was: writes to debug_log[] on every accepted cell,
+                // never read back on the JS side). Same cleanup as ortho had.
                 break; // Stop checking permutations for this combo
             }
         }

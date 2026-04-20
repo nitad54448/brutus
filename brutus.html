@@ -42,7 +42,7 @@
             z-index: 20;
         }
         
-        #drag-handle { width: 6px; cursor: col-resize; background-color: var(--light-bg); flex-shrink: 0; transition: background-color: 0.2s; }
+        #drag-handle { width: 6px; cursor: col-resize; background-color: var(--light-bg); flex-shrink: 0; transition: background-color 0.2s; }
         #drag-handle:hover, #drag-handle:active { background-color: var(--primary-accent); }
         
         #results-area { 
@@ -93,6 +93,28 @@
         .checkbox-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: var(--text-medium); cursor: pointer;}
         .checkbox-label input:disabled + span { opacity: 0.5; cursor: not-allowed; }
         .checkbox-label input:disabled { cursor: not-allowed; }
+
+        /*
+         * System-checkbox variants.
+         * Cubic/Tetragonal/Hexagonal run on a CPU Web Worker (amber left-border).
+         * Orthorhombic/Monoclinic/Triclinic run via the GPU compute pipeline (teal left-border).
+         * Subtle visual cue only; does not affect behavior. Colors chosen to harmonise with
+         * the dark theme and primary blue accent.
+         */
+        .checkbox-label.system-cpu {
+            border-left: 2px solid #d97706; /* amber-600 */
+            padding-left: 0.45rem;
+        }
+        .checkbox-label.system-gpu {
+            border-left: 2px solid #0d9488; /* teal-600 */
+            padding-left: 0.45rem;
+        }
+        /* Fade the category border when the checkbox is disabled, matching the
+         * existing disabled treatment on the label text. */
+        .checkbox-label.system-cpu:has(input:disabled),
+        .checkbox-label.system-gpu:has(input:disabled) {
+            opacity: 0.5;
+        }
 
 
         input[type="checkbox"] {
@@ -158,7 +180,7 @@
         .solutions-table th.sort-desc::after { border-top: 4px solid var(--text-light); }
         .solutions-table td:nth-child(4), .solutions-table td:nth-child(5) { text-align: right; } /* Align Vol and M20 right */
 
-        .solutions-table tbody tr { cursor: pointer; transition: background-color: 0.2s; }
+        .solutions-table tbody tr { cursor: pointer; transition: background-color 0.2s; }
         .solutions-table tbody tr:hover { background-color: var(--light-bg); }
         .solutions-table tbody tr.selected { background-color: var(--primary-accent); color: white;}
 
@@ -194,7 +216,7 @@
         .help-icon {
             display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;
             background-color: var(--border-color); color: var(--text-light); border-radius: 50%;
-            font-weight: bold; font-size: 1rem; cursor: help; transition: background-color: 0.2s;
+            font-weight: bold; font-size: 1rem; cursor: help; transition: background-color 0.2s;
         }
         .help-icon:hover { background-color: #6b7280; }
 
@@ -499,7 +521,7 @@
         </div>
         <div>
             <label for="wavelength" class="control-label">Wavelength (Å)</label>
-            <input type="number" id="wavelength" value="1.54056" step="0.00001" min="0.1" class="control-input" readonly>
+            <input type="number" id="wavelength" value="1.54056" step="0.00001" min="0.1" class="control-input">
         </div>
     </div>
     
@@ -546,12 +568,12 @@
 
     <label class="control-label" style="margin-top: 1.5rem; margin-bottom: 1rem;">Crystal Systems to Search:</label>
     <div class="parameter-grid">
-        <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="cubic"> <span>Cubic</span></label>
-        <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="tetragonal"> <span>Tetragonal</span></label>
-        <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="hexagonal"> <span>Hexagonal</span></label>
-        <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="orthorhombic"> <span>Orthorhombic</span></label>
-        <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="monoclinic"> <span>Monoclinic</span></label>
-        <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="triclinic"> <span>Triclinic</span></label>
+        <label class="checkbox-label system-cpu"><input type="checkbox" class="system-checkbox" value="cubic"> <span>Cubic</span></label>
+        <label class="checkbox-label system-cpu"><input type="checkbox" class="system-checkbox" value="tetragonal"> <span>Tetragonal</span></label>
+        <label class="checkbox-label system-cpu"><input type="checkbox" class="system-checkbox" value="hexagonal"> <span>Hexagonal</span></label>
+        <label class="checkbox-label system-gpu"><input type="checkbox" class="system-checkbox" value="orthorhombic"> <span>Orthorhombic</span></label>
+        <label class="checkbox-label system-gpu"><input type="checkbox" class="system-checkbox" value="monoclinic"> <span>Monoclinic</span></label>
+        <label class="checkbox-label system-gpu"><input type="checkbox" class="system-checkbox" value="triclinic"> <span>Triclinic</span></label>
     </div>
 
     <div id="gpu-params-container" class="control-group hidden" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--light-bg);">
@@ -655,14 +677,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /**
      * Handles changes to the wavelength preset dropdown.
-     * Decouples the *Value* used for indexing from the *Stripping* logic.
+     * The wavelength input is ALWAYS editable; if the user types a value that
+     * doesn't match the currently-selected preset, handleWavelengthValueChange()
+     * below flips the preset to "custom" automatically.
      */
     const handleWavelengthPresetChange = () => {
         const selection = ui.wavelengthPreset.value;
 
         if (selection === 'custom') {
-            // Custom Mode
-            ui.wavelength.readOnly = false;
+            // Custom Mode: we don't overwrite the wavelength value - leave whatever the user typed.
             ui.stripKa2Checkbox.checked = false;
             ui.stripKa2Checkbox.disabled = true;
         } else {
@@ -679,7 +702,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 // 2. Configure Stripping Checkbox (allowed, but independent of value)
-                ui.wavelength.readOnly = true;
                 ui.stripKa2Checkbox.disabled = false;                
             }
         }
@@ -688,6 +710,37 @@ document.addEventListener('DOMContentLoaded', () => {
         debouncedUpdateAndRedraw();
         recalculatePeakValues();
         updatePeakTable();
+    };
+
+    /**
+     * Handles manual edits to the wavelength input field.
+     * If the typed value differs from the currently-selected preset's expected
+     * value, switch the preset dropdown to "custom" and disable Kα2 stripping.
+     * This runs on every keystroke but is cheap.
+     */
+    const handleWavelengthValueChange = () => {
+        const selection = ui.wavelengthPreset.value;
+        if (selection === 'custom') return; // already custom; nothing to do
+
+        const typed = parseFloat(ui.wavelength.value);
+        if (!isFinite(typed)) return; // mid-edit empty field or invalid; wait
+
+        const [element, type] = selection.split('_');
+        const data = WAVELENGTH_PRESETS[element];
+        if (!data) return;
+        const expected = (type === 'ka1') ? data.ka1 : data.ka_avg;
+
+        // Compare rounded to 5 dp, matching the precision at which we set preset values.
+        if (Math.abs(typed - expected) > 5e-6) {
+            ui.wavelengthPreset.value = 'custom';
+            // Switching to custom disables Kα2 stripping because the preset no longer
+            // describes a Kα1/Kα_avg pair.
+            ui.stripKa2Checkbox.checked = false;
+            ui.stripKa2Checkbox.disabled = true;
+            debouncedUpdateAndRedraw();
+            recalculatePeakValues();
+            updatePeakTable();
+        }
     };
 
 
@@ -1138,6 +1191,30 @@ const getOrthogonalityScore = (cell) => {
         return Math.abs(alpha - 90) + Math.abs(beta - 90) + Math.abs(gamma - 90);
     };
 
+    // Safe max for arrays of any length. Math.max(...arr) throws on large arrays
+    // (stack limit ~65k in V8) and is slow even when it works.
+    const maxOfArray = (arr) => {
+        const n = arr.length;
+        if (n === 0) return -Infinity;
+        let m = arr[0];
+        for (let i = 1; i < n; i++) if (arr[i] > m) m = arr[i];
+        return m;
+    };
+
+    // Lightweight perf helper. Usage:
+    //   const end = perfStart('findPeaks');
+    //   ... do work ...
+    //   end();
+    // Logs one line per call to the console. Prefix 'perf' makes them easy to filter.
+    const perfStart = (label) => {
+        const t0 = performance.now();
+        return (extra = '') => {
+            const dt = performance.now() - t0;
+            console.log(`[perf] ${label}: ${dt.toFixed(1)} ms${extra ? ' ' + extra : ''}`);
+            return dt;
+        };
+    };
+
 
     // data, si Ka stripped ou pas, on copie les données
     let fullExperimentalData = { tth: [], intensity: [] }; // The original, unmodified data
@@ -1225,6 +1302,166 @@ const setupWorker = () => {
 
 
     setupWorker(); 
+
+    // ========================================================================
+    // Refinement Worker Pool (batched)
+    // ========================================================================
+    // Parallelises the CPU refinement of GPU-produced candidate cells across N
+    // Web Workers. Each worker loads worker-logic.js plus the refinement-worker.js
+    // shim. The pool exposes:
+    //   - init(sharedState): sends one-time per-run constants to each worker
+    //   - refineBatch(cells): splits an array of cells across workers in round-robin
+    //     slices. Each slice is sent as a single 'refineBatch' postMessage, amortising
+    //     structured-clone overhead across many cells. Returns a Promise that resolves
+    //     once every worker has acked its slice.
+    //   - refine(cell): convenience wrapper around refineBatch([cell]).
+    //   - drain(): resolves once all outstanding batches have completed
+    //   - reset(): clears each worker's dedup map between runs
+    //   - terminate(): kills workers (used on global stop)
+    //
+    // Design notes:
+    //   - Workers dedup internally (own foundSolutionMap). Cross-worker duplicates
+    //     are resolved by applyFinalSieve at end-of-run.
+    //   - Batching: when GPU hands us K cells, we split them evenly across N workers,
+    //     sending N messages instead of K. For K=50 and N=18 that's 18 messages
+    //     instead of 50. For K=50000 total over the run, we go from 50000 messages
+    //     to a few thousand at most.
+    //   - Resolvers are keyed by batch id. Each postMessage creates one pending entry.
+    // ========================================================================
+    class RefinementWorkerPool {
+        constructor(size) {
+            this.size = Math.max(1, size | 0);
+            this.workers = [];
+            this.nextBatchId = 1;
+            this.pendingResolvers = new Map(); // batchId -> resolver
+            this.rrIndex = 0;
+            this._initialised = false;
+        }
+
+        _spawn() {
+            if (this.workers.length > 0) return; // idempotent
+            for (let i = 0; i < this.size; i++) {
+                const w = new Worker('refinement-worker.js');
+                w.onmessage = (e) => this._onMessage(e);
+                w.onerror = (err) => {
+                    console.error(`Refinement worker ${i} error:`, err.message);
+                };
+                this.workers.push(w);
+            }
+        }
+
+        _onMessage(e) {
+            const msg = e.data;
+            if (!msg || !msg.type) return;
+            if (msg.type === 'solution') {
+                // Solution messages arrive as they're found within a batch, before
+                // that batch's 'done' message. handleNewSolution dedups/sorts/updates UI.
+                handleNewSolution(msg.payload);
+            } else if (msg.type === 'done') {
+                // The worker may use batchId (new) or taskId (legacy). We try both.
+                const id = (msg.batchId !== undefined) ? msg.batchId : msg.taskId;
+                const resolve = this.pendingResolvers.get(id);
+                if (resolve) {
+                    this.pendingResolvers.delete(id);
+                    resolve();
+                }
+            }
+        }
+
+        // Send per-run constants to every worker. `shared` is built from the
+        // same data the old synchronous refineGpuCell used to rebuild per-cell.
+        init(shared) {
+            this._spawn();
+            const payload = {
+                type: 'init',
+                baseParams: shared.baseParams,
+                q_obs: shared.q_obs,
+                original_indices: shared.original_indices,
+                tth_obs_rad: shared.tth_obs_rad,
+                peaks_sorted_by_q: shared.peaks_sorted_by_q,
+                N_FOR_M20: shared.N_FOR_M20,
+                min_m20: shared.min_m20,
+                q_max: shared.q_max,
+                d_min: shared.d_min,
+            };
+            for (const w of this.workers) {
+                // postMessage structured-clones the payload. For the modest sizes
+                // here (<100 KB total) this is fine.
+                w.postMessage(payload);
+            }
+            this._initialised = true;
+        }
+
+        reset() {
+            for (const w of this.workers) {
+                w.postMessage({ type: 'reset' });
+            }
+        }
+
+        // Split `cells` across workers round-robin and send one 'refineBatch'
+        // message per worker. Returns a Promise that resolves when every worker
+        // has acknowledged its slice.
+        refineBatch(cells) {
+            if (!this._initialised || this.workers.length === 0 || !cells || cells.length === 0) {
+                return Promise.resolve();
+            }
+            const n = cells.length;
+            const numWorkers = this.workers.length;
+            // Target chunk size: one chunk per worker if there are enough cells,
+            // otherwise as many chunks as there are cells (one per worker, leftover
+            // workers sit idle for this batch — fine, they'll get the next batch).
+            const chunksToSend = Math.min(numWorkers, n);
+            // How many cells per chunk? We distribute the remainder across the first
+            // few chunks so sizes are within 1 of each other.
+            const base = Math.floor(n / chunksToSend);
+            const extra = n % chunksToSend;
+            const promises = [];
+            let offset = 0;
+            for (let c = 0; c < chunksToSend; c++) {
+                const size = base + (c < extra ? 1 : 0);
+                if (size === 0) continue;
+                const slice = cells.slice(offset, offset + size);
+                offset += size;
+                const batchId = this.nextBatchId++;
+                const p = new Promise((resolve) => {
+                    this.pendingResolvers.set(batchId, resolve);
+                });
+                const worker = this.workers[this.rrIndex];
+                this.rrIndex = (this.rrIndex + 1) % numWorkers;
+                worker.postMessage({ type: 'refineBatch', cells: slice, batchId });
+                promises.push(p);
+            }
+            return Promise.all(promises);
+        }
+
+        // Convenience wrapper for single-cell callers.
+        refine(cell) {
+            return this.refineBatch([cell]);
+        }
+
+        // Resolve once all currently-outstanding batches have settled.
+        async drain() {
+            while (this.pendingResolvers.size > 0) {
+                await new Promise(r => setTimeout(r, 10));
+            }
+        }
+
+        terminate() {
+            for (const w of this.workers) {
+                try { w.terminate(); } catch (_) {}
+            }
+            this.workers = [];
+            for (const resolve of this.pendingResolvers.values()) resolve();
+            this.pendingResolvers.clear();
+            this._initialised = false;
+        }
+    }
+
+    // Spawn size: one less than hardware concurrency, to leave a core for UI + GPU
+    // driver. Minimum 1.
+    const REFINE_POOL_SIZE = Math.max(1, (navigator.hardwareConcurrency || 4) - 2);
+    const refinementPool = new RefinementWorkerPool(REFINE_POOL_SIZE);
+    console.log(`[perf] Refinement worker pool: ${REFINE_POOL_SIZE} workers (hardwareConcurrency=${navigator.hardwareConcurrency || 'unknown'})`);
 
     //  systematic absences
     const max_hkl_analysis = 10;
@@ -1382,6 +1619,9 @@ const setupWorker = () => {
 
     // event listeners 
     ui.wavelengthPreset.addEventListener('change', handleWavelengthPresetChange);
+    // Edits to the wavelength input auto-switch the preset to "custom" when the
+    // typed value no longer matches the selected preset.
+    ui.wavelength.addEventListener('input', handleWavelengthValueChange);
 
 
     if (ui.stripKa2Checkbox) {
@@ -1671,6 +1911,7 @@ const setupWorker = () => {
 
         const text = await file.text();
         let parsed;
+        const _perfParseEnd = perfStart('parseFile');
         try {
             parsed = detectAndParseFile(file.name, text);
         } catch (error) {
@@ -1679,6 +1920,7 @@ const setupWorker = () => {
             ui.fileInputLabel.classList.add('error');
             return;
         }
+        _perfParseEnd(`(${parsed && parsed.tth ? parsed.tth.length : 0} points, ${file.name})`);
         
         ui.fileInputLabel.classList.remove('error');
 
@@ -1766,7 +2008,7 @@ const setupWorker = () => {
             // This is a monochromatic, known wavelength from the file
             ui.wavelengthPreset.value = 'custom';
             ui.wavelength.value = parsed.wavelength.toFixed(5);
-            ui.wavelength.readOnly = false; // Allow user to override
+            // (The input is always editable now; no readOnly toggle needed.)
             ui.stripKa2Checkbox.checked = false;
             ui.stripKa2Checkbox.disabled = true;
             showStatus(`Loaded custom wavelength from file: ${parsed.wavelength.toFixed(5)} Å`, 'info');
@@ -1790,7 +2032,7 @@ ui.wavelengthPreset.value = 'Cu_ka1';
         ui.placeholder.style.display = 'none';
         ui.resultsContainer.style.display = 'flex';
         
-        const yMax = Math.max(...workingExperimentalData.intensity) || 1000;
+        const yMax = maxOfArray(workingExperimentalData.intensity) || 1000;
 
         // Initialize chart if not already created
         if (!xrdChart) {
@@ -1848,11 +2090,11 @@ ui.wavelengthPreset.value = 'Cu_ka1';
                 return tth >= min && tth <= max;
             });
             if (visibleIntensities.length > 0) {
-                const yMaxInRange = Math.max(...visibleIntensities);
+                const yMaxInRange = maxOfArray(visibleIntensities);
                 xrdChart.options.scales.y.min = -yMaxInRange * 0.05;
                 xrdChart.options.scales.y.max = yMaxInRange * 1.1;
             } else {
-                const yMax = Math.max(...workingExperimentalData.intensity) || 1000;
+                const yMax = maxOfArray(workingExperimentalData.intensity) || 1000;
                 xrdChart.options.scales.y.min = -yMax * 0.05;
                 xrdChart.options.scales.y.max = yMax * 1.1;
             }
@@ -1941,6 +2183,7 @@ ui.tthMinSlider.addEventListener('input', () => {
     function findPeaks() {
         // Now uses workingExperimentalData
         if (!workingExperimentalData || !workingExperimentalData.intensity || workingExperimentalData.intensity.length < 5) return;
+        const _perfEnd = perfStart('findPeaks');
         
         const { intensity, tth } = workingExperimentalData; const n = tth.length;
         const minTth = parseFloat(ui.tthMinSlider.value) || tth[0];
@@ -1952,7 +2195,7 @@ ui.tthMinSlider.addEventListener('input', () => {
         const backgroundCorrected = intensity.map((y, i) => Math.max(0, y - background[i]));
         const windowSize = Math.max(5, Math.min(11, Math.floor(n / 100)));
         const smoothed = savitzkyGolay(backgroundCorrected, windowSize, 2);
-        const maxCorrectedIntensity = Math.max(...backgroundCorrected) || 1;
+        const maxCorrectedIntensity = maxOfArray(backgroundCorrected) || 1;
         const minAbsoluteHeight = (minHeightPercent / 100) * maxCorrectedIntensity;
         const calculateNoiseLevel = (data) => { const n_s = data.length; if (n_s < 10) return 0; const sample = []; for (let i = 0; i < n_s; i += Math.max(1, Math.floor(n_s / 100))) sample.push(data[i]); sample.sort((a, b) => a - b); const median = sample[Math.floor(sample.length / 2)]; const deviations = sample.map(x => Math.abs(x - median)); deviations.sort((a, b) => a - b); return deviations[Math.floor(deviations.length / 2)] * 1.4826; };
         const adaptiveThreshold = Math.max(minAbsoluteHeight, calculateNoiseLevel(backgroundCorrected) * 3);
@@ -2031,6 +2274,7 @@ if (denominator < -1e-10) {
         const lambda = parseFloat(ui.wavelength.value) || 1.54178;
         pickedPeaks = finalPeaks.slice(0, -1).map(p => { const d = lambda / (2 * Math.sin(p.tth * Math.PI / 360)); return { tth: p.tth, d: d, q: 1 / (d * d) }; });
         updatePeakTable(); updateStartIndexingButtonState();
+        _perfEnd(`(${pickedPeaks.length} peaks, n=${n})`);
     };
 
 
@@ -2239,9 +2483,8 @@ ui.peakListBody.addEventListener('change', (e) => {
                 if (ui.wavelengthPreset.value !== 'custom') {
                     ui.stripKa2Checkbox.disabled = false;
                 }
-                if (ui.wavelengthPreset.value === 'custom') {
-                    ui.wavelength.disabled = false;
-                }
+                // Wavelength input is always editable once data is loaded.
+                ui.wavelength.disabled = false;
             }
         }
     };
@@ -2452,32 +2695,6 @@ let lastThrottleTime = 0;
     }, 250); // 250ms delay
 
 
-//
- /* Calculates combinations C(n, k) = "n choose k"
- * Uses the stable multiplicative formula: (n/1) * ((n-1)/2) * ... * ((n-k+1)/k)
- */
-function combinations(n, k) {
-    if (k < 0 || k > n) {
-        return 0;
-    }
-    if (k === 0 || k === n) {
-        return 1;
-    }
-    // Use the identity C(n, k) == C(n, n-k) for efficiency
-    if (k > n / 2) {
-        k = n - k;
-    }
-    
-    let res = 1;
-    for (let i = 1; i <= k; i++) {
-        // (n - i + 1) is equivalent to (n, n-1, n-2, ...)
-        res = res * (n - i + 1) / i;
-    }
-    
-    return Math.round(res);
-}
-
-
 // In brutus.html
 const startIndexing = async () => { 
     const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
@@ -2611,40 +2828,6 @@ systemsToSearch.forEach(system => {
         };
     };
 
-    // Common refinement helper
-    const refineGpuCell = (cell) => {
-        return new Promise((resolveCellRefine) => {
-            const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(filteredPeaks, baseParams.wavelength);
-            const N_FOR_M20 = Math.min(20, filteredPeaks.length);
-            const min_m20 = 2.0; 
-            const d_min = baseParams.wavelength / (2 * Math.sin(Math.max(...filteredPeaks.map(p => p.tth)) * Math.PI / 360));
-            const q_max = 1 / (d_min * d_min);
-            
-            const cpuRefineState = {
-                q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q,
-                N_FOR_M20, min_m20, q_max, d_min,
-                foundSolutions: solutions, 
-                foundSolutionMap: foundSolutionMap 
-            };
-            
-            refineAndTestSolution(
-                cell, 
-                baseParams, 
-                cpuRefineState,
-              
-              
-              
-(msg) => { 
-    if (msg.type === 'solution') {
-        handleNewSolution(msg.payload); // helper
-    }
-    resolveCellRefine(); 
-}
-
-            ); 
-        });
-    };
-    
     const taskPromises = [];
 
     // GPU 
@@ -2662,6 +2845,26 @@ systemsToSearch.forEach(system => {
             ) + 1e-9;
         }
         qObsArray = new Float32Array(q_obs);
+
+        // Initialize (or re-initialize) the refinement worker pool with the constants
+        // that apply to this whole run. Each worker keeps its own foundSolutionMap;
+        // cross-worker duplicates are resolved by applyFinalSieve at the end of the run.
+        const N_FOR_M20 = Math.min(20, filteredPeaks.length);
+        const maxTthDeg = maxOfArray(filteredPeaks.map(p => p.tth));
+        const d_min = baseParams.wavelength / (2 * Math.sin(maxTthDeg * Math.PI / 360));
+        const q_max = 1 / (d_min * d_min);
+        refinementPool.init({
+            baseParams,
+            q_obs,
+            original_indices,
+            tth_obs_rad,
+            peaks_sorted_by_q,
+            N_FOR_M20,
+            min_m20: 2.0,
+            q_max,
+            d_min,
+        });
+        refinementPool.reset();
     }
 
     // CPU
@@ -2682,6 +2885,7 @@ systemsToSearch.forEach(system => {
 
                 const worker = new Worker(workerURL);
                 activeWorkers.push(worker);
+                const workerT0 = performance.now();
 
                 worker.onmessage = (e) => {
                     const { type, payload } = e.data;
@@ -2706,7 +2910,7 @@ systemsToSearch.forEach(system => {
                             updateProgressBar();
                         }
 
-
+                        console.log(`[perf] CPU worker '${system}': ${(performance.now() - workerT0).toFixed(0)} ms`);
                         worker.terminate();
                         activeWorkers = activeWorkers.filter(w => w !== worker);
                         workersRemaining--;
@@ -2735,271 +2939,203 @@ systemsToSearch.forEach(system => {
     }
     
 
-    // TASK 2: ORTHORHOMBIC (GPU) 
-    if (webgpuSystems.includes('orthorhombic')) {
-        const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
-        currentGpuTaskIndex++;
+    // Unified GPU task factory (replaces the previous three near-identical task blocks
+    // for orthorhombic, monoclinic, and triclinic searches).
+    //
+    // The three systems differ only in:
+    //  - K (number of peaks per trial)
+    //  - the shader file and entry point
+    //  - the engine method that runs the solver
+    //  - the permutation multiplier used for the "total trials" estimate
+    //  - a default for n_peaks_for_combo and n_hkl_for_basis
+    //  - whether HKL basis is split into special (axial) and regular HKLs (ortho, mono do, tri doesn't)
+    //  - the display label for status messages
+    const GPU_SYSTEM_CONFIG = {
+        orthorhombic: {
+            K: 3,
+            label: 'Orthorhombic',
+            shortLabel: 'Ortho',
+            shader: 'ortho_solver.wgsl',
+            entryPoint: 'main_3p',
+            engineMethod: 'runOrthoSolver',
+            permutations: 6,
+            defaultPeaks: 7,
+            defaultHkl: 300,
+            splitSpecialHkls: true,
+        },
+        monoclinic: {
+            K: 4,
+            label: 'Monoclinic',
+            shortLabel: 'Monoclinic',
+            shader: 'monoclinic_solver.wgsl',
+            entryPoint: 'main_4p',
+            engineMethod: 'runMonoclinicSolver',
+            permutations: 24,
+            defaultPeaks: 7,
+            defaultHkl: 100,
+            splitSpecialHkls: true,
+        },
+        triclinic: {
+            K: 6,
+            label: 'Triclinic',
+            shortLabel: 'Triclinic',
+            shader: 'triclinic_solver.wgsl',
+            entryPoint: 'main',
+            engineMethod: 'runTriclinicSolver',
+            permutations: 720,
+            defaultPeaks: 8,
+            defaultHkl: 40,
+            splitSpecialHkls: false,
+        },
+    };
 
-        const orthoTask = (async () => {
-            const K_VALUE = 3;
-            const n_peaks_for_combo = Math.max(K_VALUE, parseInt(ui.gpuPeaksCount.value, 10) || 7);
-            const n_hkl_for_basis = Math.max(K_VALUE * 2, parseInt(ui.gpuHklTriplets.value, 10) || 300);
-
-            if (filteredPeaks.length < K_VALUE) {
-                showStatus(`Ortho search requires at least ${K_VALUE} peaks. Skipping.`, "error");
-                taskProgress[absoluteTaskIndex] = 100; 
-                updateProgressBar();
-                return;
-            } 
-            
-            try {
-                showStatus('Initializing WebGPU for orthorhombic...', 'info');
-                const engine = webgpuEngine; 
-                await engine.loadShader('ortho_solver.wgsl');
-                engine.createPipeline('main_3p');
-                
-                // 1. HKL Basis // do I still need it here ? it is the wgsl, since 19 nov ??
-                let hkl_full = get_hkl_search_list('orthorhombic');
-                const special = []; const regular = [];
-                for (const hkl of hkl_full) {
-                    const [h, k, l] = hkl;
-                    if ((k === 0 && l === 0) || (h === 0 && l === 0) || (h === 0 && k === 0)) {
-                        special.push(hkl);
-                    } else {
-                        regular.push(hkl);
-                    }
+    // Build the HKL basis array. If splitSpecial is true, axial HKLs (two of h,k,l are 0)
+    // are placed at the front of the list before truncation to n_hkl_for_basis.
+    const buildHklBasis = (system, n_hkl_for_basis, splitSpecial) => {
+        const hkl_full = get_hkl_search_list(system);
+        let ordered;
+        if (splitSpecial) {
+            const special = [];
+            const regular = [];
+            for (const hkl of hkl_full) {
+                const [h, k, l] = hkl;
+                if ((k === 0 && l === 0) || (h === 0 && l === 0) || (h === 0 && k === 0)) {
+                    special.push(hkl);
+                } else {
+                    regular.push(hkl);
                 }
-                const hkl_basis_raw = [...special, ...regular].slice(0, n_hkl_for_basis);
-                const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
-                hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
-
-                // 2. Peak Combinations
-                const max_p = Math.min(n_peaks_for_combo, qObsArray.length);
-                if (max_p < K_VALUE) throw new Error(`Not enough peaks.`);
-
-                const peak_combos_raw = [];
-                for (let i=0; i<max_p-2; i++)
-                 for (let j=i+1; j<max_p-1; j++)
-                  for (let k=j+1; k<max_p; k++) {
-                        peak_combos_raw.push(i,j,k);
-                }
-                const peakCombos = new Uint32Array(peak_combos_raw);
-                if (peakCombos.length === 0) throw new Error("Not enough peaks.");
-
-                
-                // 3. Stats
-                const num_hkls = hkl_basis_raw.length;
-                const totalHklCombos = combinations(num_hkls, K_VALUE);
-                
-                const taskTotalTrials = totalHklCombos * combinations(max_p, 3) * 6; // Local var
-                gpuTotalTrials += taskTotalTrials; 
-                taskTotals[absoluteTaskIndex] = taskTotalTrials;
-
-                // 4. Execution
-                const progressCallback = getGpuProgressCallback('Ortho', absoluteTaskIndex);
-                const handleIntermediateResults = (newCells) => {
-                     newCells.forEach(cell => refineGpuCell(cell));
-                };
-
-                const { stoppedEarly } = await engine.runOrthoSolver(
-                    qObsArray, 
-                    hklBasisArray, 
-                    peakCombos, 
-                    null, // Combinadics active
-                    qTolerancesArray,
-                    (p, n) => progressCallback(p, n),
-                    gpuStopSignal, 
-                    baseParams,
-                    handleIntermediateResults
-                );
-                
-            } catch (err) {
-                console.error("WebGPU Error (Orthorhombic):", err);
-                showStatus(`Ortho GPU Error: ${err.message}`, 'error');
-            } finally {
-
-                    updateProgressBar();
-                
-
             }
-        })(); 
-        taskPromises.push(orthoTask);
-    }
+            ordered = [...special, ...regular];
+        } else {
+            ordered = hkl_full;
+        }
+        const hkl_basis_raw = ordered.slice(0, n_hkl_for_basis);
+        const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
+        hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
+        return { hkl_basis_raw, hklBasisArray };
+    };
 
-    // TASK 3: MONOCLINIC (GPU)
-    if (webgpuSystems.includes('monoclinic')) {
-        const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
-        currentGpuTaskIndex++;
+    // Build the peak-combo flat Uint32Array using the already-present createCombinationGenerator.
+    // Previously these were hand-written nested for-loops (3, 4, and 6 levels deep).
+    const buildPeakCombos = (max_p, K) => {
+        const numCombos = combinations(max_p, K);
+        const peakCombos = new Uint32Array(numCombos * K);
+        let offset = 0;
+        for (const combo of createCombinationGenerator(max_p, K)) {
+            peakCombos.set(combo, offset);
+            offset += K;
+        }
+        return peakCombos;
+    };
 
-        const monoTask = (async () => {
-            const K_VALUE = 4;
-            const n_peaks_for_combo = Math.max(K_VALUE, parseInt(ui.gpuPeaksCount.value, 10) || 7);
-            const n_hkl_for_basis = Math.max(K_VALUE * 2, parseInt(ui.gpuHklTriplets.value, 10) || 100);
-            
+    // Create a GPU task for a given system. Returns an async function that can be
+    // invoked to run the task. Returns null if the system isn't configured.
+    const makeGpuTask = (system, absoluteTaskIndex) => {
+        const cfg = GPU_SYSTEM_CONFIG[system];
+        if (!cfg) return null;
+
+        return async () => {
+            const K_VALUE = cfg.K;
+            const n_peaks_for_combo = Math.max(K_VALUE, parseInt(ui.gpuPeaksCount.value, 10) || cfg.defaultPeaks);
+            const n_hkl_for_basis = Math.max(K_VALUE * 2, parseInt(ui.gpuHklTriplets.value, 10) || cfg.defaultHkl);
+
             if (filteredPeaks.length < K_VALUE) {
-                showStatus(`Monoclinic search requires at least ${K_VALUE} peaks. Skipping.`, "error");
+                showStatus(`${cfg.label} search requires at least ${K_VALUE} peaks. Skipping.`, "error");
                 taskProgress[absoluteTaskIndex] = 100;
                 updateProgressBar();
                 return;
-            } 
-            
-            try {
-                showStatus('Initializing WebGPU for monoclinic...', 'info');
-                const engine = webgpuEngine; 
-                await engine.loadShader('monoclinic_solver.wgsl');
-                engine.createPipeline('main_4p');
-            
-                // 1. Prepare HKL Basis
-                // (Generates the list of unique HKLs to test)
-                let hkl_full_mono = get_hkl_search_list('monoclinic');
-                const special_mono = []; const regular_mono = [];
-                for (const hkl of hkl_full_mono) {
-                    const [h, k, l] = hkl;
-                    if ((k === 0 && l === 0) || (h === 0 && l === 0) || (h === 0 && k === 0)) {
-                        special_mono.push(hkl);
-                    } else {
-                        regular_mono.push(hkl);
-                    }
-                }
-                const hkl_basis_raw = [...special_mono, ...regular_mono].slice(0, n_hkl_for_basis);
-                const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
-                hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
-
-                // 2. Prepare Peak Combinations
-                // (CPU side is fine here, N is small compared to HKLs)
-                const max_p = Math.min(n_peaks_for_combo, qObsArray.length);
-                if (max_p < K_VALUE) throw new Error(`Not enough peaks (${max_p}) for 4-peak solve.`);
-
-                const peak_combos_raw = [];
-                for (let i=0; i<max_p-3; i++) for (let j=i+1; j<max_p-2; j++)
-                  for (let k=j+1; k<max_p-1; k++) for (let l=k+1; l<max_p; l++) {
-                        peak_combos_raw.push(i,j,k,l);
-                }
-                const peakCombos = new Uint32Array(peak_combos_raw);
-                if (peakCombos.length === 0) throw new Error("Not enough peaks to generate 4-peak combinations.");
-
-                // 3. Update Global Stats (Estimation)
-                // We recalculate the math here just for the UI "Total Trials" display
-                const num_hkls = hkl_basis_raw.length;
-
-                const totalHklCombos = combinations(num_hkls, K_VALUE);
-                const taskTotalTrials = totalHklCombos * combinations(max_p, 4) * 24; // Local var
-                gpuTotalTrials += taskTotalTrials;
-                taskTotals[absoluteTaskIndex] = taskTotalTrials;
-
-
-                // 4. Setup Callbacks
-                const progressCallback = getGpuProgressCallback('Monoclinic', absoluteTaskIndex);
-                const handleIntermediateResults = (newCells) => {
-                     newCells.forEach(cell => refineGpuCell(cell));
-                };
-
-                // 5. Run Solver (Single Call)
-                // The Engine now handles TDR safety, chunking, and Combinadics internally.
-                const { stoppedEarly } = await engine.runMonoclinicSolver(
-                    qObsArray, 
-                    hklBasisArray, 
-                    peakCombos, 
-                    null, // <--- HKL Combos ignored 
-                    qTolerancesArray,
-                    (p, n) => progressCallback(p, n),
-                    gpuStopSignal, 
-                    baseParams,
-                    handleIntermediateResults 
-                );
-                
-            } catch (err) {
-                console.error("WebGPU Error (Monoclinic):", err);
-                showStatus(`Monoclinic GPU Error: ${err.message}`, 'error');
-            } finally {
-
-                    updateProgressBar();
-                
-            }
-        })(); 
-        taskPromises.push(monoTask);
-    }
-
-// TASK 4: TRICLINIC (GPU)
-    if (webgpuSystems.includes('triclinic')) {
-        const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
-        currentGpuTaskIndex++;
-
-        const triTask = (async () => {
-            const K_VALUE = 6;
-            const n_peaks_for_combo_tri = Math.max(K_VALUE, parseInt(ui.gpuPeaksCount.value, 10) || 8);
-            const n_hkl_for_basis_tri = Math.max(K_VALUE * 2, parseInt(ui.gpuHklTriplets.value, 10) || 40);
-
-            if (filteredPeaks.length < K_VALUE) {
-                 showStatus(`Triclinic search requires at least ${K_VALUE} peaks. Skipping.`, "error");
-                taskProgress[absoluteTaskIndex] = 100; 
-                 updateProgressBar();
-                 return;
             }
 
+            const tGpuStart = performance.now();
+            let cellsDispatchedToRefine = 0;
             try {
-                showStatus('Initializing WebGPU for triclinic...', 'info');
+                showStatus(`Initializing WebGPU for ${cfg.label.toLowerCase()}...`, 'info');
                 const engine = webgpuEngine;
-                await engine.loadShader('triclinic_solver.wgsl');
-                engine.createPipeline('main');
-                
-                // 1. Prepare HKL Basis
-                const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, n_hkl_for_basis_tri);
-                const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
-                hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
+                await engine.loadShader(cfg.shader);
+                engine.createPipeline(cfg.entryPoint);
 
-                // 2. Prepare Peak Combinations (CPU side is fine for peaks, N is small)
-                const max_p = Math.min(n_peaks_for_combo_tri, qObsArray.length);
-                if (max_p < K_VALUE) throw new Error(`Not enough peaks (${max_p}) for 6-peak solve.`);
-                
-                const peak_combos_raw = [];
-                for (let i=0; i<max_p-5; i++) for (let j=i+1; j<max_p-4; j++)
-                for (let k=j+1; k<max_p-3; k++) for (let l=k+1; l<max_p-2; l++)
-                for (let m=l+1; m<max_p-1; m++) for (let n=m+1; n<max_p; n++) {
-                    peak_combos_raw.push(i,j,k,l,m,n);
-                }
-                const peakCombos = new Uint32Array(peak_combos_raw);
-                if (peakCombos.length === 0) throw new Error("Not enough peaks for triclinic 6-peak solve.");
-                
-                // 3. Update Global Stats (Estimation)
+                // 1. HKL basis
+                const { hkl_basis_raw, hklBasisArray } = buildHklBasis(system, n_hkl_for_basis, cfg.splitSpecialHkls);
+
+                // 2. Peak combinations
+                const max_p = Math.min(n_peaks_for_combo, qObsArray.length);
+                if (max_p < K_VALUE) throw new Error(`Not enough peaks (${max_p}) for ${K_VALUE}-peak solve.`);
+                const peakCombos = buildPeakCombos(max_p, K_VALUE);
+                if (peakCombos.length === 0) throw new Error(`Not enough peaks to generate ${K_VALUE}-peak combinations.`);
+
+                // 3. Stats
                 const num_hkls = hkl_basis_raw.length;
                 const totalHklCombos = combinations(num_hkls, K_VALUE);
-
-                const taskTotalTrials = totalHklCombos * combinations(max_p, 6) * 720; // Local var
+                const taskTotalTrials = totalHklCombos * combinations(max_p, K_VALUE) * cfg.permutations;
                 gpuTotalTrials += taskTotalTrials;
                 taskTotals[absoluteTaskIndex] = taskTotalTrials;
 
-
-                // 4. Setup Callbacks
-                const progressCallback = getGpuProgressCallback('Triclinic', absoluteTaskIndex);
-                
+                // 4. Execution
+                const progressCallback = getGpuProgressCallback(cfg.shortLabel, absoluteTaskIndex);
+                // Main-thread dispatch is near-instant now (just postMessage), but we
+                // still need to wait for the worker pool to drain before moving on.
+                // The main metric is `drainMs` below (how long after GPU finishes
+                // that workers are still chewing through the backlog).
+                let dispatchMs = 0;
                 const handleIntermediateResults = (newCells) => {
-                     newCells.forEach(cell => refineGpuCell(cell));
+                    cellsDispatchedToRefine += newCells.length;
+                    const t0 = performance.now();
+                    // Send the whole GPU-chunk's worth of cells as a single batched
+                    // call to the pool. The pool splits across workers round-robin,
+                    // sending at most N messages per batch (N = pool size) regardless
+                    // of how many cells are in the chunk.
+                    refinementPool.refineBatch(newCells);
+                    dispatchMs += performance.now() - t0;
                 };
 
-                // 5. Run Solver (Single call - Engine handles chunking internally)
-                const { stoppedEarly } = await engine.runTriclinicSolver(
-                    qObsArray, 
-                    hklBasisArray, 
-                    peakCombos, 
+                const engineFn = engine[cfg.engineMethod];
+                if (typeof engineFn !== 'function') {
+                    throw new Error(`Engine missing method ${cfg.engineMethod}`);
+                }
+                const tEngineStart = performance.now();
+                await engineFn.call(
+                    engine,
+                    qObsArray,
+                    hklBasisArray,
+                    peakCombos,
                     null,
                     qTolerancesArray,
                     (p, n) => progressCallback(p, n),
-                    gpuStopSignal, 
+                    gpuStopSignal,
                     baseParams,
-                    handleIntermediateResults 
+                    handleIntermediateResults
                 );
-
+                const engineMs = performance.now() - tEngineStart;
+                // Wait for the refinement pool to finish processing the backlog of
+                // cells dispatched during the GPU run. If GPU produced cells faster
+                // than workers could refine, drainMs > 0. If workers kept up, it's ~0.
+                const tDrainStart = performance.now();
+                await refinementPool.drain();
+                const drainMs = performance.now() - tDrainStart;
+                console.log(`[perf]   engineFn('${cfg.label}') wall time: ${engineMs.toFixed(0)} ms`);
+                console.log(`[perf]   dispatch: ${dispatchMs.toFixed(0)} ms  |  pool-drain: ${drainMs.toFixed(0)} ms  |  cells: ${cellsDispatchedToRefine}  |  workers: ${REFINE_POOL_SIZE}`);
             } catch (err) {
-                console.error("WebGPU Error (Triclinic):", err);
-                showStatus(`Triclinic GPU Error: ${err.message}`, 'error');
+                console.error(`WebGPU Error (${cfg.label}):`, err);
+                showStatus(`${cfg.shortLabel} GPU Error: ${err.message}`, 'error');
             } finally {
-                    updateProgressBar();
-                
-
+                const tGpuEnd = performance.now();
+                console.log(`[perf] GPU task '${cfg.label}': ${(tGpuEnd - tGpuStart).toFixed(0)} ms (${cellsDispatchedToRefine} candidate cells refined on CPU)`);
+                updateProgressBar();
             }
-        })();
-        taskPromises.push(triTask);
+        };
+    };
+
+    // Launch one GPU task per selected low-symmetry system.
+    // Iterate in a canonical order (ortho, mono, tri) regardless of the checkbox order,
+    // so task indices remain deterministic and match the prior behavior.
+    const GPU_ORDER = ['orthorhombic', 'monoclinic', 'triclinic'];
+    for (const system of GPU_ORDER) {
+        if (!webgpuSystems.includes(system)) continue;
+        if (!GPU_SYSTEM_CONFIG[system]) continue;
+        const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
+        currentGpuTaskIndex++;
+        const taskFn = makeGpuTask(system, absoluteTaskIndex);
+        if (taskFn) taskPromises.push(taskFn());
     }
 
     // final
@@ -3015,6 +3151,7 @@ const finalizeIndexing = (stoppedByUser = false) => {
 
     // 1. Calculate Duration with seconds
     const durationMs = performance.now() - indexingStartTime;
+    console.log(`[perf] === Total indexing time: ${durationMs.toFixed(0)} ms ===`);
     const durationSec = (durationMs / 1000).toFixed(1);
     const durationStr = durationMs > 60000 
         ? `${Math.floor(durationMs/60000)}m ${(durationMs % 60000 / 1000).toFixed(0)}s` 
@@ -3060,7 +3197,10 @@ const finalizeIndexing = (stoppedByUser = false) => {
     if (statusTextElement) statusTextElement.textContent = 'Applying final sieve...';
     
     // Apply Sieve
+    const _perfSieveEnd = perfStart('applyFinalSieve');
+    const _nBeforeSieve = solutions.length;
     solutions = applyFinalSieve(solutions); 
+    _perfSieveEnd(`(${_nBeforeSieve} -> ${solutions.length})`);
     
     // Space Group Analysis
     if (statusTextElement) statusTextElement.textContent = 'Analyzing space groups...';
@@ -3069,6 +3209,7 @@ const finalizeIndexing = (stoppedByUser = false) => {
     const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
     const filteredPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
 
+    const _perfSgEnd = perfStart('spaceGroupAnalysis');
     if (spaceGroupData) {
         solutions.forEach(sol => {
             sol.analysis = analyzeSystematicAbsences(
@@ -3094,6 +3235,7 @@ const finalizeIndexing = (stoppedByUser = false) => {
             };
         });
     }
+    _perfSgEnd(`(${solutions.length} solutions)`);
                                 
     // Clear status text on screen
     if (statusTextElement) statusTextElement.textContent = '';
@@ -3130,6 +3272,10 @@ const finalizeIndexing = (stoppedByUser = false) => {
             activeWorkers.forEach(w => w.terminate()); 
             activeWorkers = [];
             gpuStopSignal.stop = true;
+
+            // Kill the refinement pool too. Any in-flight cells are dropped.
+            // The pool will be respawned on the next indexing run by init().
+            refinementPool.terminate();
 
             if (typeof resolveWorkerTask === 'function') {
                 console.log("Manually resolving stuck worker task...");
@@ -3280,7 +3426,7 @@ showStatus("Indexing stopped, please wait…", "info", 60000);
         
         // Now uses workingExperimentalData, depuis 22 oct 2025, 
         const experimentalPoints = workingExperimentalData.tth.map((t, i) => ({ x: t, y: Math.max(0, workingExperimentalData.intensity[i]) }));
-        const yMax = Math.max(...workingExperimentalData.intensity) || 1000;
+        const yMax = maxOfArray(workingExperimentalData.intensity) || 1000;
         
         xrdChart = new Chart(ui.chartCanvas, {
             type: 'line',
@@ -3572,9 +3718,16 @@ const generatePDFReport = async (singleSolution = null) => {
   	const canvas = await html2canvas(ui.chartCanvas, { backgroundColor: '#ffffff', scale: 2 });
   	const imgData = canvas.toDataURL('image/png');
   	const imgProps = doc.getImageProperties(imgData);
+  	// Fit the chart image within the remaining page area, preserving aspect ratio.
+  	// Previously only width was constrained, which clipped tall canvases at the bottom.
   	const availableWidth = pdfWidth - 2 * margin;
-  	let imgHeight = (imgProps.height * availableWidth) / imgProps.width;
-  	doc.addImage(imgData, 'PNG', margin, yPos, availableWidth, imgHeight);
+  	const pdfHeight = doc.internal.pageSize.getHeight();
+  	const availableHeight = pdfHeight - yPos - margin - 5; // 5 mm bottom breathing room
+  	const scale = Math.min(availableWidth / imgProps.width, availableHeight / imgProps.height);
+  	const drawWidth = imgProps.width * scale;
+  	const drawHeight = imgProps.height * scale;
+  	const drawX = margin + (availableWidth - drawWidth) / 2; // center horizontally
+  	doc.addImage(imgData, 'PNG', drawX, yPos, drawWidth, drawHeight);
     
   	// Parameters
   	doc.addPage();
@@ -4085,7 +4238,7 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 18 Jan 2026</div>
+<div id="app-footer">Brutus, 20 April 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-report">Generate Report</div>

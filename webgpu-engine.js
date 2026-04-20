@@ -126,19 +126,64 @@ class WebGPUEngine {
         return table;
     }
 
-    // 8. runMonoclinicSolver
-    async runMonoclinicSolver(qObsArray, hklBasisArray, peakCombos, hklCombos, qTolerancesArray, progressCallback, stopSignal, baseParams, onIntermediateResults = null) {
+    // === Unified Solver (replaces runOrthoSolver / runMonoclinicSolver / runTriclinicSolver) ===
+    //
+    // Per-system configuration table. Each entry describes the differences between the three
+    // previously-near-identical solver methods. `parseCell` reads one cell from the flat
+    // f32 array returned by the GPU and produces the JS object the refinement path expects.
+    //
+    // Previously these three methods were ~100 lines each with ~5 small differences. Now
+    // they are thin wrappers around `_runSolver(cfg, ...)`.
+    static SYSTEM_CONFIGS = {
+        orthorhombic: {
+            K: 3,
+            structFloats: 4,                // 4 f32 per cell (a, b, c, pad) = 16 bytes
+            peakComboStride: 3,
+            workgroupX: 8,
+            workgroupY: 8,
+            maxThreadsPerDispatch: 500_000,
+            systemName: 'orthorhombic',
+            parseCell: (r, off) => ({ a: r[off+0], b: r[off+1], c: r[off+2], system: 'orthorhombic' }),
+        },
+        monoclinic: {
+            K: 4,
+            structFloats: 4,                // 4 f32 per cell (a, b, c, beta) = 16 bytes
+            peakComboStride: 4,
+            workgroupX: 8,
+            workgroupY: 8,
+            maxThreadsPerDispatch: 500_000,
+            systemName: 'monoclinic',
+            parseCell: (r, off) => ({ a: r[off+0], b: r[off+1], c: r[off+2], beta: r[off+3], system: 'monoclinic' }),
+        },
+        triclinic: {
+            K: 6,
+            structFloats: 8,                // 8 f32 per cell (a,b,c,alpha,beta,gamma,pad,pad) = 32 bytes
+            peakComboStride: 6,
+            workgroupX: 4,                  // Triclinic: more work per thread -> smaller groups
+            workgroupY: 4,
+            maxThreadsPerDispatch: 50_000,  // Triclinic: TDR protection
+            systemName: 'triclinic',
+            parseCell: (r, off) => ({
+                a: r[off+0], b: r[off+1], c: r[off+2],
+                alpha: r[off+3], beta: r[off+4], gamma: r[off+5],
+                system: 'triclinic',
+            }),
+        },
+    };
+
+    async _runSolver(cfg, qObsArray, hklBasisArray, peakCombos, hklCombos, qTolerancesArray,
+                     progressCallback, stopSignal, baseParams, onIntermediateResults = null) {
         if (!this.pipeline) throw new Error("Pipeline not created.");
 
-        const K_VALUE = 4;
+        const K_VALUE = cfg.K;
         const n_hkls = hklBasisArray.length / 4;
         const binomialData = this.generateBinomialTable(n_hkls, K_VALUE);
         const binomialBuffer = this.createBuffer(binomialData, GPUBufferUsage.STORAGE);
         const totalHklCombos = binomialData[n_hkls * (K_VALUE + 1) + K_VALUE];
 
-        const maxSolutions = baseParams.max_solutions || 20000; 
-        const solutionStructSize = 4 * 4; // 16 bytes
-        
+        const maxSolutions = baseParams.max_solutions || 20000;
+        const solutionStructSize = cfg.structFloats * 4; // bytes per cell
+
         const qObsBuffer = this.createBuffer(qObsArray, GPUBufferUsage.STORAGE);
         const hklBasisBuffer = this.createBuffer(hklBasisArray, GPUBufferUsage.STORAGE);
         const peakCombosBuffer = this.createBuffer(peakCombos, GPUBufferUsage.STORAGE);
@@ -149,12 +194,17 @@ class WebGPUEngine {
         const counterReadBuffer = this.createReadBuffer(4);
         const resultsReadBuffer = this.createReadBuffer(maxSolutions * solutionStructSize);
 
+        // Debug buffers: still created and bound because the shader declares the bindings,
+        // but nothing is ever written to debug_log on the hot path (see shaders). These are
+        // effectively no-ops and we never read them back.
         const debugCounterBuffer = this.createStorageBuffer(4);
-        const debugLogBuffer = this.createStorageBuffer(10 * 25 * 4); // Mono debug size
+        const debugLogBuffer = this.createStorageBuffer(32 * 32 * 4); // Generous for any system
 
-        // Config Buffer
-        const configBufferSize = 48; 
-        const configBuffer = this.device.createBuffer({ size: configBufferSize, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        const configBufferSize = 48;
+        const configBuffer = this.device.createBuffer({
+            size: configBufferSize,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        });
         const configData = new ArrayBuffer(configBufferSize);
         const configViewU32 = new Uint32Array(configData);
         const configViewF32 = new Float32Array(configData);
@@ -163,15 +213,23 @@ class WebGPUEngine {
         const targetFomCount = Math.max(10, userPeaksSetting);
         const finalFomCount = Math.min(qObsArray.length, targetFomCount);
 
-        configViewU32[0] = 0; configViewU32[1] = baseParams.impurity_peaks; configViewU32[2] = finalFomCount; configViewU32[3] = hklBasisArray.length / 4;
-        configViewU32[4] = hklBasisArray.length / 4; configViewU32[5] = totalHklCombos; configViewU32[6] = baseParams.max_solutions; configViewU32[7] = 0;
-        configViewF32[8] = baseParams.wavelength; configViewF32[9] = baseParams.tth_error; configViewF32[10] = baseParams.max_volume; configViewF32[11] = baseParams.fom_threshold;
+        configViewU32[0] = 0;                                   // z_offset (overwritten per chunk)
+        configViewU32[1] = baseParams.impurity_peaks;
+        configViewU32[2] = finalFomCount;
+        configViewU32[3] = hklBasisArray.length / 4;
+        configViewU32[4] = hklBasisArray.length / 4;
+        configViewU32[5] = totalHklCombos;
+        configViewU32[6] = maxSolutions;                         // FIXED: use resolved maxSolutions, not raw baseParams.max_solutions
+        configViewU32[7] = 0;
+        configViewF32[8] = baseParams.wavelength;
+        configViewF32[9] = baseParams.tth_error;
+        configViewF32[10] = baseParams.max_volume;
+        configViewF32[11] = baseParams.fom_threshold;
 
         this.device.queue.writeBuffer(configBuffer, 0, configData);
 
-        // Explicit Bind Group using this.bindGroupLayout
         const bindGroup = this.device.createBindGroup({
-            layout: this.bindGroupLayout, 
+            layout: this.bindGroupLayout,
             entries: [
                 { binding: 0, resource: { buffer: qObsBuffer } },
                 { binding: 1, resource: { buffer: hklBasisBuffer } },
@@ -186,281 +244,25 @@ class WebGPUEngine {
             ],
         });
 
-        // Execution Logic (TDR Safe)
-        const numPeakCombos = peakCombos.length / 4;
-        const MAX_THREADS_PER_DISPATCH = 500_000; 
-        const maxHklPerDispatch = Math.floor(MAX_THREADS_PER_DISPATCH / Math.max(1, numPeakCombos));
-        const WORKGROUP_SIZE_Y = 8; 
-        let safeWorkgroupsY = Math.ceil(maxHklPerDispatch / WORKGROUP_SIZE_Y);
-        safeWorkgroupsY = Math.max(1, Math.min(safeWorkgroupsY, 16383)); 
-        const hklsPerChunk = safeWorkgroupsY * WORKGROUP_SIZE_Y;
-        const workgroupsX = Math.ceil(numPeakCombos / 8); 
-        const totalChunks = Math.ceil(totalHklCombos / hklsPerChunk);
-
-        let solutionsReadCount = 0;
-        let stoppedEarly = false;
-
-        for (let i = 0; i < totalChunks; i++) {
-            if (stopSignal.stop) break;
-            await new Promise(r => setTimeout(r, 0));
-
-            configViewU32[0] = i * hklsPerChunk; // Update z_offset
-            this.device.queue.writeBuffer(configBuffer, 0, configData);
-
-            const commandEncoder = this.device.createCommandEncoder();
-            const passEncoder = commandEncoder.beginComputePass();
-            passEncoder.setPipeline(this.pipeline);
-            passEncoder.setBindGroup(0, bindGroup);
-            passEncoder.dispatchWorkgroups(workgroupsX, safeWorkgroupsY, 1);
-            passEncoder.end();
-            
-            commandEncoder.copyBufferToBuffer(counterBuffer, 0, counterReadBuffer, 0, 4);
-            commandEncoder.copyBufferToBuffer(resultsBuffer, 0, resultsReadBuffer, 0, resultsBuffer.size);
-            
-            this.device.queue.submit([commandEncoder.finish()]);
-            await this.device.queue.onSubmittedWorkDone();
-
-            await counterReadBuffer.mapAsync(GPUMapMode.READ);
-            const numSolutions = new Uint32Array(counterReadBuffer.getMappedRange())[0];
-            counterReadBuffer.unmap();
-
-            if (numSolutions > solutionsReadCount) {
-                await resultsReadBuffer.mapAsync(GPUMapMode.READ);
-                const rawResults = new Float32Array(resultsReadBuffer.getMappedRange());
-                const newBatch = [];
-                const countToRead = Math.min(numSolutions, maxSolutions);
-
-                for (let k = solutionsReadCount; k < countToRead; k++) {
-                    const offset = k * 4;
-                    newBatch.push({
-                        a: rawResults[offset + 0],
-                        b: rawResults[offset + 1],
-                        c: rawResults[offset + 2],
-                        beta: rawResults[offset + 3],
-                        system: 'monoclinic',
-                    });
-                }
-                resultsReadBuffer.unmap();
-                solutionsReadCount = countToRead;
-                if (onIntermediateResults && newBatch.length > 0) onIntermediateResults(newBatch);
-            }
-
-            if (numSolutions >= maxSolutions) { stoppedEarly = true; break; }
-            if (progressCallback) progressCallback((i + 1) / totalChunks, numSolutions);
-        }
-
-        qObsBuffer.destroy(); hklBasisBuffer.destroy(); peakCombosBuffer.destroy(); binomialBuffer.destroy();
-        counterBuffer.destroy(); resultsBuffer.destroy(); counterReadBuffer.destroy(); resultsReadBuffer.destroy();
-        configBuffer.destroy(); debugCounterBuffer.destroy(); debugLogBuffer.destroy(); qTolerancesBuffer.destroy();
-
-        return { potentialCells: [], stoppedEarly };
-    }
-
-    // 7. runTriclinicSolver
-    async runTriclinicSolver(qObsArray, hklBasisArray, peakCombos, hklCombos, qTolerancesArray, progressCallback, stopSignal, baseParams, onIntermediateResults = null) {
-        if (!this.pipeline) throw new Error("Pipeline not created.");
-
-        const K_VALUE = 6;
-        const n_hkls = hklBasisArray.length / 4; 
-        const binomialData = this.generateBinomialTable(n_hkls, K_VALUE);
-        const binomialBuffer = this.createBuffer(binomialData, GPUBufferUsage.STORAGE);
-        const totalHklCombos = binomialData[n_hkls * (K_VALUE + 1) + K_VALUE];
-
-        const maxSolutions = baseParams.max_solutions || 20000;
-        const solutionStructSize = 8 * 4; // 32 bytes
-        
-        const qObsBuffer = this.createBuffer(qObsArray, GPUBufferUsage.STORAGE);
-        const hklBasisBuffer = this.createBuffer(hklBasisArray, GPUBufferUsage.STORAGE);
-        const peakCombosBuffer = this.createBuffer(peakCombos, GPUBufferUsage.STORAGE);
-        const qTolerancesBuffer = this.createBuffer(qTolerancesArray, GPUBufferUsage.STORAGE);
-
-        const counterBuffer = this.createStorageBuffer(4);
-        const resultsBuffer = this.createStorageBuffer(maxSolutions * solutionStructSize);
-        const counterReadBuffer = this.createReadBuffer(4);
-        const resultsReadBuffer = this.createReadBuffer(maxSolutions * solutionStructSize);
-        
-        const debugCounterBuffer = this.createStorageBuffer(4);
-        const debugLogBuffer = this.createStorageBuffer(10 * 30 * 4); // Tri debug size
-
-        const configBufferSize = 48; 
-        const configBuffer = this.device.createBuffer({ size: configBufferSize, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-        const configData = new ArrayBuffer(configBufferSize);
-        const configViewU32 = new Uint32Array(configData);
-        const configViewF32 = new Float32Array(configData);
-
-        const userPeaksSetting = baseParams.gpu_peaks_count || 6;
-        const targetFomCount = Math.max(10, userPeaksSetting);
-        const finalFomCount = Math.min(qObsArray.length, targetFomCount);
-
-        configViewU32[0] = 0; configViewU32[1] = baseParams.impurity_peaks; configViewU32[2] = finalFomCount; configViewU32[3] = hklBasisArray.length / 4;
-        configViewU32[4] = hklBasisArray.length / 4; configViewU32[5] = totalHklCombos; configViewU32[6] = baseParams.max_solutions; configViewU32[7] = 0;
-        configViewF32[8] = baseParams.wavelength; configViewF32[9] = baseParams.tth_error; configViewF32[10] = baseParams.max_volume; configViewF32[11] = baseParams.fom_threshold;
-
-        this.device.queue.writeBuffer(configBuffer, 0, configData);
-
-        const bindGroup = this.device.createBindGroup({
-            layout: this.bindGroupLayout, // Explicit
-            entries: [
-                { binding: 0, resource: { buffer: qObsBuffer } },
-                { binding: 1, resource: { buffer: hklBasisBuffer } },
-                { binding: 2, resource: { buffer: peakCombosBuffer } },
-                { binding: 3, resource: { buffer: binomialBuffer } },
-                { binding: 4, resource: { buffer: counterBuffer } },
-                { binding: 5, resource: { buffer: resultsBuffer } },
-                { binding: 6, resource: { buffer: configBuffer } },
-                { binding: 7, resource: { buffer: debugCounterBuffer } },
-                { binding: 8, resource: { buffer: debugLogBuffer } },
-                { binding: 9, resource: { buffer: qTolerancesBuffer } },
-            ],
-        });
-
-        const numPeakCombos = peakCombos.length / 6;
-        const MAX_THREADS_PER_DISPATCH = 50_000; 
-        const maxHklPerDispatch = Math.floor(MAX_THREADS_PER_DISPATCH / Math.max(1, numPeakCombos));
-        const WORKGROUP_SIZE_Y = 4;
-        let safeWorkgroupsY = Math.ceil(maxHklPerDispatch / WORKGROUP_SIZE_Y);
-        safeWorkgroupsY = Math.max(1, Math.min(safeWorkgroupsY, 16383)); 
-        const hklsPerChunk = safeWorkgroupsY * WORKGROUP_SIZE_Y;
-        const workgroupsX = Math.ceil(numPeakCombos / 4); 
-        const totalChunks = Math.ceil(totalHklCombos / hklsPerChunk);
-
-        let solutionsReadCount = 0;
-        let stoppedEarly = false;
-
-        for (let i = 0; i < totalChunks; i++) {
-            if (stopSignal.stop) break;
-            await new Promise(r => setTimeout(r, 0));
-
-            configViewU32[0] = i * hklsPerChunk; 
-            this.device.queue.writeBuffer(configBuffer, 0, configData);
-
-            const commandEncoder = this.device.createCommandEncoder();
-            const passEncoder = commandEncoder.beginComputePass();
-            passEncoder.setPipeline(this.pipeline);
-            passEncoder.setBindGroup(0, bindGroup);
-            passEncoder.dispatchWorkgroups(workgroupsX, safeWorkgroupsY, 1); 
-            passEncoder.end();
-
-            commandEncoder.copyBufferToBuffer(counterBuffer, 0, counterReadBuffer, 0, 4);
-            commandEncoder.copyBufferToBuffer(resultsBuffer, 0, resultsReadBuffer, 0, resultsBuffer.size);
-            
-            this.device.queue.submit([commandEncoder.finish()]);
-            await this.device.queue.onSubmittedWorkDone();
-
-             await counterReadBuffer.mapAsync(GPUMapMode.READ);
-             const numSolutions = new Uint32Array(counterReadBuffer.getMappedRange())[0];
-             counterReadBuffer.unmap();
-
-             if (numSolutions > solutionsReadCount) {
-                await resultsReadBuffer.mapAsync(GPUMapMode.READ);
-                const rawResults = new Float32Array(resultsReadBuffer.getMappedRange());
-                const newBatch = [];
-                const countToRead = Math.min(numSolutions, maxSolutions);
-                
-                for(let k=solutionsReadCount; k<countToRead; k++) {
-                     const offset = k * 8;
-                     newBatch.push({
-                        a: rawResults[offset+0],
-                        b: rawResults[offset+1],
-                        c: rawResults[offset+2],
-                        alpha: rawResults[offset+3],
-                        beta: rawResults[offset+4],
-                        gamma: rawResults[offset+5],
-                         system: 'triclinic'
-                     });
-                }
-                resultsReadBuffer.unmap();
-                solutionsReadCount = countToRead;
-                if (onIntermediateResults && newBatch.length > 0) onIntermediateResults(newBatch);
-             }
-            
-            if (numSolutions >= maxSolutions) { stoppedEarly = true; break; }
-            if (progressCallback) progressCallback((i + 1) / totalChunks, numSolutions);
-        }
-
-        qObsBuffer.destroy(); hklBasisBuffer.destroy(); peakCombosBuffer.destroy(); binomialBuffer.destroy();
-        counterBuffer.destroy(); resultsBuffer.destroy(); counterReadBuffer.destroy(); resultsReadBuffer.destroy();
-        configBuffer.destroy(); debugCounterBuffer.destroy(); debugLogBuffer.destroy(); qTolerancesBuffer.destroy();
-
-        return { potentialCells: [], stoppedEarly };
-    }
-
-    // 9. runOrthoSolver
-    async runOrthoSolver(qObsArray, hklBasisArray, peakCombos, hklCombos, qTolerancesArray, progressCallback, stopSignal, baseParams, onIntermediateResults = null) {
-        if (!this.pipeline) throw new Error("Pipeline not created.");
-
-        const K_VALUE = 3;
-        const n_hkls = hklBasisArray.length / 4;
-        const binomialData = this.generateBinomialTable(n_hkls, K_VALUE);
-        const binomialBuffer = this.createBuffer(binomialData, GPUBufferUsage.STORAGE);
-        const totalHklCombos = binomialData[n_hkls * (K_VALUE + 1) + K_VALUE];
-
-        const maxSolutions = baseParams.max_solutions || 20000;
-        const solutionStructSize = 4 * 4; // 16 bytes
-        
-        const qObsBuffer = this.createBuffer(qObsArray, GPUBufferUsage.STORAGE);
-        const hklBasisBuffer = this.createBuffer(hklBasisArray, GPUBufferUsage.STORAGE);
-        const peakCombosBuffer = this.createBuffer(peakCombos, GPUBufferUsage.STORAGE);
-        const qTolerancesBuffer = this.createBuffer(qTolerancesArray, GPUBufferUsage.STORAGE);
-
-        const counterBuffer = this.createStorageBuffer(4);
-        const resultsBuffer = this.createStorageBuffer(maxSolutions * solutionStructSize);
-        const counterReadBuffer = this.createReadBuffer(4);
-        const resultsReadBuffer = this.createReadBuffer(maxSolutions * solutionStructSize);
-
-        const debugCounterBuffer = this.createStorageBuffer(4);
-        const debugLogBuffer = this.createStorageBuffer(10 * 20 * 4); // Ortho debug size
-
-        const configBufferSize = 48; 
-        const configBuffer = this.device.createBuffer({ size: configBufferSize, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-        const configData = new ArrayBuffer(configBufferSize);
-        const configViewU32 = new Uint32Array(configData);
-        const configViewF32 = new Float32Array(configData);
-
-        const userPeaksSetting = baseParams.gpu_peaks_count || 7;
-        const targetFomCount = Math.max(10, userPeaksSetting);
-        const finalFomCount = Math.min(qObsArray.length, targetFomCount);
-
-        configViewU32[0] = 0; configViewU32[1] = baseParams.impurity_peaks; configViewU32[2] = finalFomCount; configViewU32[3] = hklBasisArray.length / 4;
-        configViewU32[4] = hklBasisArray.length / 4; configViewU32[5] = totalHklCombos; configViewU32[6] = baseParams.max_solutions; configViewU32[7] = 0;
-        configViewF32[8] = baseParams.wavelength; configViewF32[9] = baseParams.tth_error; configViewF32[10] = baseParams.max_volume; configViewF32[11] = baseParams.fom_threshold;
-
-        this.device.queue.writeBuffer(configBuffer, 0, configData);
-
-        const bindGroup = this.device.createBindGroup({
-            layout: this.bindGroupLayout, // Explicit
-            entries: [
-                { binding: 0, resource: { buffer: qObsBuffer } },
-                { binding: 1, resource: { buffer: hklBasisBuffer } },
-                { binding: 2, resource: { buffer: peakCombosBuffer } },
-                { binding: 3, resource: { buffer: binomialBuffer } },
-                { binding: 4, resource: { buffer: counterBuffer } },
-                { binding: 5, resource: { buffer: resultsBuffer } },
-                { binding: 6, resource: { buffer: configBuffer } },
-                { binding: 7, resource: { buffer: debugCounterBuffer } },
-                { binding: 8, resource: { buffer: debugLogBuffer } },
-                { binding: 9, resource: { buffer: qTolerancesBuffer } },
-            ],
-        });
-
-        const numPeakCombos = peakCombos.length / 3;
-        const MAX_THREADS_PER_DISPATCH = 500_000; 
-        const maxHklPerDispatch = Math.floor(MAX_THREADS_PER_DISPATCH / Math.max(1, numPeakCombos));
-        const WORKGROUP_SIZE_Y = 8; 
-        let safeWorkgroupsY = Math.ceil(maxHklPerDispatch / WORKGROUP_SIZE_Y);
+        const numPeakCombos = peakCombos.length / cfg.peakComboStride;
+        const maxHklPerDispatch = Math.floor(cfg.maxThreadsPerDispatch / Math.max(1, numPeakCombos));
+        let safeWorkgroupsY = Math.ceil(maxHklPerDispatch / cfg.workgroupY);
         safeWorkgroupsY = Math.max(1, Math.min(safeWorkgroupsY, 16383));
-        const hklsPerChunk = safeWorkgroupsY * WORKGROUP_SIZE_Y;
-        const workgroupsX = Math.ceil(numPeakCombos / 8); 
+        const hklsPerChunk = safeWorkgroupsY * cfg.workgroupY;
+        const workgroupsX = Math.ceil(numPeakCombos / cfg.workgroupX);
         const totalChunks = Math.ceil(totalHklCombos / hklsPerChunk);
 
         let solutionsReadCount = 0;
         let stoppedEarly = false;
 
+        // Byte alignment for copyBufferToBuffer: WebGPU requires size to be a multiple of 4.
+        // One cell is already a multiple of 4 bytes (4 or 8 f32s), so any count*structSize is safe.
+
         for (let i = 0; i < totalChunks; i++) {
             if (stopSignal.stop) break;
             await new Promise(r => setTimeout(r, 0));
-            
-            configViewU32[0] = i * hklsPerChunk; 
+
+            configViewU32[0] = i * hklsPerChunk;
             this.device.queue.writeBuffer(configBuffer, 0, configData);
 
             const commandEncoder = this.device.createCommandEncoder();
@@ -469,10 +271,10 @@ class WebGPUEngine {
             passEncoder.setBindGroup(0, bindGroup);
             passEncoder.dispatchWorkgroups(workgroupsX, safeWorkgroupsY, 1);
             passEncoder.end();
-            
+
+            // Copy only the counter this chunk. We will decide how many result bytes to
+            // copy once we know the counter value.
             commandEncoder.copyBufferToBuffer(counterBuffer, 0, counterReadBuffer, 0, 4);
-            commandEncoder.copyBufferToBuffer(resultsBuffer, 0, resultsReadBuffer, 0, resultsBuffer.size);
-            
             this.device.queue.submit([commandEncoder.finish()]);
             await this.device.queue.onSubmittedWorkDone();
 
@@ -480,20 +282,24 @@ class WebGPUEngine {
             const numSolutions = new Uint32Array(counterReadBuffer.getMappedRange())[0];
             counterReadBuffer.unmap();
 
+            // SMART BUFFER COPY: only copy back the cells that were actually written.
+            // Previously the engine copied resultsBuffer.size bytes every chunk, which
+            // means copying the entire (possibly 50k-cell) staging buffer even when only
+            // a handful of new cells landed. Now we copy ceil to (countToRead * structSize).
             if (numSolutions > solutionsReadCount) {
-                await resultsReadBuffer.mapAsync(GPUMapMode.READ);
-                const rawResults = new Float32Array(resultsReadBuffer.getMappedRange());
-                const newBatch = [];
                 const countToRead = Math.min(numSolutions, maxSolutions);
+                const bytesToCopy = countToRead * solutionStructSize;
 
+                const copyEncoder = this.device.createCommandEncoder();
+                copyEncoder.copyBufferToBuffer(resultsBuffer, 0, resultsReadBuffer, 0, bytesToCopy);
+                this.device.queue.submit([copyEncoder.finish()]);
+                await this.device.queue.onSubmittedWorkDone();
+
+                await resultsReadBuffer.mapAsync(GPUMapMode.READ, 0, bytesToCopy);
+                const rawResults = new Float32Array(resultsReadBuffer.getMappedRange(0, bytesToCopy));
+                const newBatch = [];
                 for (let k = solutionsReadCount; k < countToRead; k++) {
-                    const offset = k * 4;
-                    newBatch.push({
-                        a: rawResults[offset + 0],
-                        b: rawResults[offset + 1],
-                        c: rawResults[offset + 2],
-                        system: 'orthorhombic',
-                    });
+                    newBatch.push(cfg.parseCell(rawResults, k * cfg.structFloats));
                 }
                 resultsReadBuffer.unmap();
                 solutionsReadCount = countToRead;
@@ -503,11 +309,23 @@ class WebGPUEngine {
             if (numSolutions >= maxSolutions) { stoppedEarly = true; break; }
             if (progressCallback) progressCallback((i + 1) / totalChunks, numSolutions);
         }
-        
+
         qObsBuffer.destroy(); hklBasisBuffer.destroy(); peakCombosBuffer.destroy(); binomialBuffer.destroy();
         counterBuffer.destroy(); resultsBuffer.destroy(); counterReadBuffer.destroy(); resultsReadBuffer.destroy();
         configBuffer.destroy(); debugCounterBuffer.destroy(); debugLogBuffer.destroy(); qTolerancesBuffer.destroy();
 
         return { potentialCells: [], stoppedEarly };
+    }
+
+    // Backward-compatible entry points. brutus.html's makeGpuTask references these by name
+    // (cfg.engineMethod in GPU_SYSTEM_CONFIG), so we preserve them.
+    runOrthoSolver(...args) {
+        return this._runSolver(WebGPUEngine.SYSTEM_CONFIGS.orthorhombic, ...args);
+    }
+    runMonoclinicSolver(...args) {
+        return this._runSolver(WebGPUEngine.SYSTEM_CONFIGS.monoclinic, ...args);
+    }
+    runTriclinicSolver(...args) {
+        return this._runSolver(WebGPUEngine.SYSTEM_CONFIGS.triclinic, ...args);
     }
 }

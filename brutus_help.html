@@ -493,9 +493,14 @@
                     The search range extends up to index 40 ($h=40$), testing approximately 150,000 combinations. This allows for the detection of large cubic cells.
                 </li>
                 <li>
-                    <strong>Tetragonal & Hexagonal (2 parameters):</strong>
+                    <strong>Tetragonal &amp; Hexagonal (2 parameters):</strong>
                     Solves a 2×2 system using pairs of peaks from the first 12.
-                    The search range extends up to index 12 ($h=12$), testing approximately 92 million combinations. While more computationally intensive (1–3 seconds), this exhaustive search ensures robust results for standard inorganic materials.
+                    The search range extends up to index 12 ($h=12$), testing approximately 92 million combinations.
+                    Typical runs complete in 1&ndash;3 seconds on simple patterns. However, dense patterns with many
+                    high-symmetry peaks (e.g. apatite-type structures) can take substantially longer &mdash; sometimes
+                    a minute or more &mdash; because a large fraction of candidate cells pass the basic filter and
+                    must be individually tested. If the indexing feels stuck on a hex/tetragonal file, it is almost
+                    certainly still making progress; the trials-per-second readout in the status bar will confirm this.
                 </li>
             </ul>
 
@@ -544,7 +549,7 @@
                     This is the size of the memory buffer reserved in the GPU.
                     <p style="margin-top: 0.5em; margin-bottom: 0.5em;">
                         All the candidate cells are passed to the CPU for proper M(20) validation. The number of candidates is the size of this buffer (20 means 20 000 cells). If the number of candidates reaches the buffer size, the search is stopeed. A good balance needs to be found between the tolerance to allow a cell to be posted as a candidate and the size of the buffer. A larger buffer will allow more candidates but it will take more time to validate by CPU.
-                        <br><em>Default: 20.</em>
+                        <br><em>Default: 50.</em>
                     </p>
                     
                 </li>

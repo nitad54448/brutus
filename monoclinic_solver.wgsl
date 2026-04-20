@@ -310,24 +310,8 @@ fn main_4p(
                 if (idx < config.u_params2.z) {
                     results_list[idx] = cell;
                 }
-                
-                // Debug log logic (Unchanged)
-                let debug_idx = atomicAdd(&debug_counter, 1u);
-                if (debug_idx < MAX_DEBUG_CELLS) {
-                    let debug_cell_offset = debug_idx * 25u; 
-                    for(var k_log: u32 = 0u; k_log < 4u; k_log = k_log + 1u) {
-                        let log_offset = debug_cell_offset + (k_log * 5u);
-                        let hkl_idx = hkl_indices[k_log];
-                        let q_obs_val = q_perm[k_log];
-                        let q_calc = (A_sol * M_hkl_rows[k_log][0] + B_sol * M_hkl_rows[k_log][1] +
-                                      C_sol * M_hkl_rows[k_log][2] + D_sol * M_hkl_rows[k_log][3]);
-                        debug_log[log_offset + 0u] = hkl_basis[hkl_idx * 4u + 0u]; 
-                        debug_log[log_offset + 1u] = hkl_basis[hkl_idx * 4u + 1u]; 
-                        debug_log[log_offset + 2u] = hkl_basis[hkl_idx * 4u + 2u]; 
-                        debug_log[log_offset + 3u] = 1.0 / sqrt(q_obs_val); 
-                        debug_log[log_offset + 4u] = 1.0 / sqrt(q_calc);
-                    }
-                }
+                // Debug log removed (was: writes to debug_log[] on every accepted cell,
+                // never read back on the JS side). Same cleanup as ortho had.
                 break; // Break permutation loop
             }
         }
