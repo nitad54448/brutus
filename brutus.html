@@ -573,7 +573,7 @@
     <div class="parameter-grid" style="margin-top: 1rem; align-items: end;">
         <div>
             <label for="tth-error" class="control-label">2θ Error (°)</label>
-            <input type="number" id="tth-error" value="0.04" step="0.002" min="0.0001" class="control-input">
+            <input type="number" id="tth-error" value="0.06" step="0.002" min="0.0001" class="control-input">
         </div>
         <label class="checkbox-label" style="padding-bottom: 0.5rem;">
             <input type="checkbox" id="refine-zero-checkbox" checked>
@@ -844,7 +844,7 @@ document.addEventListener('DOMContentLoaded', () => {
     //c'est fait plus tard ?
     //ui.maxVolume.addEventListener('blur', () => validateNumberInput(ui.maxVolume, 4000));
     ui.impurityPeaksInput.addEventListener('blur', () => validateNumberInput(ui.impurityPeaksInput, 0));
-    ui.tthError.addEventListener('blur', () => validateNumberInput(ui.tthError, 0.04));
+    ui.tthError.addEventListener('blur', () => validateNumberInput(ui.tthError, 0.06));
     
     // Add validation to the new GPU inputs
     ui.gpuHklTriplets.addEventListener('blur', () => {
@@ -1664,7 +1664,7 @@ const setupWorker = () => {
     const inputsToValidate = [
         { id: 'wavelength', el: ui.wavelength, default: 1.54056 },
         { id: 'max-volume', el: ui.maxVolume, default: 2000 },
-        { id: 'tth-error', el: ui.tthError, default: 0.04 },
+        { id: 'tth-error', el: ui.tthError, default: 0.06 },
         { id: 'impurity-peaks', el: ui.impurityPeaksInput, default: 0 },
         // Add new inputs to validation if they exist
         { id: 'gpu-hkl-triplets', el: ui.gpuHklTriplets, default: 100 },
