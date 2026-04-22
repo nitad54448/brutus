@@ -519,25 +519,24 @@
 <div class="control-group" style="width: 100%;">
     <div class="parameter-grid">
         <div>
+<label for="wavelength-preset" class="control-label">Radiation Preset</label>
+<select id="wavelength-preset" class="control-select">
+    <option value="Cu_ka1">Cu Ka1</option>
+    <option value="Cu_avg" selected>Cu K-alpha (Avg)</option>
+    <option value="Co_ka1">Co Ka1</option>
+    <option value="Co_avg">Co K-alpha (Avg)</option>
+    <option value="Fe_ka1">Fe Ka1</option>
+    <option value="Fe_avg">Fe K-alpha (Avg)</option>
+    <option value="Mo_ka1">Mo Ka1</option>
+    <option value="Mo_avg">Mo K-alpha (Avg)</option>
+    <option value="custom">Custom (Monochromatic)</option>
+</select>
 
-            <label for="wavelength-preset" class="control-label">Radiation Preset</label>
-            <select id="wavelength-preset" class="control-select">
-            <option value="Cu_ka1"selected>Cu Ka1</option>
-            <option value="Cu_avg">Cu K-alpha (Avg)</option>
-            <option value="Co_ka1">Co Ka1</option>
-            <option value="Co_avg">Co K-alpha (Avg)</option>
-            <option value="Fe_ka1">Fe Ka1</option>
-            <option value="Fe_avg">Fe K-alpha (Avg)</option>
-            <option value="Mo_ka1">Mo Ka1</option>
-            <option value="Mo_avg">Mo K-alpha (Avg)</option>
-            <option value="custom">Custom (Monochromatic)</option>
-            </select>
-
-        </div>
-        <div>
-            <label for="wavelength" class="control-label">Wavelength (Å)</label>
-            <input type="number" id="wavelength" value="1.54056" step="0.00001" min="0.1" class="control-input">
-        </div>
+</div>
+<div>
+    <label for="wavelength" class="control-label">Wavelength (Å)</label>
+    <input type="number" id="wavelength" value="1.54184" step="0.00001" min="0.1" class="control-input">
+</div>
     </div>
     
     <label class="checkbox-label" style="margin-top: 1rem; margin-bottom: 0.5rem;">
@@ -692,42 +691,37 @@ document.addEventListener('DOMContentLoaded', () => {
         'custom': { ka1: null, ka2: null, ka_avg: null, ratio: 0.5 }
     };
 
-    /**
-     * Handles changes to the wavelength preset dropdown.
-     * The wavelength input is ALWAYS editable; if the user types a value that
-     * doesn't match the currently-selected preset, handleWavelengthValueChange()
-     * below flips the preset to "custom" automatically.
-     */
+
+    //turn off stripping if no average, v 123
     const handleWavelengthPresetChange = () => {
         const selection = ui.wavelengthPreset.value;
 
         if (selection === 'custom') {
-            // Custom Mode: we don't overwrite the wavelength value - leave whatever the user typed.
             ui.stripKa2Checkbox.checked = false;
             ui.stripKa2Checkbox.disabled = true;
         } else {
-            // Preset Mode (e.g., "Cu_ka1" or "Cu_avg")
-            const [element, type] = selection.split('_'); // Split "Cu_ka1" -> "Cu", "ka1"
+            const [element, type] = selection.split('_'); 
             const data = WAVELENGTH_PRESETS[element];
 
             if (data) {
-                // 1. Set the Wavelength Value based on dropdown (ka1 vs avg)
                 if (type === 'ka1') {
                     ui.wavelength.value = data.ka1.toFixed(5);
+                    // Disable and uncheck for Ka1
+                    ui.stripKa2Checkbox.checked = false;
+                    ui.stripKa2Checkbox.disabled = true;
                 } else {
                     ui.wavelength.value = data.ka_avg.toFixed(5);
+                    // Enable for Average
+                    ui.stripKa2Checkbox.disabled = false;                
                 }
-
-                // 2. Configure Stripping Checkbox (allowed, but independent of value)
-                ui.stripKa2Checkbox.disabled = false;                
             }
         }
         
-        // Trigger updates
         debouncedUpdateAndRedraw();
         recalculatePeakValues();
         updatePeakTable();
     };
+
 
     /**
      * Handles manual edits to the wavelength input field.
@@ -1662,7 +1656,7 @@ const setupWorker = () => {
 
     // Validation , added wave, april 20
     const inputsToValidate = [
-        { id: 'wavelength', el: ui.wavelength, default: 1.54056 },
+        { id: 'wavelength', el: ui.wavelength, default: 1.54184 },
         { id: 'max-volume', el: ui.maxVolume, default: 2000 },
         { id: 'tth-error', el: ui.tthError, default: 0.06 },
         { id: 'impurity-peaks', el: ui.impurityPeaksInput, default: 0 },
@@ -2022,17 +2016,16 @@ const setupWorker = () => {
     
 
         // Handle wavelength from file, if any.. problem here for some xrdml ?
-        if (parsed.wavelength) {
+ if (parsed.wavelength) {
             // This is a monochromatic, known wavelength from the file
             ui.wavelengthPreset.value = 'custom';
             ui.wavelength.value = parsed.wavelength.toFixed(5);
-            // (The input is always editable now; no readOnly toggle needed.)
             ui.stripKa2Checkbox.checked = false;
             ui.stripKa2Checkbox.disabled = true;
             showStatus(`Loaded custom wavelength from file: ${parsed.wavelength.toFixed(5)} Å`, 'info');
         } else {
             // File has no wavelength, default to Cu
-ui.wavelengthPreset.value = 'Cu_ka1'; 
+            ui.wavelengthPreset.value = 'Cu_avg'; 
             handleWavelengthPresetChange();
         }
         
@@ -2289,7 +2282,7 @@ if (denominator < -1e-10) {
             if (finalPeaks.length === 0 || Math.abs(peak.tth - finalPeaks[finalPeaks.length - 1].tth) >= mergeThreshold) finalPeaks.push(peak);
             else if (peak.height > finalPeaks[finalPeaks.length - 1].height) finalPeaks[finalPeaks.length - 1] = peak;
         }
-        const lambda = parseFloat(ui.wavelength.value) || 1.54178;
+        const lambda = parseFloat(ui.wavelength.value) || 1.54184;
         pickedPeaks = finalPeaks.slice(0, -1).map(p => { const d = lambda / (2 * Math.sin(p.tth * Math.PI / 360)); return { tth: p.tth, d: d, q: 1 / (d * d) }; });
         updatePeakTable(); updateStartIndexingButtonState();
         _perfEnd(`(${pickedPeaks.length} peaks, n=${n})`);
@@ -3519,7 +3512,7 @@ scales: {
                                 const item = tooltipItems[0];
                                 const tth = item.parsed.x;
                                 const datasetIndex = item.datasetIndex;
-                                const lambda = parseFloat(document.getElementById('wavelength').value) || 1.54056;
+                                const lambda = parseFloat(document.getElementById('wavelength').value) || 1.54184;
 
                                 // 1. Always show the 2-theta of the hovered item
                                 let title = `2θ: ${tth.toFixed(4)}°`;
@@ -3706,7 +3699,7 @@ const generatePDFReport = async (singleSolution = null) => {
 
             const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
-            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 21 nov 2025';
+            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 22 april 2026';
           	const programURL = window.location.href;
             
     
@@ -4256,7 +4249,7 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 20 April 2026</div>
+<div id="app-footer">Brutus, 22 April 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-report">Generate Report</div>
