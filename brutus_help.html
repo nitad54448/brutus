@@ -446,7 +446,7 @@
             </p>
             <ul>
                 <li><strong>Yellow Rows (Soft Violations):</strong> Suspected Kα<sub>2</sub> peaks are highlighted in yellow in the table. These are <strong>excluded</strong> from the indexing combinatorial search and from the M(20) Figure of Merit calculation, and count only as "soft" violations during space-group analysis.</li>
-                <li><strong>Kα<sub>1</sub> Wavelength for Parents:</strong> The parent peaks of these ghosts (marked with a <code>*</code>) are provably Kα<sub>1</sub> lines. Brutus will automatically calculate their d-spacings using the precise λ_Kα<sub>1</sub> wavelength instead of the average wavelength, improving indexing accuracy.</li>
+                <li><strong>Kα<sub>1</sub> Wavelength for Parents:</strong> The parent peaks of these ghosts (marked with a <code>*</code>) are probably Kα<sub>1</sub> lines. Brutus will automatically calculate their d-spacings using the precise λ_Kα<sub>1</sub> wavelength instead of the average wavelength, improving indexing accuracy.</li>
                 <li><strong>Manual Override:</strong> If you believe a peak was falsely flagged as a Kα<sub>2</sub> ghost (e.g., due to overlapping phases), you can right-click the yellow row to confirm it as a real peak.</li>
             </ul>
 
@@ -459,6 +459,7 @@
                 <li>
                     Always manually curate the final peak list. Remove artifacts and known impurity peaks.
                     If you are not stripping Kα<sub>2</sub>, delete Kα<sub>2</sub> shoulders explicitly or ensure the program has tagged them correctly.
+                    The worst case scenario is if you use peaks originating from different wavelengths: e.g. at high angle the Kα<sub>2</sub> doublet might be separated, so you can have one peak from Kα<sub>1</sub> and another one from Kα<sub>2</sub>.
                 </li>
                 <li>
                     Kα<sub>2</sub> stripping can simplify the pattern but may introduce small artifacts.
