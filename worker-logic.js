@@ -384,6 +384,41 @@ const get_q_tolerance = (original_peak_index, tth_obs_rad, wavelength, tth_error
     return tolerance + 1e-9; // Add epsilon to prevent division by zero
 };
 
+/**
+ * Statistically correct least-squares weights for q-space cell refinement.
+ *
+ * The least-squares system fits q_obs = (4/λ²) sin²(θ_obs) to a linear
+ * combination of cell-parameter columns plus optionally a zero-error column.
+ * For a constant 2θ measurement uncertainty σ_2θ:
+ *
+ *     σ_q = |∂q/∂(2θ)| · σ_2θ = (2 sin(2θ)/λ²) · σ_2θ
+ *
+ * So σ_q² ∝ sin²(2θ), and the optimal weight per row is:
+ *
+ *     w_i = 1/σ_q,i² ∝ 1/sin²(2θ_i)
+ *
+ * With this weighting, low-angle peaks (which have the smallest σ_q) carry
+ * the most weight, and high-angle peaks (with the largest σ_q) carry less.
+ * This is the OPPOSITE of using w_i = q_obs,i, which is what the code did
+ * historically — that scheme heavily over-weights high-angle peaks and
+ * biases both the cell parameters and (especially) the zero correction.
+ *
+ * A small floor of 1.0 / sin²(178°) is built in so weights don't blow up
+ * for peaks very close to 0° or 180° (which shouldn't normally exist anyway).
+ */
+const ls_weights_for_2theta = (tth_rad_array) => {
+    const n = tth_rad_array.length;
+    const w = new Array(n);
+    const minSin2 = Math.sin(178 * Math.PI / 180); // floor at 2θ = 178° → sin = 0.0349
+    const minSin2Sq = minSin2 * minSin2;
+    for (let i = 0; i < n; i++) {
+        const s = Math.sin(tth_rad_array[i]); // sin(2θ)
+        const s2 = s * s;
+        w[i] = 1.0 / Math.max(s2, minSin2Sq);
+    }
+    return w;
+};
+
 const binarySearchClosest = (arr, target) => {
     let low = 0, high = arr.length - 1;
     if (arr.length === 0 || target <= arr[low]) return 0;
@@ -652,161 +687,214 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
 
         if (isGpuCandidate) {
             // Re-solve from scratch for GPU candidates ---
-            const final_indexed_pairs = []; 
-            const final_peak_indices_for_ls = []; 
-            const used_reflections = new Set();
-            
-            for (let i = 0; i < n_all; i++) {
-                const q_o = q_obs[i]; 
-                const tolerance = local_get_q_tolerance(original_indices[i]);
-                let best_match_idx = -1, min_diff = Infinity;
+            // We do TWO rounds of pairing+fit with proper LS weighting:
+            //   Round 1: pair with z=0 assumption → fit cell+z → get z_estimate
+            //   Round 2: pair using q values corrected by z_estimate → re-fit
+            // This dramatically improves robustness to non-trivial zero offsets,
+            // since the initial pairing in Round 1 can mis-assign hkls when the
+            // shift exceeds the q tolerance at high angle.
+            //
+            // The previous implementation passed q_vec as the LS weights, which
+            // OVER-weights high-angle peaks (w ∝ sin²θ). This biases both the
+            // cell and especially the zero correction. We now use w ∝ 1/sin²(2θ),
+            // the statistically-correct weighting for constant σ_2θ measurements.
 
-                let low = 0, high = all_possible_reflections.length - 1;
-                while (low <= high) { let mid = Math.floor((low + high) / 2); if (all_possible_reflections[mid].q < q_o) low = mid + 1; else high = mid - 1; }
-                for (let j = Math.max(0, high - 1); j <= Math.min(all_possible_reflections.length - 1, low + 1); j++) {
-                    const diff = Math.abs(all_possible_reflections[j].q - q_o);
-                    if (diff < min_diff) { min_diff = diff; best_match_idx = j; }
+            const pair_and_fit = (zero_corr_deg) => {
+                const indexed_pairs = [];
+                const peak_indices = [];
+                const used = new Set();
+                for (let i = 0; i < n_all; i++) {
+                    const original_idx = original_indices[i];
+                    let q_to_match;
+                    if (Math.abs(zero_corr_deg) > 1e-9) {
+                        const corrected_tth_rad = tth_obs_rad[original_idx] - 2 * zero_corr_deg * RAD;
+                        q_to_match = (4 * Math.sin(corrected_tth_rad / 2) ** 2) / (wavelength ** 2);
+                    } else {
+                        q_to_match = q_obs[i];
+                    }
+                    const tolerance = local_get_q_tolerance(original_idx);
+                    let best_match_idx = -1, min_diff = Infinity;
+                    let low = 0, high = all_possible_reflections.length - 1;
+                    while (low <= high) { let mid = Math.floor((low + high) / 2); if (all_possible_reflections[mid].q < q_to_match) low = mid + 1; else high = mid - 1; }
+                    for (let j = Math.max(0, high - 1); j <= Math.min(all_possible_reflections.length - 1, low + 1); j++) {
+                        const diff = Math.abs(all_possible_reflections[j].q - q_to_match);
+                        if (diff < min_diff) { min_diff = diff; best_match_idx = j; }
+                    }
+                    if (best_match_idx !== -1 && min_diff < tolerance && !used.has(best_match_idx)) {
+                        const { h, k, l } = all_possible_reflections[best_match_idx];
+                        indexed_pairs.push({ q_obs: q_obs[i], hkl: [h, k, l] });
+                        peak_indices.push(original_idx);
+                        used.add(best_match_idx);
+                    }
                 }
 
-                if (best_match_idx !== -1 && min_diff < tolerance && !used_reflections.has(best_match_idx)) {
-                    const {h, k, l} = all_possible_reflections[best_match_idx];
-                    final_indexed_pairs.push({ q_obs: q_o, hkl: [h, k, l] });
-                    final_peak_indices_for_ls.push(original_indices[i]);
-                    used_reflections.add(best_match_idx);
+                if (indexed_pairs.length < min_indexed[system]) return null;
+
+                const M = indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
+                const q_vec = indexed_pairs.map(p => p.q_obs);
+                // Append zero-error column: (2/λ²) sin(2θ_obs)
+                M.forEach((row, i) => {
+                    const tth_rad = tth_obs_rad[peak_indices[i]];
+                    row.push((2 / (wavelength ** 2)) * Math.sin(tth_rad));
+                });
+                // Proper LS weights: 1/sin²(2θ) ∝ 1/σ_q²
+                const tth_rads_for_rows = peak_indices.map(idx => tth_obs_rad[idx]);
+                const ls_weights = ls_weights_for_2theta(tth_rads_for_rows);
+
+                const fit = solveLeastSquares(M, q_vec, ls_weights);
+                if (!fit || !fit.solution) return null;
+                return { fit, indexed_pairs, peak_indices };
+            };
+
+            // Round 1
+            let result = pair_and_fit(0);
+            // Round 2: re-pair using the zero estimate from round 1
+            if (result) {
+                const z1_deg = result.fit.solution[result.fit.solution.length - 1] * DEG;
+                if (Math.abs(z1_deg) > 1e-4) {
+                    const result2 = pair_and_fit(z1_deg);
+                    if (result2) result = result2; // accept refined pairing
                 }
             }
 
-            // 2. solve for all parameters (cell + zero) from scratch
-            if (final_indexed_pairs.length >= min_indexed[system]) {
-                let M_with_zero_final = final_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
-                const q_vec_final = final_indexed_pairs.map(p => p.q_obs);
-                
-                // Add the zero-error column to the matrix
-                M_with_zero_final.forEach((row, i) => { 
-                    const tth_rad = tth_obs_rad[final_peak_indices_for_ls[i]]; 
-                    row.push((2 / (wavelength**2)) * Math.sin(tth_rad)); 
-                });
-                        
-                const fitResult_with_zero_final = solveLeastSquares(M_with_zero_final, q_vec_final, q_vec_final);
-    
-                // 3. Score and post the *new* cell
-                if (fitResult_with_zero_final && fitResult_with_zero_final.solution) {
-                    const refined_cell = extractCellFromFit(fitResult_with_zero_final.solution, system);
+            if (result) {
+                const fitResult_with_zero_final = result.fit;
+                const refined_cell = extractCellFromFit(fitResult_with_zero_final.solution, system);
+
+                if (refined_cell) {
+                    refined_cell.zero_correction = fitResult_with_zero_final.solution[fitResult_with_zero_final.solution.length - 1] * DEG;
+                    refined_cell.volume = getVolume(refined_cell);
                     
-                    if (refined_cell) {
-                        refined_cell.zero_correction = fitResult_with_zero_final.solution[fitResult_with_zero_final.solution.length - 1] * DEG;
-                        refined_cell.volume = getVolume(refined_cell);
-                        
-                        // Generate HKLs from the NEW, UN-WARPED cell
-                        const q_calc_set_refined = new Set(generateHKL_for_worker(refined_cell, q_max, d_min, wavelength).map(r => r.q));
-                        const q_calc_sorted_refined = new Float64Array(Array.from(q_calc_set_refined)).sort((a,b)=>a-b);
-                        
-                        // Create corrected observed peaks for M20
-                        const peaks_for_merit_20_refined = [];
-                        for (let i = 0; i < n_20; i++) {
-                            const original_peak = peaks_sorted_by_q[i];
-                            const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
-                            const corrected_tth_rad = corrected_tth_deg * RAD;
-                            const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
-                            peaks_for_merit_20_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
+                    // Generate HKLs from the NEW, UN-WARPED cell
+                    const q_calc_set_refined = new Set(generateHKL_for_worker(refined_cell, q_max, d_min, wavelength).map(r => r.q));
+                    const q_calc_sorted_refined = new Float64Array(Array.from(q_calc_set_refined)).sort((a,b)=>a-b);
+                    
+                    // Create corrected observed peaks for M20
+                    const peaks_for_merit_20_refined = [];
+                    for (let i = 0; i < n_20; i++) {
+                        const original_peak = peaks_sorted_by_q[i];
+                        const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
+                        const corrected_tth_rad = corrected_tth_deg * RAD;
+                        const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
+                        peaks_for_merit_20_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
+                    }
+                    
+                    const { m20: final_m20, fN: final_fN_20 } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_20_refined, impurity_peaks, local_get_q_tolerance, wavelength);
+                    
+                    if (final_m20 > min_m20) {
+                        const peaks_for_merit_all_refined = [];
+                        for (let i = 0; i < n_all; i++) {
+                            const original_peak = peaks_sorted_by_q[i]; const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
+                            const corrected_tth_rad = corrected_tth_deg * RAD; const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
+                            peaks_for_merit_all_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
                         }
+                        const { m20: final_m_all, fN: final_fN_all } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_all_refined, impurity_peaks, local_get_q_tolerance, wavelength);
                         
-                        // "honest" M20
-                        const { m20: final_m20, fN: final_fN_20 } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_20_refined, impurity_peaks, local_get_q_tolerance, wavelength);
-                        
-                        if (final_m20 > min_m20) {
-                            const peaks_for_merit_all_refined = [];
-                            for (let i = 0; i < n_all; i++) {
-                                const original_peak = peaks_sorted_by_q[i]; const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
-                                const corrected_tth_rad = corrected_tth_deg * RAD; const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
-                                peaks_for_merit_all_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
-                            }
-                            const { m20: final_m_all, fN: final_fN_all } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_all_refined, impurity_peaks, local_get_q_tolerance, wavelength);
-                            
-                            refined_cell.m20 = final_m20; refined_cell.fN_20 = final_fN_20; refined_cell.n_20 = n_20;
-                            refined_cell.m_all = final_m_all; refined_cell.fN_all = final_fN_all; refined_cell.n_all = n_all;
-                            refined_cell.errors = propagateErrors(system, fitResult_with_zero_final, refined_cell);
-                            final_solution_to_post = refined_cell;
-                        } // else { console.log(`REFINE: Rejected (GPU-ZeroRef) - Low M20 = ${final_m20.toFixed(2)}`); }
-                    } // else { console.log("REFINE: Rejected (GPU-ZeroRef) - Bad cell from fit"); }
-                } // else { console.log("REFINE: Rejected (GPU-ZeroRef) - LSQ solve failed"); }
-            } // else { console.log("REFINE: Rejected (GPU-ZeroRef) - Not enough indexed peaks"); }
+                        refined_cell.m20 = final_m20; refined_cell.fN_20 = final_fN_20; refined_cell.n_20 = n_20;
+                        refined_cell.m_all = final_m_all; refined_cell.fN_all = final_fN_all; refined_cell.n_all = n_all;
+                        refined_cell.errors = propagateErrors(system, fitResult_with_zero_final, refined_cell);
+                        final_solution_to_post = refined_cell;
+                    }
+                }
+            }
 
         } else {
-            // --- ORIGINAL PATH: For CPU candidates (Cubic, Tetra, Ortho) ---
-            const final_indexed_pairs = []; 
-            const final_peak_indices_for_ls = []; 
-            const used_reflections = new Set();
-            
-            for (let i = 0; i < n_all; i++) {
-                const q_o = q_obs[i]; 
-                const tolerance = local_get_q_tolerance(original_indices[i]);
-                let best_match_idx = -1, min_diff = Infinity;
-
-                let low = 0, high = all_possible_reflections.length - 1;
-                while (low <= high) { let mid = Math.floor((low + high) / 2); if (all_possible_reflections[mid].q < q_o) low = mid + 1; else high = mid - 1; }
-                for (let j = Math.max(0, high - 1); j <= Math.min(all_possible_reflections.length - 1, low + 1); j++) {
-                    const diff = Math.abs(all_possible_reflections[j].q - q_o);
-                    if (diff < min_diff) { min_diff = diff; best_match_idx = j; }
+            // --- ORIGINAL PATH: For CPU candidates (Cubic, Tetra, Ortho, Hexagonal) ---
+            // Same two-round, properly-weighted strategy as the GPU path above.
+            const pair_and_fit = (zero_corr_deg) => {
+                const indexed_pairs = [];
+                const peak_indices = [];
+                const used = new Set();
+                for (let i = 0; i < n_all; i++) {
+                    const original_idx = original_indices[i];
+                    let q_to_match;
+                    if (Math.abs(zero_corr_deg) > 1e-9) {
+                        const corrected_tth_rad = tth_obs_rad[original_idx] - 2 * zero_corr_deg * RAD;
+                        q_to_match = (4 * Math.sin(corrected_tth_rad / 2) ** 2) / (wavelength ** 2);
+                    } else {
+                        q_to_match = q_obs[i];
+                    }
+                    const tolerance = local_get_q_tolerance(original_idx);
+                    let best_match_idx = -1, min_diff = Infinity;
+                    let low = 0, high = all_possible_reflections.length - 1;
+                    while (low <= high) { let mid = Math.floor((low + high) / 2); if (all_possible_reflections[mid].q < q_to_match) low = mid + 1; else high = mid - 1; }
+                    for (let j = Math.max(0, high - 1); j <= Math.min(all_possible_reflections.length - 1, low + 1); j++) {
+                        const diff = Math.abs(all_possible_reflections[j].q - q_to_match);
+                        if (diff < min_diff) { min_diff = diff; best_match_idx = j; }
+                    }
+                    if (best_match_idx !== -1 && min_diff < tolerance && !used.has(best_match_idx)) {
+                        const { h, k, l } = all_possible_reflections[best_match_idx];
+                        indexed_pairs.push({ q_obs: q_obs[i], hkl: [h, k, l] });
+                        peak_indices.push(original_idx);
+                        used.add(best_match_idx);
+                    }
                 }
 
-                if (best_match_idx !== -1 && min_diff < tolerance && !used_reflections.has(best_match_idx)) {
-                    const {h, k, l} = all_possible_reflections[best_match_idx];
-                    final_indexed_pairs.push({ q_obs: q_o, hkl: [h, k, l] });
-                    final_peak_indices_for_ls.push(original_indices[i]);
-                    used_reflections.add(best_match_idx);
+                if (indexed_pairs.length < min_indexed[system]) return null;
+
+                const M = indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
+                const q_vec = indexed_pairs.map(p => p.q_obs);
+                M.forEach((row, i) => {
+                    const tth_rad = tth_obs_rad[peak_indices[i]];
+                    row.push((2 / (wavelength ** 2)) * Math.sin(tth_rad));
+                });
+                const tth_rads_for_rows = peak_indices.map(idx => tth_obs_rad[idx]);
+                const ls_weights = ls_weights_for_2theta(tth_rads_for_rows);
+
+                const fit = solveLeastSquares(M, q_vec, ls_weights);
+                if (!fit || !fit.solution) return null;
+                return { fit, indexed_pairs, peak_indices };
+            };
+
+            // Round 1
+            let result = pair_and_fit(0);
+            // Round 2: re-pair using zero estimate from round 1
+            if (result) {
+                const z1_deg = result.fit.solution[result.fit.solution.length - 1] * DEG;
+                if (Math.abs(z1_deg) > 1e-4) {
+                    const result2 = pair_and_fit(z1_deg);
+                    if (result2) result = result2;
                 }
             }
 
-            if (final_indexed_pairs.length >= min_indexed[system]) {
-                let M_with_zero_final = final_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
-                const q_vec_final = final_indexed_pairs.map(p => p.q_obs);
-                M_with_zero_final.forEach((row, i) => { 
-                    const tth_rad = tth_obs_rad[final_peak_indices_for_ls[i]]; 
-                    row.push((2 / (wavelength**2)) * Math.sin(tth_rad)); 
-                });
-                        
-                const fitResult_with_zero_final = solveLeastSquares(M_with_zero_final, q_vec_final, q_vec_final);
-    
-                if (fitResult_with_zero_final && fitResult_with_zero_final.solution) {
-                    const refined_cell = extractCellFromFit(fitResult_with_zero_final.solution, system);
+            if (result) {
+                const fitResult_with_zero_final = result.fit;
+                const refined_cell = extractCellFromFit(fitResult_with_zero_final.solution, system);
+
+                if (refined_cell) {
+                    refined_cell.zero_correction = fitResult_with_zero_final.solution[fitResult_with_zero_final.solution.length - 1] * DEG;
+                    refined_cell.volume = getVolume(refined_cell);
                     
-                    if (refined_cell) {
-                        refined_cell.zero_correction = fitResult_with_zero_final.solution[fitResult_with_zero_final.solution.length - 1] * DEG;
-                        refined_cell.volume = getVolume(refined_cell);
-                        
-                        const q_calc_set_refined = new Set(generateHKL_for_worker(refined_cell, q_max, d_min, wavelength).map(r => r.q));
-                        const q_calc_sorted_refined = new Float64Array(Array.from(q_calc_set_refined)).sort((a,b)=>a-b);
-                        
-                        const peaks_for_merit_20_refined = [];
-                        for (let i = 0; i < n_20; i++) {
-                            const original_peak = peaks_sorted_by_q[i];
-                            const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
-                            const corrected_tth_rad = corrected_tth_deg * RAD;
-                            const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
-                            peaks_for_merit_20_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
+                    const q_calc_set_refined = new Set(generateHKL_for_worker(refined_cell, q_max, d_min, wavelength).map(r => r.q));
+                    const q_calc_sorted_refined = new Float64Array(Array.from(q_calc_set_refined)).sort((a,b)=>a-b);
+                    
+                    const peaks_for_merit_20_refined = [];
+                    for (let i = 0; i < n_20; i++) {
+                        const original_peak = peaks_sorted_by_q[i];
+                        const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
+                        const corrected_tth_rad = corrected_tth_deg * RAD;
+                        const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
+                        peaks_for_merit_20_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
+                    }
+                    
+                    const { m20: final_m20, fN: final_fN_20 } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_20_refined, impurity_peaks, local_get_q_tolerance, wavelength);
+                    
+                    if (final_m20 > min_m20) {
+                        const peaks_for_merit_all_refined = [];
+                        for (let i = 0; i < n_all; i++) {
+                            const original_peak = peaks_sorted_by_q[i]; const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
+                            const corrected_tth_rad = corrected_tth_deg * RAD; const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
+                            peaks_for_merit_all_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
                         }
+                        const { m20: final_m_all, fN: final_fN_all } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_all_refined, impurity_peaks, local_get_q_tolerance, wavelength);
                         
-                        const { m20: final_m20, fN: final_fN_20 } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_20_refined, impurity_peaks, local_get_q_tolerance, wavelength);
-                        
-                        if (final_m20 > min_m20) {
-            //                console.log(`REFINE: Cell PASSED (ZeroRef) M20 = ${final_m20.toFixed(2)}`, refined_cell);
-                            const peaks_for_merit_all_refined = [];
-                            for (let i = 0; i < n_all; i++) {
-                                const original_peak = peaks_sorted_by_q[i]; const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
-                                const corrected_tth_rad = corrected_tth_deg * RAD; const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
-                                peaks_for_merit_all_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
-                            }
-                            const { m20: final_m_all, fN: final_fN_all } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_all_refined, impurity_peaks, local_get_q_tolerance, wavelength);
-                            
-                            refined_cell.m20 = final_m20; refined_cell.fN_20 = final_fN_20; refined_cell.n_20 = n_20;
-                            refined_cell.m_all = final_m_all; refined_cell.fN_all = final_fN_all; refined_cell.n_all = n_all;
-                            refined_cell.errors = propagateErrors(system, fitResult_with_zero_final, refined_cell);
-                            final_solution_to_post = refined_cell;
-                        } // else { console.log(`REFINE: Rejected (ZeroRef) - Low M20 = ${final_m20.toFixed(2)}`); }
-                    } // else { console.log("REFINE: Rejected (ZeroRef) - Bad cell from fit"); }
-                } // else { console.log("REFINE: Rejected (ZeroRef) - LSQ solve failed"); }
-            } // else { console.log("REFINE: Rejected (ZeroRef) - Not enough indexed peaks"); }
+                        refined_cell.m20 = final_m20; refined_cell.fN_20 = final_fN_20; refined_cell.n_20 = n_20;
+                        refined_cell.m_all = final_m_all; refined_cell.fN_all = final_fN_all; refined_cell.n_all = n_all;
+                        refined_cell.errors = propagateErrors(system, fitResult_with_zero_final, refined_cell);
+                        final_solution_to_post = refined_cell;
+                    }
+                }
+            }
         }
         
     } else {
@@ -839,7 +927,11 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
         
         let M_no_zero = initial_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
         const q_vec_initial = initial_indexed_pairs.map(p => p.q_obs);
-        const fitResult_no_zero = solveLeastSquares(M_no_zero, q_vec_initial, q_vec_initial);
+        // Proper LS weights: 1/sin²(2θ) ∝ 1/σ_q² (statistically correct for
+        // constant σ_2θ measurement uncertainty).
+        const tth_rads_initial = initial_peak_indices.map(idx => tth_obs_rad[idx]);
+        const ls_weights_initial = ls_weights_for_2theta(tth_rads_initial);
+        const fitResult_no_zero = solveLeastSquares(M_no_zero, q_vec_initial, ls_weights_initial);
 
         if (!fitResult_no_zero || !fitResult_no_zero.solution) {
             // console.log("REFINE: Rejected (NoRef) - LSQ solve failed");
@@ -1359,13 +1451,41 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
     return fallbackResult;
 }
     
+    // Carry the per-peak Ka2-suspect flag through the indexing step. Each
+    // observed peak that matches a calculated hkl produces an indexed_hkl
+    // record; we tag the record with the parent peak's ka2Suspect flag so the
+    // downstream centering / extinction / ranking code can distinguish
+    // "hard" violations (driven by genuine reflections) from "soft" ones
+    // (driven by suspected Ka2 ghost peaks).
     const indexed_hkls = []; const zero_correction = solution.zero_correction || 0;
     obs_peaks.forEach(peak => {
         const corrected_tth = peak.tth - zero_correction;
         const bestMatch = all_calc_hkls.reduce((best, hkl) => { const diff = Math.abs(hkl.tth - corrected_tth); return diff < best.minDiff ? { hkl, minDiff: diff } : best; }, { hkl: null, minDiff: Infinity });
-        if (bestMatch.hkl && bestMatch.minDiff < (tthError * 1.5)) { indexed_hkls.push({ h: bestMatch.hkl.h, k: bestMatch.hkl.k, l: bestMatch.hkl.l, tth: peak.tth, calc_tth: bestMatch.hkl.tth }); }
+        if (bestMatch.hkl && bestMatch.minDiff < (tthError * 1.5)) {
+            indexed_hkls.push({
+                h: bestMatch.hkl.h, k: bestMatch.hkl.k, l: bestMatch.hkl.l,
+                tth: peak.tth, calc_tth: bestMatch.hkl.tth,
+                ka2Suspect: !!peak.ka2Suspect
+            });
+        }
     });
-    const unique_indexed_hkls = Array.from(new Map(indexed_hkls.map(r => [`${r.h},${r.k},${r.l}`, r])).values());
+
+    // Dedup by (h,k,l). When two observed peaks index to the same hkl, prefer
+    // the NON-suspect one (a hard observation outweighs a soft one for the
+    // same reflection). This avoids accidentally flipping a real reflection
+    // to "soft" just because a Ka2 ghost from a different parent happened to
+    // index to the same hkl by coincidence.
+    const uniqMap = new Map();
+    for (const r of indexed_hkls) {
+        const key = `${r.h},${r.k},${r.l}`;
+        const existing = uniqMap.get(key);
+        if (!existing) { uniqMap.set(key, r); continue; }
+        // If existing is suspect but new one isn't, prefer the new one.
+        if (existing.ka2Suspect && !r.ka2Suspect) uniqMap.set(key, r);
+        // Otherwise keep first (existing).
+    }
+    const unique_indexed_hkls = Array.from(uniqMap.values());
+
     const unambiguous_hkls = unique_indexed_hkls.filter(refl => {
         const nearbyCount = all_calc_hkls.filter(calc => { if (calc.h === refl.h && calc.k === refl.k && calc.l === refl.l) return false; return Math.abs(calc.tth - refl.calc_tth) < tthError; }).length;
         return nearbyCount === 0;
@@ -1374,33 +1494,72 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
     if (hkls_for_analysis.length < 5) { fallbackResult.centering = 'Unknown (too few unambiguous peaks in range)'; return fallbackResult; }
     const unambiguousSet = new Set(unambiguous_hkls.map(r => `${r.h},${r.k},${r.l}`));
     const ambiguousHkls = new Set(unique_indexed_hkls.filter(r => !unambiguousSet.has(`${r.h},${r.k},${r.l}`)).map(r => `${r.h},${r.k},${r.l}`));
+
+    const anyKa2Suspects = hkls_for_analysis.some(r => r.ka2Suspect);
+
     const centeringResult = determineCentering(hkls_for_analysis, solution.system);
     const detectedExtinctions = detectExtinctions(hkls_for_analysis, solution.system, spaceGroupData);
     const rankedSpaceGroups = rankSpaceGroups(hkls_for_analysis, solution.system, centeringResult.plausibleCenterings, spaceGroupData, MAX_VIOLATIONS, detectedExtinctions);
-    return { centering: centeringResult.description, rankedSpaceGroups: rankedSpaceGroups.slice(0, 20), detectedExtinctions: detectedExtinctions, centeringViolations: centeringResult.violations, centeringViolationDetails: centeringResult.violationDetails, ambiguousHkls: ambiguousHkls, hklList: all_calc_hkls };
+    return {
+        centering: centeringResult.description,
+        rankedSpaceGroups: rankedSpaceGroups.slice(0, 20),
+        detectedExtinctions: detectedExtinctions,
+        centeringViolations: centeringResult.violations,
+        centeringViolationsHard: centeringResult.violationsHard,
+        centeringViolationsSoft: centeringResult.violationsSoft,
+        centeringViolationDetails: centeringResult.violationDetails,
+        ambiguousHkls: ambiguousHkls,
+        hklList: all_calc_hkls,
+        usedKa2SoftScoring: anyKa2Suspects
+    };
 }
 function determineCentering(indexed_hkls, system) {
     const centeringTests = { 'P': { name: 'Primitive (P)', forbidden: (h, k, l) => false }, 'I': { name: 'Body-centered (I)', forbidden: (h, k, l) => (h + k + l) % 2 !== 0 }, 'F': { name: 'Face-centered (F)', forbidden: (h, k, l) => !( (h%2===0 && k%2===0 && l%2===0) || (h%2!==0 && k%2!==0 && l%2!==0) ) }, 'A': { name: 'A-centered (A)', forbidden: (h, k, l) => (k + l) % 2 !== 0 }, 'B': { name: 'B-centered (B)', forbidden: (h, k, l) => (h + l) % 2 !== 0 }, 'C': { name: 'C-centered (C)', forbidden: (h, k, l) => (h + k) % 2 !== 0 } };
     const validBravaisCenterings = { 'cubic': ['P', 'I', 'F'], 'tetragonal': ['P', 'I'], 'orthorhombic': ['P', 'I', 'F', 'A', 'B', 'C'], 'hexagonal': ['P'], 'monoclinic': ['P', 'C'], 'triclinic': ['P'] };
-    const violations = {}; const violationDetails = {}; const MAX_DETAILS_TO_STORE = 2;
+    // Two parallel violation tallies: hard (non-Ka2-suspect peaks) and soft
+    // (Ka2-suspect peaks). The centering decision uses HARD only — a centering
+    // mode is not ruled out just because a Ka2 ghost happens to violate it.
+    const violations = {};       // total (hard + soft), kept for backward compat
+    const violationsHard = {};
+    const violationsSoft = {};
+    const violationDetails = {};
+    const MAX_DETAILS_TO_STORE = 2;
     for (const [key, test] of Object.entries(centeringTests)) {
         const allowedForSystem = validBravaisCenterings[system] || ['P'];
         if (allowedForSystem.includes(key)) {
             const violatingPeaks = indexed_hkls.filter(({h, k, l}) => test.forbidden(Math.round(h), Math.round(k), Math.round(l)));
-            violations[key] = violatingPeaks.length;
-            if (violations[key] > 0 && violations[key] <= MAX_DETAILS_TO_STORE) { violationDetails[key] = violatingPeaks.slice(0, MAX_DETAILS_TO_STORE).map(p => ({ h: p.h, k: p.k, l: p.l, tth: p.tth })); }
+            const hardViolatingPeaks = violatingPeaks.filter(p => !p.ka2Suspect);
+            const softViolatingPeaks = violatingPeaks.filter(p => p.ka2Suspect);
+            violations[key] = violatingPeaks.length; // total
+            violationsHard[key] = hardViolatingPeaks.length;
+            violationsSoft[key] = softViolatingPeaks.length;
+            // Details: store hard violators preferentially, fall back to soft.
+            if (violations[key] > 0 && violations[key] <= MAX_DETAILS_TO_STORE) {
+                const detailsSource = hardViolatingPeaks.length > 0 ? hardViolatingPeaks : softViolatingPeaks;
+                violationDetails[key] = detailsSource.slice(0, MAX_DETAILS_TO_STORE).map(p => ({ h: p.h, k: p.k, l: p.l, tth: p.tth, ka2Suspect: !!p.ka2Suspect }));
+            }
         }
     }
-    const minViolations = Object.keys(violations).length > 0 ? Math.min(...Object.values(violations)) : 0;
-    let plausible = Object.keys(violations).filter(key => violations[key] === minViolations && (validBravaisCenterings[system] || ['P']).includes(key));
-    if (plausible.length === 0 && violations['P'] === minViolations) { plausible = ['P']; } else if (plausible.length === 0) { plausible = ['P']; }
+    // Pick centering(s) with the FEWEST HARD violations (was: fewest total).
+    const hardKeys = Object.keys(violationsHard);
+    const minHardViolations = hardKeys.length > 0 ? Math.min(...hardKeys.map(k => violationsHard[k])) : 0;
+    let plausible = hardKeys.filter(key => violationsHard[key] === minHardViolations && (validBravaisCenterings[system] || ['P']).includes(key));
+    if (plausible.length === 0 && violationsHard['P'] === minHardViolations) { plausible = ['P']; } else if (plausible.length === 0) { plausible = ['P']; }
     let finalCenterings;
     if (plausible.includes('F')) finalCenterings = ['F'];
     else if (plausible.includes('I')) finalCenterings = ['I'];
     else { const specialCenterings = plausible.filter(c => ['A', 'B', 'C'].includes(c)); finalCenterings = specialCenterings.length > 0 ? specialCenterings : ['P']; if (plausible.includes('P') && !finalCenterings.includes('P') && specialCenterings.length > 0) { finalCenterings.push('P'); } if (finalCenterings.length === 0) finalCenterings = ['P']; }
     finalCenterings = finalCenterings.filter(c => (validBravaisCenterings[system] || ['P']).includes(c));
     if (finalCenterings.length === 0) finalCenterings = ['P'];
-    return { plausibleCenterings: finalCenterings, description: finalCenterings.map(c => centeringTests[c]?.name || c).join(' or '), violations: violations, violationDetails: violationDetails, minViolations: minViolations };
+    return {
+        plausibleCenterings: finalCenterings,
+        description: finalCenterings.map(c => centeringTests[c]?.name || c).join(' or '),
+        violations: violations,
+        violationsHard: violationsHard,
+        violationsSoft: violationsSoft,
+        violationDetails: violationDetails,
+        minViolations: minHardViolations
+    };
 }
 function detectExtinctions(indexed_hkls, system, spaceGroupData) {
     const confirmedRules = new Set();
@@ -1414,7 +1573,16 @@ function detectExtinctions(indexed_hkls, system, spaceGroupData) {
         const { zone, condition } = parsedRule;
         const zoneReflections = indexed_hkls.filter(refl => getReflectionZone(refl.h, refl.k, refl.l) === zone);
         if (zoneReflections.length === 0) { return; }
-        const allSatisfy = zoneReflections.every(refl => satisfiesCondition(refl.h, refl.k, refl.l, condition));
+        // A rule is "confirmed" if every NON-SUSPECT reflection in the zone
+        // satisfies it. Reflections from Ka2-suspect peaks are ignored here:
+        // a Ka2 ghost of a Kα1 reflection at (h,k,l) often does not satisfy
+        // the same condition because its 2θ is shifted, so we can't index it
+        // back to the same hkl reliably; treating it as evidence for/against
+        // an extinction rule would generate false negatives. We instead let
+        // the per-group ranking ratchet up "soft violations" later.
+        const nonSuspectZoneRefls = zoneReflections.filter(r => !r.ka2Suspect);
+        const refSetForRule = nonSuspectZoneRefls.length > 0 ? nonSuspectZoneRefls : zoneReflections;
+        const allSatisfy = refSetForRule.every(refl => satisfiesCondition(refl.h, refl.k, refl.l, condition));
         if (allSatisfy) { confirmedRules.add(ruleStr); }
     });
     if (confirmedRules.size === 0) { return ["None detected"]; } else { return Array.from(confirmedRules).sort(); }
@@ -1430,17 +1598,42 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
             if (!allowedCenterings.includes(centering) && !(allowedCenterings.includes('P') && !['I','F','A','B','C','R'].includes(centering))) { continue; }
             const rules = setting.reflection_conditions || {};
             const violations = countViolations(indexed_hkls, rules);
-            if (violations.count <= maxViolations) {
+            // Cutoff is on HARD violations only. A space group disqualified
+            // solely by Ka2-suspect peaks must still be evaluable so the
+            // user sees it as a "[0 hard, +N soft]" candidate rather than
+            // having it disappear silently.
+            if (violations.hardCount <= maxViolations) {
                 let matchScore = 0; const sgRulesSet = new Set();
                 Object.entries(rules).forEach(([zone, conditions]) => { conditions.forEach(cond => { sgRulesSet.add(`${zone}: ${cond}`); }); });
                 detectedExtinctionsSet.forEach(detectedRule => { if (sgRulesSet.has(detectedRule)) { matchScore += 10; } });
                 sgRulesSet.forEach(sgRule => { if (!detectedExtinctionsSet.has(sgRule)) { matchScore -= 1; } });
                 if (detectedExtinctionsSet.size === 0 && sgRulesSet.size === 0) { matchScore = 1; }
-                validSettings.push({ number: sgNumber, symbol: setting.symbol, standardSymbol: sg.standard_symbol, pointGroup: sg.point_group, centrosymmetric: sg.centrosymmetric, violations: violations.count, violatedReflections: violations.details, matchScore: matchScore });
+                validSettings.push({
+                    number: sgNumber,
+                    symbol: setting.symbol,
+                    standardSymbol: sg.standard_symbol,
+                    pointGroup: sg.point_group,
+                    centrosymmetric: sg.centrosymmetric,
+                    // 'violations' kept = hardCount for backward compatibility
+                    // with any caller that hasn't been updated.
+                    violations: violations.hardCount,
+                    hardViolations: violations.hardCount,
+                    softViolations: violations.softCount,
+                    violatedReflections: violations.details,
+                    violatedReflectionsHard: violations.detailsHard,
+                    violatedReflectionsSoft: violations.detailsSoft,
+                    matchScore: matchScore
+                });
             }
         }
     }
-    validSettings.sort((a, b) => { if (a.violations !== b.violations) { return a.violations - b.violations; } if (a.matchScore !== b.matchScore) { return b.matchScore - a.matchScore; } return b.number - a.number; });
+    // Sort: hard violations ASC → soft violations ASC → matchScore DESC → number DESC
+    validSettings.sort((a, b) => {
+        if (a.hardViolations !== b.hardViolations) return a.hardViolations - b.hardViolations;
+        if (a.softViolations !== b.softViolations) return a.softViolations - b.softViolations;
+        if (a.matchScore !== b.matchScore) return b.matchScore - a.matchScore;
+        return b.number - a.number;
+    });
     return validSettings;
 }
 const satisfiesCondition = (h, k, l, condStr) => {
@@ -1468,33 +1661,55 @@ const satisfiesCondition = (h, k, l, condStr) => {
     return true;
 };
 function countViolations(indexed_hkls, rules) {
-    let count = 0; const details = [];
+    let hardCount = 0;
+    let softCount = 0;
+    const detailsHard = [];
+    const detailsSoft = [];
     for (const reflection of indexed_hkls) {
-        const { h, k, l, calc_tth } = reflection; let isViolation = false;
+        const { h, k, l, calc_tth } = reflection;
+        const isSuspect = !!reflection.ka2Suspect;
+        let isViolation = false;
+        let violationDetail = null;
         const zone = getReflectionZone(h, k, l);
         const applicableZoneRules = rules[zone] || [];
         const generalRules = rules.hkl || [];
         for (const cond of applicableZoneRules) {
             if (!satisfiesCondition(h, k, l, cond)) {
-                isViolation = true; const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
-                details.push(`(${h},${k},${l})${tth_string} violates ${zone}: ${cond}`);
+                isViolation = true;
+                const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
+                const softTag = isSuspect ? ' [Ka2-suspect]' : '';
+                violationDetail = `(${h},${k},${l})${tth_string} violates ${zone}: ${cond}${softTag}`;
                 break;
             }
         }
         if (!isViolation) {
             for (const cond of generalRules) {
-                 if (zone === 'hkl' || !rules[zone] || !rules[zone].some(zoneCond => zoneCond === cond)) {
-                      if (!satisfiesCondition(h, k, l, cond)) {
-                           isViolation = true; const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
-                           details.push(`(${h},${k},${l})${tth_string} violates hkl: ${cond}`);
-                           break;
-                      }
-                 }
+                if (zone === 'hkl' || !rules[zone] || !rules[zone].some(zoneCond => zoneCond === cond)) {
+                    if (!satisfiesCondition(h, k, l, cond)) {
+                        isViolation = true;
+                        const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
+                        const softTag = isSuspect ? ' [Ka2-suspect]' : '';
+                        violationDetail = `(${h},${k},${l})${tth_string} violates hkl: ${cond}${softTag}`;
+                        break;
+                    }
+                }
             }
         }
-        if (isViolation) { count++; }
+        if (isViolation) {
+            if (isSuspect) {
+                softCount++;
+                if (detailsSoft.length < 5) detailsSoft.push(violationDetail);
+            } else {
+                hardCount++;
+                if (detailsHard.length < 5) detailsHard.push(violationDetail);
+            }
+        }
     }
-    return { count, details: details.slice(0, 5) };
+    // 'count' and 'details' kept as combined values for any pre-existing
+    // caller that doesn't yet read the split fields.
+    const count = hardCount + softCount;
+    const details = detailsHard.concat(detailsSoft).slice(0, 5);
+    return { count, hardCount, softCount, details, detailsHard, detailsSoft };
 }
 function getReflectionZone(h, k, l) {
     if (k === 0 && l === 0 && h !== 0) return 'h00'; if (h === 0 && l === 0 && k !== 0) return '0k0'; if (h === 0 && k === 0 && l !== 0) return '00l';

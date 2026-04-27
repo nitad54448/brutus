@@ -135,7 +135,6 @@
     </aside>
 
     <main id="main-content">
-        <!-- INTRODUCTION -->
         <section id="introduction">
             <h1>Technical Overview & Methodology</h1>
             <p>
@@ -172,7 +171,6 @@
             </p>
         </section>
 
-        <!-- QUICK START -->
         <section id="quick-start">
             <h2>Quick Start Guide</h2>
             <p>Use the following workflow for a typical single-phase powder pattern.</p>
@@ -233,7 +231,6 @@
             </ol>
         </section>
 
-        <!-- UI -->
         <section id="ui">
             <h2>The User Interface</h2>
             <p>
@@ -259,7 +256,7 @@
                 </li>
                 <li>
                     <strong>Peak table:</strong>
-                    Lists all detected peaks. The <code>2θ Obs (°)</code> column is editable to allow fine corrections.
+                    Lists all detected peaks. The <code>2θ Obs (°)</code> column is editable to allow fine corrections. Suspected Kα<sub>2</sub> peaks (if stripping is off) are flagged with a yellow background.
                 </li>
             </ul>
 
@@ -277,10 +274,10 @@
 
                 <li>
                     <strong>Strip K-alpha2:</strong>
-                    Applies a Damped Richardson-Lucy deconvolution to remove the Kα<sub>2</sub> component before peak analysis.
-                    This iterative Bayesian method is superior to traditional subtraction as it enforces positivity (no negative artifacts) and includes damping to prevent noise amplification ("ringing").
+                    Applies the Rachinger Kα<sub>2</sub> stripping correction (1948 method) to remove the Kα<sub>2</sub> component before peak analysis.
+                    This single-pass, deterministic method sweeps from low to high 2θ, using the already-corrected lower-2θ intensity to subtract the Kα<sub>2</sub> ghost, yielding highly accurate peak positions without ringing artifacts or negative dips.
                     When enabled, the <code>Ka1 Wavelength</code> field is set to the pure Kα<sub>1</sub> value.
-                    The default is OFF.
+                    The default is ON for Kα-average presets.
                 </li>
 
                 <li>
@@ -406,7 +403,6 @@
             </ul>
         </section>
 
-        <!-- PEAK FINDING -->
         <section id="peak-finding">
             <h2>Peak Finding in Detail</h2>
             <p>
@@ -418,8 +414,8 @@
             <ol>
                 <li>
                     <strong>Kα<sub>2</sub> stripping (optional):</strong>
-                    If <code>Strip K-alpha2</code> is enabled, the Damped Richardson-Lucy algorithm is applied to the raw intensities.
-                    This separates the doublet based on the wavelength ratio; even the natural shape of the peak base is not preserved this is not important for this program.
+                    If <code>Strip K-alpha2</code> is enabled, the Rachinger correction is applied to the raw intensities.
+                    This separates the doublet based on the wavelength ratio; even if the natural shape of the peak base is not perfectly preserved, this is not important for this program as peak positions are highly accurate.
                 </li>
                 <li>
                     <strong>Background subtraction:</strong>
@@ -443,6 +439,16 @@
                     the maximum to obtain a the position. If too close to the data edge, the algorithm falls back to a three-point fit.
                 </li>
             </ol>
+            
+            <h3>Suspected Kα<sub>2</sub> Peaks & Wavelength Adjustments</h3>
+            <p>
+                If your data has not been stripped of Kα<sub>2</sub>, Brutus will automatically scan the peak list to flag suspected Kα<sub>2</sub> ghosts:
+            </p>
+            <ul>
+                <li><strong>Yellow Rows (Soft Violations):</strong> Suspected Kα<sub>2</sub> peaks are highlighted in yellow in the table. These are <strong>excluded</strong> from the indexing combinatorial search and from the M(20) Figure of Merit calculation, and count only as "soft" violations during space-group analysis.</li>
+                <li><strong>Kα<sub>1</sub> Wavelength for Parents:</strong> The parent peaks of these ghosts (marked with a <code>*</code>) are provably Kα<sub>1</sub> lines. Brutus will automatically calculate their d-spacings using the precise λ_Kα<sub>1</sub> wavelength instead of the average wavelength, improving indexing accuracy.</li>
+                <li><strong>Manual Override:</strong> If you believe a peak was falsely flagged as a Kα<sub>2</sub> ghost (e.g., due to overlapping phases), you can right-click the yellow row to confirm it as a real peak.</li>
+            </ul>
 
             <h3>Practical Recommendations</h3>
             <ul>
@@ -452,7 +458,7 @@
                 <li>For noisy data, increase <code>Points</code> (smoothing), but avoid over-smoothing, which can merge or shift peaks.</li>
                 <li>
                     Always manually curate the final peak list. Remove artifacts and known impurity peaks.
-                    If you are not stripping Kα<sub>2</sub>, delete Kα<sub>2</sub> shoulders explicitly.
+                    If you are not stripping Kα<sub>2</sub>, delete Kα<sub>2</sub> shoulders explicitly or ensure the program has tagged them correctly.
                 </li>
                 <li>
                     Kα<sub>2</sub> stripping can simplify the pattern but may introduce small artifacts.
@@ -776,7 +782,6 @@
    
 
 
-        <!-- EVALUATING SOLUTIONS -->
         <section id="evaluating-solutions">
             <h2>Evaluating Solutions</h2>
             <p>
@@ -841,7 +846,6 @@
             </p>
         </section>
 
-        <!-- SPACE GROUP ANALYSIS -->
         <section id="space-group-analysis">
             <h2>Space Group Analysis</h2>
             <p>
@@ -869,7 +873,7 @@
                     <strong>Determine centering and extinctions.</strong>
                     This subset of unambiguous $(hkl)$ indices is compared with the extinction rules of
                     candidate lattices (centerings and glide/screw symmetries). A rule is considered violated only if
-                    an <em>observed unambiguous</em> peak contradicts it.
+                    an <em>observed unambiguous</em> peak contradicts it. Brutus distinguishes between <strong>hard violations</strong> (real independent reflections) and <strong>soft violations</strong> (violations caused solely by Kα<sub>2</sub>-suspect peaks). Space groups disqualified only by soft violations are retained in the list with a warning.
                 </li>
                 <li>
                     <strong>Rank space groups.</strong>
@@ -896,7 +900,6 @@
             </ul>
         </section>
 
-        <!-- ADVANCED TOPICS -->
         <section id="advanced-topics">
             <h2>Advanced Topics: Enhanced Search and Sieving</h2>
             <p>
@@ -1105,7 +1108,6 @@
     </p>
 </section>
 
-        <!-- REFERENCES -->
         <section id="references">
             <h2>References</h2>
             <p>
@@ -1140,13 +1142,10 @@
                 </li>
 
                 <li>
-                    <strong>Deconvolution Algorithm (Richardson-Lucy):</strong><br>
-                    Richardson, W. H. (1972).
-                    “Bayesian-Based Iterative Method of Image Restoration.”
-                    <em>Journal of the Optical Society of America</em>, <strong>62</strong>, 55–59.<br>
-                    Lucy, L. B. (1974).
-                    “An iterative technique for the rectification of observed distributions.”
-                    <em>The Astronomical Journal</em>, <strong>79</strong>, 745.
+                    <strong>Kα<sub>2</sub> Stripping Algorithm:</strong><br>
+                    Rachinger, W. A. (1948).
+                    “A Correction for the α1 α2 Doublet in the Measurement of Widths of X-ray Diffraction Lines.”
+                    <em>Journal of Scientific Instruments</em>, <strong>25</strong>, 254.
                 </li>
 
 
@@ -1174,7 +1173,7 @@
             </ol>
 
             <div class="footer">
-                <p>Help guide generated with the assistance of an AI, last updated 16 January 2026.</p>
+                <p>Help guide generated with the assistance of an AI, last updated 27 April 2026.</p>
             </div>
         </section>
     </main>
