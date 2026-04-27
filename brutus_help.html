@@ -63,6 +63,11 @@
             background-color: var(--light-bg); color: var(--text-light);
             border-left-color: var(--primary-accent); font-weight: 600;
         }
+        #toc li a.toc-sub {
+            padding-left: 1.8rem; font-size: 0.82rem; color: #6b7280;
+        }
+        #toc li a.toc-sub:hover { color: var(--text-medium); }
+        #toc li a.toc-sub.active { color: var(--text-light); }
         #main-content { flex-grow: 1; overflow-y: auto; padding: 3rem 4rem; }
         section {
             margin-bottom: 4rem; padding-top: 2rem; border-top: 1px solid #e5e7eb;
@@ -102,6 +107,34 @@
         }
         th, td { padding: 0.75rem 1rem; border: 1px solid #d1d5db; text-align: left; }
         th { background-color: #f3f4f6; font-weight: 600; }
+        .formula-box {
+            background-color: #f9fafb; padding: 1rem 1.5rem; border-radius: 0.5rem;
+            border: 1px solid #e5e7eb; overflow-x: auto; margin-bottom: 1rem;
+        }
+        .callout-note {
+            background-color: #eff6ff; border-left: 4px solid #3b82f6;
+            padding: 0.75rem 1.25rem; border-radius: 0 0.375rem 0.375rem 0;
+            margin-bottom: 1rem;
+        }
+        .callout-warning {
+            background-color: #fffbeb; border-left: 4px solid #f59e0b;
+            padding: 0.75rem 1.25rem; border-radius: 0 0.375rem 0.375rem 0;
+            margin-bottom: 1rem;
+        }
+        .callout-note strong, .callout-warning strong { color: #1e40af; }
+        .callout-warning strong { color: #92400e; }
+        .tag-cpu {
+            display: inline-block; font-size: 0.7rem; font-weight: 700;
+            background-color: #0d948833; color: #0d9488;
+            border: 1px solid #0d948866; border-radius: 3px;
+            padding: 0.1em 0.4em; vertical-align: middle; margin-left: 4px;
+        }
+        .tag-gpu {
+            display: inline-block; font-size: 0.7rem; font-weight: 700;
+            background-color: #d9770633; color: #b45309;
+            border: 1px solid #d9770666; border-radius: 3px;
+            padding: 0.1em 0.4em; vertical-align: middle; margin-left: 4px;
+        }
         .footer {
             text-align: center; margin-top: 4rem; padding-top: 2rem;
             border-top: 1px solid #e5e7eb; font-size: 0.85rem; color: #6b7280;
@@ -117,15 +150,14 @@
         <div class="logo">Help Guide: <span>Brutus</span></div>
         <nav>
             <ul id="toc">
-                <li><a href="#introduction" class="active">Technical Overview</a></li>
+                <li><a href="#introduction">Technical Overview</a></li>
                 <li><a href="#quick-start">Quick Start Guide</a></li>
                 <li><a href="#ui">The User Interface</a></li>
                 <li><a href="#peak-finding">Peak Finding</a></li>
-
                 <li><a href="#indexing-method">Indexing Algorithm</a></li>
-<li><a href="#numbers-and-limits">Numbers & Limits</a></li> <li><a href="#evaluating-solutions">Evaluating Solutions</a></li>
-
-
+                <li><a href="#refinement">Least-Squares Refinement</a></li>
+                <li><a href="#numbers-and-limits">Numbers &amp; Limits</a></li>
+                <li><a href="#evaluating-solutions">Evaluating Solutions</a></li>
                 <li><a href="#space-group-analysis">Space Group Analysis</a></li>
                 <li><a href="#advanced-topics">Advanced Topics</a></li>
                 <li><a href="#troubleshooting">Troubleshooting</a></li>
@@ -135,18 +167,22 @@
     </aside>
 
     <main id="main-content">
+
+        <!-- ============================================================ -->
         <section id="introduction">
-            <h1>Technical Overview & Methodology</h1>
+            <h1>Technical Overview &amp; Methodology</h1>
             <p>
-                This document is a technical reference for the Brutus powder indexing software. It explains the main algorithms, search parameters,
-                and methodology, and is intended for users familiar with powder X-ray diffraction. As the name of the program suggests it, this is brute force method (force is not necessarily smart).
+                This document is a technical reference for the <strong>Brutus</strong> powder indexing software.
+                It explains the main algorithms, search parameters, and methodology, and is intended for users
+                familiar with powder X-ray diffraction. As the name suggests, this is a brute-force method —
+                the search is exhaustive rather than heuristic, and is not necessarily fast.
             </p>
 
             <h3>Core Goal</h3>
             <p>
                 The aim of <em>ab initio</em> powder indexing is to determine the unit-cell parameters
                 ($a, b, c, \alpha, \beta, \gamma$) from a list of observed diffraction peak positions ($2\theta$).
-                Brutus performs this task using a system-specific, exhaustive search algorithm.
+                Brutus performs this task using a symmetry-specific, exhaustive search algorithm.
             </p>
             <p>
                 The central assumption is that a small subset of the most intense, low-angle reflections corresponds
@@ -159,25 +195,61 @@
             <p>
                 All peak positions are first converted from $2\theta$ to Q-space, where $Q = 1/d^2$.
                 The general quadratic relationship between $Q$, the Miller indices, and the reciprocal cell parameters
-                ($A, B, C, D, E, F$) is
+                ($A, B, C, D, E, F$) is:
             </p>
-            <p>
+            <div class="formula-box">
                 $$ Q_{hkl} = Ah^2 + Bk^2 + Cl^2 + Dkl + Ehl + Fhk $$
+            </div>
+            <p>
+                where $A = a^{*2}$, $B = b^{*2}$, $C = c^{*2}$, and the cross-terms involve the reciprocal angles.
+                Working in Q-space linearises the problem: for a given assignment of Miller indices
+                to observed peaks, the unknown parameters $\{A, B, C, \ldots\}$ appear as the solution
+                to a system of linear equations.
             </p>
             <p>
                 Brutus solves for these reciprocal parameters (or the subset relevant to the current crystal system),
-                then converts them to real-space cell parameters. Each candidate cell is refined immediately and scored
-                against the full peak list.
+                then converts them back to real-space cell parameters. Each candidate cell is then refined with a
+                weighted least-squares fit and scored against the full observed peak list via figures of merit.
             </p>
+
+            <h3>System-Specific Parameterisation</h3>
+            <p>
+                The quadratic form simplifies for each crystal system, reducing the number of free parameters. The design matrix column vector for the least-squares system is:
+            </p>
+            <table>
+                <thead><tr><th>System</th><th>Free parameters ($k$)</th><th>Design row <code>getLSDesignRow(hkl)</code></th></tr></thead>
+                <tbody>
+                    <tr><td>Cubic</td><td>1</td><td>$[h^2+k^2+l^2]$</td></tr>
+                    <tr><td>Tetragonal</td><td>2</td><td>$[h^2+k^2,\; l^2]$</td></tr>
+                    <tr><td>Hexagonal</td><td>2</td><td>$[\tfrac{4}{3}(h^2+hk+k^2),\; l^2]$</td></tr>
+                    <tr><td>Orthorhombic</td><td>3</td><td>$[h^2,\; k^2,\; l^2]$</td></tr>
+                    <tr><td>Monoclinic</td><td>4</td><td>$[h^2,\; k^2,\; l^2,\; hl]$</td></tr>
+                    <tr><td>Triclinic</td><td>6</td><td>$[h^2,\; k^2,\; l^2,\; kl,\; hl,\; hk]$</td></tr>
+                </tbody>
+            </table>
+            <p>
+                The solved parameters relate to reciprocal lattice constants. For example, in orthorhombic, the three fitted parameters are $A=1/a^2$, $B=1/b^2$, $C=1/c^2$, giving $a=1/\sqrt{A}$ etc. For monoclinic, the four parameters are $A=1/(a^2\sin^2\beta)$, $B=1/b^2$, $C=1/(c^2\sin^2\beta)$, $D=-2\cos\beta/(ac\sin^2\beta)$, from which $\beta$ is extracted as $\cos\beta = -D/(2\sqrt{AC})$.
+            </p>
+
+            <h3>Architecture</h3>
+            <p>
+                Brutus runs entirely in the browser, requiring no installation. The program is split across several files:
+            </p>
+            <ul>
+                <li><code>brutus.html</code> — the main application: UI, chart rendering (Chart.js), data file parsing, peak detection, space-group analysis, and PDF report generation.</li>
+                <li><code>worker-logic.js</code> — shared logic loaded both by the main thread (for CPU searches and post-processing) and as a Web Worker (for background CPU indexing). Contains all crystallographic mathematics: HKL generation, Q-calculation, least-squares solvers, figure-of-merit calculations, and the Niggli reduction.</li>
+                <li><code>webgpu-engine.js</code> — the GPU-accelerated brute-force search for orthorhombic, monoclinic, and triclinic systems.</li>
+            </ul>
         </section>
 
+        <!-- ============================================================ -->
         <section id="quick-start">
             <h2>Quick Start Guide</h2>
             <p>Use the following workflow for a typical single-phase powder pattern.</p>
             <ol>
                 <li>
                     <strong>Load the data file.</strong>
-                    Click <code>Select Data File</code>. Supported formats include <code>.xy</code>, <code>.xrdml</code>, <code>.ras</code>, and others.
+                    Click <code>Select Data File</code>. Supported formats include <code>.xy</code>, <code>.xrdml</code>, <code>.ras</code>, <code>.xra</code>, and plain text two-column data.
                 </li>
                 <li>
                     <strong>Detect peaks.</strong>
@@ -189,8 +261,8 @@
                     Carefully review all peaks:
                     <ul>
                         <li>Edit $2\theta$ positions for accuracy.</li>
-                        <li>Delete spurious peaks (noise, impurities,..), Kα<sub>2</sub> if you are not stripping Kα<sub>2</sub>.</li>
-                        <li>Add important missing, e.g. low angle reflections using <code>Ctrl + Click</code> on the chart.</li>
+                        <li>Delete spurious peaks (noise, impurities, Kα<sub>2</sub> if stripping is off).</li>
+                        <li>Add important missing peaks, e.g. low-angle reflections, using <code>Ctrl + Click</code> on the chart.</li>
                     </ul>
                     A clean list of about 15–20 peaks, free of impurities at low angle, is ideal.
                 </li>
@@ -199,7 +271,7 @@
                     On the <strong>Parameters</strong> tab:
                     <ul>
                         <li>Select the correct X-ray <code>Radiation Preset</code> (e.g. Cu Kα).</li>
-                        <li>Choose whether to enable <code>Strip K-alpha2</code>. This also updates the <code>Ka1 Wavelength</code> field. The default is OFF (average Kα wavelength).</li>
+                        <li>Choose whether to enable <code>Strip K-alpha2</code>. When enabled, the Ka1 wavelength is used; when disabled, the average Kα wavelength is used. The default is ON (average Kα wavelength).</li>
                         <li>Set a chemically reasonable <code>Max Volume (Å³)</code> to limit the search space.</li>
                         <li>Set <code>2θ Error (°)</code> according to your data quality (e.g. ≈0.02° for synchrotron, ≈0.05° for a typical lab diffractometer).</li>
                         <li>Leave <strong>Refine Zero-Point Error</strong> enabled unless you have a specific reason to turn it off.</li>
@@ -211,13 +283,13 @@
                     If searching Orthorhombic, Monoclinic, or Triclinic, a new box appears.
                     <ul>
                         <li><code>HKL Basis Size</code>: Number of simple HKLs to use for the search (Defaults: Ortho 300, Mono 100, Tri 40).</li>
-                        <li><code>Peaks to Combine</code>: Number of observed peaks to use for combinations (Defaults: Ortho 7, Mono 7, Tri 9).</li>
+                        <li><code>Peaks to Combine</code>: Number of observed peaks used to form combinations (Defaults: Ortho 7, Mono 7, Tri 9).</li>
                         <li>Leave these at their defaults unless you have trouble finding a solution.</li>
                     </ul>
                 </li>
                 <li>
                     <strong>Start indexing.</strong>
-                    Click <code>Start Indexing</code>. Progress is shown on the main bar.
+                    Click <code>Start Indexing</code>. Progress is shown on the main progress bar.
                 </li>
                 <li>
                     <strong>Inspect solutions.</strong>
@@ -231,10 +303,12 @@
             </ol>
         </section>
 
+        <!-- ============================================================ -->
         <section id="ui">
             <h2>The User Interface</h2>
             <p>
-                The application window is divided into a <strong>Controls Panel</strong> (left) and a <strong>Results Area</strong> (right).
+                The application window is divided into a <strong>Controls Panel</strong> (left) and a <strong>Results Area</strong> (right),
+                separated by a draggable divider that allows you to resize both panels.
             </p>
 
             <h3>Controls Panel</h3>
@@ -245,9 +319,9 @@
                 <li>
                     <strong>Peak finding sliders:</strong>
                     <ul>
-                        <li><code>Radius</code> – background subtraction radius (rolling-ball algorithm).</li>
-                        <li><code>Points</code> – Savitzky–Golay smoothing window width.</li>
-                        <li><code>Min peak (%)</code> – peak detection threshold on a logarithmic scale.</li>
+                        <li><code>Radius</code> – rolling-ball background subtraction radius (in data points). Larger values handle broader, slowly varying backgrounds.</li>
+                        <li><code>Points</code> – Savitzky–Golay smoothing window width (in data points). Larger values reduce noise but risk merging or shifting close peaks.</li>
+                        <li><code>Min peak (%)</code> – peak detection threshold on a logarithmic scale. Peaks below this fraction of the strongest peak are ignored. Reduce to detect weak reflections; increase to suppress noise.</li>
                     </ul>
                 </li>
                 <li>
@@ -256,7 +330,9 @@
                 </li>
                 <li>
                     <strong>Peak table:</strong>
-                    Lists all detected peaks. The <code>2θ Obs (°)</code> column is editable to allow fine corrections. Suspected Kα<sub>2</sub> peaks (if stripping is off) are flagged with a yellow background.
+                    Lists all detected peaks. The <code>2θ Obs (°)</code> column is directly editable for fine corrections.
+                    Suspected Kα<sub>2</sub> peaks (when stripping is off) are flagged with a yellow background and a ⚠ symbol.
+                    Right-clicking a yellow row lets you manually confirm it as a genuine peak.
                 </li>
             </ul>
 
@@ -264,145 +340,150 @@
             <ul>
                 <li>
                     <strong>Radiation Preset:</strong>
-                    Select the X-ray source (e.g. Cu Kα, Co Kα). This sets the internal wavelength values.
+                    Select the X-ray source (e.g. Cu Kα, Co Kα, Mo Kα, synchrotron, etc.). This sets the internal Ka1 and Ka2 wavelength values used for Kα<sub>2</sub> stripping and d-spacing calculations.
                 </li>
                 <li>
                     <strong>Ka1 Wavelength (Å):</strong>
-                    Displays the wavelength used for calculations. It is updated automatically when a preset is chosen and
-                    depends on the <code>Strip K-alpha2</code> setting. It becomes editable only when a <code>Custom</code> preset is selected.
+                    Displays the wavelength used for all Q-space calculations. Updated automatically when a preset is chosen
+                    and depends on the <code>Strip K-alpha2</code> setting:
+                    <ul>
+                        <li>When stripping is <strong>ON</strong>: displays the pure Ka1 wavelength (e.g. 1.54056 Å for Cu).</li>
+                        <li>When stripping is <strong>OFF</strong>: displays the intensity-weighted average wavelength (e.g. 1.54184 Å for Cu Kα), which accounts for the unstripped doublet.</li>
+                        <li>When a <strong>Custom</strong> preset is selected, this field becomes editable.</li>
+                    </ul>
                 </li>
-
                 <li>
                     <strong>Strip K-alpha2:</strong>
-                    Applies the Rachinger Kα<sub>2</sub> stripping correction (1948 method) to remove the Kα<sub>2</sub> component before peak analysis.
-                    This single-pass, deterministic method sweeps from low to high 2θ, using the already-corrected lower-2θ intensity to subtract the Kα<sub>2</sub> ghost, yielding highly accurate peak positions without ringing artifacts or negative dips.
-                    When enabled, the <code>Ka1 Wavelength</code> field is set to the pure Kα<sub>1</sub> value.
-                    The default is ON for Kα-average presets.
+                    Applies the Rachinger (1948) Kα<sub>2</sub> stripping correction to remove the Kα<sub>2</sub> component before peak analysis.
+                    This single-pass, deterministic method sweeps from low to high 2θ, using already-corrected lower-2θ intensity
+                    to subtract the Kα<sub>2</sub> ghost. It yields highly accurate peak positions without ringing artifacts or negative dips.
+                    <br><br>
+                    The algorithm uses the Ka2/Ka1 intensity ratio (typically 0.5) and the wavelength ratio to compute the
+                    angular shift of each ghost. The default is <strong>OFF</strong> (average Kα wavelength is used).
                 </li>
-
                 <li>
                     <strong>Max Volume (Å³):</strong>
-                    Upper bound on the allowed unit-cell volume. This is a strong constraint on the search.
+                    Upper bound on the allowed unit-cell volume. This is one of the most powerful constraints on the search.
+                    Setting it appropriately (e.g. based on the number of formula units and estimated molecular volume)
+                    dramatically reduces spurious solutions and speeds up the search.
                 </li>
                 <li>
                     <strong>Impurity Peaks:</strong>
-                    Number of unindexed peaks allowed among the first 20 when computing M(20).
+                    The number of unindexed peaks tolerated among the first 20 when computing M(20). If your sample
+                    contains a known minor impurity phase, set this to 1 or 2 to avoid penalising the correct solution.
                 </li>
                 <li>
                     <strong>2θ Error (°):</strong>
-                    Matching tolerance between observed and calculated peak positions.
+                    The matching tolerance between observed and calculated peak positions during indexing.
+                    This value is converted to a Q-space tolerance using an angle-dependent formula (see <a href="#refinement">Refinement</a>).
+                    Typical values: ≈0.01–0.02° for synchrotron data, ≈0.03–0.06° for laboratory diffractometers.
                 </li>
                 <li>
                     <strong>Refine Zero-Point Error:</strong>
-                    When enabled, a full zero-point refinement is performed for the final solution.
+                    When enabled, a zero-point error parameter ($\Delta 2\theta_{zero}$) is simultaneously refined alongside the
+                    lattice parameters during the least-squares step. This corrects for instrumental misalignment.
+                    It is enabled by default and strongly recommended. See the <a href="#refinement">Refinement section</a> for the full two-round strategy.
                 </li>
                 <li>
                     <strong>Crystal systems to search:</strong>
-                    Checkboxes for Cubic, Tetragonal, Hexagonal, Orthorhombic, Monoclinic, and Triclinic.
+                    Checkboxes for Cubic, Tetragonal, Hexagonal <span class="tag-cpu">CPU</span>,
+                    and Orthorhombic, Monoclinic, Triclinic <span class="tag-gpu">GPU</span>.
+                    CPU systems run in a Web Worker (background thread) and are fast.
+                    GPU systems offload to the WebGPU API for massively parallel evaluation.
                 </li>
             </ul>
 
-       
-
             <h4 style="margin-top: 2em;">GPU Search Parameters</h4>
             <p>
-                When <code>Orthorhombic</code>, <code>Monoclinic</code>, or <code>Triclinic</code> is selected, a dedicated panel appears. These four parameters control the scope, speed, and memory usage of the brute-force search.
+                When <code>Orthorhombic</code>, <code>Monoclinic</code>, or <code>Triclinic</code> is selected,
+                a dedicated panel appears with four parameters controlling the scope, speed, and memory usage of the GPU search.
             </p>
             <ul>
                 <li>
                     <strong>HKL Basis Size ($N_{hkl}$):</strong>
-                    <br>Defines the size of the pool of theoretical Miller indices used to construct trial matrices.
-                    <ul>
-                        <li><em>What it does:</em> Brutus generates a list of simple HKL triplets (e.g., 100, 011, 112) sorted by $h^2+k^2+l^2$. This parameter determines how many of these triplets are used to form combinations (bases).</li>
-                        <li><em>Implication:</em> Increasing this allows finding cells with larger unit cell edges or complex centering, but it increases the number of "HKL Combinations" factorially. This is the main driver of search time for Monoclinic and Triclinic systems.</li>
-                        <li><em>Defaults:</em> 300 (Ortho), 100 (Mono), 40 (Tri).</li>
-                    </ul>
+                    Defines the size of the pool of theoretical Miller index triplets (HKLs) used to construct trial matrices.
+                    Brutus generates a list of simple HKLs (e.g. 100, 011, 112), sorted by $h^2+k^2+l^2$, and takes the first
+                    $N_{hkl}$ of them. Increasing this allows finding cells with larger unit-cell edges or complex centering,
+                    but increases the number of HKL combinations factorially.
+                    <br><em>Defaults: 300 (Ortho), 100 (Mono), 40 (Tri).</em>
                 </li>
-                
                 <li>
                     <strong>Peaks to Combine ($N_{peaks}$):</strong>
-                    <br>Controls how many observed peaks (starting from the first one) are considered for generating the solving tuple.
-                    <ul>
-                        <li><em>What it does:</em> To solve a system, Brutus needs exactly $k$ peaks ($k=3$ for Ortho, 4 for Mono, 6 for Tri). If this parameter is set higher than $k$ (e.g., 7 for Monoclinic), the program tests every possible subgroup of 4 peaks drawn from those top 7.</li>
-                        <li><em>Implication:</em> This provides robustness against impurities. If the 2nd peak is an impurity, a search using only the first 4 peaks will fail. A search using the first 7 peaks will eventually test the combination $\{1,3,4,5\}$, skipping the impurity. Increasing this value effectively creates a "Sliding Window" search but increases total trials.</li>
-                        <li><em>Defaults:</em> 7 (Ortho), 7 (Mono), 9 (Tri).</li>
-                    </ul>
+                    Controls how many observed peaks (starting from the lowest-angle) are considered when generating the
+                    solving tuple. The solver needs exactly $k$ peaks ($k=3$ for Ortho, 4 for Mono, 6 for Tri).
+                    Setting $N_{peaks} > k$ (e.g. 7 for Monoclinic) causes the program to test every possible subgroup
+                    of $k$ peaks from those $N_{peaks}$ peaks. This provides robustness against impurities: if one
+                    low-angle peak is from an impurity, at least one combination will skip it.
+                    <br><em>Defaults: 7 (Ortho), 7 (Mono), 9 (Tri).</em>
                 </li>
-
                 <li>
                     <strong>FoM Tolerance:</strong>
-                    <br>The "Fail-Fast" threshold for the GPU's internal Figure of Merit filter.
-                    <ul>
-                        <li><em>What it does:</em> Before sending a solution to the CPU, the GPU calculates a quick score based on the average absolute deviation of the first 10 observed peaks. If the error is higher than this tolerance, the cell is discarded immediately.</li>
-                        <li><em>Note:</em> A value of <strong>1.0</strong> corresponds to an average error exactly matching your user-defined <code>2θ Error</code>. The default is higher to allow for unrefined trial cells.</li>
-                        <li><em>Recommendation:</em> The default (0.8) is a balanced choice. Increase it (e.g., to 3.0) if your data is very noisy or has a significant zero-shift, to prevent valid but poorly-fitting initial cells from being rejected too early. A large value will generate many candidates, you may need to update the Candidates number.</li>
-                    </ul>
+                    The "Fail-Fast" threshold for the GPU's internal pre-filter. On the GPU, after solving a trial cell,
+                    an average absolute deviation of $Q$ is computed over the first $\max(N_{peaks}, 10)$ observed peaks.
+                    If this deviation exceeds <code>FoM Tolerance × (user 2θ Error converted to ΔQ)</code>, the cell is
+                    discarded before being sent to the CPU. A value of 1.0 means the trial must match exactly within your
+                    stated error; a larger value (e.g. 3) is more permissive and will pass more candidates (including
+                    valid ones with large zero-shifts) to CPU refinement.
+                    <br><em>Default: 3.</em>
                 </li>
-
                 <li>
-                    <strong>Buffer (kCells):</strong>
-                    <br>The maximum number of candidate solutions (in thousands) the GPU is allowed to store.
-                    <ul>
-                        <li><em>What it does:</em> It limits the size of the results buffer passed back to the CPU. If the search finds more valid candidates than this limit, the search stops early ("Buffer Full").</li>
-                        <li><em>Recommendation:</em> Keep this around 20 (20,000 solutions). Sending millions of solutions to the CPU will freeze the interface during the refinement step without adding value, as the correct solution is almost always among the top candidates if it exists.</li>
-                    </ul>
+                    <strong>Buffer / Candidate (kCells):</strong>
+                    The maximum number of GPU candidates (in thousands) buffered before CPU refinement. If the GPU finds
+                    more valid candidates than this limit, the search stops early ("Buffer Full"). All buffered candidates
+                    are then passed to the CPU for full weighted least-squares refinement, M(20) calculation, and Niggli reduction.
+                    A smaller buffer reduces CPU time after the GPU phase; a larger buffer avoids early termination.
+                    <br><em>Default: 50 (i.e. 50,000 candidate cells).</em>
                 </li>
             </ul>
-
-            <p>
-                <strong>Note:</strong> The status text at the bottom of the panel updates in real-time as you adjust these values, showing the total estimated number of cells to be tested. Ensure this number remains reasonable (e.g., under 500 Billion) for a timely result.
-            </p>
-
-
-            <p>
-                When you select a GPU system, the status text at the bottom of the panel will show you the total number of cells to be tested, which is a direct result of these two parameters. Be careful, this number can increase very fast. For a regular GPU card at the time of this writting (like Nvidia 8Gb T1000) the search speed is in the range of millions/sec cells tested.
-            </p>
-
+            <div class="callout-note">
+                <strong>Note:</strong> The status text at the bottom of the panel updates in real-time as you adjust these values, showing the total estimated number of cells to be tested. Ensure this number remains reasonable (e.g. under 500 Billion for a result within a few minutes). For a regular GPU card (e.g. Nvidia T1000, 8 GB) the effective search speed is typically in the range of tens of millions of cells per second.
+            </div>
 
             <h4>3. Solutions Tab</h4>
             <ul>
                 <li>
                     <strong>Solutions table (The Ledger):</strong>
-                    Shows valid solutions found during your session, including crystal system, unit-cell parameters, volume, and M(20).
-                    
+                    Shows valid solutions found during your session, including crystal system, unit-cell parameters (a, b, c, α, β, γ), volume, and M(20).
+                    Solutions are ranked by M(20) in descending order.
                 </li>
                 <li>
-                    <strong>Cumulative Search Behavior:</strong>
-                    The table acts as a "ledger" or cumulative record. If you run a search for Orthorhombic cells, and then run a second search for Monoclinic cells, the previous results are <strong>retained</strong>. 
-                    New solutions are added to the existing list, and the entire table is automatically re-ranked by the M(20) figure of merit.
-                    <br><br>
-                    This allows you to directly compare the quality of solutions across different crystal systems (e.g., comparing a high-ranking Orthorhombic cell against a new Monoclinic candidate). The list is only cleared when you load a new data file.
+                    <strong>Cumulative Search Behaviour:</strong>
+                    The table acts as a cumulative record across searches. If you run a search for Orthorhombic cells and
+                    then a second search for Monoclinic cells, previous results are <strong>retained</strong>. New solutions are
+                    added to the existing list and the entire table is re-ranked by M(20). This allows direct comparison
+                    across crystal systems. The list is only cleared when you load a new data file.
                 </li>
                 <li>
                     <strong>Context Menu (Right-Click):</strong>
-                    Right-clicking on any solution in the table opens a context menu with two options:
+                    Right-clicking a solution row opens a menu with two options:
                     <ul>
-                        <li><strong>Erase Solution:</strong> Permanently removes the selected solution from the ledger.</li>
-                        <li><strong>Generate Report:</strong> Creates a PDF report specifically for the selected solution only, ignoring others in the list.</li>
+                        <li><strong>Erase Solution:</strong> Permanently removes that solution from the ledger.</li>
+                        <li><strong>Generate Report:</strong> Creates a PDF report for that solution only.</li>
                     </ul>
                 </li>
             </ul>
-
 
             <h3>Results Area</h3>
             <ul>
                 <li>
                     <strong>Chart:</strong>
-                    Shows the experimental diffraction pattern, observed peaks (red ticks) and calculated peaks for the
-                    selected solution (blue ticks). A good solution exhibits visually convincing overlap.
+                    Shows the experimental diffraction pattern, observed peaks (red ticks), and calculated peaks for the
+                    selected solution (blue ticks). A good solution exhibits visually convincing overlap across the full
+                    angular range.
                 </li>
                 <li>
                     <strong>Chart interaction:</strong>
                     <ul>
-                        <li>Zoom: mouse wheel (different zoom type if the mouse at the left of Y axis or nelow the Y axis).</li>
+                        <li>Zoom: mouse wheel (over the chart area zooms 2θ axis; scroll over the Y-axis zooms intensity).</li>
                         <li>Pan: click and drag.</li>
-                        <li>Reset zoom: right-click.</li>
-                        <li>Add peak: <code>Ctrl + Click</code>.</li>
+                        <li>Reset zoom: right-click on the chart.</li>
+                        <li>Add peak manually: <code>Ctrl + Click</code> on the chart.</li>
                     </ul>
                 </li>
             </ul>
         </section>
 
+        <!-- ============================================================ -->
         <section id="peak-finding">
             <h2>Peak Finding in Detail</h2>
             <p>
@@ -414,16 +495,16 @@
             <ol>
                 <li>
                     <strong>Kα<sub>2</sub> stripping (optional):</strong>
-                    If <code>Strip K-alpha2</code> is enabled, the Rachinger correction is applied to the raw intensities.
-                    This separates the doublet based on the wavelength ratio; even if the natural shape of the peak base is not perfectly preserved, this is not important for this program as peak positions are highly accurate.
+                    If <code>Strip K-alpha2</code> is enabled, the Rachinger (1948) correction is applied to the raw intensities.
+                    Even if the peak base shape is not perfectly preserved, this is unimportant here because only peak
+                    <em>positions</em> are used for indexing, and those are highly accurate.
                 </li>
                 <li>
                     <strong>Background subtraction:</strong>
                     A rolling-ball style algorithm estimates and removes the background.
-                    The <code>Radius</code> slider controls the ball radius.
+                    The <code>Radius</code> slider controls the ball radius in data points.
+                    A larger radius smooths over broader background humps.
                 </li>
-
-
                 <li>
                     <strong>Data smoothing:</strong>
                     A Savitzky–Golay filter is applied to the background-subtracted signal to reduce noise
@@ -435,19 +516,31 @@
                 </li>
                 <li>
                     <strong>Position refinement:</strong>
-                    For each peak, a five-point least-squares quadratic fit (based on Savitzky–Golay coefficients) is carried out around
-                    the maximum to obtain a the position. If too close to the data edge, the algorithm falls back to a three-point fit.
+                    For each detected peak, a five-point least-squares quadratic fit (Savitzky–Golay coefficients) is
+                    carried out around the local maximum to obtain a sub-step precision position.
+                    If the peak is too close to the data edge, the algorithm falls back to a three-point fit.
                 </li>
             </ol>
-            
-            <h3>Suspected Kα<sub>2</sub> Peaks & Wavelength Adjustments</h3>
+
+            <h3>Suspected Kα<sub>2</sub> Peaks &amp; Wavelength Treatment</h3>
             <p>
-                If your data has not been stripped of Kα<sub>2</sub>, Brutus will automatically scan the peak list to flag suspected Kα<sub>2</sub> ghosts:
+                If your data has <em>not</em> been stripped of Kα<sub>2</sub>, Brutus automatically scans the
+                peak list to flag suspected Kα<sub>2</sub> ghosts:
             </p>
             <ul>
-                <li><strong>Yellow Rows (Soft Violations):</strong> Suspected Kα<sub>2</sub> peaks are highlighted in yellow in the table. These are <strong>excluded</strong> from the indexing combinatorial search and from the M(20) Figure of Merit calculation, and count only as "soft" violations during space-group analysis.</li>
-                <li><strong>Kα<sub>1</sub> Wavelength for Parents:</strong> The parent peaks of these ghosts (marked with a <code>*</code>) are probably Kα<sub>1</sub> lines. Brutus will automatically calculate their d-spacings using the precise λ_Kα<sub>1</sub> wavelength instead of the average wavelength, improving indexing accuracy.</li>
-                <li><strong>Manual Override:</strong> If you believe a peak was falsely flagged as a Kα<sub>2</sub> ghost (e.g., due to overlapping phases), you can right-click the yellow row to confirm it as a real peak.</li>
+                <li><strong>Yellow Rows:</strong> Suspected Kα<sub>2</sub> peaks are highlighted in yellow in the table
+                    and marked with ⚠. These are <strong>excluded</strong> from the combinatorial indexing search
+                    and from the M(20) Figure of Merit calculation, and count only as "soft" violations
+                    during space-group analysis.
+                </li>
+                <li><strong>Kα<sub>1</sub> Wavelength for Parent Peaks:</strong> The parent peak of each Kα<sub>2</sub>
+                    ghost is identified (marked with a <code>*</code>). Brutus recalculates its d-spacing using the
+                    precise λ<sub>Ka1</sub> wavelength instead of the average, improving indexing accuracy for
+                    that peak.
+                </li>
+                <li><strong>Manual Override:</strong> Right-click a yellow row to mark it as a confirmed real peak
+                    if it was flagged incorrectly (e.g. due to a near-coincidence with another phase).
+                </li>
             </ul>
 
             <h3>Practical Recommendations</h3>
@@ -456,659 +549,839 @@
                 <li>If weak but real peaks are missed, reduce <code>Min peak (%)</code>. If noise is detected as peaks, increase it.</li>
                 <li>For broad, slowly varying backgrounds, increase <code>Radius</code>.</li>
                 <li>For noisy data, increase <code>Points</code> (smoothing), but avoid over-smoothing, which can merge or shift peaks.</li>
-                <li>
-                    Always manually curate the final peak list. Remove artifacts and known impurity peaks.
-                    If you are not stripping Kα<sub>2</sub>, delete Kα<sub>2</sub> shoulders explicitly or ensure the program has tagged them correctly.
-                    The worst case scenario is if you use peaks originating from different wavelengths: e.g. at high angle the Kα<sub>2</sub> doublet might be separated, so you can have one peak from Kα<sub>1</sub> and another one from Kα<sub>2</sub>.
+                <li>Always manually curate the final peak list. Remove artifacts and known impurity peaks.
+                    If you are not stripping Kα<sub>2</sub>, delete Kα<sub>2</sub> shoulders explicitly or confirm the
+                    program has tagged them correctly.
+                    <div class="callout-warning"><strong>Important:</strong> At high angles, the Kα<sub>1</sub>/Kα<sub>2</sub>
+                    doublet may be fully resolved. If you accidentally include one line from Kα<sub>1</sub> and the adjacent
+                    one from Kα<sub>2</sub> as two separate peaks — treating them as originating from the same wavelength —
+                    your peak list will be inconsistent and indexing will likely fail.
+                    </div>
                 </li>
-                <li>
-                    Kα<sub>2</sub> stripping can simplify the pattern but may introduce small artifacts.
+                <li>Kα<sub>2</sub> stripping can simplify the pattern but may introduce small artifacts.
                     If indexing fails with stripping ON, try turning it OFF and manually cleaning the peak list.
                 </li>
             </ul>
         </section>
 
-
+        <!-- ============================================================ -->
         <section id="indexing-method">
-            <h2>Indexing Algorithm and Search Parameters</h2>
+            <h2>Indexing Algorithm and Search Strategy</h2>
             <p>
-                Brutus uses an exhaustive, symmetry-specific trial-and-refine indexing algorithm. 
-                For each crystal system, the program generates trial solutions from combinations of the lowest-angle peaks and low-index Miller indices, solves the corresponding linear system of equations in reciprocal space, rejects unphysical cells, and finally performs a full refinement.
+                Brutus uses an exhaustive, symmetry-specific trial-and-refine indexing algorithm.
+                For each crystal system, the program generates trial solutions from combinations of low-angle
+                observed peaks and low-index Miller indices, solves the corresponding linear system in reciprocal space,
+                rejects unphysical cells, and then performs a full weighted least-squares refinement on surviving candidates.
             </p>
 
             <h3>Linear System Formulation</h3>
             <p>
-                The search is formulated as a system of linear equations based on the quadratic form:
+                The search is formulated as a system of linear equations based on the quadratic form.
+                Given a trial assignment of Miller indices $\{(hkl)_i\}$ to observed peaks $\{Q_{obs,i}\}$:
             </p>
+            <div class="formula-box">
+                $$ Q_{obs,i} = \sum_j P_j \cdot H_{j,i} $$
+            </div>
             <p>
-                $$ Q_{obs} = \sum P_i \cdot H_i $$
-            </p>
-            <p>
-                where $Q_{obs}$ are the observed $1/d^2$ values, $H_i$ are terms derived from trial Miller indices
-                (e.g. $h^2$, $k^2$, $l^2$), and $P_i$ are the reciprocal lattice parameters (e.g. $A = 1/a^2$, $B = 1/b^2$, …).
+                where $H_{j,i}$ is the $j$-th element of the design row for $(hkl)_i$ (see the table in the Overview),
+                and $P_j$ are the unknown reciprocal-lattice parameters. Stacking $k$ such equations gives a $k \times k$
+                square system that is solved exactly (or in the over-determined case, by weighted least-squares).
             </p>
 
-
-            <h3>CPU Searches (High Symmetry)</h3>
+            <h3 style="margin-top: 2em;">CPU Searches (High Symmetry) <span class="tag-cpu">CPU</span></h3>
             <p>
-                High-symmetry systems have fewer degrees of freedom and are solved on the CPU. Recent updates have significantly expanded the search scope to ensure large unit cells are not missed.
+                High-symmetry systems have fewer degrees of freedom ($k \leq 2$) and are solved on the CPU in
+                a background Web Worker. Recent updates have significantly expanded the search scope to ensure
+                large unit cells are not missed.
             </p>
             <ul>
                 <li>
-                    <strong>Cubic (1 parameter):</strong>
-                    Solves a 1×1 system by iterating through the first 12 observed peaks.
-                    The search range extends up to index 40 ($h=40$), testing approximately 150,000 combinations. This allows for the detection of large cubic cells.
+                    <strong>Cubic (1 parameter, $k=1$):</strong>
+                    Solves a 1×1 system by iterating through the first 12 observed peaks (up to <code>peak_depth=12</code>).
+                    For each observed peak $Q_{obs,i}$, the program iterates over all HKLs up to index 40 ($h_\text{max}=40$),
+                    giving approximately $12 \times 150\,000 \approx 1.8\;$million trials.
+                    The trial parameter is simply $a = \sqrt{(h^2+k^2+l^2)/Q_{obs,i}}$.
+                    This allows detection of cubic cells up to very large $a$ values.
                 </li>
                 <li>
-                    <strong>Tetragonal &amp; Hexagonal (2 parameters):</strong>
-                    Solves a 2×2 system using pairs of peaks from the first 12.
-                    The search range extends up to index 12 ($h=12$), testing approximately 92 million combinations.
-                    Typical runs complete in 1&ndash;3 seconds on simple patterns. However, dense patterns with many
-                    high-symmetry peaks (e.g. apatite-type structures) can take substantially longer &mdash; sometimes
-                    a minute or more &mdash; because a large fraction of candidate cells pass the basic filter and
-                    must be individually tested. If the indexing feels stuck on a hex/tetragonal file, it is almost
-                    certainly still making progress; the trials-per-second readout in the status bar will confirm this.
+                    <strong>Tetragonal &amp; Hexagonal (2 parameters, $k=2$):</strong>
+                    Solves a 2×2 system using pairs of peaks $(i, j)$ from the first 12 observed peaks.
+                    For each pair, all HKL combinations $(hkl_1, hkl_2)$ up to index 12 are tried ($h_\text{max}=12$).
+                    The 2×2 linear system is solved analytically (Cramer's rule).
+                    Total trials: $\binom{12}{2} \times |HKLs|^2 \approx 66 \times 1.4\,M \approx 92\;$million combinations.
+                    <br><br>
+                    Typical runs complete in 1–3 seconds. However, dense patterns (e.g. apatite-type structures)
+                    can take substantially longer — sometimes a minute or more — because a large fraction of candidate
+                    cells survive the initial filter and must be individually refined. If indexing appears stuck on a
+                    Hexagonal or Tetragonal file, it is almost certainly still making progress; the trials-per-second
+                    counter in the status bar confirms this.
                 </li>
             </ul>
 
-            <h3 style="margin-top: 2.5em;">GPU-Accelerated Searches (Low Symmetry)</h3>
+            <h3 style="margin-top: 2.5em;">GPU-Accelerated Searches (Low Symmetry) <span class="tag-gpu">GPU</span></h3>
             <p>
-                For Orthorhombic, Monoclinic, and Triclinic systems, the combinatorial explosion makes CPU searching impractical. Brutus offloads these tasks to the WebGPU, allowing billions of cells to be tested in minutes.
+                For Orthorhombic, Monoclinic, and Triclinic systems, the combinatorial explosion makes CPU searching
+                impractical. Brutus offloads these tasks to the WebGPU API, allowing billions of trial cells to be
+                evaluated in minutes.
             </p>
 
             <h4>The Combinatorial Search Space</h4>
             <p>
-                The total number of cells tested depends on two user-configurable parameters:
+                The total number of cells tested depends on two user-configurable parameters.
             </p>
-            <div style="background-color: #f9fafb; padding: 1rem; border-radius: 0.5rem; border: 1px solid #e5e7eb;">
+            <div class="formula-box">
                 <strong>Total Trials = Peak Combinations × HKL Combinations × Permutations</strong>
-                <p style="margin-top: 0.5rem; margin-bottom: 0;">
-                    $$ N_{total} = C(N_{peaks}, k) \times C(N_{hkl}, k) \times k! $$
-                </p>
+                $$ N_{total} = C(N_{peaks},\, k) \;\times\; C(N_{hkl},\, k) \;\times\; k! $$
             </div>
-            
-            <h4 style="margin-top: 1.5em;">User Parameters</h4>
             <ul>
-                <li>
-                    <code><strong>HKL Basis Size</strong></code> ($N_{hkl}$): 
-                    The size of the pool of simple Miller indices (e.g., (100), (110), (211)) used to form the mathematical basis. 
-                    <br><em>Defaults: 300 (Ortho), 100 (Mono), 40 (Tri).</em>
-                </li>
-                <li>
-                    <code><strong>Peaks to Combine</strong></code> ($N_{peaks}$): 
-                    This parameter determines the search's robustness against impurity peaks.
-                    <p style="margin-top: 0.5em; margin-bottom: 0.5em;">
-                        The solver requires exactly $k$ peaks to find a solution (Ortho $k=3$, Mono $k=4$, Tri $k=6$).
-                        However, simply taking the first $k$ peaks fails if even <strong>one</strong> of them is an impurity or has a large error.
-                    </p>
-                    <p style="margin-top: 0.5em; margin-bottom: 0;">
-                        By increasing "Peaks to Combine" (e.g., to 7 for Monoclinic), Brutus tests <strong>every possible subgroup</strong> of 4 peaks drawn from those top 7. This allows the algorithm to "skip over" bad peaks automatically, but it increases the search time factorially (e.g., $C(7,4)=35\times$ more work).
-                    </p>
-                </li>
-
-   <li>
-                    <code><strong>FoM Tolerance</strong></code>: 
-                    During the GPU search, the average of absolute difference between observed and calculated q is calculated on the first Peaks to Combine (or 10, whichever is larger). This is a crude estimation of the cell quality. If it passes the User error * FoM tolerance, the cell is saved as a candidate. A value of 1.0 means the fit matches the user error exactly. A larger FoM tolerance will generate more candidates.
-                    <br><em>Default: 3.</em>
-                </li>
-                <li>
-                    <code><strong>Candidate (kCells)</strong></code>: 
-                    This is the size of the memory buffer reserved in the GPU.
-                    <p style="margin-top: 0.5em; margin-bottom: 0.5em;">
-                        All the candidate cells are passed to the CPU for proper M(20) validation. The number of candidates is the size of this buffer (20 means 20 000 cells). If the number of candidates reaches the buffer size, the search is stopeed. A good balance needs to be found between the tolerance to allow a cell to be posted as a candidate and the size of the buffer. A larger buffer will allow more candidates but it will take more time to validate by CPU.
-                        <br><em>Default: 50.</em>
-                    </p>
-                    
-                </li>
-
-
+                <li>$C(N_{peaks}, k)$ — the number of ways to choose $k$ peaks from the pool of $N_{peaks}$ low-angle observed peaks.</li>
+                <li>$C(N_{hkl}, k)$ — the number of ways to choose $k$ HKL triplets from the $N_{hkl}$ basis.</li>
+                <li>$k!$ — the number of permutations (assignments of the chosen HKLs to the chosen peaks). Ortho: $3!=6$; Mono: $4!=24$; Tri: $6!=720$.</li>
             </ul>
 
             <h4>System Specifics</h4>
-            <ul>
-                <li>
-                    <strong>Orthorhombic (3 parameters):</strong> 
-                    Solves combinations of 3 peaks. With defaults ($N_{hkl}=300, N_{peaks}=7$), tests ~936 million cells.
-                </li>
-                <li>
-                    <strong>Monoclinic (4 parameters):</strong> 
-                    Solves combinations of 4 peaks. With defaults ($N_{hkl}=100, N_{peaks}=7$), it tests 35 peak subgroups × HKL combos × 24 permutations ≈ 3.3 Billion cells.
-                </li>
-                <li>
-                    <strong>Triclinic (6 parameters):</strong> 
-                    Solves combinations of 6 peaks. Tests 720 permutations per combination. With defaults ($N_{hkl}=40, N_{peaks}=9$), tests ~232 Billion cells. These are the default parameters, the numbers can go up quickly.
-                </li>
-            </ul>
-
-            <h4 style="margin-top: 2.5em;">GPU Memory Management & "Safe Batching"</h4>
+            <table>
+                <thead>
+                    <tr><th>System</th><th>$k$</th><th>Default $N_{hkl}$</th><th>Default $N_{peaks}$</th><th>Estimated trials (defaults)</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Orthorhombic</td><td>3</td><td>300</td><td>7</td>
+                        <td>$C(7,3) \times C(300,3) \times 6 \approx 936\;\text{Million}$</td>
+                    </tr>
+                    <tr>
+                        <td>Monoclinic</td><td>4</td><td>100</td><td>7</td>
+                        <td>$C(7,4) \times C(100,4) \times 24 \approx 3.3\;\text{Billion}$</td>
+                    </tr>
+                    <tr>
+                        <td>Triclinic</td><td>6</td><td>40</td><td>9</td>
+                        <td>$C(9,6) \times C(40,6) \times 720 \approx 232\;\text{Billion}$</td>
+                    </tr>
+                </tbody>
+            </table>
             <p>
-                Testing 50+ billion cells generates massive amounts of data. To prevent crashing your browser or freezing your computer, Brutus utilizes a sophisticated <strong>Safe Batching</strong> architecture.
+                These numbers can grow very rapidly. For example, increasing the Monoclinic $N_{hkl}$ from 100 to 150
+                multiplies the HKL combinations by roughly $(150/100)^4 \approx 5\times$, and increasing $N_{peaks}$
+                from 7 to 9 multiplies the peak combinations by $C(9,4)/C(7,4) = 126/35 \approx 3.6\times$.
             </p>
+
+            <h4>GPU Memory Management &amp; Safe Batching</h4>
             <p>
-                The program automatically splits the work into smaller chunks based on a "Dual Constraint" logic:
+                Testing hundreds of billions of cells generates massive amounts of data. To prevent crashing your browser
+                or freezing your computer, Brutus uses a <strong>Safe Batching</strong> architecture:
             </p>
             <ol>
                 <li>
-                    <strong>Hardware Limit (VRAM):</strong> 
-                    The program detects your GPU's available memory. If you are on a mobile device or a laptop with integrated graphics, the batch size is automatically reduced to fit within your specific VRAM limits.
+                    <strong>Hardware Limit (VRAM):</strong>
+                    The program detects your GPU's available memory. On mobile devices or laptops with integrated graphics,
+                    the batch size is automatically reduced to fit within the available VRAM.
                 </li>
                 <li>
-                    <strong>Time Limit (TDR Prevention):</strong> 
-                    On Windows, if a GPU calculation takes longer than ~2 seconds, the Operating System assumes the driver has frozen and resets it (causing a <code>DXGI_ERROR_DEVICE_HUNG</code> crash). Brutus enforces a strict "Speed Limit" (e.g., max 100,000 trials per batch for Triclinic) to ensure the GPU stays responsive.
+                    <strong>Time Limit (TDR Prevention):</strong>
+                    On Windows, if a GPU computation takes longer than ~2 seconds, the OS assumes the driver has frozen
+                    and resets it (<code>DXGI_ERROR_DEVICE_HUNG</code>). Brutus enforces a strict "Speed Limit" per batch
+                    (e.g. max 100,000 trials per GPU dispatch for Triclinic) to keep the GPU responsive.
                 </li>
             </ol>
             <blockquote>
                 <strong>What this means for you:</strong>
-                
-                You do not need to configure memory settings. If you see the progress bar moving in many small steps, the safety system is working correctly.
+                You do not need to configure memory settings. If you see the progress bar moving in many small steps,
+                the safety system is working correctly.
                 <br><br>
-                <strong>If the search is too slow:</strong> Adjusting technical settings for the GPU is not useful, or not a lot. Some parameters are listed in the Console (if you really want to play with the memory and chunk parameters... you may gain 50-100 msec, is it worth it ?). Instead, curate the peak list, reduce the physics parameters: lower the <code>HKL Basis Size</code> or reduce <code>Peaks to Combine</code>.
+                <strong>If the search is too slow:</strong> Adjusting internal GPU memory or chunk parameters is not useful.
+                Instead, curate the peak list, lower the <code>HKL Basis Size</code>, or reduce <code>Peaks to Combine</code>.
             </blockquote>
 
-            <h4 style="margin-top: 2.5em;">Two-Stage Filtering</h4>
+            <h4 style="margin-top: 2.5em;">Two-Stage GPU Filtering</h4>
             <p>
-                Most candidate cells are invalid. They are discarded directly on the GPU to save CPU time:
+                Most candidate cells are invalid and are discarded on the GPU to save CPU time. Two filters are applied:
             </p>
             <ol>
                 <li>
-                    <strong>Geometric Filter:</strong> 
-                    Cells are rejected if they are singular, have unphysical edge lengths ($< 2Å$), invalid angles ($< 20^\circ$ or $> 160^\circ$), or exceed the user's <code>Max Volume</code>.
+                    <strong>Geometric Filter:</strong>
+                    Cells are rejected immediately if they are singular (near-zero determinant), have unphysical edge lengths
+                    ($< 2\;\text{Å}$ or $> 50\;\text{Å}$), have invalid angles ($< 20°$ or $> 160°$ for monoclinic/triclinic),
+                    or exceed the user's <code>Max Volume</code>.
                 </li>
                 <li>
-                    <strong>Figure of Merit Filter:</strong> 
-                    For surviving cells, the GPU calculates a fast internal score based on the match of the first 10 lines. Only the top candidates are sent back to the CPU for full refinement.
+                    <strong>Figure of Merit Pre-filter:</strong>
+                    For surviving cells, the GPU calculates a fast internal score: the average absolute deviation
+                    $\langle|\Delta Q|\rangle$ over the first $\max(N_{peaks}, 10)$ observed peaks. If this deviates
+                    beyond <code>FoM Tolerance × ΔQ_{user}</code> (where $\Delta Q_{user}$ is the Q tolerance derived from the
+                    user's 2θ Error), the cell is discarded. Only cells passing this filter are stored in the GPU buffer
+                    for CPU refinement.
                 </li>
             </ol>
         </section>
-    
 
+        <!-- ============================================================ -->
+        <section id="refinement">
+            <h2>Least-Squares Refinement</h2>
+            <p>
+                Every candidate cell passing the GPU (or CPU) filters is subjected to a full weighted least-squares
+                refinement before being scored and reported. This section details the weighting scheme, zero-point
+                correction, and error propagation implemented in <code>worker-logic.js</code>.
+            </p>
 
+            <h3>Q-Space Tolerance</h3>
+            <p>
+                The matching tolerance used during peak assignment is not a fixed ΔQ but a peak-angle-dependent
+                quantity derived from the user's stated $\sigma_{2\theta}$. From $Q = (4/\lambda^2)\sin^2\theta$,
+                differentiating:
+            </p>
+            <div class="formula-box">
+                $$ \Delta Q_i = \frac{8\,\sin\theta_i\,\cos\theta_i}{\lambda^2}\,\frac{\sigma_{2\theta}\,\pi}{360}
+                             = \frac{2\,\sin(2\theta_i)}{\lambda^2}\,\sigma_{2\theta}^{(\text{rad})} $$
+            </div>
+            <p>
+                This means the Q tolerance is <em>largest at intermediate angles</em> (where $\sin 2\theta$ is largest)
+                and converges to zero at $2\theta = 0°$ and $2\theta = 180°$. The implementation adds a small
+                constant ($10^{-9}$) to prevent division by zero.
+            </p>
+
+            <h3>Least-Squares Weighting Scheme</h3>
+            <p>
+                For a measurement with constant $2\theta$ uncertainty $\sigma_{2\theta}$, the uncertainty in
+                $Q_{obs}$ is:
+            </p>
+            <div class="formula-box">
+                $$ \sigma_{Q,i} = \frac{2\,\sin(2\theta_i)}{\lambda^2}\,\sigma_{2\theta} $$
+            </div>
+            <p>
+                The statistically optimal weight for each peak in the least-squares system is therefore:
+            </p>
+            <div class="formula-box">
+                $$ w_i = \frac{1}{\sigma_{Q,i}^2} \propto \frac{1}{\sin^2(2\theta_i)} $$
+            </div>
+            <p>
+                This scheme gives <strong>high weight to low-angle peaks</strong> (which have small $\sigma_Q$)
+                and <strong>low weight to high-angle peaks</strong> (which have large $\sigma_Q$).
+                This is the <em>opposite</em> of using $w_i = Q_{obs,i}$ (which would over-weight high-angle peaks),
+                and it is particularly important for the zero-point correction: the historical un-weighted approach
+                significantly biased both the cell parameters and the zero shift. A floor of
+                $w_\text{min} = 1/\sin^2(178°)$ prevents weights from blowing up for hypothetical
+                peaks near $0°$ or $180°$.
+            </p>
+            <p>
+                The least-squares normal equations solved are therefore:
+            </p>
+            <div class="formula-box">
+                $$ (M^T W M)\,\mathbf{x} = M^T W\,\mathbf{q}_{obs} $$
+            </div>
+            <p>
+                where $M$ is the design matrix (rows = indexed peaks, columns = reciprocal-lattice parameters),
+                $W = \text{diag}(w_1, \ldots, w_n)$, and $\mathbf{x}$ is the vector of reciprocal parameters.
+                This system is solved numerically via LU decomposition with partial pivoting
+                (implemented in <code>luDecomposition</code> / <code>luSolve</code>).
+            </p>
+
+            <h3>Zero-Point Error Refinement (Two-Round Strategy)</h3>
+            <p>
+                When <code>Refine Zero-Point Error</code> is enabled, a zero-point parameter $\Delta_{zero}$ (in degrees)
+                is added as an extra column to the design matrix. The physical model is that the true $2\theta$ of a
+                peak is $2\theta_{true} = 2\theta_{obs} - \Delta_{zero}$, which shifts the observed Q as:
+            </p>
+            <div class="formula-box">
+                $$ Q_{true} = \frac{4\sin^2[(\theta_{obs} - \Delta_{zero}/2)]}{\lambda^2} $$
+            </div>
+            <p>
+                Linearising gives the zero-error design-matrix column element:
+            </p>
+            <div class="formula-box">
+                $$ \frac{\partial Q}{\partial \Delta_{zero}} \approx \frac{2}{\lambda^2}\sin(2\theta_{obs}) $$
+            </div>
+            <p>
+                A <strong>two-round strategy</strong> is used to handle non-trivial zero shifts robustly:
+            </p>
+            <ol>
+                <li><strong>Round 1:</strong> Peak assignment is done assuming $\Delta_{zero}=0$. The full weighted LS system
+                    (cell + zero) is solved to obtain a first estimate $\Delta_{zero}^{(1)}$.</li>
+                <li><strong>Round 2:</strong> Peak assignment is repeated, this time correcting the observed $Q$ values by
+                    $\Delta_{zero}^{(1)}$. The LS system is solved again on the new peak set. This dramatically improves
+                    robustness when the zero shift is large enough to cause mis-assignments in Round 1.</li>
+            </ol>
+            <p>
+                The same two-round strategy is applied to both GPU candidates (monoclinic/triclinic) and CPU candidates
+                (cubic/tetragonal/hexagonal/orthorhombic).
+            </p>
+
+            <h3>Minimum Peaks Required for Acceptance</h3>
+            <p>
+                A solution is accepted only if a minimum number of observed peaks can be indexed. These thresholds
+                are hard-coded and slightly exceed the number of free parameters to ensure the fit is over-determined:
+            </p>
+            <table>
+                <thead><tr><th>System</th><th>Free parameters</th><th>Min indexed peaks</th></tr></thead>
+                <tbody>
+                    <tr><td>Cubic</td><td>1</td><td>4</td></tr>
+                    <tr><td>Tetragonal / Hexagonal</td><td>2</td><td>5</td></tr>
+                    <tr><td>Orthorhombic</td><td>3</td><td>6</td></tr>
+                    <tr><td>Monoclinic</td><td>4</td><td>7</td></tr>
+                    <tr><td>Triclinic</td><td>6</td><td>7</td></tr>
+                </tbody>
+            </table>
+
+            <h3>Standard Deviation Propagation</h3>
+            <p>
+                The covariance matrix $V = \sigma^2 (M^T W M)^{-1}$ (with $\sigma^2 = SSR/\nu$, $\nu$ = degrees of freedom)
+                is propagated to standard deviations of the cell parameters using analytical derivatives:
+            </p>
+            <ul>
+                <li><strong>Cubic:</strong> $\sigma_a = \tfrac{1}{2} a^3 \sqrt{V_{AA}}$.</li>
+                <li><strong>Tetragonal / Hexagonal:</strong> $\sigma_a = \tfrac{1}{2} a^3 \sqrt{V_{AA}}$, $\sigma_c = \tfrac{1}{2} c^3 \sqrt{V_{CC}}$.</li>
+                <li><strong>Orthorhombic:</strong> Diagonal terms $\sigma_a, \sigma_b, \sigma_c$ analogously.</li>
+                <li><strong>Monoclinic:</strong> Analytical partial derivatives of $\beta$ w.r.t. the fitted parameters
+                    $A, C, D$, including off-diagonal covariance terms $V_{AC}, V_{AD}, V_{CD}$.</li>
+                <li><strong>Triclinic:</strong> A full numerical Jacobian $\partial(\text{cell})/\partial(\text{fit params})$
+                    via central finite differences (adaptive step size $\approx 10^{-5}$ relative), propagated
+                    as $\sigma_{x_i}^2 = \sum_{j,k} J_{ij} V_{jk} J_{ik}$.</li>
+                <li><strong>Zero correction:</strong> $\sigma_{zero} = \sqrt{|V_{zz}|} \times (180/\pi)$, appended to the
+                    errors regardless of system.</li>
+            </ul>
+        </section>
+
+        <!-- ============================================================ -->
         <section id="numbers-and-limits">
-            <h2>Computational Limits & The Scale of Search</h2>
+            <h2>Computational Limits &amp; The Scale of Search</h2>
             <p>
                 Because Brutus performs a brute-force combinatorial search, the number of trial cells can become astronomical.
-                While modern GPUs are incredibly fast, there are hard limits defined by both the hardware (WebGPU specifications)
+                While modern GPUs are incredibly fast, there are hard limits defined by both hardware (WebGPU specifications)
                 and practical time constraints.
             </p>
 
             <h3>The Hierarchy of Limits</h3>
             <p>
-                The "Total Trials" displayed in the application is calculated as:
+                The "Total Trials" displayed in the application is:
             </p>
-            <div style="background-color: #f9fafb; padding: 1rem; border-radius: 0.5rem; border: 1px solid #e5e7eb; overflow-x: auto;">
-                $$ \text{Trials} = \underbrace{\text{HKL Combos}}_{\text{Limit: } \approx 4.29 \times 10^9} \times \underbrace{\text{Peak Combos}}_{\text{User Dependent}} \times \underbrace{\text{Permutations}}_{\text{Constant}} $$
+            <div class="formula-box">
+                $$ \text{Trials} = \underbrace{C(N_{hkl}, k)}_{\text{Limit: } \approx 4.29 \times 10^9}
+                \times \underbrace{C(N_{peaks}, k)}_{\text{User dependent}}
+                \times \underbrace{k!}_{\text{Constant per system}} $$
             </div>
             <p>
-                The <strong>HKL Combos</strong> count is the most critical hardware constraint. It maps directly to the number of GPU threads dispatched.
-                Since WebGPU uses 32-bit integers (<code>u32</code>) for indexing, this value <strong>must strictly remain below $2^{32}-1$ (approx. 4.29 Billion)</strong>.
-            </p>
-            <p>
-                Brutus automatically calculates this limit based on your "HKL Basis Size" and prevents the search from starting if you exceed it.
+                The <strong>HKL Combos</strong> count is the critical hardware constraint. It maps directly to
+                the number of GPU threads dispatched. Since WebGPU uses 32-bit unsigned integers (<code>u32</code>) for
+                thread indexing, this value <strong>must remain below $2^{32}-1 \approx 4.29 \times 10^9$</strong>.
+                Brutus automatically calculates this limit based on your HKL Basis Size and prevents the search
+                from starting if you exceed it.
             </p>
 
             <h3>System-Specific Breakdown</h3>
-            <p>
-                Each crystal system scales differently based on the number of parameters ($k$). The maximum safe HKL Basis Size ($N_{hkl}$) is determined by the Combinatorial formula $C(N, k) < 2^{32}$.
-            </p>
 
             <h4>1. Triclinic ($k=6$)</h4>
             <ul>
-                <li><strong>HKL Limit:</strong> You hit the 4.29 Billion safety wall at a Basis Size of <strong>123</strong>. ($C(123,6) \approx 4.24 \times 10^9$).</li>
+                <li><strong>HKL Limit:</strong> The 4.29 Billion wall is reached at $N_{hkl} = 123$. ($C(123,6) \approx 4.24 \times 10^9$).</li>
                 <li><strong>Permutations:</strong> $6! = 720$.</li>
-                <li><strong>Peak Multiplier:</strong> Using 20 peaks ($C(20,6)$) adds a factor of 38,760.</li>
-                <li>
-                    <strong>Maximum Possible Trials:</strong>
-                    $$ 4.24 \times 10^9 \times 38,760 \times 720 \approx \mathbf{1.18 \times 10^{17}} \quad (118 \text{ Quadrillion}) $$
+                <li><strong>Peak Multiplier:</strong> Using 20 peaks: $C(20,6) = 38,760$.</li>
+                <li><strong>Maximum Possible Trials:</strong>
+                    $$ 4.24 \times 10^9 \times 38,760 \times 720 \approx 1.18 \times 10^{17} \quad (118 \text{ Quadrillion}) $$
                 </li>
             </ul>
 
             <h4>2. Monoclinic ($k=4$)</h4>
             <ul>
-                <li><strong>HKL Limit:</strong> You hit the 4.29 Billion wall at a Basis Size of <strong>568</strong>. ($C(568,4) \approx 4.29 \times 10^9$).</li>
+                <li><strong>HKL Limit:</strong> The wall is reached at $N_{hkl} = 568$. ($C(568,4) \approx 4.29 \times 10^9$).</li>
                 <li><strong>Permutations:</strong> $4! = 24$.</li>
-                <li><strong>Peak Multiplier:</strong> Using 20 peaks ($C(20,4)$) adds a factor of 4,845.</li>
-                <li>
-                    <strong>Maximum Possible Trials:</strong>
-                    $$ 4.29 \times 10^9 \times 4,845 \times 24 \approx \mathbf{5 \times 10^{14}} \quad (500 \text{ Trillion}) $$
+                <li><strong>Peak Multiplier:</strong> Using 20 peaks: $C(20,4) = 4,845$.</li>
+                <li><strong>Maximum Possible Trials:</strong>
+                    $$ 4.29 \times 10^9 \times 4,845 \times 24 \approx 5 \times 10^{14} \quad (500 \text{ Trillion}) $$
                 </li>
             </ul>
 
             <h4>3. Orthorhombic ($k=3$)</h4>
             <ul>
-                <li><strong>HKL Limit:</strong> You hit the 4.29 Billion wall at a Basis Size of <strong>2,954</strong>. ($C(2954,3) \approx 4.29 \times 10^9$).</li>
+                <li><strong>HKL Limit:</strong> The wall is reached at $N_{hkl} = 2,954$. ($C(2954,3) \approx 4.29 \times 10^9$).</li>
                 <li><strong>Permutations:</strong> $3! = 6$.</li>
-                <li><strong>Peak Multiplier:</strong> Using 20 peaks ($C(20,3)$) adds a factor of 1,140.</li>
-                <li>
-                    <strong>Maximum Possible Trials:</strong>
-                    $$ 4.29 \times 10^9 \times 1,140 \times 6 \approx \mathbf{2.9 \times 10^{13}} \quad (29 \text{ Trillion}) $$
+                <li><strong>Peak Multiplier:</strong> Using 20 peaks: $C(20,3) = 1,140$.</li>
+                <li><strong>Maximum Possible Trials:</strong>
+                    $$ 4.29 \times 10^9 \times 1,140 \times 6 \approx 2.9 \times 10^{13} \quad (29 \text{ Trillion}) $$
                 </li>
             </ul>
 
             <h3>Practical Implications</h3>
             <p>
                 <strong>Is the "Trials" number real?</strong><br>
-                Yes. It represents the total number of mathematical checks the GPU would theoretically perform.
-                However, Brutus uses a <strong>"Fail-Fast"</strong> optimization: most invalid cells are rejected after checking only the first 2 or 3 peaks,
-                meaning the GPU rarely performs the full calculation for every trial.
+                Yes. It represents the total number of mathematical systems the GPU would solve. However,
+                most invalid cells are rejected after checking only the first 2 or 3 peaks ("Fail-Fast" optimisation),
+                meaning the GPU rarely performs the full calculation for every trial. The effective throughput
+                is substantially higher than the raw theoretical number implies.
             </p>
             <p>
                 <strong>Can you actually run 120 Quadrillion trials?</strong><br>
-                Technically yes—the "Safe Batching" system prevents your computer from crashing. However, even at a speed of
-                200 Million trials/sec, 120 Quadrillion trials would take <strong>~19 years</strong> to finish.
+                Technically yes — the Safe Batching system prevents your computer from crashing. However, even at
+                200 Million trials/sec, 120 Quadrillion trials would take ~19 years to finish.
             </p>
             <blockquote>
                 <strong>Practical Limit:</strong> For a search to finish in a "coffee break" time frame (5–10 minutes),
-                you generally want to keep the Total Trials count under 100–500 Billion.
+                keep the Total Trials count under 100–500 Billion. For modern desktop GPUs (e.g. Nvidia RTX series),
+                speeds of 500 M – 2 B cells/sec are typical for Orthorhombic; Triclinic is slower due to the
+                larger $k$ and the more complex 6×6 linear solve.
             </blockquote>
+
+            <h3 id="tuning-the-search">Tuning the Search</h3>
+            <p>
+                If you obtain no solutions, or too many, consider the following adjustments.
+            </p>
+
+            <h4>If no solutions (or only poor ones) are found</h4>
+            <ul>
+                <li>
+                    <strong>Re-examine the peak list.</strong>
+                    This is the dominant failure mode. Check that the first 10–15 peaks belong to a single phase,
+                    are free of impurities, and have accurate $2\theta$ positions.
+                </li>
+                <li>
+                    <strong>Relax <code>2θ Error</code>.</strong>
+                    If this value is too strict for your data resolution, valid solutions may be discarded.
+                </li>
+                <li>
+                    <strong>Increase <code>Max Volume</code>.</strong>
+                    The true cell may be larger than initially expected.
+                </li>
+                <li>
+                    <strong>Increase GPU Parameters.</strong>
+                    Try increasing <code>HKL Basis Size</code> (e.g. from 80 to 120 for Tri) or
+                    <code>Peaks to Combine</code> (e.g. from 7 to 9 for Mono).
+                    This significantly increases search time but covers more combinations.
+                </li>
+                <li>
+                    <strong>Increase FoM Tolerance.</strong>
+                    If there is a significant zero-shift, valid trial cells may have large pre-refinement errors
+                    and be discarded. Raise FoM Tolerance to 5–10 and increase the Buffer size accordingly.
+                </li>
+            </ul>
+
+            <h4>If you get too many solutions (GPU buffer fills)</h4>
+            <p>
+                The GPU buffer is limited (default 50,000). If it fills up, the search stops early ("Buffer Full").
+                In that case:
+            </p>
+            <ol>
+                <li>
+                    <strong>Tighten the FoM Tolerance</strong> (e.g. from 3 to 1.5). This discards more candidates on the GPU, so fewer reach the CPU buffer.
+                </li>
+                <li>
+                    <strong>Lower the <code>Max Volume</code></strong> if you can constrain the cell size further.
+                </li>
+                <li>
+                    <strong>Increase the Buffer size</strong> (e.g. from 50 to 200 kCells) if you suspect the correct
+                    solution is present but ranked below the buffer cut-off. Note that larger buffers mean more CPU
+                    work during post-processing.
+                </li>
+                <li>
+                    <strong>Tighten <code>2θ Error</code></strong> if your data quality warrants it — this also tightens
+                    the Q-tolerance used in matching.
+                </li>
+            </ol>
         </section>
 
-
-
-      <h3 id="tuning-the-search">Tuning the Search & Troubleshooting</h3>
-    <p>
-        If you obtain no solutions, or too many, consider the following adjustments.
-    </p>
-
-    <h4>If no solutions (or only poor ones) are found</h4>
-    <ul>
-        <li>
-            <strong>Re-examine the peak list.</strong>
-            This is the dominant failure mode. Check that the first 10–15 peaks belong to a single phase,
-            are free of impurities, and have accurate $2\theta$ positions.
-        </li>
-        <li>
-            <strong>Relax <code>2θ Error</code>.</strong>
-            If this value is too strict for your data resolution, valid solutions may be discarded.
-        </li>
-        <li>
-            <strong>Increase <code>Max Volume</code>.</strong>
-            The true cell may be larger than initially expected.
-        </li>
-        <li>
-            <strong>Increase GPU Parameters.</strong>
-            Try increasing <code>HKL Basis Size</code> (e.g., from 80 to 120) or <code>Peaks to Combine</code> (e.g., from 7 to 9). This will significantly increase the search time but covers more combinations.
-        </li>
-    </ul>
-
-    <h4>If you get too many solutions (GPU buffer fills)</h4>
-    <p>
-        The GPU buffer is limited (user selected up to 200k, default 20,000) candidate solutions. If this buffer fills up, the search stops earlier than the full space requested. If you have no solution that appears valid:
-    </p>
-    <ul>
-        <li>
-            <strong>Tighten <code>2θ Error</code>.</strong>
-            This is the most effective way to reduce the number of false positives.
-        </li>
-        <li>
-            <strong>Reduce <code>Max Volume</code>.</strong>
-            This is another strong constraint to remove unphysical large cells.
-        </li>
-        <li>
-            <strong>Decrease GPU Parameters.</strong>
-            Reducing <code>HKL Basis Size</code> or <code>Peaks to Combine</code> will run a smaller, faster search, but may miss the solution if it relies on a higher-index HKL or a peak further down the list.
-        </li>
-    </ul>
-
-    <h4>GPU Buffers and Chunking</h4>
-    <p>
-        The total list of HKL combinations can be too large for a single GPU buffer. Brutus therefore:
-    </p>
-    <ol>
-        <li>
-            Generates HKL combinations in large JavaScript chunks in <code>brutus.html</code>.
-        </li>
-        <li>
-            Further splits each of these into small “dispatch chunks” (e.g. 256 workgroups) in
-            <code>webgpu-engine.js</code> before sending them to the GPU.
-        </li>
-    </ol>
-    <p>
-        This two-level chunking avoids both memory overflow and long-running GPU commands.
-    </p>
-    <blockquote>
-        <strong>Performance: WebGPU vs CPU</strong>
-        <p>
-            Cubic, Tetragonal, and Hexagonal searches run on the CPU (in a Web Worker) and are typically
-            very fast (under a second).
-        </p>
-        <p>
-            Orthorhombic, Monoclinic, and Triclinic searches are offloaded to the GPU. This allows testing of billions of trial cells in a time frame (few minutes for 1 billion cells) that would be
-            impractical on the CPU. 
-        </p>
-        <p>
-            Note: at the end of a GPU search all candidates (up to 20 000) are passed to refinement, Niggli cell reduction, M(20) and F(N) calculations. These are made on the CPU so it might take a few minutes, be patient (or change the parameters, or decrease the number of peaks in the list).
-        </p>
-    </blockquote>
-
-   
-
-
+        <!-- ============================================================ -->
         <section id="evaluating-solutions">
             <h2>Evaluating Solutions</h2>
             <p>
-                The indexing search usually produces several candidate cells. Brutus keeps at most the best 50, ranked by M20, after the search.
-                Selecting the correct one requires interpreting figures of merit and checking the refined fit.
+                The indexing search usually produces several candidate cells. Brutus keeps at most the best 50,
+                ranked by M(20), after the search. Selecting the correct one requires interpreting figures of merit
+                and checking the refined fit visually.
             </p>
 
-            <h3>de Wolff Figure of Merit: M(20)</h3>
+            <h3>de Wolff Figure of Merit: M(20) / M(N)</h3>
             <p>
-                The primary ranking indicator is the <strong>de Wolff Figure of Merit, M(20)</strong>, calculated from
-                the first 20 observed reflections. It combines both positional accuracy and completeness. In the PDF report additional values are listed, for instance F(20). 
+                The primary ranking indicator is the <strong>de Wolff Figure of Merit, M(N)</strong>, calculated from
+                the first $N$ observed reflections (typically $N = 20$ or the full peak list if fewer than 20 peaks
+                are available). It quantifies both positional accuracy and completeness. The implementation uses:
+            </p>
+            <div class="formula-box">
+                $$ M(N) = \frac{Q_N}{2\,\langle|\Delta Q|\rangle\,N_{calc}} $$
+            </div>
+            <ul>
+                <li>$Q_N = 1/d_N^2$ — the Q-value of the $N$-th observed line.</li>
+                <li>$\langle|\Delta Q|\rangle$ — the mean absolute deviation between observed and calculated Q, averaged over all successfully indexed lines within $Q_N$.</li>
+                <li>$N_{calc}$ — the number of <em>all</em> calculated (allowed) reflections with $Q \leq Q_N \times 1.05$ (the factor 1.05 provides a small buffer). This penalises cells that generate many unobserved calculated lines.</li>
+            </ul>
+            <p>
+                A high M(N) therefore requires both a small average positional error (large 1/$\langle|\Delta Q|\rangle$)
+                and high completeness (small $N_{calc}$ relative to $N$).
+                Both M(20) (from the first 20 peaks) and M(all) (from the full peak list) are computed and stored.
+                The M(20) value is used for ranking; M(all) appears in the PDF report.
             </p>
             <table>
                 <thead>
                     <tr><th>M(20) value</th><th>Interpretation</th></tr>
                 </thead>
                 <tbody>
-                    <tr><td>&gt; 20</td><td>Very likely correct.</td></tr>
+                    <tr><td>&gt; 20</td><td>Very likely correct. A cell with both high M(20) and plausible chemistry is almost certainly the true solution.</td></tr>
                     <tr><td>&gt; 10</td><td>Likely correct, provided the cell volume is chemically plausible.</td></tr>
-                    <tr><td>5–10</td><td>Plausible; requires further inspection.</td></tr>
-                    <tr><td>&lt; 5</td><td>Probably spurious; treat with caution.</td></tr>
+                    <tr><td>5–10</td><td>Plausible; requires further inspection. Check all peaks visually.</td></tr>
+                    <tr><td>&lt; 5</td><td>Probably spurious; treat with great caution.</td></tr>
                 </tbody>
             </table>
+            <p>
+                A minimum M(20) of 2.0 is required for a solution to be retained at all. Solutions below this threshold
+                are silently discarded.
+            </p>
 
             <h3>F(N) Figure of Merit</h3>
             <p>
-                As a complementary metric, Brutus computes the <strong>F(N)</strong> figure of merit, usually with N = 20 (F(20)).
-                While M(20) emphasizes the completeness of indexing, F(N) focuses on the average positional accuracy.
+                As a complementary metric, Brutus computes the <strong>F(N)</strong> figure of merit (Smith &amp; Snyder, 1979).
+                While M(N) is expressed in Q-space, F(N) uses $2\theta$ directly:
             </p>
-            <p>
-                $$ F_N = \frac{N}{\langle |\Delta(2\theta)| \rangle \cdot N_{calc}} $$
-            </p>
+            <div class="formula-box">
+                $$ F(N) = \frac{N}{\langle|\Delta(2\theta)|\rangle \cdot N_{calc}} $$
+            </div>
             <ul>
-                <li>$N$ – number of observed lines used (e.g. 20).</li>
-                <li>$\langle |\Delta(2\theta)| \rangle$ – mean absolute difference between observed and calculated $2\theta$ for those lines.</li>
-                <li>$N_{calc}$ – number of theoretical reflections (observed or not) up to the $2\theta$ of the $N$-th observed line.</li>
+                <li>$N$ — number of observed lines used.</li>
+                <li>$\langle|\Delta(2\theta)|\rangle$ — mean absolute difference between observed and calculated $2\theta$ for those lines.</li>
+                <li>$N_{calc}$ — number of theoretical reflections (observed or not) up to the $2\theta$ of the $N$-th observed line.</li>
             </ul>
             <p>
-                A high F(20) indicates a precise fit with low average error. A solution with both high M(20) and high F(20)
-                is usually reliable.
+                A high F(20) indicates a precise fit with low average angular error. A solution with both high M(20) and
+                high F(20) is highly reliable. Both F(20) and F(all) are reported in the PDF.
             </p>
 
-            <h3>Least-Squares and Zero-Point Refinement</h3>
+            <h3>Least-Squares Refinement and Standard Deviations</h3>
             <p>
-                For each promising candidate, Brutus performs a two-stage refinement.
+                For each promising candidate, Brutus performs the two-round weighted least-squares refinement
+                described in the <a href="#refinement">Refinement section</a>. The resulting cell parameters are
+                reported with standard deviations propagated from the covariance matrix.
+            </p>
+            <p>
+                When <code>Refine Zero-Point Error</code> is enabled, the reported zero correction ($\Delta_{zero}$)
+                represents a systematic misalignment of the diffractometer. A large value (e.g. &gt;0.05° for a lab
+                instrument) may indicate a calibration issue and should be investigated independently.
             </p>
 
-            <h4>Stage 1: Internal zero-point correction</h4>
+            <h3>Duplicate Suppression</h3>
             <p>
-                First, a constrained refinement is carried out including a zero-point error parameter.
-                This internal zero correction is limited by the user-defined <code>2θ Error</code>, which allows
-                the algorithm to compensate for modest alignment errors without overfitting. The corrected
-                peak positions are then used to refine a stable baseline cell.
-            </p>
-
-            <h4>Stage 2: Final refinement (optional)</h4>
-            <p>
-                If the Stage-1 cell achieves a sufficiently high M(20) and the
-                <code>Refine Zero-Point Error</code> option is enabled, a second, full refinement (with an
-                unconstrained zero-point) is performed. This yields the final reported parameters and standard deviations.
-                If the option is disabled, the Stage-1 cell parameters are reported directly.
+                To avoid reporting multiple equivalent cells, Brutus generates a canonical "key" for each
+                refined cell: the system name plus the three axis lengths rounded to two decimal places, and
+                (for monoclinic/triclinic) the angles. If a new solution matches an existing key, it replaces
+                the existing entry only if its M(20) is higher.
             </p>
         </section>
 
+        <!-- ============================================================ -->
         <section id="space-group-analysis">
             <h2>Space Group Analysis</h2>
             <p>
-                After a high-quality unit cell is obtained, Brutus can suggest likely space groups based
-                on systematic absences. This serves as input for subsequent structure solution or Rietveld refinement. For some space groups with different origins, the label will appear twice (like Pmmn, Pmmn), This is because there two different origins (these are not distinguishable by extinction rules in powder diffraction, I leave them both listed as a reminder for Rietveld refinement or further analysis.)
+                After a high-quality unit cell is obtained, Brutus can suggest likely space groups based on
+                systematic absences. This serves as input for subsequent structure solution or Rietveld refinement.
+            </p>
+            <p>
+                <em>Note:</em> For some space groups that have different origin choices but identical extinction rules
+                (e.g. Pmmn), both settings appear in the list. This is intentional — they are not distinguishable
+                by powder diffraction alone, and the reminder is useful for subsequent Rietveld refinement.
             </p>
 
             <h3>Method</h3>
             <ol>
                 <li>
                     <strong>Generate unique reflections.</strong>
-                    Using the refined cell, Brutus computes a complete list of theoretical reflections and keeps
-                    only crystallographically unique ones (e.g. it includes (100) but omits Friedel equivalent (−100)).
+                    Using the refined cell, Brutus computes a complete list of theoretical reflections up to the
+                    maximum observed $2\theta$, applying Friedel's law to keep only symmetry-unique $(hkl)$ indices
+                    (e.g. $l > 0$, or $l=0,\,k > 0$, or $l=k=0,\,h > 0$ for triclinic).
                 </li>
                 <li>
                     <strong>Index observed peaks.</strong>
-                    All peaks in the curated list are indexed against the theoretical pattern.
+                    All peaks in the curated list are matched against the theoretical pattern using the Q-space tolerance.
                 </li>
                 <li>
                     <strong>Build a high-confidence subset.</strong>
-                    To avoid ambiguity due to overlapping lines, Brutus retains only reflections for which no other
-                    theoretical $(hkl)$ lies within the <code>2θ Error</code> window of the observed peak.
+                    To avoid ambiguity from overlapping reflections, Brutus retains only peaks for which <em>no other</em>
+                    theoretical $(hkl)$ lies within the <code>2θ Error</code> window. This "unambiguous" subset is used
+                    exclusively for extinction analysis.
                 </li>
                 <li>
                     <strong>Determine centering and extinctions.</strong>
-                    This subset of unambiguous $(hkl)$ indices is compared with the extinction rules of
-                    candidate lattices (centerings and glide/screw symmetries). A rule is considered violated only if
-                    an <em>observed unambiguous</em> peak contradicts it. Brutus distinguishes between <strong>hard violations</strong> (real independent reflections) and <strong>soft violations</strong> (violations caused solely by Kα<sub>2</sub>-suspect peaks). Space groups disqualified only by soft violations are retained in the list with a warning.
+                    The unambiguous $(hkl)$ set is compared against the extinction rules (centering conditions and
+                    glide/screw symmetry conditions) for all candidate space groups.
+                    Brutus classifies violations as:
+                    <ul>
+                        <li><strong>Hard violations:</strong> an unambiguous, real (non-Kα<sub>2</sub>) reflection breaks the rule.</li>
+                        <li><strong>Soft violations:</strong> only Kα<sub>2</sub>-suspect peaks break the rule. Space groups with only soft violations are retained in the list with a warning.</li>
+                    </ul>
+                    The zone assignment for each $(hkl)$ (e.g. <code>h00</code>, <code>0k0</code>, <code>hk0</code>, <code>hkl</code> etc.)
+                    is used to apply the correct subset of conditions for that zone.
                 </li>
                 <li>
                     <strong>Rank space groups.</strong>
-                    Based on the crystal system and plausible centerings, the internal database is filtered.
-                    Each space group is assigned a violation count and ranked accordingly. The correct name of the space group is given, based on the orientation found by the program. 
+                    Based on the crystal system and detected centering, the internal space-group database is filtered.
+                    Each space group is assigned a (hard) violation count and ranked accordingly. The conventional
+                    name of the space group (consistent with the orientation found by the program) is displayed.
                 </li>
             </ol>
 
             <h3>Interpreting the Output</h3>
             <ul>
                 <li>
-                    <strong>0 violations:</strong>
+                    <strong>0 hard violations:</strong>
                     Ideal case. No unambiguous reflection breaks the extinction rules; these are the strongest candidates.
                 </li>
                 <li>
-                    <strong>1–2 violations:</strong>
-                    Still plausible; minor violations can result from weak forbidden lines or experimental artifacts.
+                    <strong>1–2 hard violations:</strong>
+                    Still plausible; minor violations can result from weak forbidden lines visible above background,
+                    or small systematic errors in peak positions.
                 </li>
                 <li>
-                    <strong>Ambiguous peaks in italics:</strong>
-                    In the PDF report, peaks classified as ambiguous (and therefore excluded from extinction analysis)
-                    are printed in italics to distinguish them from the high-confidence subset.
+                    <strong>Ambiguous peaks (in italics in the PDF report):</strong>
+                    Peaks excluded from extinction analysis due to potential overlap are printed in italics to
+                    distinguish them from the high-confidence subset.
+                </li>
+                <li>
+                    <strong>Soft-violation warnings:</strong>
+                    Space groups that are only challenged by Kα<sub>2</sub>-suspect reflections are flagged. They may
+                    still be the correct space group; strip Kα<sub>2</sub> and re-run to resolve the ambiguity.
                 </li>
             </ul>
         </section>
 
+        <!-- ============================================================ -->
         <section id="advanced-topics">
             <h2>Advanced Topics: Enhanced Search and Sieving</h2>
             <p>
-                Beyond the core indexing routine, Brutus applies several “fishing” strategies and reduction steps
-                to improve robustness and simplify the set of final solutions.
+                Beyond the core indexing routine, Brutus applies several "fishing" strategies and reduction steps
+                to improve robustness and simplify the set of final solutions. These are applied in
+                <code>findTransformedSolutions()</code> after the main search completes.
             </p>
 
-            <h3>1. Swap Fishing for Ambiguity</h3>
+            <h3>1. Niggli Cell Reduction &amp; Symmetry Upgrade</h3>
             <p>
-                For each promising solution, Brutus re-examines the indexing of the first four low-angle peaks.
-                It identifies the two peaks closest in angle (a common source of mis-assignment) and creates a new
-                hypothesis by swapping their HKL labels. The resulting cell is fully refined and rescored.
-                If this swap resolves an ambiguity, the new solution might have a higher M(20) and this solution will be retained.
+                For each solution, Brutus computes the <strong>Niggli reduced cell</strong> — the standardised,
+                most compact primitive cell for the lattice. The conventional (possibly centred) cell is first
+                reduced to primitive using the detected centering (I, F, C, etc.), and then the Niggli algorithm
+                is applied.
             </p>
+            <p>
+                After reduction, the code calls <code>getSymmetry()</code> with a slightly loose tolerance (0.05 Å / 0.05°)
+                to detect <em>pseudo-symmetry</em>: a cell found as monoclinic might, after Niggli reduction, reveal
+                all angles equal to 90° and two equal axes — i.e. it is actually tetragonal. If the detected
+                symmetry is <em>higher</em> than the search symmetry (and the user has selected that higher-symmetry system),
+                a new trial cell is constructed with the correct symmetry and re-refined and re-scored.
+            </p>
+            <p>
+                Niggli cells are also used for:
+            </p>
+            <ul>
+                <li><strong>Database searching:</strong> Different conventional cells describing the same lattice reduce to the same Niggli cell, making it a canonical key for identification.</li>
+                <li><strong>Standardised reporting:</strong> The Niggli cell is included in the PDF report for each major candidate, providing an unambiguous description for cross-referencing.</li>
+            </ul>
 
             <h3>2. Matrix-Based Cell Transformations</h3>
             <p>
-                Candidate cells are transformed using crystallographic matrices to test for related primitive
-                or higher-symmetry descriptions. For example, a body-centered (I) cell can be mapped to an
-                equivalent primitive (P) cell and evaluated.
+                A set of seven crystallographic transformation matrices $P$ is applied to each candidate cell.
+                Each transforms the real-space metric tensor $G \to P^T G P$, generating a new lattice description.
+                The matrices include:
+            </p>
+            <ul>
+                <li>Face-centred (F) → primitive: $P = \tfrac{1}{2}\bigl[(0,1,1),(1,0,1),(1,1,0)\bigr]$</li>
+                <li>Body-centred (I) → primitive: $P = \tfrac{1}{2}\bigl[(-1,1,1),(1,-1,1),(1,1,-1)\bigr]$</li>
+                <li>C-centred → primitive: $P = \tfrac{1}{2}\bigl[(1,1,0),(-1,1,0),(0,0,2)\bigr]$</li>
+                <li>Axis halvings (a/2, b/2, c/2) and one C→P transformation.</li>
+            </ul>
+            <p>
+                The resulting cell is classified by symmetry and, if the system is among those selected by the user,
+                sent to refinement and scoring.
             </p>
 
-            <h3>3. HKL Divisor Analysis</h3>
+            <h3>3. HKL Divisor Analysis (Sub-cell Detection)</h3>
             <p>
-                The list of indexed HKLs is inspected for common divisors. If all indices along one axis
-                (e.g. all <em>h</em> values) share a common factor, Brutus tests a cell with the corresponding
-                axis shortened accordingly (sub-cell).
+                The list of indexed $(hkl)$ values for each solution is inspected for common divisors.
+                The GCD of all $|h|$ values, all $|k|$ values, and all $|l|$ values are computed separately.
+                If any GCD exceeds 1 (e.g. all $h$ values are even), the program tests a shrunken cell with
+                the corresponding axis divided by that GCD. This detects cases where the indexing algorithm found
+                a super-cell of the true cell.
             </p>
 
             <h3>4. Orthorhombic–Hexagonal Relationship</h3>
             <p>
-                A hexagonal lattice can sometimes be indexed as C-centered orthorhombic with
-                $b/a \approx \sqrt{3}$. All orthorhombic solutions are checked against this condition,
-                and potential hexagonal equivalents are generated and evaluated.
+                A hexagonal lattice can sometimes be described as C-centred orthorhombic with
+                $b/a \approx \sqrt{3}$ (or permutations). All orthorhombic solutions are checked against this
+                condition (within 3% tolerance), and potential hexagonal equivalents are generated and evaluated.
             </p>
 
-            <h3>5. Niggli Cell Standardization</h3>
+            <h3>5. Swap Fishing for Ambiguity</h3>
             <p>
-                For each high-ranking solution, Brutus computes the <strong>Niggli reduced cell</strong>,
-                i.e. the standardized primitive cell describing the same lattice.
+                For each high-ranking solution, Brutus re-examines the first few low-angle peaks.
+                Pairs of peaks that are very close in angle (the most common source of mis-assignment in the
+                initial brute-force step) are identified, and a new hypothesis is created by swapping their HKL labels.
+                The swapped cell is fully refined and rescored. If it yields a higher M(20), it is retained.
             </p>
+
+            <h3>6. Final De-Duplication (Sieving)</h3>
             <p>
-                The conventional (possibly centered) cell identified by the program is first converted to a primitive cell
-                using the detected centering (e.g. I, F, C). A reduction algorithm is then applied to obtain the
-                most compact set of basis vectors ($a, b, c$) and angles ($\alpha, \beta, \gamma$) satisfying
-                the Niggli conditions.
+                After all transformations and re-refinements, Brutus applies a final de-duplication step.
+                If two solutions have volumes within 1% of each other:
             </p>
+            <ul>
+                <li>The one with <strong>higher symmetry</strong> is preferred (e.g. orthorhombic beats monoclinic).</li>
+                <li>If their symmetry is identical, the one with <strong>higher M(20)</strong> is kept.</li>
+                <li>Solutions with M(20) values within a small tolerance (ΔM(20) &lt; 0.05) are considered
+                    equivalent in quality and the first one found is retained.</li>
+            </ul>
             <p>
-                The Niggli cell is useful for:
+                The final retained set contains at most 50 solutions, ranked by M(20).
+            </p>
+        </section>
+
+        <!-- ============================================================ -->
+        <section id="troubleshooting">
+            <h2>Troubleshooting &amp; FAQ</h2>
+
+            <h3>Error: "WebGPU not supported in this browser"</h3>
+            <p>
+                This error usually indicates a software or configuration issue rather than a lack of hardware capability.
+                Even integrated graphics (e.g. Intel UHD) support WebGPU if configured correctly.
             </p>
             <ul>
                 <li>
-                    <strong>Database searching:</strong> Different conventional cells that represent the same lattice
-                    reduce to the same Niggli cell, which can be used as a canonical key.
+                    <strong>Unsupported Browser:</strong>
+                    WebGPU is currently best supported on <strong>Google Chrome</strong> (v113+) and <strong>Microsoft Edge</strong>.
+                    Firefox has experimental support. Safari supports a subset of WebGPU.
                 </li>
                 <li>
-                    <strong>Symmetry analysis:</strong> Niggli parameters correlate directly with Bravais lattices
-                    and crystal systems.
+                    <strong>Outdated Drivers:</strong>
+                    Old graphics drivers are frequently blocklisted by browsers to prevent instability.
+                    Update your GPU drivers (Intel, NVIDIA, or AMD) to the latest version via the manufacturer's website or Windows Update.
                 </li>
                 <li>
-                    <strong>Standardized reporting:</strong> It removes ambiguity when comparing unit cells between sources.
+                    <strong>Hardware Acceleration Disabled:</strong>
+                    Check your browser settings (usually under <code>Settings &gt; System</code>) and ensure
+                    "Use graphics acceleration when available" is turned <strong>ON</strong>. Restart the browser afterwards.
+                </li>
+                <li>
+                    <strong>Linux:</strong>
+                    On Linux, WebGPU is often disabled by default. You may need to manually enable flags in
+                    <code>chrome://flags</code>. Search for "Vulkan" and "WebGPU" and set them to Enabled.
                 </li>
             </ul>
             <p>
-                Niggli cells are included in the detailed section of the PDF report for each major candidate.
+                <strong>To verify:</strong> Type <code>chrome://gpu</code> in your address bar and look for "WebGPU".
+                If it says "Software only" or "Disabled", the GPU search will not function.
             </p>
 
-            <h3>6. Final Sieving</h3>
+            <h3>Why were no solutions found?</h3>
+            <ul>
+                <li>
+                    <strong>Poor peak list:</strong>
+                    This is the most common cause. Ensure the list is accurate, impurity peaks are removed,
+                    and positions are well refined. A minimum of 15–20 clean peaks is recommended.
+                    For low-symmetry systems, the first 10 peaks (largest d-spacings) must be especially reliable.
+                </li>
+                <li>
+                    <strong>Incorrect parameters:</strong>
+                    Check the wavelength, the selected <code>Radiation Preset</code>, and the <code>Max Volume</code>.
+                </li>
+                <li>
+                    <strong>GPU parameters too restrictive:</strong>
+                    The true solution might require HKLs or peak combinations beyond the default
+                    <code>HKL Basis Size</code> or <code>Peaks to Combine</code>. Try increasing these.
+                </li>
+                <li>
+                    <strong>Large zero-point error:</strong>
+                    Brutus corrects moderate misalignments, but very large zero errors (e.g. &gt;0.2°) may
+                    cause all trial cells to fail the pre-filter. Increase FoM Tolerance and try again.
+                </li>
+                <li>
+                    <strong>Sample is a mixture:</strong>
+                    Successful indexing requires peaks from a single crystalline phase.
+                </li>
+            </ul>
+
+            <h3>Why is M(20) low although the fit looks good?</h3>
+            <ul>
+                <li>
+                    <strong>Sub-multiple or super-multiple cell:</strong>
+                    The found cell may be a multiple or sub-cell of the true one. It indexes only a subset of peaks
+                    and is penalised for being too sparse or too dense in calculated reflections. Look for a
+                    related cell with higher M(20) in the solutions list.
+                </li>
+                <li>
+                    <strong>High error / low resolution:</strong>
+                    The <code>2θ Error</code> setting may be too strict for broad peaks.
+                    Try slightly increasing it to widen the Q-tolerance.
+                </li>
+                <li>
+                    <strong>Spurious solution:</strong>
+                    Random solutions can fit a few peaks by coincidence. Always check whether <em>all</em> major
+                    observed peaks are reproduced by the calculated pattern. If significant peaks are missed,
+                    the solution is incorrect regardless of M(20).
+                </li>
+            </ul>
+
+            <h3>The progress bar is stuck / search seems frozen</h3>
+            <ul>
+                <li>
+                    For Tetragonal and Hexagonal searches with dense patterns, a large fraction of trial cells
+                    pass the initial filter and require full refinement. The search is still running. Watch the
+                    trials-per-second counter in the status bar.
+                </li>
+                <li>
+                    For GPU searches, the batch system may be processing a very large number of candidates in the
+                    CPU post-processing phase (Niggli reduction, M(20) calculation). This can take several minutes
+                    if the GPU buffer is large (e.g. 200 kCells).
+                </li>
+                <li>
+                    If the browser becomes unresponsive for more than ~30 seconds with no progress counter movement,
+                    the GPU driver may have reset. Close and reopen the tab and try with a smaller HKL Basis Size.
+                </li>
+            </ul>
+
+            <h3>Test Files</h3>
+            <ul>
+                <li>The GitHub repository contains several example datasets:</li>
+                <li>
+                    <strong>Monoclinic_test_1.xy</strong> —
+                    Synchrotron XRD, monoclinic, monochromatic λ = 0.79764 Å.
+                    Lattice parameters: a = 19.877 Å, b = 8.196 Å, c = 11.243 Å, β = 106.08°.
+                </li>
+                <li>
+                    <strong>C61Br2_079764.XY</strong> —
+                    Dibromo-methano fullerene measured at ESRF, λ = 0.79764 Å.
+                    Contains an impurity peak at ~16.24° 2θ.
+                    Expected solution: cubic I with a ≈ 18.92 Å.
+                </li>
+                <li>
+                    <strong>SPDDRR1_sample2_0692.xy</strong> —
+                    Round-robin data measured at Daresbury, λ = 0.692 Å.
+                    Expected cell: orthorhombic with a = 10.983 Å, b = 12.852 Å, c = 15.740 Å.
+                </li>
+                <li>
+                    <strong>SPDDRR1_sample2_Cu.xy</strong> —
+                    Same sample as above, measured with a Cu Kα laboratory source.
+                </li>
+                <li>
+                    <strong>SPDDRR1_zhu1_Cu.xy</strong> —
+                    Round-robin sample 1, measured with Cu Kα; likely monoclinic with
+                    a = 7.672 Å, b = 9.624 Å, c = 7.076 Å, β = 106.24°.
+                </li>
+                <li>
+                    <strong>PbSO4.xra</strong> and <strong>FAP.xra</strong> —
+                    Laboratory Cu Kα samples representative of orthorhombic and hexagonal structures
+                    (datafiles taken from GSAS-2 tutorials).
+                </li>
+                <li>
+                    <strong>P-1_sim_5_6_7_86_91_96.txt</strong> —
+                    Simulated powder pattern for a P$\bar{1}$ lattice, λ = 1.7 Å,
+                    a = 5.0 Å, b = 6.0 Å, c = 7.0 Å, α = 86.0°, β = 91.0°, γ = 96.0° (V = 208.29 Å³).
+                </li>
+            </ul>
+
+            <h3>Found a Bug?</h3>
             <p>
-                After all transformations and refinements, Brutus applies a final de-duplication step.
-                If two solutions have volumes within 1% of each other, the one with higher symmetry is preferred.
+                If you suspect you have found a bug (e.g. the interface freezes unexpectedly or valid data crashes
+                the GPU search), please report it.
             </p>
             <p>
-                If their symmetry is identical (e.g. two monoclinic cells), M(20) is compared.
-                Cells with M(20) values within a small tolerance (e.g. ΔM(20) &lt; 0.05) are considered equivalent in
-                quality and the first solution found is retained.
+                <a href="https://github.com/nitad54448/brutus/issues/new?template=bug_report.yml" target="_blank"
+                   style="background-color: #3b82f6; color: white; padding: 0.5rem 1rem; border-radius: 0.375rem; text-decoration: none; font-weight: 600; display: inline-block;">
+                    Report a Bug on GitHub
+                </a>
             </p>
-            
+            <p style="font-size: 0.9em; color: #6b7280; margin-top: 0.5rem;">
+                <em>Note: You will need a free GitHub account. The form will ask for your browser version and GPU model to help reproduce the issue.</em>
+            </p>
         </section>
 
-        <section id="troubleshooting">
-    <h2>Troubleshooting & FAQ</h2>
-
-    <h3>Error: "WebGPU not supported in this browser"</h3>
-    <p>
-        This error indicates a software or configuration issue, rather than a lack of hardware capability.
-        Even integrated graphics (like Intel UHD) support WebGPU if configured correctly.
-    </p>
-    <ul>
-        <li>
-            <strong>Unsupported Browser:</strong>
-            WebGPU is currently best supported on <strong>Google Chrome</strong> (v113+) and <strong>Microsoft Edge</strong>.
-        </li>
-        <li>
-            <strong>Outdated Drivers:</strong>
-            Old graphics drivers are frequently "blacklisted" by browsers to prevent instability.
-            Update your GPU drivers (Intel, NVIDIA, or AMD) to the latest version via the manufacturer's website or Windows Update.
-        </li>
-        <li>
-            <strong>Hardware Acceleration Disabled:</strong>
-            Check your browser settings (usually under <code>Settings > System</code>) and ensure "Use graphics acceleration when available" is turned <strong>ON</strong>. Restart the browser afterwards.
-        </li>
-        <li>
-            <strong>Linux / Special OS:</strong>
-            On Linux, WebGPU is often disabled by default. You may need to manually enable flags in <code>chrome://flags</code>. Search for "Vulkan" and "WebGPU" and set them to Enabled.
-        </li>
-    </ul>
-    <p>
-        <strong>To verify:</strong> Type <code>chrome://gpu</code> in your address bar. Look for "WebGPU". If it says "Software only" or "Disabled", the program will not work.
-    </p>
-
-    <h3>Why were no solutions found?</h3>
-    <ul>
-        <li>
-            <strong>Poor peak list:</strong>
-            This is the most common cause. Ensure the list is accurate, impurity peaks are removed,
-            and positions are refined. A minimum of 15–20 clean peaks is recommended.
-            For low symmetry, the first 10 peaks (largest d-spacings) must be especially reliable.
-        </li>
-        <li>
-            <strong>Incorrect parameters:</strong>
-            Check the wavelength, the selected <code>Radiation Preset</code>, and the <code>Max Volume</code> value.
-        </li>
-        <li>
-            <strong>GPU parameters are too restrictive:</strong>
-            The true solution might require HKLs or peaks beyond the default <code>HKL Basis Size</code> or <code>Peaks to Combine</code>. Try increasing these values.
-        </li>
-        <li>
-            <strong>Large zero-point error:</strong>
-            Brutus can correct moderate misalignments, but very large zero errors may still prevent indexing.
-        </li>
-        <li>
-            <strong>Sample is a mixture:</strong>
-            Successful indexing requires peaks from a single crystalline phase.
-        </li>
-    </ul>
-
-    <h3>Why is M(20) low although the fit looks good?</h3>
-    <ul>
-        <li>
-            <strong>Sub-multiple or super-multiple cell:</strong>
-            The found cell may be a multiple or sub-cell of the true one. It can index only a subset of peaks
-            and is penalized for being too sparse or too dense in calculated reflections.
-        </li>
-        <li>
-            <strong>High error / low resolution:</strong>
-            The <code>2θ Error</code> setting may be too strict for broad peaks. Try slightly increasing it.
-        </li>
-        <li>
-            <strong>Spurious solution:</strong>
-            Random solutions can fit a few peaks by chance. Always check whether major observed peaks are
-            reproduced by the calculated pattern. If not, the solution is incorrect regardless of M(20).
-        </li>
-    </ul>
-
-    <h3>Test Files</h3>
-    <ul>
-        <li>The GitHub repository contains several example data sets:</li>
-        <li>
-            <strong>Monoclinic_test_1.xy</strong> –
-            Synchrotron XRD, monoclinic, monochromatic radiation λ = 0.79764 Å.
-            Lattice parameters: a = 19.877 Å, b = 8.196 Å, c = 11.243 Å, β = 106.08°.
-        </li>
-        <li>
-            <strong>C61Br2_079764.XY</strong> –
-            Dibromo-methano fullerene measured at ESRF, λ = 0.79764 Å.
-            Contains an impurity peak at about 16.24° 2θ.
-            A likely solution is cubic I with a ≈ 18.92 Å.
-        </li>
-        <li>
-            <strong>SPDDRR1_sample2_0692.xy</strong> –
-            Round-robin data measured at Daresbury, λ = 0.692 Å.
-            Probable cell: orthorhombic with a = 10.983 Å, b = 12.852 Å, c = 15.740 Å.
-        </li>
-        <li>
-            <strong>SPDDRR1_sample2_Cu.xy</strong> –
-            Same sample as above, measured with a Cu Kα laboratory source.
-        </li>
-        <li>
-            <strong>SPDDRR1_zhu1_Cu.xy</strong> –
-            Round-robin sample 1, measured with Cu Kα; likely monoclinic with
-            a = 7.672 Å, b = 9.624 Å, c = 7.076 Å, β = 106.24°.
-        </li>
-        <li>
-            <strong>PbSO4.xra</strong> and <strong>FAP.xra</strong> –
-            Laboratory Cu Kα samples representative of orthorhombic and hexagonal structures (these datafiles were taken from GSAS-2 tutorials).
-        </li>
-        <li>
-            <strong>P-1_sim_5_6_7_86_91_96.txt</strong> –
-            Simulated powder pattern for a P−1 lattice, λ = 1.7 Å,
-            a = 5.0 Å, b = 6.0 Å, c = 7.0 Å, α = 86.0°, β = 91.0°, γ = 96.0° (volume of 208.29 A^3)
-        </li>
-    </ul>
-
-    <h3>Found a Bug?</h3>
-    <p>
-        If you suspect you have found a bug in the software (e.g., the interface freezes unexpectedly, or valid data crashes the GPU search), please report it.
-    </p>
-    <p>
-        <a href="https://github.com/nitad54448/brutus/issues/new?template=bug_report.yml" target="_blank" style="background-color: #3b82f6; color: white; padding: 0.5rem 1rem; border-radius: 0.375rem; text-decoration: none; font-weight: 600; display: inline-block;">
-            Report a Bug on GitHub
-        </a>
-    </p>
-    <p style="font-size: 0.9em; color: #6b7280; margin-top: 0.5rem;">
-        <em>Note: You will need a free GitHub account. The form will ask for your browser version and GPU model to help us reproduce the issue.</em>
-    </p>
-</section>
-
+        <!-- ============================================================ -->
         <section id="references">
             <h2>References</h2>
             <p>
@@ -1124,15 +1397,15 @@
             </p>
             <ol>
                 <li>
-                    <strong>M(20) figure of merit</strong><br>
+                    <strong>M(N) figure of merit</strong><br>
                     de Wolff, P. M. (1968).
-                    “A Simplified Criterion for the Reliability of a Powder Pattern Indexing.”
+                    "A Simplified Criterion for the Reliability of a Powder Pattern Indexing."
                     <em>Journal of Applied Crystallography</em> <strong>1</strong>, 108–113.
                 </li>
                 <li>
                     <strong>F(N) figure of merit</strong><br>
                     Smith, G. S. &amp; Snyder, R. L. (1979).
-                    “F(N): A Criterion for Rating Powder Diffraction Patterns and Evaluating the Reliability of Powder-Pattern Indexing.”
+                    "F(N): A Criterion for Rating Powder Diffraction Patterns and Evaluating the Reliability of Powder-Pattern Indexing."
                     <em>Journal of Applied Crystallography</em> <strong>12</strong>, 60–65.
                 </li>
                 <li>
@@ -1141,42 +1414,46 @@
                     <em>X-Ray Diffraction Procedures for Polycrystalline and Amorphous Materials</em>, 2nd ed.
                     New York: Wiley-Interscience.
                 </li>
-
                 <li>
-                    <strong>Kα<sub>2</sub> Stripping Algorithm:</strong><br>
+                    <strong>Kα<sub>2</sub> Stripping Algorithm</strong><br>
                     Rachinger, W. A. (1948).
-                    “A Correction for the α1 α2 Doublet in the Measurement of Widths of X-ray Diffraction Lines.”
-                    <em>Journal of Scientific Instruments</em>, <strong>25</strong>, 254.
+                    "A Correction for the α1 α2 Doublet in the Measurement of Widths of X-ray Diffraction Lines."
+                    <em>Journal of Scientific Instruments</em> <strong>25</strong>, 254.
                 </li>
-
-
+                <li>
+                    <strong>Savitzky–Golay smoothing</strong><br>
+                    Savitzky, A. &amp; Golay, M. J. E. (1964).
+                    "Smoothing and Differentiation of Data by Simplified Least Squares Procedures."
+                    <em>Analytical Chemistry</em> <strong>36</strong>(8), 1627–1639.
+                </li>
                 <li>
                     <strong>Alternative indexing approaches</strong><br>
-                    Ito, T. (1949). “A General Powder X-ray Photography.” <em>Nature</em> <strong>164</strong>, 755–756.<br>
+                    Ito, T. (1949). "A General Powder X-ray Photography." <em>Nature</em> <strong>164</strong>, 755–756.<br>
                     Werner, P.-E., Eriksson, L. &amp; Westdahl, M. (1985).
-                    “TREOR, a Semi-exhaustive Trial-and-Error Powder Indexing Program for All Symmetries.”
+                    "TREOR, a Semi-exhaustive Trial-and-Error Powder Indexing Program for All Symmetries."
                     <em>Journal of Applied Crystallography</em> <strong>18</strong>, 367–370.<br>
                     Visser, J. W. (1969).
-                    “A Fully Automatic Program for Finding the Unit Cell from Powder Data.”
+                    "A Fully Automatic Program for Finding the Unit Cell from Powder Data."
                     <em>Journal of Applied Crystallography</em> <strong>2</strong>, 89–95.<br>
                     Le Bail, A. (2004).
-                    “Monte Carlo Indexing with McMaille.” <em>Powder Diffraction</em> <strong>19(3)</strong>, 249–254.<br>
+                    "Monte Carlo Indexing with McMaille." <em>Powder Diffraction</em> <strong>19(3)</strong>, 249–254.<br>
                     Boultif, A. &amp; Louër, D. (2004).
-                    “Powder Pattern Indexing with the Dichotomy Method.”
+                    "Powder Pattern Indexing with the Dichotomy Method."
                     <em>Journal of Applied Crystallography</em> <strong>37</strong>, 724–731.
                 </li>
                 <li>
                     <strong>Previous software</strong><br>
                     Dragoe, N. (2001).
-                    “PowderV2: A Suite of Applications for Powder X-Ray Diffraction Calculations.”
+                    "PowderV2: A Suite of Applications for Powder X-Ray Diffraction Calculations."
                     <em>Journal of Applied Crystallography</em> <strong>34</strong>, 535.
                 </li>
             </ol>
 
             <div class="footer">
-                <p>Help guide generated with the assistance of an AI, last updated 27 April 2026.</p>
+                <p>Help guide updated from source code analysis, 27 April 2026.</p>
             </div>
         </section>
+
     </main>
 
     <script>
@@ -1205,7 +1482,6 @@
                     this.classList.add('active');
                     const targetId = this.getAttribute('href');
                     const targetElement = document.querySelector(targetId);
-
                     if (targetElement) {
                         mainContent.scrollTo({
                             top: targetElement.offsetTop - 32,
@@ -1223,7 +1499,6 @@
                         currentActive = section.getAttribute('id');
                     }
                 });
-
                 if (currentActive) {
                     navLinks.forEach(link => link.classList.remove('active'));
                     const activeLink = document.querySelector(`#toc a[href="#${currentActive}"]`);
