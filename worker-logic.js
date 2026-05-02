@@ -1458,30 +1458,101 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
     // "hard" violations (driven by genuine reflections) from "soft" ones
     // (driven by suspected Ka2 ghost peaks).
     const indexed_hkls = []; const zero_correction = solution.zero_correction || 0;
+    // Two windows around each observed peak:
+    //   indexWindow  - the indexing tolerance proper (1.5 * tthError).
+    //                  A peak is indexed only if its closest calculated
+    //                  hkl is inside this window.
+    //   overlapWindow - same width as indexWindow. Used to detect
+    //                   *overlapping* reflections within one peak. The
+    //                   IUCr International Tables note that for powder
+    //                   data, peak overlap is the dominant source of
+    //                   ambiguity in systematic-absence detection: a
+    //                   "forbidden" reflection that overlaps an allowed
+    //                   one cannot be used as hard evidence against a
+    //                   space group, because its observed intensity is
+    //                   contaminated. The principled solution is the
+    //                   Bayesian intensity-based test of Markvardsen et
+    //                   al. (Acta Cryst. A57, 47, 2001; ExtSym/DASH),
+    //                   but in the absence of integrated intensities the
+    //                   overlap check is a useful proxy: if a violating
+    //                   hkl overlaps an allowed neighbour within one
+    //                   tolerance bar, the violation is downgraded from
+    //                   hard to soft. Using the SAME window as indexing
+    //                   keeps the rule conservative and well defined.
+    const indexWindow   = tthError * 1.5;
+    const overlapWindow = tthError * 1.5;
+
+    // --- Intensity-aware demotion ---
+    // A "forbidden" reflection in the true space group should have
+    // intrinsic intensity ZERO. If the observed peak that drives a
+    // violation is weak compared with the strong peaks of the pattern,
+    // it is much more likely to be a tail / wing / weak overlap / noise
+    // artefact than a genuine reflection contradicting the space group.
+    // We therefore tag each indexed peak as "lowIntensity" when its
+    // height is below 10% of the strongest observed peak in the pattern;
+    // such peaks count as soft (not hard) evidence in countViolations
+    // and determineCentering. This is the same intuition that drives
+    // the Bayesian ExtSym algorithm (Markvardsen 2001), without the
+    // full Wilson-distribution machinery that requires properly
+    // background-subtracted, Lorentz-polarisation-corrected integrated
+    // intensities. Heights are missing for older callers that did not
+    // pass them through; in that case the threshold is never triggered
+    // and behaviour is identical to the position-only check.
+    const LOW_INTENSITY_FRACTION = 0.05;
+    let maxHeight = 0;
+    for (const p of obs_peaks) {
+        const h = p.height;
+        if (typeof h === 'number' && isFinite(h) && h > maxHeight) maxHeight = h;
+    }
+    const lowIntensityThreshold = maxHeight > 0
+        ? maxHeight * LOW_INTENSITY_FRACTION
+        : -Infinity; // disable demotion if no heights available
+
     obs_peaks.forEach(peak => {
         const corrected_tth = peak.tth - zero_correction;
         const bestMatch = all_calc_hkls.reduce((best, hkl) => { const diff = Math.abs(hkl.tth - corrected_tth); return diff < best.minDiff ? { hkl, minDiff: diff } : best; }, { hkl: null, minDiff: Infinity });
-        if (bestMatch.hkl && bestMatch.minDiff < (tthError * 1.5)) {
+        if (bestMatch.hkl && bestMatch.minDiff < indexWindow) {
+            // Collect every calculated hkl whose 2theta is within
+            // overlapWindow of the BEST-MATCH calculated 2theta (not of
+            // the observed 2theta). The overlap is between the candidate
+            // reflection and its neighbours in reciprocal space — that
+            // is what determines whether intensity from one can leak
+            // into the other.
+            const altHkls = all_calc_hkls
+                .filter(hkl => Math.abs(hkl.tth - bestMatch.hkl.tth) < overlapWindow)
+                .map(hkl => ({ h: hkl.h, k: hkl.k, l: hkl.l }));
+            const peakHeight = (typeof peak.height === 'number' && isFinite(peak.height)) ? peak.height : null;
+            const isLowIntensity = (peakHeight !== null) && (peakHeight < lowIntensityThreshold);
             indexed_hkls.push({
                 h: bestMatch.hkl.h, k: bestMatch.hkl.k, l: bestMatch.hkl.l,
                 tth: peak.tth, calc_tth: bestMatch.hkl.tth,
-                ka2Suspect: !!peak.ka2Suspect
+                ka2Suspect: !!peak.ka2Suspect,
+                altHkls: altHkls,
+                height: peakHeight,
+                lowIntensity: isLowIntensity
             });
         }
     });
 
     // Dedup by (h,k,l). When two observed peaks index to the same hkl, prefer
-    // the NON-suspect one (a hard observation outweighs a soft one for the
-    // same reflection). This avoids accidentally flipping a real reflection
-    // to "soft" just because a Ka2 ghost from a different parent happened to
-    // index to the same hkl by coincidence.
+    // the NON-suspect, HIGH-intensity one (strong, real evidence outweighs
+    // weak or Ka2-ghost evidence for the same reflection). This avoids
+    // accidentally flipping a real reflection to "soft" just because a Ka2
+    // ghost or a weak-tail peak from a different parent happened to index
+    // to the same hkl by coincidence.
     const uniqMap = new Map();
+    const recordPriority = (r) => {
+        // Higher = preferred. Non-suspect > suspect; high-intensity > low.
+        let p = 0;
+        if (!r.ka2Suspect) p += 2;
+        if (!r.lowIntensity) p += 1;
+        return p;
+    };
     for (const r of indexed_hkls) {
         const key = `${r.h},${r.k},${r.l}`;
         const existing = uniqMap.get(key);
         if (!existing) { uniqMap.set(key, r); continue; }
-        // If existing is suspect but new one isn't, prefer the new one.
-        if (existing.ka2Suspect && !r.ka2Suspect) uniqMap.set(key, r);
+        if (recordPriority(r) > recordPriority(existing)) uniqMap.set(key, r);
         // Otherwise keep first (existing).
     }
     const unique_indexed_hkls = Array.from(uniqMap.values());
@@ -1528,15 +1599,38 @@ function determineCentering(indexed_hkls, system) {
         const allowedForSystem = validBravaisCenterings[system] || ['P'];
         if (allowedForSystem.includes(key)) {
             const violatingPeaks = indexed_hkls.filter(({h, k, l}) => test.forbidden(Math.round(h), Math.round(k), Math.round(l)));
-            const hardViolatingPeaks = violatingPeaks.filter(p => !p.ka2Suspect);
-            const softViolatingPeaks = violatingPeaks.filter(p => p.ka2Suspect);
+            // A peak whose best-match hkl violates the centering rule
+            // is downgraded from hard to soft if any of these apply:
+            //   1. it is a Ka2-suspect ghost,
+            //   2. it has an allowed alternative hkl within the
+            //      overlap window (the rule could equally apply to a
+            //      neighbour), or
+            //   3. its observed intensity is below the low-intensity
+            //      threshold (a near-zero peak is not strong evidence
+            //      against the centering rule, since forbidden peaks
+            //      should have intensity zero in the true cell).
+            // This protects high-symmetry centerings from being killed
+            // by a single ambiguous or weak hkl assignment.
+            const hardViolatingPeaks = violatingPeaks.filter(p => {
+                if (p.ka2Suspect) return false;
+                if (p.lowIntensity) return false;
+                if (p.altHkls && p.altHkls.length > 1) {
+                    const hasAllowedAlt = p.altHkls.some(alt => {
+                        if (alt.h === p.h && alt.k === p.k && alt.l === p.l) return false;
+                        return !test.forbidden(Math.round(alt.h), Math.round(alt.k), Math.round(alt.l));
+                    });
+                    if (hasAllowedAlt) return false;
+                }
+                return true;
+            });
+            const softViolatingPeaks = violatingPeaks.filter(p => !hardViolatingPeaks.includes(p));
             violations[key] = violatingPeaks.length; // total
             violationsHard[key] = hardViolatingPeaks.length;
             violationsSoft[key] = softViolatingPeaks.length;
             // Details: store hard violators preferentially, fall back to soft.
             if (violations[key] > 0 && violations[key] <= MAX_DETAILS_TO_STORE) {
                 const detailsSource = hardViolatingPeaks.length > 0 ? hardViolatingPeaks : softViolatingPeaks;
-                violationDetails[key] = detailsSource.slice(0, MAX_DETAILS_TO_STORE).map(p => ({ h: p.h, k: p.k, l: p.l, tth: p.tth, ka2Suspect: !!p.ka2Suspect }));
+                violationDetails[key] = detailsSource.slice(0, MAX_DETAILS_TO_STORE).map(p => ({ h: p.h, k: p.k, l: p.l, tth: p.tth, ka2Suspect: !!p.ka2Suspect, lowIntensity: !!p.lowIntensity }));
             }
         }
     }
@@ -1573,15 +1667,19 @@ function detectExtinctions(indexed_hkls, system, spaceGroupData) {
         const { zone, condition } = parsedRule;
         const zoneReflections = indexed_hkls.filter(refl => getReflectionZone(refl.h, refl.k, refl.l) === zone);
         if (zoneReflections.length === 0) { return; }
-        // A rule is "confirmed" if every NON-SUSPECT reflection in the zone
-        // satisfies it. Reflections from Ka2-suspect peaks are ignored here:
-        // a Ka2 ghost of a Kα1 reflection at (h,k,l) often does not satisfy
-        // the same condition because its 2θ is shifted, so we can't index it
-        // back to the same hkl reliably; treating it as evidence for/against
-        // an extinction rule would generate false negatives. We instead let
-        // the per-group ranking ratchet up "soft violations" later.
-        const nonSuspectZoneRefls = zoneReflections.filter(r => !r.ka2Suspect);
-        const refSetForRule = nonSuspectZoneRefls.length > 0 ? nonSuspectZoneRefls : zoneReflections;
+        // A rule is "confirmed" if every reliable reflection in the
+        // zone satisfies it. Two classes of unreliable reflections are
+        // excluded from this check:
+        //   - Ka2-suspect peaks: their 2θ is shifted, so we can't
+        //     reliably re-index them back to the same hkl;
+        //   - low-intensity peaks: a near-zero observed peak doesn't
+        //     contradict an extinction rule even if its assigned hkl
+        //     formally violates the rule (forbidden peaks SHOULD be
+        //     near zero).
+        // If no reliable reflections remain in the zone we fall back
+        // to the full set so the test can still operate.
+        const reliableZoneRefls = zoneReflections.filter(r => !r.ka2Suspect && !r.lowIntensity);
+        const refSetForRule = reliableZoneRefls.length > 0 ? reliableZoneRefls : zoneReflections;
         const allSatisfy = refSetForRule.every(refl => satisfiesCondition(refl.h, refl.k, refl.l, condition));
         if (allSatisfy) { confirmedRules.add(ruleStr); }
     });
@@ -1665,20 +1763,54 @@ function countViolations(indexed_hkls, rules) {
     let softCount = 0;
     const detailsHard = [];
     const detailsSoft = [];
+
+    // Helper: does this single (h,k,l) violate any zone or general rule?
+    // Mirrors the per-reflection checks below so we can probe alternative hkls.
+    const hklViolatesRules = (h, k, l) => {
+        const zone = getReflectionZone(h, k, l);
+        const zoneRules = rules[zone] || [];
+        for (const cond of zoneRules) {
+            if (!satisfiesCondition(h, k, l, cond)) return true;
+        }
+        const genRules = rules.hkl || [];
+        for (const cond of genRules) {
+            if (zone === 'hkl' || !rules[zone] || !rules[zone].some(zc => zc === cond)) {
+                if (!satisfiesCondition(h, k, l, cond)) return true;
+            }
+        }
+        return false;
+    };
+
     for (const reflection of indexed_hkls) {
         const { h, k, l, calc_tth } = reflection;
         const isSuspect = !!reflection.ka2Suspect;
+        const isLowIntensity = !!reflection.lowIntensity;
+        // A reflection is treated as soft if it is either a Ka2-ghost
+        // suspect OR if its observed intensity is below the
+        // low-intensity cutoff (10% of the strongest peak). The
+        // low-intensity case captures the crystallographic intuition
+        // that a "forbidden" reflection in the true space group should
+        // have intensity zero — a weak observed peak is consistent with
+        // residual background, weak overlap from a neighbour, or noise,
+        // and is not strong evidence against the systematic-absence
+        // rule.
+        const isSoftSource = isSuspect || isLowIntensity;
         let isViolation = false;
         let violationDetail = null;
         const zone = getReflectionZone(h, k, l);
         const applicableZoneRules = rules[zone] || [];
         const generalRules = rules.hkl || [];
+        const softTagFor = (refl) => {
+            const tags = [];
+            if (refl.ka2Suspect) tags.push('Ka2-suspect');
+            if (refl.lowIntensity) tags.push('weak');
+            return tags.length > 0 ? ` [${tags.join(', ')}]` : '';
+        };
         for (const cond of applicableZoneRules) {
             if (!satisfiesCondition(h, k, l, cond)) {
                 isViolation = true;
                 const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
-                const softTag = isSuspect ? ' [Ka2-suspect]' : '';
-                violationDetail = `(${h},${k},${l})${tth_string} violates ${zone}: ${cond}${softTag}`;
+                violationDetail = `(${h},${k},${l})${tth_string} violates ${zone}: ${cond}${softTagFor(reflection)}`;
                 break;
             }
         }
@@ -1688,15 +1820,38 @@ function countViolations(indexed_hkls, rules) {
                     if (!satisfiesCondition(h, k, l, cond)) {
                         isViolation = true;
                         const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
-                        const softTag = isSuspect ? ' [Ka2-suspect]' : '';
-                        violationDetail = `(${h},${k},${l})${tth_string} violates hkl: ${cond}${softTag}`;
+                        violationDetail = `(${h},${k},${l})${tth_string} violates hkl: ${cond}${softTagFor(reflection)}`;
                         break;
                     }
                 }
             }
         }
+
+        // --- AMBIGUOUS-HKL DEMOTION ---
+        // If the best-match hkl violates a rule but a different calculated
+        // hkl within the same peak's tolerance window satisfies all the
+        // rules, the violation is not real evidence against the space
+        // group: the peak could equally well be assigned to the allowed
+        // alternative. Treat such cases as soft so a single near-tolerance
+        // peak can't kill an otherwise excellent space group.
+        if (isViolation && reflection.altHkls && reflection.altHkls.length > 1) {
+            const hasAllowedAlt = reflection.altHkls.some(alt => {
+                if (alt.h === h && alt.k === k && alt.l === l) return false;
+                return !hklViolatesRules(alt.h, alt.k, alt.l);
+            });
+            if (hasAllowedAlt) {
+                const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
+                violationDetail = `(${h},${k},${l})${tth_string} ambiguous (allowed alt within tol)`;
+                if (isViolation) {
+                    softCount++;
+                    if (detailsSoft.length < 5) detailsSoft.push(violationDetail);
+                }
+                continue; // skip the original hard/soft accounting below
+            }
+        }
+
         if (isViolation) {
-            if (isSuspect) {
+            if (isSoftSource) {
                 softCount++;
                 if (detailsSoft.length < 5) detailsSoft.push(violationDetail);
             } else {

@@ -192,6 +192,13 @@
         .peak-table tbody tr.ka2-confirmed-real {
             background-color: transparent;
         }
+        /* Highlight the row whose peak is currently being edited or
+           clicked in the side table. The matching full-height vertical
+           bar is drawn in the diffractogram by updateAllMarkers. */
+        .peak-table tbody tr.peak-row-selected {
+            background-color: rgba(245, 158, 11, 0.18);
+            outline: 1px solid rgba(245, 158, 11, 0.55);
+        }
         .ka2-warning-banner {
             background-color: rgba(234, 179, 8, 0.15);
             border: 1px solid rgba(234, 179, 8, 0.5);
@@ -1412,6 +1419,12 @@ const getOrthogonalityScore = (cell) => {
     let workingExperimentalData = { tth: [], intensity: [] }; // The data to be plotted and analyzed (raw or stripped)
 
     let pickedPeaks = [];
+    // Index of the peak whose row in the side table is currently being
+    // edited (focused or clicked). When non-null, updateAllMarkers draws a
+    // tall translucent vertical line across the whole plot at that peak's
+    // 2θ so the user can immediately see which peak in the diffractogram
+    // they are editing. Cleared on blur or click outside.
+    let selectedPeakIndex = null;
     let taskProgress = [];
     let taskTotals = [];
     let lastDurationStr = "";
@@ -2357,12 +2370,37 @@ ui.tthMinSlider.addEventListener('input', () => {
         const backgroundCorrected = intensity.map((y, i) => Math.max(0, y - background[i]));
         const windowSize = Math.max(5, Math.min(11, Math.floor(n / 100)));
         const smoothed = savitzkyGolay(backgroundCorrected, windowSize, 2);
-        const maxCorrectedIntensity = maxOfArray(backgroundCorrected) || 1;
+
+        // --- Range-restricted noise/threshold statistics ---
+        // The intensity threshold and noise estimate must come from the
+        // SAME 2θ window the user has selected for analysis. Otherwise a
+        // long high-2θ tail of noise / detector dark-counts inflates the
+        // global noise level and global Imax, which raises the threshold
+        // and silently suppresses legitimate weak peaks at low 2θ. The
+        // result is that two slider settings on identical raw data
+        // produce different peak lists — and in particular different
+        // "first-7 lowest-q peaks" fed to the indexer, which is the
+        // observed cause of "no solutions on full range, solutions when
+        // range is reduced".
+        let rangeStart = 0;
+        while (rangeStart < n && tth[rangeStart] < minTth) rangeStart++;
+        let rangeEnd = n; // exclusive
+        while (rangeEnd > rangeStart && tth[rangeEnd - 1] > maxTth) rangeEnd--;
+        const rangeView = backgroundCorrected.slice(rangeStart, rangeEnd);
+
+        const maxCorrectedIntensity = (rangeView.length > 0 ? maxOfArray(rangeView) : maxOfArray(backgroundCorrected)) || 1;
         const minAbsoluteHeight = (minHeightPercent / 100) * maxCorrectedIntensity;
         const calculateNoiseLevel = (data) => { const n_s = data.length; if (n_s < 10) return 0; const sample = []; for (let i = 0; i < n_s; i += Math.max(1, Math.floor(n_s / 100))) sample.push(data[i]); sample.sort((a, b) => a - b); const median = sample[Math.floor(sample.length / 2)]; const deviations = sample.map(x => Math.abs(x - median)); deviations.sort((a, b) => a - b); return deviations[Math.floor(deviations.length / 2)] * 1.4826; };
-        const adaptiveThreshold = Math.max(minAbsoluteHeight, calculateNoiseLevel(backgroundCorrected) * 3);
+        const noiseSrc = rangeView.length >= 10 ? rangeView : backgroundCorrected;
+        const adaptiveThreshold = Math.max(minAbsoluteHeight, calculateNoiseLevel(noiseSrc) * 3);
         const localMaxIndices = [];
-        for (let i = 1; i < n - 1; i++) {
+        // Restrict the local-max scan to the slider range so out-of-range
+        // structure cannot produce candidates that get filtered out later
+        // (the only effect of those is to perturb plateau detection at
+        // the boundaries).
+        const scanStart = Math.max(1, rangeStart);
+        const scanEnd   = Math.min(n - 1, rangeEnd);
+        for (let i = scanStart; i < scanEnd; i++) {
             const current = smoothed[i]; if (current < adaptiveThreshold) continue;
             if (current > smoothed[i - 1] && current > smoothed[i + 1]) localMaxIndices.push(i);
             else if (current === smoothed[i + 1] && current > smoothed[i - 1]) { let plateauEnd = i + 1; while (plateauEnd < n - 1 && Math.abs(smoothed[plateauEnd] - current) < maxCorrectedIntensity * 0.001) plateauEnd++; if (plateauEnd < n && smoothed[plateauEnd] < current) localMaxIndices.push(Math.round((i + plateauEnd - 1) / 2)); i = plateauEnd - 1; }
@@ -2506,6 +2544,10 @@ if (denominator < -1e-10) {
     };
 
     const updatePeakTable = () => {
+        // Clamp the selected index in case the peak list shrank.
+        if (selectedPeakIndex !== null && selectedPeakIndex >= pickedPeaks.length) {
+            selectedPeakIndex = null;
+        }
         ui.peakListBody.innerHTML = '';
         pickedPeaks.forEach((peak, index) => {
             const row = document.createElement('tr');
@@ -2526,6 +2568,9 @@ if (denominator < -1e-10) {
                 row.title =
                     `Kα₁ line — its Kα₂ ghost was identified.\n` +
                     `d-spacing computed with λ_Kα₁.`;
+            }
+            if (index === selectedPeakIndex) {
+                row.classList.add('peak-row-selected');
             }
             const indexLabel = `${index + 1}${isParent ? '*' : ''}`;
             row.innerHTML = `<td>${indexLabel}</td><td><input type="number" class="peak-tth-input" value="${peak.tth.toFixed(4)}" data-index="${index}" step="0.0001"></td><td><input type="number" class="peak-d-input" value="${peak.d.toFixed(5)}" data-index="${index}" disabled></td><td><button class="delete-peak-btn" data-index="${index}">X</button></td>`;
@@ -2684,6 +2729,60 @@ ui.peakListBody.addEventListener('change', (e) => {
         // its hasKa2Child status (and revert from λ_Ka1 to user λ for d).
         recalculatePeakValues();
         updatePeakTable();
+    });
+
+    // --- Selected-peak highlight ---
+    // While the user is editing a peak's row (focus inside an input) or
+    // has clicked the row, a tall translucent vertical line is drawn at
+    // that peak's 2θ across the full plot height. This makes it easy to
+    // identify which peak in the diffractogram corresponds to the row
+    // being edited. The visual is rendered in updateAllMarkers via a
+    // dedicated "Selected Peak" dataset.
+    const applySelectedPeakRowClass = () => {
+        const rows = ui.peakListBody.children;
+        for (let i = 0; i < rows.length; i++) {
+            rows[i].classList.toggle('peak-row-selected', i === selectedPeakIndex);
+        }
+    };
+    // 'focusin' bubbles, unlike 'focus', so a single delegated listener
+    // catches focus on any per-row input.
+    ui.peakListBody.addEventListener('focusin', (e) => {
+        const row = e.target.closest('tr');
+        if (!row) return;
+        const idx = Array.from(ui.peakListBody.children).indexOf(row);
+        if (idx < 0 || idx === selectedPeakIndex) return;
+        selectedPeakIndex = idx;
+        applySelectedPeakRowClass();
+        updateAllMarkers();
+    });
+    ui.peakListBody.addEventListener('focusout', (e) => {
+        // When tabbing between inputs of the same row, focusout fires
+        // before focusin on the new target. Defer the clear so we can
+        // see whether focus actually left the table.
+        const leavingRow = e.target.closest('tr');
+        const leavingIdx = leavingRow ? Array.from(ui.peakListBody.children).indexOf(leavingRow) : -1;
+        setTimeout(() => {
+            const active = document.activeElement;
+            if (active && ui.peakListBody.contains(active)) return; // focus still inside table
+            if (selectedPeakIndex === leavingIdx) {
+                selectedPeakIndex = null;
+                applySelectedPeakRowClass();
+                updateAllMarkers();
+            }
+        }, 0);
+    });
+    // A click on the row outside the inputs (e.g. on the index cell) also
+    // toggles selection. Clicks on inputs/buttons keep their original
+    // semantics — focusin handles those.
+    ui.peakListBody.addEventListener('click', (e) => {
+        if (e.target.closest('input, button')) return;
+        const row = e.target.closest('tr');
+        if (!row) return;
+        const idx = Array.from(ui.peakListBody.children).indexOf(row);
+        if (idx < 0) return;
+        selectedPeakIndex = (selectedPeakIndex === idx) ? null : idx;
+        applySelectedPeakRowClass();
+        updateAllMarkers();
     });
     
     const setUIState = (indexing) => {
@@ -3698,6 +3797,29 @@ showStatus("Indexing stopped, please wait…", "info", 60000);
 
 
     Chart.register({ id: 'verticalCursorLine', afterDraw: chart => { if (chart.tooltip?._active?.length) { let x = chart.tooltip._active[0].element.x; let yAxis = chart.scales.y; let ctx = chart.ctx; ctx.save(); ctx.beginPath(); ctx.moveTo(x, yAxis.top); ctx.lineTo(x, yAxis.bottom); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(156, 163, 175, 0.7)'; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.restore(); } } });
+    // Plugin that draws the "currently-edited peak" indicator as a thin
+    // amber band across the full plot height. Implemented as a plugin
+    // (not a bar dataset) because Chart.js bar geometry adds a small
+    // centering offset that shifts the bar visibly to the right of the
+    // peak's true 2θ; getPixelForValue is exact.
+    // The chart instance carries the 2θ to draw via `chart.$selectedPeakTth`,
+    // which updateAllMarkers sets each time.
+    Chart.register({
+        id: 'selectedPeakLine',
+        afterDraw: chart => {
+            const tth = chart.$selectedPeakTth;
+            if (typeof tth !== 'number' || !isFinite(tth)) return;
+            const xScale = chart.scales.x;
+            const yScale = chart.scales.y;
+            if (tth < xScale.min || tth > xScale.max) return;
+            const x = xScale.getPixelForValue(tth);
+            const ctx = chart.ctx;
+            ctx.save();
+            ctx.fillStyle = 'rgba(245, 158, 11, 0.25)';
+            ctx.fillRect(x - 2, yScale.top, 4, yScale.bottom - yScale.top);
+            ctx.restore();
+        }
+    });
     Chart.register({ id: 'legendMargin', beforeInit(chart) { const originalFit = chart.legend.fit; chart.legend.fit = function() { originalFit.bind(chart.legend)(); this.height += 15; }; } });
 
     //  initializeChart
@@ -3881,6 +4003,15 @@ scales: {
             xrdChart.data.datasets[2].data = visibleCalcPeaks.map(hkl => ({ x: hkl.tth, y: [calculatedBottom, calculatedTop] }));
         } else {
             xrdChart.data.datasets[2].data = [];
+        }
+        // Selected-peak indicator: stash the 2θ on the chart instance;
+        // the selectedPeakLine plugin reads it on each draw and converts
+        // it to a pixel via xScale.getPixelForValue, which is exact (no
+        // bar-centering offset). Set to undefined to hide.
+        if (selectedPeakIndex !== null && pickedPeaks[selectedPeakIndex]) {
+            xrdChart.$selectedPeakTth = pickedPeaks[selectedPeakIndex].tth;
+        } else {
+            xrdChart.$selectedPeakTth = undefined;
         }
         xrdChart.update('none');
     };
@@ -4564,7 +4695,7 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 27 April 2026</div>
+<div id="app-footer">Brutus, 02 May 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-report">Generate Report</div>
