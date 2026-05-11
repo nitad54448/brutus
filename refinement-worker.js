@@ -26,16 +26,20 @@ let baseParams = null;
 let foundSolutions = [];
 let foundSolutionMap = new Map();
 
-// Run one cell through refineAndTestSolution. Posts a 'solution' message
-// (with the supplied id field) if a solution is found. Returns nothing.
+//possible issue here; changed on 11th may 2026... kept the old version
 function runOneCell(cell, idField, idValue) {
-    refineAndTestSolution(cell, baseParams, state, (innerMsg) => {
-        if (innerMsg && innerMsg.type === 'solution') {
-            const out = { type: 'solution', payload: innerMsg.payload };
-            out[idField] = idValue;
-            self.postMessage(out);
-        }
-    });
+    try {
+        refineAndTestSolution(cell, baseParams, state, (innerMsg) => {
+            if (innerMsg && innerMsg.type === 'solution') {
+                const out = { type: 'solution', payload: innerMsg.payload };
+                out[idField] = idValue;
+                self.postMessage(out);
+            }
+        });
+    } catch (err) {
+        // Don't let one bad cell take down the whole batch.
+        self.postMessage({ type: 'cellError', message: String(err && err.message || err) });
+    }
 }
 
 self.onmessage = (e) => {
