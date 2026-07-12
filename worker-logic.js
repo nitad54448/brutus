@@ -7,9 +7,47 @@ const DEG = 180.0 / Math.PI;
 const metricFromCell = (cell) => {
     const a = cell.a; const b = cell.b ?? cell.a; const c = cell.c ?? cell.a;
     const alpha = (cell.alpha ?? 90) * RAD; const beta  = (cell.beta  ?? 90) * RAD; const gamma = (cell.gamma ?? 90) * RAD;
+    
+    // Compute cosines
+    let ca = Math.cos(alpha), cb = Math.cos(beta), cg = Math.cos(gamma);
+    
+    // Snap floating-point dust from 90° (and 270°) angles to exact 0
+    if (Math.abs(ca) < 1e-15) ca = 0;
+    if (Math.abs(cb) < 1e-15) cb = 0;
+    if (Math.abs(cg) < 1e-15) cg = 0;
+
+    const G = [
+        [a*a, a*b*cg, a*c*cb], 
+        [a*b*cg, b*b, b*c*ca], 
+        [a*c*cb, b*c*ca, c*c]
+    ];
+    
+    // Final guard: clean any remaining multiplication dust on off-diagonals
+    const clean = (val) => Math.abs(val) < 1e-14 ? 0 : val;
+    return G.map(row => row.map(clean));
+};
+
+const cellFromMetric = (G) => {
+    if (!G) return null;
+    try {
+        const a = Math.sqrt(Math.max(0, G[0][0])), b = Math.sqrt(Math.max(0, G[1][1])), c = Math.sqrt(Math.max(0, G[2][2]));
+        if (a < 1e-6 || b < 1e-6 || c < 1e-6) return null;
+        const clamp = v => Math.max(-1, Math.min(1, v));
+        const alpha = Math.acos(clamp(G[1][2]/(b*c)))*DEG, beta=Math.acos(clamp(G[0][2]/(a*c)))*DEG, gamma=Math.acos(clamp(G[0][1]/(a*b)))*DEG;
+        if (isNaN(alpha) || isNaN(beta) || isNaN(gamma)) return null;
+        return { a, b, c, alpha, beta, gamma };
+    } catch { return null; }
+};
+
+/*
+version avant le 12 juillet 2026
+const metricFromCell = (cell) => {
+    const a = cell.a; const b = cell.b ?? cell.a; const c = cell.c ?? cell.a;
+    const alpha = (cell.alpha ?? 90) * RAD; const beta  = (cell.beta  ?? 90) * RAD; const gamma = (cell.gamma ?? 90) * RAD;
     const ca = Math.cos(alpha), cb = Math.cos(beta), cg = Math.cos(gamma);
     return [ [a*a, a*b*cg, a*c*cb], [a*b*cg, b*b, b*c*ca], [a*c*cb, b*c*ca, c*c] ];
 };
+
 
 const cellFromMetric = (G) => {
     const a = Math.sqrt(G[0][0]), b = Math.sqrt(G[1][1]), c = Math.sqrt(G[2][2]);
@@ -18,6 +56,7 @@ const cellFromMetric = (G) => {
     return { a, b, c, alpha, beta, gamma };
 };
 
+*/
 const transpose = (M) => M[0].map((_,i) => M.map(r => r[i]));
 const matMul = (A,B) => { const r=A.length, c=B[0].length, k=A[0].length; const C = Array.from({length:r}, () => Array(c).fill(0)); for(let i=0; i<r; i++) for(let j=0; j<c; j++) for(let t=0; t<k; t++) C[i][j] += A[i][t] * B[t][j]; return C; };
 
@@ -243,7 +282,7 @@ const generateHKL = (maxTth, params, system, defaultLambda = 1.54056) => {
 
 const generateHKL_for_worker = (cell, q_max, d_min, lambda) => {
     // We need lambda to correctly calculate the max 2-theta from q_max
-    const maxTth = Math.asin(Math.sqrt(q_max * 1.05 * lambda * lambda / 4.0)) * 360.0 / Math.PI;
+    const maxTth = Math.asin(Math.sqrt(q_max * lambda * lambda / 4.0)) * 360.0 / Math.PI;
     return generateHKL_for_analysis(cell, lambda, maxTth);
 };
 
@@ -733,295 +772,108 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     }
 
     // --- REFINEMENT LOGIC ---
+
     if (refineZero) {
         // --- PATH A: Full Zero-Correction Refinement ---
-        
-        const isGpuCandidate = (system === 'monoclinic' || system === 'triclinic');
+        // Unified for both GPU (Monoclinic/Triclinic/Ortho) and CPU (Cubic/Tetra/Hex) candidates.
+        // We do TWO rounds of pairing+fit with proper LS weighting:
+        //   Round 1: pair with z=0 assumption → fit cell+z → get z_estimate
+        //   Round 2: pair using q values corrected by z_estimate → re-fit
 
-        if (isGpuCandidate) {
-            // Re-solve from scratch for GPU candidates ---
-            // We do TWO rounds of pairing+fit with proper LS weighting:
-            //   Round 1: pair with z=0 assumption → fit cell+z → get z_estimate
-            //   Round 2: pair using q values corrected by z_estimate → re-fit
-            // This dramatically improves robustness to non-trivial zero offsets,
-            // since the initial pairing in Round 1 can mis-assign hkls when the
-            // shift exceeds the q tolerance at high angle.
-            //
-            // The previous implementation passed q_vec as the LS weights, which
-            // OVER-weights high-angle peaks (w ∝ sin²θ). This biases both the
-            // cell and especially the zero correction. We now use w ∝ 1/sin²(2θ),
-            // the statistically-correct weighting for constant σ_2θ measurements.
-
-            const pair_and_fit = (zero_corr_deg) => {
-                const indexed_pairs = [];
-                const peak_indices = [];
-                const used = new Set();
-                for (let i = 0; i < n_all; i++) {
-                    const original_idx = original_indices[i];
-                    let q_to_match;
-                    if (Math.abs(zero_corr_deg) > 1e-9) {
-                        const corrected_tth_rad = tth_obs_rad[original_idx] - 2 * zero_corr_deg * RAD;
-                        q_to_match = (4 * Math.sin(corrected_tth_rad / 2) ** 2) / (wavelength ** 2);
-                    } else {
-                        q_to_match = q_obs[i];
-                    }
-                    const tolerance = local_get_q_tolerance(original_idx);
-                    let best_match_idx = -1, min_diff = Infinity;
-                    let low = 0, high = all_possible_reflections.length - 1;
-                    while (low <= high) { let mid = Math.floor((low + high) / 2); if (all_possible_reflections[mid].q < q_to_match) low = mid + 1; else high = mid - 1; }
-                    for (let j = Math.max(0, high - 1); j <= Math.min(all_possible_reflections.length - 1, low + 1); j++) {
-                        const diff = Math.abs(all_possible_reflections[j].q - q_to_match);
-                        if (diff < min_diff) { min_diff = diff; best_match_idx = j; }
-                    }
-                    if (best_match_idx !== -1 && min_diff < tolerance && !used.has(best_match_idx)) {
-                        const { h, k, l } = all_possible_reflections[best_match_idx];
-                        indexed_pairs.push({ q_obs: q_obs[i], hkl: [h, k, l] });
-                        peak_indices.push(original_idx);
-                        used.add(best_match_idx);
-                    }
+        const pair_and_fit = (zero_corr_deg) => {
+            const indexed_pairs = [];
+            const peak_indices = [];
+            const used = new Set();
+            for (let i = 0; i < n_all; i++) {
+                const original_idx = original_indices[i];
+                let q_to_match;
+                if (Math.abs(zero_corr_deg) > 1e-9) {
+                    const corrected_tth_rad = tth_obs_rad[original_idx] - 2 * zero_corr_deg * RAD;
+                    q_to_match = (4 * Math.sin(corrected_tth_rad / 2) ** 2) / (wavelength ** 2);
+                } else {
+                    q_to_match = q_obs[i];
                 }
-
-                if (indexed_pairs.length < min_indexed[system]) return null;
-
-                const M = indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
-                const q_vec = indexed_pairs.map(p => p.q_obs);
-                // Append zero-error column: (2/λ²) sin(2θ_obs)
-                M.forEach((row, i) => {
-                    const tth_rad = tth_obs_rad[peak_indices[i]];
-                    row.push((2 / (wavelength ** 2)) * Math.sin(tth_rad));
-                });
-                // Proper LS weights: 1/sin²(2θ) ∝ 1/σ_q²
-                const tth_rads_for_rows = peak_indices.map(idx => tth_obs_rad[idx]);
-                const ls_weights = ls_weights_for_2theta(tth_rads_for_rows);
-
-                const fit = solveLeastSquares(M, q_vec, ls_weights);
-                if (!fit || !fit.solution) return null;
-                return { fit, indexed_pairs, peak_indices };
-            };
-
-            // Round 1
-            let result = pair_and_fit(0);
-            // Round 2: re-pair using the zero estimate from round 1
-            if (result) {
-                const z1_deg = result.fit.solution[result.fit.solution.length - 1] * DEG;
-                if (Math.abs(z1_deg) > 1e-4) {
-                    const result2 = pair_and_fit(z1_deg);
-                    if (result2) result = result2; // accept refined pairing
+                const tolerance = local_get_q_tolerance(original_idx);
+                let best_match_idx = -1, min_diff = Infinity;
+                let low = 0, high = all_possible_reflections.length - 1;
+                while (low <= high) { let mid = Math.floor((low + high) / 2); if (all_possible_reflections[mid].q < q_to_match) low = mid + 1; else high = mid - 1; }
+                for (let j = Math.max(0, high - 1); j <= Math.min(all_possible_reflections.length - 1, low + 1); j++) {
+                    const diff = Math.abs(all_possible_reflections[j].q - q_to_match);
+                    if (diff < min_diff) { min_diff = diff; best_match_idx = j; }
+                }
+                if (best_match_idx !== -1 && min_diff < tolerance && !used.has(best_match_idx)) {
+                    const { h, k, l } = all_possible_reflections[best_match_idx];
+                    indexed_pairs.push({ q_obs: q_obs[i], hkl: [h, k, l] });
+                    peak_indices.push(original_idx);
+                    used.add(best_match_idx);
                 }
             }
 
-            if (result) {
-                const fitResult_with_zero_final = result.fit;
-                const refined_cell = extractCellFromFit(fitResult_with_zero_final.solution, system);
+            if (indexed_pairs.length < min_indexed[system]) return null;
 
-                if (refined_cell) {
-                    refined_cell.zero_correction = fitResult_with_zero_final.solution[fitResult_with_zero_final.solution.length - 1] * DEG;
-                    refined_cell.volume = getVolume(refined_cell);
-                    
-                    // Generate HKLs from the NEW, UN-WARPED cell
-                    const q_calc_set_refined = new Set(generateHKL_for_worker(refined_cell, q_max, d_min, wavelength).map(r => r.q));
-                    const q_calc_sorted_refined = new Float64Array(Array.from(q_calc_set_refined)).sort((a,b)=>a-b);
-                    
-                    // Create corrected observed peaks for M20
-                    const peaks_for_merit_20_refined = [];
-                    for (let i = 0; i < n_20; i++) {
-                        const original_peak = peaks_sorted_by_q[i];
-                        const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
-                        const corrected_tth_rad = corrected_tth_deg * RAD;
-                        const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
-                        peaks_for_merit_20_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
-                    }
-                    
-                    const { m20: final_m20, fN: final_fN_20 } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_20_refined, impurity_peaks, local_get_q_tolerance, wavelength);
-                    
-                    if (final_m20 > min_m20) {
-                        const peaks_for_merit_all_refined = [];
-                        for (let i = 0; i < n_all; i++) {
-                            const original_peak = peaks_sorted_by_q[i]; const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
-                            const corrected_tth_rad = corrected_tth_deg * RAD; const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
-                            peaks_for_merit_all_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
-                        }
-                        const { m20: final_m_all, fN: final_fN_all } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_all_refined, impurity_peaks, local_get_q_tolerance, wavelength);
-                        
-                        refined_cell.m20 = final_m20; refined_cell.fN_20 = final_fN_20; refined_cell.n_20 = n_20;
-                        refined_cell.m_all = final_m_all; refined_cell.fN_all = final_fN_all; refined_cell.n_all = n_all;
-                        refined_cell.errors = propagateErrors(system, fitResult_with_zero_final, refined_cell);
-                        final_solution_to_post = refined_cell;
-                    }
-                }
+            const M = indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
+            const q_vec = indexed_pairs.map(p => p.q_obs);
+            M.forEach((row, i) => {
+                const tth_rad = tth_obs_rad[peak_indices[i]];
+                row.push((2 / (wavelength ** 2)) * Math.sin(tth_rad));
+            });
+            const tth_rads_for_rows = peak_indices.map(idx => tth_obs_rad[idx]);
+            const ls_weights = ls_weights_for_2theta(tth_rads_for_rows);
+
+            const fit = solveLeastSquares(M, q_vec, ls_weights);
+            if (!fit || !fit.solution) return null;
+            return { fit, indexed_pairs, peak_indices };
+        };
+
+        // Round 1
+        let result = pair_and_fit(0);
+        // Round 2: re-pair using the zero estimate from round 1
+        if (result) {
+            const z1_deg = result.fit.solution[result.fit.solution.length - 1] * DEG;
+            if (Math.abs(z1_deg) > 1e-4) {
+                const result2 = pair_and_fit(z1_deg);
+                if (result2) result = result2; // accept refined pairing
             }
+        }
 
-        } else {
-            // --- ORIGINAL PATH: For CPU candidates (Cubic, Tetra, Ortho, Hexagonal) ---
-            // Same two-round, properly-weighted strategy as the GPU path above.
-            const pair_and_fit = (zero_corr_deg) => {
-                const indexed_pairs = [];
-                const peak_indices = [];
-                const used = new Set();
-                for (let i = 0; i < n_all; i++) {
-                    const original_idx = original_indices[i];
-                    let q_to_match;
-                    if (Math.abs(zero_corr_deg) > 1e-9) {
-                        const corrected_tth_rad = tth_obs_rad[original_idx] - 2 * zero_corr_deg * RAD;
-                        q_to_match = (4 * Math.sin(corrected_tth_rad / 2) ** 2) / (wavelength ** 2);
-                    } else {
-                        q_to_match = q_obs[i];
-                    }
-                    const tolerance = local_get_q_tolerance(original_idx);
-                    let best_match_idx = -1, min_diff = Infinity;
-                    let low = 0, high = all_possible_reflections.length - 1;
-                    while (low <= high) { let mid = Math.floor((low + high) / 2); if (all_possible_reflections[mid].q < q_to_match) low = mid + 1; else high = mid - 1; }
-                    for (let j = Math.max(0, high - 1); j <= Math.min(all_possible_reflections.length - 1, low + 1); j++) {
-                        const diff = Math.abs(all_possible_reflections[j].q - q_to_match);
-                        if (diff < min_diff) { min_diff = diff; best_match_idx = j; }
-                    }
-                    if (best_match_idx !== -1 && min_diff < tolerance && !used.has(best_match_idx)) {
-                        const { h, k, l } = all_possible_reflections[best_match_idx];
-                        indexed_pairs.push({ q_obs: q_obs[i], hkl: [h, k, l] });
-                        peak_indices.push(original_idx);
-                        used.add(best_match_idx);
-                    }
+        if (result) {
+            const fitResult_with_zero_final = result.fit;
+            const refined_cell = extractCellFromFit(fitResult_with_zero_final.solution, system);
+
+            if (refined_cell) {
+                refined_cell.zero_correction = fitResult_with_zero_final.solution[fitResult_with_zero_final.solution.length - 1] * DEG;
+                refined_cell.volume = getVolume(refined_cell);
+                
+                const q_calc_set_refined = new Set(generateHKL_for_worker(refined_cell, q_max, d_min, wavelength).map(r => r.q));
+                const q_calc_sorted_refined = new Float64Array(Array.from(q_calc_set_refined)).sort((a,b)=>a-b);
+                
+                const peaks_for_merit_20_refined = [];
+                for (let i = 0; i < n_20; i++) {
+                    const original_peak = peaks_sorted_by_q[i];
+                    const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
+                    const corrected_tth_rad = corrected_tth_deg * RAD;
+                    const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
+                    peaks_for_merit_20_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
                 }
-
-                if (indexed_pairs.length < min_indexed[system]) return null;
-
-                const M = indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
-                const q_vec = indexed_pairs.map(p => p.q_obs);
-                M.forEach((row, i) => {
-                    const tth_rad = tth_obs_rad[peak_indices[i]];
-                    row.push((2 / (wavelength ** 2)) * Math.sin(tth_rad));
-                });
-                const tth_rads_for_rows = peak_indices.map(idx => tth_obs_rad[idx]);
-                const ls_weights = ls_weights_for_2theta(tth_rads_for_rows);
-
-                const fit = solveLeastSquares(M, q_vec, ls_weights);
-                if (!fit || !fit.solution) return null;
-                return { fit, indexed_pairs, peak_indices };
-            };
-
-            // Round 1
-            let result = pair_and_fit(0);
-            // Round 2: re-pair using zero estimate from round 1
-            if (result) {
-                const z1_deg = result.fit.solution[result.fit.solution.length - 1] * DEG;
-                if (Math.abs(z1_deg) > 1e-4) {
-                    const result2 = pair_and_fit(z1_deg);
-                    if (result2) result = result2;
-                }
-            }
-
-            if (result) {
-                const fitResult_with_zero_final = result.fit;
-                const refined_cell = extractCellFromFit(fitResult_with_zero_final.solution, system);
-
-                if (refined_cell) {
-                    refined_cell.zero_correction = fitResult_with_zero_final.solution[fitResult_with_zero_final.solution.length - 1] * DEG;
-                    refined_cell.volume = getVolume(refined_cell);
-                    
-                    const q_calc_set_refined = new Set(generateHKL_for_worker(refined_cell, q_max, d_min, wavelength).map(r => r.q));
-                    const q_calc_sorted_refined = new Float64Array(Array.from(q_calc_set_refined)).sort((a,b)=>a-b);
-                    
-                    const peaks_for_merit_20_refined = [];
-                    for (let i = 0; i < n_20; i++) {
-                        const original_peak = peaks_sorted_by_q[i];
-                        const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
-                        const corrected_tth_rad = corrected_tth_deg * RAD;
-                        const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
-                        peaks_for_merit_20_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
+                
+                const { m20: final_m20, fN: final_fN_20 } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_20_refined, impurity_peaks, local_get_q_tolerance, wavelength);
+                
+                if (final_m20 > min_m20) {
+                    const peaks_for_merit_all_refined = [];
+                    for (let i = 0; i < n_all; i++) {
+                        const original_peak = peaks_sorted_by_q[i]; const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
+                        const corrected_tth_rad = corrected_tth_deg * RAD; const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
+                        peaks_for_merit_all_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
                     }
+                    const { m20: final_m_all, fN: final_fN_all } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_all_refined, impurity_peaks, local_get_q_tolerance, wavelength);
                     
-                    const { m20: final_m20, fN: final_fN_20 } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_20_refined, impurity_peaks, local_get_q_tolerance, wavelength);
-                    
-                    if (final_m20 > min_m20) {
-                        const peaks_for_merit_all_refined = [];
-                        for (let i = 0; i < n_all; i++) {
-                            const original_peak = peaks_sorted_by_q[i]; const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
-                            const corrected_tth_rad = corrected_tth_deg * RAD; const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
-                            peaks_for_merit_all_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
-                        }
-                        const { m20: final_m_all, fN: final_fN_all } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_all_refined, impurity_peaks, local_get_q_tolerance, wavelength);
-                        
-                        refined_cell.m20 = final_m20; refined_cell.fN_20 = final_fN_20; refined_cell.n_20 = n_20;
-                        refined_cell.m_all = final_m_all; refined_cell.fN_all = final_fN_all; refined_cell.n_all = n_all;
-                        refined_cell.errors = propagateErrors(system, fitResult_with_zero_final, refined_cell);
-                        final_solution_to_post = refined_cell;
-                    }
+                    refined_cell.m20 = final_m20; refined_cell.fN_20 = final_fN_20; refined_cell.n_20 = n_20;
+                    refined_cell.m_all = final_m_all; refined_cell.fN_all = final_fN_all; refined_cell.n_all = n_all;
+                    refined_cell.errors = propagateErrors(system, fitResult_with_zero_final, refined_cell);
+                    final_solution_to_post = refined_cell;
                 }
             }
         }
-        
-    } else {
-        // --- PATH B: No Zero-Correction Refinement ---
-        let initial_indexed_pairs = []; 
-        let initial_peak_indices = [];
-        
-        for (let i = 0; i < n_all; i++) {
-            const q_o = q_obs[i]; 
-            const tolerance = local_get_q_tolerance(original_indices[i]);
-            let best_match_idx = -1, min_diff = Infinity;
-            
-            let low = 0, high = all_possible_reflections.length - 1;
-            while (low <= high) { let mid = Math.floor((low + high) / 2); if (all_possible_reflections[mid].q < q_o) low = mid + 1; else high = mid - 1; }
-            for (let j = Math.max(0, high - 1); j <= Math.min(all_possible_reflections.length - 1, low + 1); j++) {
-                const diff = Math.abs(all_possible_reflections[j].q - q_o);
-                if (diff < min_diff) { min_diff = diff; best_match_idx = j; }
-            }
-            
-            if (best_match_idx !== -1 && min_diff < tolerance) {
-                initial_indexed_pairs.push({ q_obs: q_o, hkl: [all_possible_reflections[best_match_idx].h, all_possible_reflections[best_match_idx].k, all_possible_reflections[best_match_idx].l] });
-                initial_peak_indices.push(original_indices[i]);
-            }
-        }
-        
-        if (initial_indexed_pairs.length < min_indexed[system]) {
-            // console.log("REFINE: Rejected (NoRef) - Not enough indexed peaks");
-            return exitFunction();
-        }
-        
-        let M_no_zero = initial_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
-        const q_vec_initial = initial_indexed_pairs.map(p => p.q_obs);
-        // Proper LS weights: 1/sin²(2θ) ∝ 1/σ_q² (statistically correct for
-        // constant σ_2θ measurement uncertainty).
-        const tth_rads_initial = initial_peak_indices.map(idx => tth_obs_rad[idx]);
-        const ls_weights_initial = ls_weights_for_2theta(tth_rads_initial);
-        const fitResult_no_zero = solveLeastSquares(M_no_zero, q_vec_initial, ls_weights_initial);
-
-        if (!fitResult_no_zero || !fitResult_no_zero.solution) {
-            // console.log("REFINE: Rejected (NoRef) - LSQ solve failed");
-            return exitFunction();
-        }
-
-        const initial_cell = extractCellFromFit(fitResult_no_zero.solution, system);
-        if (!initial_cell) {
-            // console.log("REFINE: Rejected (NoRef) - Bad cell from fit");
-            return exitFunction();
-        }
-        
-        const refined_axes = [initial_cell.a, initial_cell.b ?? initial_cell.a, initial_cell.c ?? initial_cell.a];
-        if (refined_axes.some(p => (isNaN(p) || p < min_lp_check || p > max_lp_check))) {
-            // console.log("REFINE: Rejected (NoRef) - Bad refined params");
-            return exitFunction();
-        }
-        initial_cell.volume = getVolume(initial_cell);
-        if (initial_cell.volume > max_volume || initial_cell.volume < 20) {
-            // console.log("REFINE: Rejected (NoRef) - Bad refined volume");
-            return exitFunction();
-        }
-
-        const q_calc_set = new Set(generateHKL_for_worker(initial_cell, q_max, d_min, wavelength).map(r => r.q));
-        const q_calc_sorted = new Float64Array(Array.from(q_calc_set)).sort((a,b)=>a-b);
-        
-        const peaks_for_merit_20 = peaks_sorted_by_q.slice(0, n_20);
-        const { m20, fN: fN_20 } = calculateFiguresOfMerit(q_calc_sorted, peaks_for_merit_20, impurity_peaks, local_get_q_tolerance, wavelength);
-
-        if (m20 > min_m20) {
-        //    console.log(`REFINE: Cell PASSED (NoRef) M20 = ${m20.toFixed(2)}`, initial_cell);
-            const { m20: m_all, fN: fN_all } = calculateFiguresOfMerit(q_calc_sorted, peaks_sorted_by_q, impurity_peaks, local_get_q_tolerance, wavelength);
-            initial_cell.m20 = m20; initial_cell.fN_20 = fN_20; initial_cell.n_20 = n_20;
-            initial_cell.m_all = m_all; initial_cell.fN_all = fN_all; initial_cell.n_all = n_all;
-            initial_cell.errors = propagateErrors(system, fitResult_no_zero, initial_cell);
-            final_solution_to_post = initial_cell;
-        } // else { console.log(`REFINE: Rejected (NoRef) - Low M20 = ${m20.toFixed(2)}`); }
     }
     
     // 4. --- POST THE SOLUTION ---
@@ -1943,6 +1795,15 @@ function getReflectionZone(h, k, l) {
 
 //20 nov, worker
 // Check if we are running in a Worker environment to avoid conflicts with the main thread
+// ============================================================================
+// CRITICAL IMPORT ORDER WARNING:
+// When imported into refinement-worker.js via importScripts(), this top-level
+// self.onmessage handler is executed FIRST, and then safely CLOBBERED by 
+// refinement-worker.js's own self.onmessage handler. 
+// DO NOT move this block below importScripts() or reorder script initialization, 
+// otherwise this standalone handler will override the batched refinement engine!
+// ============================================================================
+
 if (typeof self !== 'undefined' && typeof  WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) {
 
     self.onmessage = function(e) {

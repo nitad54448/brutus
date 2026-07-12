@@ -37,8 +37,10 @@ function runOneCell(cell, idField, idValue) {
             }
         });
     } catch (err) {
-        // Don't let one bad cell take down the whole batch.
-        self.postMessage({ type: 'cellError', message: String(err && err.message || err) });
+        // Attach the batchId/taskId so the main thread knows which batch errored
+        const out = { type: 'cellError', message: String(err && err.message || err) };
+        out[idField] = idValue;
+        self.postMessage(out);
     }
 }
 
@@ -77,6 +79,8 @@ self.onmessage = (e) => {
         case 'refineBatch': {
             const { cells, batchId } = msg;
             if (!state || !baseParams) {
+                // Surface the ordering bug instead of silently returning 'done'
+                self.postMessage({ type: 'cellError', message: 'Worker not initialized (missing state/baseParams)', batchId });
                 self.postMessage({ type: 'done', batchId });
                 return;
             }
@@ -87,17 +91,7 @@ self.onmessage = (e) => {
             break;
         }
 
-        case 'refine': {
-            // Legacy single-cell entry point, kept for backward compatibility.
-            const { cell, taskId } = msg;
-            if (!state || !baseParams) {
-                self.postMessage({ type: 'done', taskId });
-                return;
-            }
-            runOneCell(cell, 'taskId', taskId);
-            self.postMessage({ type: 'done', taskId });
-            break;
-        }
+
 
         default:
             // Unknown message type; ignore.
