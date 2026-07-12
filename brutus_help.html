@@ -771,8 +771,7 @@
             <p>
                 where $M$ is the design matrix (rows = indexed peaks, columns = reciprocal-lattice parameters),
                 $W = \text{diag}(w_1, \ldots, w_n)$, and $\mathbf{x}$ is the vector of reciprocal parameters.
-                This system is solved numerically via LU decomposition with partial pivoting
-                (implemented in <code>luDecomposition</code> / <code>luSolve</code>).
+                This system is solved numerically via Cholesky decomposition for symmetric positive-definite matrices (implemented in choleskyDecomposition / choleskySolve).
             </p>
 
             <h3>Zero-Point Error Refinement (Two-Round Strategy)</h3>

@@ -92,10 +92,13 @@ const getVolumeTriclinic = (cell) => {
     
     // Formula for volume squared
     const term = 1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg;
-    // if angles are impossible (term < 0), return 0
-    if (term <= 0) return 0;
     
-    return a * b * c * Math.sqrt(term);
+    // FIX: Clamp to 0 to prevent NaN cascades from floating point inaccuracies
+    const safeTerm = Math.max(0, term);
+    
+    if (safeTerm === 0) return 0;
+    
+    return a * b * c * Math.sqrt(safeTerm);
 };
 
 
@@ -232,7 +235,11 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
 };
 
 // This is the same as generateHKL_for_analysis.
-const generateHKL = (maxTth, params, system) => generateHKL_for_analysis(params, params.lambda, maxTth);
+// fallback to Cu if lambda missing
+const generateHKL = (maxTth, params, system, defaultLambda = 1.54056) => {
+    const lambda = params.lambda || defaultLambda;
+    return generateHKL_for_analysis(params, lambda, maxTth);
+};
 
 const generateHKL_for_worker = (cell, q_max, d_min, lambda) => {
     // We need lambda to correctly calculate the max 2-theta from q_max
@@ -336,45 +343,63 @@ const getSolutionKey = (cell) => {
     }
 };
     
-const luDecomposition = (matrix) => {
-    const n = matrix.length; const lu = matrix.map(row => row.slice()); const P = Array(n).fill(0).map((_, i) => i);
-    for (let k = 0; k < n; k++) {
-        let maxVal = 0, k_prime = k;
-        for (let i = k; i < n; i++) { if (Math.abs(lu[i][k]) > maxVal) { maxVal = Math.abs(lu[i][k]); k_prime = i; } }
-        if (maxVal < 1e-12) return null;
-        [P[k], P[k_prime]] = [P[k_prime], P[k]]; [lu[k], lu[k_prime]] = [lu[k_prime], lu[k]];
-        for (let i = k + 1; i < n; i++) {
-            lu[i][k] /= lu[k][k];
-            for (let j = k + 1; j < n; j++) { lu[i][j] -= lu[i][k] * lu[k][j]; }
+
+const choleskyDecomposition = (matrix) => {
+    const n = matrix.length;
+    const L = Array(n).fill(0).map(() => Array(n).fill(0));
+    for (let i = 0; i < n; i++) {
+        for (let j = 0; j <= i; j++) {
+            let sum = 0;
+            for (let k = 0; k < j; k++) sum += L[i][k] * L[j][k];
+            if (i === j) {
+                const val = matrix[i][i] - sum;
+                if (val <= 1e-12) return null; // Matrix is singular or not positive-definite
+                L[i][j] = Math.sqrt(val);
+            } else {
+                L[i][j] = (matrix[i][j] - sum) / L[j][j];
+            }
         }
     }
-    return { lu, P };
+    return L;
 };
+
+const choleskySolve = (L, b) => {
+    const n = L.length;
+    const y = new Array(n);
+    // Forward substitution
+    for (let i = 0; i < n; i++) {
+        let sum = 0;
+        for (let j = 0; j < i; j++) sum += L[i][j] * y[j];
+        y[i] = (b[i] - sum) / L[i][i];
+    }
+    // Backward substitution
+    const x = new Array(n);
+    for (let i = n - 1; i >= 0; i--) {
+        let sum = 0;
+        for (let j = i + 1; j < n; j++) sum += L[j][i] * x[j];
+        x[i] = (y[i] - sum) / L[i][i];
+    }
+    return x;
+};
+
+const choleskyInvert = (L) => {
+    const n = L.length;
+    const inverse = Array(n).fill(0).map(() => Array(n).fill(0));
+    for (let j = 0; j < n; j++) {
+        const b = Array(n).fill(0); b[j] = 1;
+        const invCol = choleskySolve(L, b);
+        for (let i = 0; i < n; i++) inverse[i][j] = invCol[i];
+    }
+    return inverse;
+};
+
+
 
 const generatePermutations = (n) => {
     if (n <= 0) return [[]]; if (n === 1) return [[0]]; const perms = [];
     const subPerms = generatePermutations(n - 1); const item = n - 1;
     for (const p of subPerms) { for (let i = 0; i < n; i++) { const newPerm = p.slice(0, i).concat(item).concat(p.slice(i)); perms.push(newPerm); } }
     return perms;
-};
-
-const luSolve = (luDecomp, b) => {
-    const { lu, P } = luDecomp; const n = lu.length; const x = new Array(n); const y = new Array(n);
-    const Pb = P.map(pi => b[pi]);
-    for (let i = 0; i < n; i++) { let sum = 0; for (let j = 0; j < i; j++) { sum += lu[i][j] * y[j]; } y[i] = Pb[i] - sum; }
-    for (let i = n - 1; i >= 0; i--) { let sum = 0; for (let j = i + 1; j < n; j++) { sum += lu[i][j] * x[j]; } x[i] = (y[i] - sum) / lu[i][i]; if (isNaN(x[i])) return null; }
-    return x;
-};
-
-const luInvert = (luDecomp) => {
-    const n = luDecomp.lu.length; const identity = Array(n).fill(0).map((_, i) => Array(n).fill(0).map((__, j) => (i === j ? 1 : 0)));
-    const inverse = Array(n).fill(0).map(() => Array(n).fill(0));
-    for (let j = 0; j < n; j++) {
-        const b = Array(n).fill(0); b[j] = 1; const invCol = luSolve(luDecomp, b);
-        if (!invCol) return null;
-        for (let i = 0; i < n; i++) { inverse[i][j] = invCol[i]; }
-    }
-    return inverse;
 };
 
 const get_q_tolerance = (original_peak_index, tth_obs_rad, wavelength, tth_error) => {
@@ -462,24 +487,52 @@ const calculateFiguresOfMerit = (q_calc_sorted, peaks_for_merit, impurity_peaks,
 const solveLeastSquares = (M, q_vec, weights) => {
     const num_eq = M.length, num_params = M[0].length;
     if (num_eq < num_params) return null;
+    
     const w = weights || Array(num_eq).fill(1);
+    
+    // Build normal equations matrix: M^T * W * M
     const MTWM = Array(num_params).fill(0).map(() => Array(num_params).fill(0));
     for (let i = 0; i < num_params; i++) {
         for (let j = 0; j < num_params; j++) {
-            let sum = 0; for (let k = 0; k < num_eq; k++) { sum += M[k][i] * w[k] * M[k][j]; } MTWM[i][j] = sum;
+            let sum = 0; 
+            for (let k = 0; k < num_eq; k++) { 
+                sum += M[k][i] * w[k] * M[k][j]; 
+            } 
+            MTWM[i][j] = sum;
         }
     }
+    
+    // Build normal equations vector: M^T * W * q
     const MTWq = Array(num_params).fill(0);
     for (let i = 0; i < num_params; i++) {
-        let sum = 0; for (let k = 0; k < num_eq; k++) { sum += M[k][i] * w[k] * q_vec[k]; } MTWq[i] = sum;
+        let sum = 0; 
+        for (let k = 0; k < num_eq; k++) { 
+            sum += M[k][i] * w[k] * q_vec[k]; 
+        } 
+        MTWq[i] = sum;
     }
-    const luDecomp = luDecomposition(MTWM); if (!luDecomp) return null;
-    const x = luSolve(luDecomp, MTWq); if (!x) return null;
-    const df = num_eq - num_params; if (df <= 0) return { solution: x, covarianceMatrix: null };
+    
+    // Solve using Cholesky Decomposition (much safer for symmetric positive-definite matrices)
+    const L = choleskyDecomposition(MTWM); 
+    if (!L) return null;
+    
+    const x = choleskySolve(L, MTWq); 
+    if (!x) return null;
+    
+    const df = num_eq - num_params; 
+    if (df <= 0) return { solution: x, covarianceMatrix: null };
+    
+    // Calculate Sum of Squared Residuals (SSR)
     const q_calc = M.map(row => row.reduce((s, v, j) => s + v * x[j], 0));
     const SSR = q_vec.reduce((sum, q_obs, i) => sum + w[i] * (q_obs - q_calc[i])**2, 0);
-    const MTWM_inv = luInvert(luDecomp); if (!MTWM_inv) return { solution: x, covarianceMatrix: null };
+    
+    // Invert the matrix to get covariance
+    const MTWM_inv = choleskyInvert(L); 
+    if (!MTWM_inv) return { solution: x, covarianceMatrix: null };
+    
+    // Scale inverted matrix by standard error of the estimate
     const V = MTWM_inv.map(row => row.map(el => el * (SSR / df)));
+    
     return { solution: x, covarianceMatrix: V };
 };
 
@@ -1010,18 +1063,21 @@ function indexCubic(data, state, postMessage_func) {
     const totalTrialsToRun = peak_depth * hkls.length;
     let totalTrialsCompleted = 0;
         
-    let trialsBatch = 0; const batchSize = 1000;
+let trialsBatch = 0; let lastReportTime = performance.now();
     for (let i = 0; i < peak_depth; i++) {
         for (const hkl of hkls) {
             refineAndTestSolution({ a: Math.sqrt((hkl[0]*hkl[0] + hkl[1]*hkl[1] + hkl[2]*hkl[2]) / q_obs[i]), system: 'cubic' });
             trialsBatch++; 
-            if (trialsBatch >= batchSize) { 
+
+if (performance.now() - lastReportTime >= 50) { // Report at most every 50ms
                 postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
                 totalTrialsCompleted += trialsBatch;
                 const progress = (totalTrialsCompleted / totalTrialsToRun) * 80; // 80% reserved
                 postMessage_func({ type: 'progress', payload: progress });
                 trialsBatch = 0; 
+                lastReportTime = performance.now();
             }
+
         }
         
     }
@@ -1044,7 +1100,8 @@ function indexTetragonalOrHexagonal(data, state, postMessage_func, system) {
     let totalTrialsCompleted = 0;
     
 
-    let trialsBatch = 0; const batchSize = 5000;
+    let trialsBatch = 0; let lastReportTime = performance.now();
+
     for (let i = 0; i < i_depth; i++) {
         for (let j = i + 1; j < j_depth; j++) {
             for (const hkl1 of hkls) {
@@ -1053,13 +1110,15 @@ function indexTetragonalOrHexagonal(data, state, postMessage_func, system) {
                     const l2 = hkl2[2]; const S2 = system === 'tetragonal' ? hkl2[0] * hkl2[0] + hkl2[1] * hkl2[1] : hkl2[0] * hkl2[0] + hkl2[0] * hkl2[1] + hkl2[1] * hkl2[1];
                     
                     trialsBatch++; 
-                    if (trialsBatch >= batchSize) { 
-                        postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
-                        totalTrialsCompleted += trialsBatch;
-                        const progress = (totalTrialsCompleted / totalTrialsToRun) * 80;
-                        postMessage_func({ type: 'progress', payload: progress });
-                        trialsBatch = 0; 
-                    }
+
+                    if (performance.now() - lastReportTime >= 50) { // Report at most every 50ms
+                postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
+                totalTrialsCompleted += trialsBatch;
+                const progress = (totalTrialsCompleted / totalTrialsToRun) * 80; // 80% reserved
+                postMessage_func({ type: 'progress', payload: progress });
+                trialsBatch = 0; 
+                lastReportTime = performance.now();
+            }
 
                     const det = S1 * l2 * l2 - S2 * l1 * l1;
                     if (Math.abs(det) < 1e-6) continue;
@@ -1356,12 +1415,13 @@ function niggliReduceFromCell(cell, opts = {}) {
         changed = false;
         iterations++;
 
+       if (iterations > 50) eps = 1e-4;
+        if (iterations > 100) eps = 1e-3;
+        if (iterations > 150) break; // Hard bailout to protect the CPU
+
         // Step 1: Sort A <= B <= C
         if (A > Bm + eps || (Math.abs(A - Bm) <= eps && Math.abs(xi) > Math.abs(eta) + eps)) {
             applyTrans([[0,1,0],[1,0,0],[0,0,1]]); continue;
-        }
-        if (Bm > C_val + eps || (Math.abs(Bm - C_val) <= eps && Math.abs(eta) > Math.abs(zeta) + eps)) {
-            applyTrans([[1,0,0],[0,0,1],[0,1,0]]); continue;
         }
 
         // Step 2: Sign Adjustment (Type I / II)
@@ -1586,7 +1646,7 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
 }
 function determineCentering(indexed_hkls, system) {
     const centeringTests = { 'P': { name: 'Primitive (P)', forbidden: (h, k, l) => false }, 'I': { name: 'Body-centered (I)', forbidden: (h, k, l) => (h + k + l) % 2 !== 0 }, 'F': { name: 'Face-centered (F)', forbidden: (h, k, l) => !( (h%2===0 && k%2===0 && l%2===0) || (h%2!==0 && k%2!==0 && l%2!==0) ) }, 'A': { name: 'A-centered (A)', forbidden: (h, k, l) => (k + l) % 2 !== 0 }, 'B': { name: 'B-centered (B)', forbidden: (h, k, l) => (h + l) % 2 !== 0 }, 'C': { name: 'C-centered (C)', forbidden: (h, k, l) => (h + k) % 2 !== 0 } };
-    const validBravaisCenterings = { 'cubic': ['P', 'I', 'F'], 'tetragonal': ['P', 'I'], 'orthorhombic': ['P', 'I', 'F', 'A', 'B', 'C'], 'hexagonal': ['P'], 'monoclinic': ['P', 'C'], 'triclinic': ['P'] };
+    const validBravaisCenterings = { 'cubic': ['P', 'I', 'F'], 'tetragonal': ['P', 'I'], 'orthorhombic': ['P', 'I', 'F', 'A', 'B', 'C'], 'hexagonal': ['P'], 'monoclinic': ['P', 'A', 'B', 'C', 'I'], 'triclinic': ['P'] };
     // Two parallel violation tallies: hard (non-Ka2-suspect peaks) and soft
     // (Ka2-suspect peaks). The centering decision uses HARD only — a centering
     // mode is not ruled out just because a Ka2 ghost happens to violate it.
@@ -1645,6 +1705,14 @@ function determineCentering(indexed_hkls, system) {
     else { const specialCenterings = plausible.filter(c => ['A', 'B', 'C'].includes(c)); finalCenterings = specialCenterings.length > 0 ? specialCenterings : ['P']; if (plausible.includes('P') && !finalCenterings.includes('P') && specialCenterings.length > 0) { finalCenterings.push('P'); } if (finalCenterings.length === 0) finalCenterings = ['P']; }
     finalCenterings = finalCenterings.filter(c => (validBravaisCenterings[system] || ['P']).includes(c));
     if (finalCenterings.length === 0) finalCenterings = ['P'];
+    
+    // Remove Primitive (P) from the reported dictionaries since it cannot have violations
+    delete violations['P'];
+    delete violationsHard['P'];
+    delete violationsSoft['P'];
+    delete violationDetails['P'];
+    
+    
     return {
         plausibleCenterings: finalCenterings,
         description: finalCenterings.map(c => centeringTests[c]?.name || c).join(' or '),

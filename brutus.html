@@ -1780,7 +1780,15 @@ const setupWorker = () => {
     ui.wavelengthPreset.addEventListener('change', handleWavelengthPresetChange);
     // Edits to the wavelength input auto-switch the preset to "custom" when the
     // typed value no longer matches the selected preset.
-    ui.wavelength.addEventListener('input', handleWavelengthValueChange);
+    const debouncedWavelengthChange = debounce(() => {
+    const typed = parseFloat(ui.wavelength.value);
+    // FIX: Only trigger heavy recalculations if the user typed a valid, realistic wavelength
+    if (isFinite(typed) && typed >= 0.1 && typed <= 10.0) {
+        handleWavelengthValueChange();
+    }
+}, 400); // Wait 400ms after they finish typing
+
+ui.wavelength.addEventListener('input', debouncedWavelengthChange);
 
 
     if (ui.stripKa2Checkbox) {
@@ -3293,9 +3301,14 @@ systemsToSearch.forEach(system => {
                         }
                     }
                 };
+
                 worker.onerror = (err) => { 
-                    taskProgress[absoluteTaskIndex] = 100; 
-                    updateProgressBar();
+            console.error(`Worker error in indexing task ${absoluteTaskIndex}:`, err);
+            taskProgress[absoluteTaskIndex] = 100; // Allow queue to continue
+            showStatus(`Warning: An indexing task encountered an error and was skipped. Check console for details.`, 'error');
+            updateProgressBar();
+
+
                     console.error(`Worker for ${system} crashed:`, err.message);
                     worker.terminate();
                     activeWorkers = activeWorkers.filter(w => w !== worker);
@@ -4510,7 +4523,10 @@ const generatePDFReport = async (singleSolution = null) => {
 
                          doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
 
-                         const groupLinesWrapped = doc.splitTextToSize(groupLine, pdfWidth - margin - margin - 5);
+                         // Ensure commas are followed by a space for clean PDF text wrapping
+const cleanGroupLine = groupLine.replace(/,(?!\s)/g, ', ');
+const groupLinesWrapped = doc.splitTextToSize(cleanGroupLine, pdfWidth - margin - margin - 5);
+
                          groupLinesWrapped.forEach(linePart => {
                              if (yPos > 280) { doc.addPage(); yPos = 20; }
                              doc.text(linePart, margin + 5, yPos);
@@ -4518,10 +4534,16 @@ const generatePDFReport = async (singleSolution = null) => {
                          });
 
                          if (v > 0) {
-                             const violations = groupEntry.settings[0].violations;
-                             if (violations && violations.length > 0) {
+                             const setting = groupEntry.settings[0];
+                             // FIX: Use .violatedReflections (the array of strings), NOT .violations (the integer count)!
+                             // We check violatedReflectionsHard first so real forbidden reflections take priority over Ka2 ghosts.
+                             const violList = (setting.violatedReflectionsHard && setting.violatedReflectionsHard.length > 0)
+                                 ? setting.violatedReflectionsHard
+                                 : setting.violatedReflections;
+
+                             if (violList && violList.length > 0) {
                                  doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
-                                 violations.slice(0, 4).forEach(viol => {
+                                 violList.slice(0, 4).forEach(viol => {
                                      if (yPos > 280) { doc.addPage(); yPos = 20; }
                                      const violationLines = doc.splitTextToSize(viol, pdfWidth - margin - margin - 10);
                                      violationLines.forEach(violLine => {
@@ -4530,9 +4552,10 @@ const generatePDFReport = async (singleSolution = null) => {
                                          yPos += 3.5;
                                      });
                                  });
-                                 yPos += 1;
+                                 yPos += 1; //  spacing adjustment
                              }
                          }
+
                      });
                      yPos += 3;
                  }
@@ -4695,7 +4718,7 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 02 May 2026</div>
+<div id="app-footer">Brutus, 12 July 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-report">Generate Report</div>

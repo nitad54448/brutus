@@ -298,9 +298,15 @@ class WebGPUEngine {
                 await resultsReadBuffer.mapAsync(GPUMapMode.READ, 0, bytesToCopy);
                 const rawResults = new Float32Array(resultsReadBuffer.getMappedRange(0, bytesToCopy));
                 const newBatch = [];
+
                 for (let k = solutionsReadCount; k < countToRead; k++) {
-                    newBatch.push(cfg.parseCell(rawResults, k * cfg.structFloats));
-                }
+    const cellObj = cfg.parseCell(rawResults, k * cfg.structFloats);
+    // Fast pre-filter: only keep cells with physically reasonable unit cell dimensions (2.0 Å to 50.0 Å)
+    if (cellObj && cellObj.a >= 2.0 && cellObj.a <= 50.0) {
+        newBatch.push(cellObj);
+    }
+}
+               
                 resultsReadBuffer.unmap();
                 solutionsReadCount = countToRead;
                 if (onIntermediateResults && newBatch.length > 0) onIntermediateResults(newBatch);
