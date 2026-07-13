@@ -3702,20 +3702,12 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
  
     ui.startIndexingButton.addEventListener('click', startIndexing);
 
-    // Kill switch shared by the Stop button and by "load a new file while
-    // indexing is running". Terminates in-flight CPU workers (a hard
-    // guarantee against further messages per the Worker spec), the
-    // refinement pool (any subsequent refineBatch() call becomes a no-op
-    // once _initialised is false), and flags the GPU chunk loop to stop at
-    // its next iteration. Bumping indexingRunToken lets finalizeIndexing()
-    // recognize and discard a stale tail call from the run being aborted.
-    const abortActiveIndexing = () => {
+ const abortActiveIndexing = (shouldFinalize = false) => {
         activeWorkers.forEach(w => w.terminate());
         activeWorkers = [];
         gpuStopSignal.stop = true;
 
         // Kill the refinement pool too. Any in-flight cells are dropped.
-        // The pool will be respawned on the next indexing run by init().
         refinementPool.terminate();
 
         if (typeof resolveWorkerTask === 'function') {
@@ -3723,19 +3715,26 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
             resolveWorkerTask = null;
         }
 
-        indexingRunToken++; // invalidate any in-flight startIndexing()/finalizeIndexing()
-        setUIState(false);  // immediately restore controls; no need to wait for the old run's tail
+        indexingRunToken++; // invalidate any background startIndexing() loop
+
+        if (shouldFinalize) {
+            // Immediately run final sieve and space group check on solutions found so far
+            finalizeIndexing(true, indexingRunToken);
+        } else {
+            setUIState(false);
+        }
     };
 
     ui.reportButton.addEventListener('click', () => {
         if (isIndexing) {
-            abortActiveIndexing();
-            showStatus("Indexing stopped by user.", "info");
+            abortActiveIndexing(true); // Pass true to trigger space group check & sieve
         } else { 
-            // If not indexing, just generate the report
             generatePDFReport(); 
         }
     });
+
+
+
     const sortSolutions = () => {
         const { column, direction } = sortState;
         const dir = direction === 'asc' ? 1 : -1;
@@ -4125,6 +4124,22 @@ const generatePDFReport = async (singleSolution = null) => {
              showStatus("No peaks selected in the current 2-theta range for the report.", 'info');
              return;
         }
+
+        // Safeguard: Ensure every solution being reported has undergone space group analysis
+    if (spaceGroupData) {
+        solutionsToReport.forEach(sol => {
+            if (!sol.analysis) {
+                sol.analysis = analyzeSystematicAbsences(
+                    sol,
+                    reportPeaks,
+                    spaceGroupData,
+                    parseFloat(ui.wavelength.value),
+                    parseFloat(ui.tthError.value),
+                    tthMaxVal
+                );
+            }
+        });
+    }
 
         ui.reportButton.textContent = 'Generating...';
         ui.reportButton.disabled = true;
