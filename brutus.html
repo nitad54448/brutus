@@ -1457,30 +1457,48 @@ const getOrthogonalityScore = (cell) => {
     const PRUNE_TO_COUNT = 40; // Prune down to this many
 
 
-//  new function to centralize updates
+
+    // 1. Declare the throttle flag right above the function
+let isTableUpdateScheduled = false;
+
+// New function to centralize updates (Throttled with requestAnimationFrame)
 const handleNewSolution = (newSolution) => {
     // verif, si pas vide
     if (!newSolution || !newSolution.system) return;
+    
+    // --- FAST SYNCHRONOUS DATA OPERATIONS ---
+    // Let the workers push data to memory as fast as possible without blocking
     solutions.push(newSolution);
 
-    //  Max Limit
+    // Max Limit Pruning
     if (solutions.length > MAX_SOLUTIONS_BEFORE_PRUNING) {
         // Always sort by quality (M20) before cutting
         solutions.sort((a, b) => b.m20 - a.m20); 
         solutions = solutions.slice(0, PRUNE_TO_COUNT);
     }
 
-    // LEd
+    // LED indicator update (lightweight DOM manipulation is fine here)
     if (solutions.length === 1) ui.solutionsLed.className = 'led-indicator green';
 
-    // sort ?
-    sortSolutions();
+    // --- HEAVY ASYNCHRONOUS DOM RENDERING ---
+    // Gate the heavy sorting and DOM rebuilding behind requestAnimationFrame
+    if (!isTableUpdateScheduled) {
+        isTableUpdateScheduled = true;
+        
+        requestAnimationFrame(() => {
+            // Sort solutions based on current UI state
+            sortSolutions();
 
-    // 4. Re-Sync the ledger
-    displayedSolutions = [...solutions];
+            // Re-Sync the ledger
+            displayedSolutions = [...solutions];
 
-    // 5. Update DOM
-    updateSolutionsTable();
+            // Rebuild the DOM table (now capped at browser refresh rate, ~60Hz)
+            updateSolutionsTable();
+            
+            // Release the lock for the next frame
+            isTableUpdateScheduled = false;
+        });
+    }
 };
 
 
