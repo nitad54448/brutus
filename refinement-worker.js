@@ -26,7 +26,10 @@ let baseParams = null;
 let foundSolutions = [];
 let foundSolutionMap = new Map();
 
-//possible issue here; changed on 11th may 2026... kept the old version
+// 13 jul 2026: restored the legacy 'refine' case below (see point 3 in the
+// header) — it had been dropped from the switch statement so it fell
+// through to default and was silently ignored, contradicting this file's
+// own docs and leaving any legacy caller waiting forever on a reply.
 function runOneCell(cell, idField, idValue) {
     try {
         refineAndTestSolution(cell, baseParams, state, (innerMsg) => {
@@ -91,7 +94,22 @@ self.onmessage = (e) => {
             break;
         }
 
-
+        // Legacy single-cell path documented above (point 3): treat exactly
+        // like a one-cell 'refineBatch', keyed by taskId instead of batchId.
+        // This was missing (fell through to default and was silently
+        // dropped), which would hang any caller still waiting on a
+        // 'solution'/'done' reply for a 'refine' message.
+        case 'refine': {
+            const { cell, taskId } = msg;
+            if (!state || !baseParams) {
+                self.postMessage({ type: 'cellError', message: 'Worker not initialized (missing state/baseParams)', taskId });
+                self.postMessage({ type: 'done', taskId });
+                return;
+            }
+            runOneCell(cell, 'taskId', taskId);
+            self.postMessage({ type: 'done', taskId });
+            break;
+        }
 
         default:
             // Unknown message type; ignore.

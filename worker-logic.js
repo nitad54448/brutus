@@ -106,7 +106,11 @@ const metricFromReciprocalMetric = (G_star) => invert3x3(G_star);
 const cellFromMetric_worker = (G) => {
     if (!G) return null;
     try {
-        const a = Math.sqrt(G[0][0]); const b = Math.sqrt(G[1][1]); const c = Math.sqrt(G[2][2]);
+
+        const a = Math.sqrt(Math.max(0, G[0][0])); 
+        const b = Math.sqrt(Math.max(0, G[1][1])); 
+        const c = Math.sqrt(Math.max(0, G[2][2]));
+
         if (a < 1e-6 || b < 1e-6 || c < 1e-6) return null;
         const clamp = v => Math.max(-1, Math.min(1, v));
         const alpha = Math.acos(clamp(G[1][2] / (b * c))) * DEG;
@@ -377,7 +381,11 @@ const getSolutionKey = (cell) => {
         case 'cubic': return `${std.system}_${std.a.toFixed(P)}`;
         case 'tetragonal': case 'hexagonal': return `${std.system}_${std.a.toFixed(P)}_${std.c.toFixed(P)}`;
         case 'orthorhombic': return `${std.system}_${[std.a,std.b,std.c].sort().map(p => p.toFixed(P)).join('_')}`;
-        case 'monoclinic': return `${std.system}_${std.volume.toFixed(2)}_${std.beta.toFixed(2)}`;
+       
+        case 'monoclinic': 
+    const ac = [std.a, std.c].sort((x, y) => x - y).map(p => p.toFixed(P)).join('_');
+    return `${std.system}_${ac}_${std.b.toFixed(P)}_${std.beta.toFixed(2)}`;
+
         case 'triclinic': const vol = getVolumeTriclinic(std).toFixed(2); const angles = [std.alpha, std.beta, std.gamma].sort().map(a => a.toFixed(1)).join('_'); return `${std.system}_${vol}_${angles}`;
     }
 };
@@ -1077,15 +1085,23 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
             } catch {}
         });
      
+
+
+
+
+
+
+
         // Tsend wave
-const theoretical_hkls_for_tf = generateHKL_for_worker(sol, q_max, d_min, wavelength);
+        const theoretical_hkls = generateHKL_for_worker(sol, q_max, d_min, wavelength);
+        const theoretical_q_array = theoretical_hkls.map(h => h.q); //map once, not every time, mod 13 07 2026
 
         const indexedPeaks = [];
         for(let i=0; i<N_FOR_M20; i++){
              const q_o = q_obs[i];
-             const best_match_idx = binarySearchClosest(theoretical_hkls_for_tf.map(h => h.q), q_o);
-             if (best_match_idx >= 0 && best_match_idx < theoretical_hkls_for_tf.length && Math.abs(q_o - theoretical_hkls_for_tf[best_match_idx].q) < local_get_q_tolerance(original_indices[i])){
-                 indexedPeaks.push(theoretical_hkls_for_tf[best_match_idx]);
+             const best_match_idx = binarySearchClosest(theoretical_q_array, q_o); // <--- AND REUSE IT HERE
+             if (best_match_idx >= 0 && best_match_idx < theoretical_hkls.length && Math.abs(q_o - theoretical_hkls[best_match_idx].q) < local_get_q_tolerance(original_indices[i])){
+                 indexedPeaks.push(theoretical_hkls[best_match_idx]);
              }
         }
         if (indexedPeaks.length > 5) {
@@ -1111,17 +1127,20 @@ const theoretical_hkls_for_tf = generateHKL_for_worker(sol, q_max, d_min, wavele
             const min_peaks_needed = {cubic: 1, tetragonal: 2, hexagonal: 2, orthorhombic: 3, monoclinic: 4, triclinic: 6}[system];
             if (!min_peaks_needed || data.peaks.length < min_peaks_needed) return;
 
-            // add send wave
-const theoretical_hkls = generateHKL_for_worker(sol, q_max, d_min, wavelength);
+            // (Removed the duplicate generateHKL_for_worker call on 13th july)
 
             const first_four_indexed = [];
             for(let i=0; i<4 && i < q_obs.length; i++){
                 const q_o = q_obs[i];
-                const best_match_idx = binarySearchClosest(theoretical_hkls.map(h => h.q), q_o);
+                const best_match_idx = binarySearchClosest(theoretical_q_array, q_o); // <--- AND USE IT HERE TOO!
                 if(best_match_idx >= 0 && best_match_idx < theoretical_hkls.length && Math.abs(q_o - theoretical_hkls[best_match_idx].q) < local_get_q_tolerance(original_indices[i])){
                     first_four_indexed.push({q_obs: q_o, hkl: [theoretical_hkls[best_match_idx].h, theoretical_hkls[best_match_idx].k, theoretical_hkls[best_match_idx].l]});
                 }
             }
+
+
+
+
             if (first_four_indexed.length < min_peaks_needed) return;
             let closest_pair = {i: -1, j: -1, diff: Infinity};
             for(let i=0; i < first_four_indexed.length; i++){
@@ -1764,7 +1783,7 @@ function countViolations(indexed_hkls, rules) {
                 violationDetail = `(${h},${k},${l})${tth_string} ambiguous (allowed alt within tol)`;
                 if (isViolation) {
                     softCount++;
-                    if (detailsSoft.length < 5) detailsSoft.push(violationDetail);
+                    detailsSoft.push(violationDetail);
                 }
                 continue; // skip the original hard/soft accounting below
             }
@@ -1773,15 +1792,17 @@ function countViolations(indexed_hkls, rules) {
         if (isViolation) {
             if (isSoftSource) {
                 softCount++;
-                if (detailsSoft.length < 5) detailsSoft.push(violationDetail);
+                detailsSoft.push(violationDetail);
             } else {
                 hardCount++;
-                if (detailsHard.length < 5) detailsHard.push(violationDetail);
+                detailsHard.push(violationDetail);
             }
         }
     }
     // 'count' and 'details' kept as combined values for any pre-existing
-    // caller that doesn't yet read the split fields.
+    // caller that doesn't yet read the split fields. detailsHard/detailsSoft
+    // are uncapped (used by the PDF report to list every violating hkl);
+    // 'details' stays capped as a short legacy summary.
     const count = hardCount + softCount;
     const details = detailsHard.concat(detailsSoft).slice(0, 5);
     return { count, hardCount, softCount, details, detailsHard, detailsSoft };

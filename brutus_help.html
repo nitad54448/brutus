@@ -1090,17 +1090,23 @@
                     exclusively for extinction analysis.
                 </li>
                 <li>
-                    <strong>Determine centering and extinctions.</strong>
-                    The unambiguous $(hkl)$ set is compared against the extinction rules (centering conditions and
-                    glide/screw symmetry conditions) for all candidate space groups.
-                    Brutus classifies violations as:
-                    <ul>
-                        <li><strong>Hard violations:</strong> an unambiguous, real (non-Kα<sub>2</sub>) reflection breaks the rule.</li>
-                        <li><strong>Soft violations:</strong> only Kα<sub>2</sub>-suspect peaks break the rule. Space groups with only soft violations are retained in the list with a warning.</li>
-                    </ul>
-                    The zone assignment for each $(hkl)$ (e.g. <code>h00</code>, <code>0k0</code>, <code>hk0</code>, <code>hkl</code> etc.)
-                    is used to apply the correct subset of conditions for that zone.
-                </li>
+    <strong>Determine centering and extinctions.</strong>
+    The indexed peaks are compared against the extinction rules (centering conditions and
+    glide/screw symmetry conditions) for all candidate space groups. To prevent noise or overlap from unfairly disqualifying a valid space group, Brutus classifies violations into two categories:
+    <ul>
+        <li><strong>Hard violations:</strong> A strong (intensity &ge; 5% of maximum), real (non-Kα<sub>2</sub>), and unambiguous reflection clearly breaks a rule. These heavily penalise the space group and lower its ranking.</li>
+        <li><strong>Soft violations:</strong> A reflection breaks a rule, but the peak is considered unreliable. These do <em>not</em> penalise the space group's ranking, but are listed in the report for the user to review. A violation is flagged as "soft" if the peak is:
+            <ul style="margin-top: 0.5rem; margin-bottom: 0.5rem;">
+                <li><strong>Kα<sub>2</sub>-suspect:</strong> Flagged as a likely Kα<sub>2</sub> companion.</li>
+                <li><strong>Weak:</strong> The peak intensity is very low (&lt; 5% of the maximum intensity), making it potential background noise.</li>
+                <li><strong>Ambiguous:</strong> The assigned $(hkl)$ violates a rule, but there is an alternative, <em>allowed</em> theoretical reflection within the 2θ tolerance window.</li>
+            </ul>
+        </li>
+    </ul>
+    The zone assignment for each $(hkl)$ (e.g. <code>h00</code>, <code>0k0</code>, <code>hk0</code>, <code>hkl</code> etc.)
+    is used to apply the correct subset of conditions for that zone.
+</li>
+
                 <li>
                     <strong>Rank space groups.</strong>
                     Based on the crystal system and detected centering, the internal space-group database is filtered.
@@ -1449,7 +1455,7 @@
             </ol>
 
             <div class="footer">
-                <p>Help guide updated from source code analysis, 27 April 2026.</p>
+                <p>Help guide generated with the help of an AI, based on source code analysis, 13 July 2026.</p>
             </div>
         </section>
 
