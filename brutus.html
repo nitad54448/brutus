@@ -1317,11 +1317,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const scale = (maxLog - minLog) / 100;
 
     function valueToLogSlider(value) {
-        if (value <= 0) return 0;
+        if (!isFinite(value) || value <= 0) return 0;
         return (Math.log(value) - minLog) / scale;
     }
 
     function logSliderToValue(position) {
+        if (!isFinite(position)) return minPeak;
         return Math.exp(minLog + scale * position);
     }
 
@@ -2741,25 +2742,29 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
     updateStartIndexingButtonState();
 
 
-ui.peakListBody.addEventListener('change', (e) => {
-    if (e.target.classList.contains('peak-tth-input')) {
-            const index = parseInt(e.target.dataset.index); 
+
+    ui.peakListBody.addEventListener('change', (e) => {
+        if (e.target.classList.contains('peak-tth-input')) {
+            const index = parseInt(e.target.dataset.index, 10); 
             let tth = parseFloat(e.target.value); 
-            if (tth <= 1e-4) tth = 1e-4; 
+            
+            // Explicitly check for NaN or non-finite numbers before clamping
+            if (!isFinite(tth) || tth <= 1e-4) {
+                // Fallback to the existing value if invalid, or a safe default
+                tth = pickedPeaks[index]?.tth || 1.0; 
+            }
+            
             e.target.value = tth.toFixed(4); 
             const wasUserConfirmed = !!pickedPeaks[index]?.userConfirmedReal;
-            const existingHeight = pickedPeaks[index]?.height; // Preserve height!
+            const existingHeight = pickedPeaks[index]?.height; 
             
             pickedPeaks[index] = { tth, d: 0, q: 0, height: existingHeight, userConfirmedReal: wasUserConfirmed };
-            // Keep list sorted; recalculatePeakValues then re-tags Ka2 and
-            // recomputes d/q (using λ_Ka1 for hasKa2Child parents).
             pickedPeaks.sort((a, b) => a.tth - b.tth);
             recalculatePeakValues();
             updatePeakTable();
             updateStartIndexingButtonState();
         }
     });
-
 
 
      ui.peakListBody.addEventListener('click', (e) => {
@@ -2913,9 +2918,13 @@ ui.peakListBody.addEventListener('change', (e) => {
 
 
     const applyFinalSieve = (solutions) => {
-    
-    // Filter strange entries
-    const validSolutions = solutions.filter(s => s && s.volume && s.m20);
+
+        // Ensure solutions have strictly positive, finite volumes and figures of merit
+    const validSolutions = solutions.filter(s => 
+        s && 
+        isFinite(s.volume) && s.volume > 0 && 
+        isFinite(s.m20) && s.m20 > 0
+    );
 
     if (validSolutions.length <= 1) return validSolutions;
     
@@ -3224,16 +3233,17 @@ systemsToSearch.forEach(system => {
     gpuTotalTrials = 0;
     indexingStartTime = performance.now();
 
+  
     const baseParams = {
         peaks: filteredPeaks,
-        wavelength: parseFloat(ui.wavelength.value),
-        tth_error: parseFloat(ui.tthError.value),
-        max_volume: parseFloat(ui.maxVolume.value),
-        impurity_peaks: parseInt(ui.impurityPeaksInput.value, 10),
-        refineZero: ui.refineZeroCheckbox.checked,
-        fom_threshold: parseFloat(ui.gpuFomThreshold.value),
-        max_solutions: parseInt(ui.gpuBufferSize.value, 10) * 1000,
-        gpu_peaks_count: parseInt(ui.gpuPeaksCount.value, 10)
+        wavelength: parseFloat(ui.wavelength.value) || 1.54184,
+        tth_error: parseFloat(ui.tthError.value) || 0.04,
+        max_volume: parseFloat(ui.maxVolume.value) || 2000,
+        impurity_peaks: parseInt(ui.impurityPeaksInput.value, 10) || 0,
+        refineZero: !!ui.refineZeroCheckbox.checked,
+        fom_threshold: parseFloat(ui.gpuFomThreshold.value) || 0.8,
+        max_solutions: (parseInt(ui.gpuBufferSize.value, 10) || 50) * 1000,
+        gpu_peaks_count: parseInt(ui.gpuPeaksCount.value, 10) || 7
     };
     
     let currentGpuTaskIndex = 0;
@@ -4503,10 +4513,87 @@ const generatePDFReport = async (singleSolution = null) => {
         doc.text(niggliData[5].value, col2DataStartX, yPos); // '= 90.xxx deg'
         yPos += 4;
 
+
         // vol
-        doc.text("Volume", col1LabelEndX, yPos, { align: 'right' }); 
-        doc.text(`= ${nVol.toFixed(2)} A^3`, col1DataStartX, yPos);
-        yPos += 5;
+            doc.text("Volume", col1LabelEndX, yPos, { align: 'right' }); 
+            doc.text(`= ${nVol.toFixed(2)} A^3`, col1DataStartX, yPos);
+            yPos += 6;
+
+            // --- HIGHER SYMMETRY / PSEUDO-SYMMETRY CHECK ---
+            const symmetryOrder = { 'cubic': 6, 'hexagonal': 5, 'tetragonal': 4, 'orthorhombic': 3, 'monoclinic': 2, 'triclinic': 1 };
+            const currentOrder = symmetryOrder[sol.system] || 1;
+            
+            // Use a 0.25 tolerance to reliably catch pseudo-symmetries in experimental powder data
+            const niggliSym = getSymmetry(nCell.a, nCell.b, nCell.c, nCell.alpha, nCell.beta, nCell.gamma, 0.25);
+            const detectedHigherSyms = [];
+            
+            // 1. Check if the primitive Niggli cell itself matches a higher symmetry
+            if (symmetryOrder[niggliSym] > currentOrder) {
+                detectedHigherSyms.push({
+                    system: niggliSym,
+                    note: `Primitive ${niggliSym}`,
+                    cell: nCell
+                });
+            }
+            
+            // 2. Check conventional centered lattices (I, F, A, B, C, R)
+            const checkSystems = ['cubic', 'hexagonal', 'tetragonal', 'orthorhombic', 'monoclinic'];
+            checkSystems.forEach(sys => {
+                if (symmetryOrder[sys] > currentOrder) {
+                    const equiv = generateEquivalentCells(nCell, 0, sys);
+                    if (equiv && equiv.centeredCells) {
+                        Object.values(equiv.centeredCells).forEach(cCell => {
+                            if (symmetryOrder[cCell.system] > currentOrder) {
+                                detectedHigherSyms.push({
+                                    system: cCell.system,
+                                    note: `${cCell.centering}-centered ${cCell.system}`,
+                                    cell: cCell
+                                });
+                            }
+                        });
+                    }
+                }
+            });
+
+            // 3. Print a prominent alert box in the PDF if higher symmetry is found
+            if (detectedHigherSyms.length > 0) {
+                // Dedup by note string to avoid redundant lines
+                const uniqSyms = Array.from(new Map(detectedHigherSyms.map(item => [item.note, item])).values());
+                
+                if (yPos > 255) { doc.addPage(); yPos = 20; }
+                
+                doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY);
+                doc.setTextColor(220, 38, 38); // Distinct red warning color
+                doc.text("HIGHER SYMMETRY DETECTED IN NIGGLI CELL", margin, yPos);
+                doc.setTextColor(0, 0, 0); // Reset text color to black
+                yPos += 4.5;
+                
+                doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.SMALL);
+                doc.text(`This ${sol.system} cell reduces to a metric tensor consistent with higher symmetry:`, margin + 2, yPos);
+                yPos += 4;
+                
+                uniqSyms.forEach(sym => {
+                    if (yPos > 275) { doc.addPage(); yPos = 20; }
+                    const c = sym.cell;
+                    let paramStr = `a=${c.a.toFixed(3)}, b=${c.b.toFixed(3)}, c=${c.c.toFixed(3)}`;
+                    if (sym.system !== 'cubic' && sym.system !== 'orthorhombic' && sym.system !== 'tetragonal') {
+                        paramStr += `, al=${c.alpha.toFixed(2)}, be=${c.beta.toFixed(2)}, ga=${c.gamma.toFixed(2)}`;
+                    }
+                    doc.setFont(FONT.DATA, 'bold');
+                    doc.text(`* ${sym.note.toUpperCase()}:`, margin + 4, yPos);
+                    doc.setFont(FONT.DATA, 'normal');
+                    doc.text(paramStr, margin + 50, yPos);
+                    yPos += 4;
+                });
+                
+                doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
+                doc.text("Note: Consider refining in the higher symmetry system to reduce degrees of freedom.", margin + 2, yPos);
+                doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+                yPos += 4;
+            }
+            // -----------------------------------------------
+
+
 
     } catch (niggliError) {
 
@@ -4791,7 +4878,7 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 13 July 2026</div>
+<div id="app-footer">Brutus, 14 July 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-report">Generate Report</div>

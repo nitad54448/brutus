@@ -92,8 +92,11 @@ const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
 const gcdOfList = (arr) => arr.length > 0 ? arr.reduce((acc, val) => gcd(acc, val), arr[0]) : 1;
 
 const determinant3x3 = (M) => M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0]) + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+
 const invert3x3 = (M) => {
-    const det = determinant3x3(M); if (Math.abs(det) < 1e-14) return null;
+    const det = determinant3x3(M); 
+    // Check for finite det and prevent division by zero/NaN
+    if (!(Math.abs(det) >= 1e-14) || !isFinite(det)) return null;
     const invDet = 1.0 / det;
     return [
         [(M[1][1] * M[2][2] - M[1][2] * M[2][1]) * invDet, (M[0][2] * M[2][1] - M[0][1] * M[2][2]) * invDet, (M[0][1] * M[1][2] - M[0][2] * M[1][1]) * invDet],
@@ -102,32 +105,49 @@ const invert3x3 = (M) => {
     ];
 };
 
+const choleskyDecomposition = (matrix) => {
+    const n = matrix.length;
+    const L = Array(n).fill(0).map(() => Array(n).fill(0));
+    for (let i = 0; i < n; i++) {
+        for (let j = 0; j <= i; j++) {
+            let sum = 0;
+            for (let k = 0; k < j; k++) sum += L[i][k] * L[j][k];
+            if (i === j) {
+                const val = matrix[i][i] - sum;
+                // !(val > 1e-12) catches NaN, <= 1e-12, and -Infinity
+                if (!(val > 1e-12) || !isFinite(val)) return null; 
+                L[i][j] = Math.sqrt(val);
+            } else {
+                if (!isFinite(L[j][j]) || L[j][j] === 0) return null;
+                L[i][j] = (matrix[i][j] - sum) / L[j][j];
+            }
+        }
+    }
+    return L;
+};
+
 const metricFromReciprocalMetric = (G_star) => invert3x3(G_star);
+
 const cellFromMetric_worker = (G) => {
     if (!G) return null;
     try {
-
         const a = Math.sqrt(Math.max(0, G[0][0])); 
         const b = Math.sqrt(Math.max(0, G[1][1])); 
         const c = Math.sqrt(Math.max(0, G[2][2]));
 
-        if (a < 1e-6 || b < 1e-6 || c < 1e-6) return null;
-        const clamp = v => Math.max(-1, Math.min(1, v));
+        if (!(a >= 1e-6) || !(b >= 1e-6) || !(c >= 1e-6) || !isFinite(a) || !isFinite(b) || !isFinite(c)) return null;
+        
+        // Safe clamp that catches NaN or Infinity before passing to acos
+        const clamp = v => isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
+        
         const alpha = Math.acos(clamp(G[1][2] / (b * c))) * DEG;
         const beta = Math.acos(clamp(G[0][2] / (a * c))) * DEG;
         const gamma = Math.acos(clamp(G[0][1] / (a * b))) * DEG;
-        if (isNaN(a) || isNaN(b) || isNaN(c) || isNaN(alpha) || isNaN(beta) || isNaN(gamma)) return null;
+        
+        if (!isFinite(alpha) || !isFinite(beta) || !isFinite(gamma)) return null;
         return { a, b, c, alpha, beta, gamma };
     } catch { return null; }
 };
-/* version avant 16 janvier 2026
-const getVolumeTriclinic = (cell) => {
-    const { a, b, c, alpha, beta, gamma } = cell;
-    const ca = Math.cos(alpha * RAD), cb = Math.cos(beta * RAD), cg = Math.cos(gamma * RAD);
-    const V_sq = a*a*b*b*c*c * (1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
-    return (V_sq > 0) ? Math.sqrt(V_sq) : 0;
-};
-*/
 
 const getVolumeTriclinic = (cell) => {
     const { a, b, c, alpha, beta, gamma } = cell;
@@ -160,13 +180,15 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
     const l_max = Math.ceil(c / d_min) + 1;
 
     const processReflection = (h, k, l, inv_d_sq) => {
-        if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) return;
+        // Inverted logic catches NaN, <= 0, and out-of-bounds strictly
+        if (!(inv_d_sq > 0) || !(inv_d_sq <= q_max_limit) || !isFinite(inv_d_sq)) return;
         const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
         if (sinThetaSq <= 1) {
             const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * DEG;
             reflections.push({ tth, h, k, l, d: 1 / Math.sqrt(inv_d_sq), q: inv_d_sq });
         }
     };
+
 
     switch (system) {
         case 'cubic':
@@ -190,7 +212,7 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
             } break;
         case 'monoclinic':
             const sinBeta = Math.sin(beta * RAD), cosBeta = Math.cos(beta * RAD), sinBetaSq = sinBeta * sinBeta;
-            if (sinBetaSq < 1e-6) return [];
+           if (!(sinBetaSq >= 1e-6) || !isFinite(sinBetaSq)) return [];
             const a_star_sq = 1 / (a * a * sinBetaSq), b_star_sq = 1 / (b * b), c_star_sq = 1 / (c * c * sinBetaSq), ac_star_term = 2 * cosBeta / (a * c * sinBetaSq);
             for (let h = -h_max; h <= h_max; h++) {
                 const h_term = h * h * a_star_sq, h_l_coeff = h * ac_star_term;
@@ -218,7 +240,7 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
             
             // Calculate Volume first to ensure validity
             const term = 1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg;
-            if (term <= 0) return []; 
+            if (!(term > 0) || !isFinite(term)) return [];
             const V = a * b * c * Math.sqrt(term);
 
             // Reciprocal lattice parameters (a*, b*, c*, alpha*, beta*, gamma*)
@@ -391,24 +413,6 @@ const getSolutionKey = (cell) => {
 };
     
 
-const choleskyDecomposition = (matrix) => {
-    const n = matrix.length;
-    const L = Array(n).fill(0).map(() => Array(n).fill(0));
-    for (let i = 0; i < n; i++) {
-        for (let j = 0; j <= i; j++) {
-            let sum = 0;
-            for (let k = 0; k < j; k++) sum += L[i][k] * L[j][k];
-            if (i === j) {
-                const val = matrix[i][i] - sum;
-                if (val <= 1e-12) return null; // Matrix is singular or not positive-definite
-                L[i][j] = Math.sqrt(val);
-            } else {
-                L[i][j] = (matrix[i][j] - sum) / L[j][j];
-            }
-        }
-    }
-    return L;
-};
 
 const choleskySolve = (L, b) => {
     const n = L.length;
@@ -492,11 +496,19 @@ const ls_weights_for_2theta = (tth_rad_array) => {
 };
 
 const binarySearchClosest = (arr, target) => {
-    let low = 0, high = arr.length - 1;
-    if (arr.length === 0 || target <= arr[low]) return 0;
-    if (target >= arr[high]) return high;
-    while (low <= high) { let mid = Math.floor((low + high) / 2); if (arr[mid] < target) low = mid + 1; else high = mid - 1; }
-    return (low >= arr.length) ? high : ((arr[low] - target) < (target - arr[high]) ? low : high);
+    const n = arr.length;
+    // Guard against empty arrays or non-finite targets to prevent out-of-bounds lookups
+    if (n === 0 || !isFinite(target)) return 0; 
+    if (target <= arr[0]) return 0;
+    if (target >= arr[n - 1]) return n - 1;
+    
+    let low = 0, high = n - 1;
+    while (low <= high) {
+        let mid = (low + high) >> 1;
+        if (arr[mid] < target) low = mid + 1;
+        else high = mid - 1;
+    }
+    return (low >= n) ? high : ((arr[low] - target) < (target - arr[high]) ? low : high);
 };
 
 const calculateFiguresOfMerit = (q_calc_sorted, peaks_for_merit, impurity_peaks, get_q_tolerance_func, wavelength) => {
@@ -754,18 +766,23 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     }
     
     const { system } = initialParams;
+
     const min_lp_check = 2.0, max_lp_check = 50.0;
     const axes_to_check = [initialParams.a, initialParams.b ?? initialParams.a, initialParams.c ?? initialParams.a];
-    if (axes_to_check.some(p => (isNaN(p) || p < min_lp_check || p > max_lp_check))) {
-        // console.log("REFINE: Rejected - bad GPU params");
+    const angles_to_check = [initialParams.alpha ?? 90, initialParams.beta ?? 90, initialParams.gamma ?? 90];
+
+    // Explicitly validate both linear dimensions and angles against NaN/Infinity and physical limits
+    if (axes_to_check.some(p => !isFinite(p) || p < min_lp_check || p > max_lp_check) ||
+        angles_to_check.some(a => !isFinite(a) || a < 10.0 || a > 170.0)) {
         return exitFunction(); 
     }
     
     const initial_cell_volume = getVolume(initialParams);
-    if (initial_cell_volume > max_volume || initial_cell_volume < 20) {
-        // console.log("REFINE: Rejected - bad GPU volume");
+    // !(vol >= 20) safely catches NaN, 0, and negative volumes
+    if (!(initial_cell_volume >= 20) || !(initial_cell_volume <= max_volume) || !isFinite(initial_cell_volume)) {
         return exitFunction();
     }
+
 
     const local_get_q_tolerance = (idx) => get_q_tolerance(idx, tth_obs_rad, wavelength, tth_error);
     const min_indexed = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7, triclinic: 7 };
