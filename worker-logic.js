@@ -60,7 +60,7 @@ const cellFromMetric = (G) => {
 const transpose = (M) => M[0].map((_,i) => M.map(r => r[i]));
 const matMul = (A,B) => { const r=A.length, c=B[0].length, k=A[0].length; const C = Array.from({length:r}, () => Array(c).fill(0)); for(let i=0; i<r; i++) for(let j=0; j<c; j++) for(let t=0; t<k; t++) C[i][j] += A[i][t] * B[t][j]; return C; };
 
-const getSymmetry = (a, b, c, alpha, beta, gamma, tol = 0.02) => {
+const getSymmetry = (a, b, c, alpha, beta, gamma, tol = 0.25) => {
     const eq = (v1, v2) => Math.abs(v1 - v2) < tol;
     const is90 = (v) => Math.abs(v - 90) < tol; const is120 = (v) => Math.abs(v - 120) < tol;
     const angles90 = is90(alpha) && is90(beta) && is90(gamma);
@@ -1038,7 +1038,7 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
             
             // 2. Use the "Label Maker" to find the "true" symmetry of the squeezed cell
             // We use a slightly loose tolerance (0.05) to catch pseudo-symmetries
-            const idealSymmetry = getSymmetry(nCell.a, nCell.b, nCell.c, nCell.alpha, nCell.beta, nCell.gamma, 0.05);
+            const idealSymmetry = getSymmetry(nCell.a, nCell.b, nCell.c, nCell.alpha, nCell.beta, nCell.gamma, 0.25);
 
             // 3. Compare the "true" label to the original label
             const symmetryOrder = { 'cubic': 6, 'hexagonal': 5, 'tetragonal': 4, 'orthorhombic': 3, 'monoclinic': 2, 'triclinic': 1 };
@@ -1197,7 +1197,7 @@ function getSortedPeaks(peaks, wavelength) {
 // --- SPACE GROUP / NIGGLI FUNCTIONS ---
 // These are all now part of worker-logic.js; 
 // ---
-const getSymmetryForEquivCells = (a, b, c, alpha, beta, gamma, tol = 0.02) => getSymmetry(a,b,c,alpha,beta,gamma,tol);
+const getSymmetryForEquivCells = (a, b, c, alpha, beta, gamma, tol = 0.25) => getSymmetry(a,b,c,alpha,beta,gamma,tol);
 const getVolumeForEquivCells = (cell) => getVolume(cell);
 
 function cellToBasis(a, b, c, alpha, beta, gamma) {
@@ -1261,7 +1261,7 @@ function reduceToNiggliCell(sol, opts) {
 function niggliReduceFromCell(cell, opts = {}) {
     const { a, b, c, alpha, beta, gamma, centering = 'P' } = cell;
     const maxIter = opts.maxIterations || 1000;
-    const eps = opts.eps || 1e-5; 
+    let eps = opts.eps || 1e-5; 
 
     // Initialize Basis
     let B = cellToBasis(a, b, c, alpha, beta, gamma);
@@ -1288,10 +1288,9 @@ function niggliReduceFromCell(cell, opts = {}) {
     };
     updateMetric();
 
-    let iterations = 0; // FIXED: Variable name matches usage
+    let iterations = 0;
     let changed = true;
 
-    // Helper to apply transform and update
     const applyTrans = (M) => {
         B = rightMul(B, M);
         T = matMul3(T, M);
@@ -1303,26 +1302,42 @@ function niggliReduceFromCell(cell, opts = {}) {
         changed = false;
         iterations++;
 
-       if (iterations > 50) eps = 1e-4;
+        if (iterations > 50) eps = 1e-4;
         if (iterations > 100) eps = 1e-3;
-        if (iterations > 150) break; // Hard bailout to protect the CPU
+        if (iterations > 150) break; // Hard bailout
 
-        // Step 1: Sort A <= B <= C
+        // Step 1: Sort A <= B <= C (strictly preserving determinant = +1)
         if (A > Bm + eps || (Math.abs(A - Bm) <= eps && Math.abs(xi) > Math.abs(eta) + eps)) {
-            applyTrans([[0,1,0],[1,0,0],[0,0,1]]); continue;
+            applyTrans([[0, -1, 0], [-1, 0, 0], [0, 0, -1]]); 
+            continue;
+        }
+        if (Bm > C_val + eps || (Math.abs(Bm - C_val) <= eps && Math.abs(eta) > Math.abs(zeta) + eps)) {
+            applyTrans([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]); 
+            continue;
         }
 
-        // Step 2: Sign Adjustment (Type I / II)
-        const s_xi = xi > eps ? 1 : (xi < -eps ? -1 : 0);
-        const s_eta = eta > eps ? 1 : (eta < -eps ? -1 : 0);
-        const s_zeta = zeta > eps ? 1 : (zeta < -eps ? -1 : 0);
+        // Step 2: Sign Adjustment (Force Type I or Type II)
+        let s_xi = xi > eps ? 1 : (xi < -eps ? -1 : 0);
+        let s_eta = eta > eps ? 1 : (eta < -eps ? -1 : 0);
+        let s_zeta = zeta > eps ? 1 : (zeta < -eps ? -1 : 0);
         
-        // If mixed signs, flip axes to force Type II (---) or Type I (+++)
-        if (s_xi * s_eta * s_zeta !== 1 && !(s_xi===0 || s_eta===0 || s_zeta===0)) {
-            if (s_xi >= 0 && s_eta >= 0 && s_zeta <= 0) { applyTrans([[1,0,0],[0,1,0],[0,0,-1]]); continue; } 
-            if (s_xi >= 0 && s_eta <= 0 && s_zeta >= 0) { applyTrans([[1,0,0],[0,-1,0],[0,0,1]]); continue; } 
-            if (s_xi <= 0 && s_eta >= 0 && s_zeta >= 0) { applyTrans([[-1,0,0],[0,1,0],[0,0,1]]); continue; } 
-            if (s_xi <= 0 && s_eta <= 0 && s_zeta >= 0) { applyTrans([[1,0,0],[0,1,0],[0,0,-1]]); continue; } 
+        if (s_xi * s_eta * s_zeta === 1) {
+            // Type I: +++, do nothing
+        } else if (s_xi * s_eta * s_zeta === -1) {
+            // Type II: ---, do nothing
+        } else {
+            // Mixed or zeros. Force to valid Type I or II with det=1 transforms
+            if (s_xi === 1 && s_eta === 1 && s_zeta === -1) { applyTrans([[-1, 0, 0], [0, -1, 0], [0, 0, 1]]); continue; }
+            if (s_xi === 1 && s_eta === -1 && s_zeta === 1) { applyTrans([[-1, 0, 0], [0, 1, 0], [0, 0, -1]]); continue; }
+            if (s_xi === -1 && s_eta === 1 && s_zeta === 1) { applyTrans([[1, 0, 0], [0, -1, 0], [0, 0, -1]]); continue; }
+            
+            // Zero handling
+            if (s_xi === 1 && s_eta === 0 && s_zeta === 0) { applyTrans([[-1, 0, 0], [0, 1, 0], [0, 0, -1]]); continue; }
+            if (s_xi === 0 && s_eta === 1 && s_zeta === 0) { applyTrans([[-1, 0, 0], [0, -1, 0], [0, 0, 1]]); continue; }
+            if (s_xi === 0 && s_eta === 0 && s_zeta === 1) { applyTrans([[1, 0, 0], [0, -1, 0], [0, 0, -1]]); continue; }
+            if (s_xi === -1 && s_eta === -1 && s_zeta === 1) { applyTrans([[1, 0, 0], [0, -1, 0], [0, 0, -1]]); continue; }
+            if (s_xi === -1 && s_eta === 1 && s_zeta === -1) { applyTrans([[-1, 0, 0], [0, 1, 0], [0, 0, -1]]); continue; }
+            if (s_xi === 1 && s_eta === -1 && s_zeta === -1) { applyTrans([[-1, 0, 0], [0, -1, 0], [0, 0, 1]]); continue; }
         }
 
         // Step 3: Reduction
@@ -1337,19 +1352,18 @@ function niggliReduceFromCell(cell, opts = {}) {
         }
 
         // Step 4: Body Diagonal 
-        if ((xi + eta + zeta + A + Bm) < -eps || (Math.abs(xi+eta+zeta+A+Bm) <= eps && (2*A + 2*eta + zeta) > eps )) {
+        if ((xi + eta + zeta + A + Bm) < -eps || (Math.abs(xi + eta + zeta + A + Bm) <= eps && 2*(A + eta) + zeta > eps)) {
              applyTrans([[1, 0, 1], [0, 1, 1], [0, 0, 1]]); continue;
         }
     }
     
-    // Return standard format
     const finalMetric = basisToMetric(B);
     return {
         cell: basisToCell(B),
         transform: T,
         basis: B,
         metric: finalMetric.G,
-        iterations: iterations // Now defined
+        iterations: iterations
     };
 }
 
