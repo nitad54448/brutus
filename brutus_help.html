@@ -1108,10 +1108,11 @@
 </li>
 
                 <li>
-                    <strong>Rank space groups.</strong>
-                    Based on the crystal system and detected centering, the internal space-group database is filtered.
-                    Each space group is assigned a (hard) violation count and ranked accordingly. The conventional
-                    name of the space group (consistent with the orientation found by the program) is displayed.
+                
+                    <p>
+  <strong>Rank space groups.</strong> Based on the crystal system and detected centering, the internal space-group database is filtered. Candidate space groups are evaluated using a <strong>Weighted Extinction Confidence</strong> score, which actively rewards groups whose systematic absence rules are confirmed by experimental reflections. Higher-order centerings (<em>A, B, C, I, F, R</em>) receive a statistical weighting bonus over primitive (<em>P</em>) lattices because they constrain more reciprocal space. Candidates are sorted primarily by minimizing hard violations, then ranked by their confidence score (with minor penalties applied for soft violations such as low-intensity peaks or suspected K&alpha;<sub>2</sub> overlaps). To prevent interface clutter from combinatorial settings, the output is strictly limited to the <strong>top 20</strong> highest-ranking candidates, displaying the conventional space-group name consistent with the orientation found by the program.
+</p>
+                
                 </li>
             </ol>
 

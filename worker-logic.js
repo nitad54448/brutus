@@ -1681,53 +1681,81 @@ function detectExtinctions(indexed_hkls, system, spaceGroupData) {
     });
     if (confirmedRules.size === 0) { return ["None detected"]; } else { return Array.from(confirmedRules).sort(); }
 }
+
+
 function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData, maxViolations, detectedExtinctions) {
     const candidateGroups = Object.values(spaceGroupData.space_groups).filter(sg => sg.crystal_system === system);
     const validSettings = [];
-    const detectedExtinctionsSet = new Set(detectedExtinctions.filter(e => e !== "None detected"));
+    
+    // Statistical weights for centering order: higher symmetry constrains more reciprocal space
+    const centeringWeights = { 'P': 1.0, 'A': 1.5, 'B': 1.5, 'C': 1.5, 'I': 2.0, 'F': 2.0, 'R': 2.0 };
+
     for (const sg of candidateGroups) {
         const sgNumber = sg.number;
         for (const setting of sg.settings) {
             const centering = setting.symbol.charAt(0);
             if (!allowedCenterings.includes(centering) && !(allowedCenterings.includes('P') && !['I','F','A','B','C','R'].includes(centering))) { continue; }
+            
             const rules = setting.reflection_conditions || {};
             const violations = countViolations(indexed_hkls, rules);
-            // Cutoff is on HARD violations only. A space group disqualified
-            // solely by Ka2-suspect peaks must still be evaluable so the
-            // user sees it as a "[0 hard, +N soft]" candidate rather than
-            // having it disappear silently.
+            
+            // Cutoff remains on HARD violations only
             if (violations.hardCount <= maxViolations) {
-                let matchScore = 0; const sgRulesSet = new Set();
-                Object.entries(rules).forEach(([zone, conditions]) => { conditions.forEach(cond => { sgRulesSet.add(`${zone}: ${cond}`); }); });
-                detectedExtinctionsSet.forEach(detectedRule => { if (sgRulesSet.has(detectedRule)) { matchScore += 10; } });
-                sgRulesSet.forEach(sgRule => { if (!detectedExtinctionsSet.has(sgRule)) { matchScore -= 1; } });
-                if (detectedExtinctionsSet.size === 0 && sgRulesSet.size === 0) { matchScore = 1; }
+                let nConfirmTotal = 0;
+                
+                // Harvest positive confirmations across all space group rules
+                Object.entries(rules).forEach(([zone, conditions]) => {
+                    conditions.forEach(cond => {
+                        indexed_hkls.forEach(refl => {
+                            const reflZone = getReflectionZone(refl.h, refl.k, refl.l);
+                            // General 'hkl' rules apply to all reflections; specific zones apply only to their zone
+                            const applies = (zone === 'hkl') || (reflZone === zone);
+                            
+                            if (applies && satisfiesCondition(refl.h, refl.k, refl.l, cond)) {
+                                // Full point for strong/reliable reflections; 0.25 for Ka2-suspect or weak tails
+                                if (!refl.ka2Suspect && !refl.lowIntensity) {
+                                    nConfirmTotal += 1.0;
+                                } else {
+                                    nConfirmTotal += 0.25;
+                                }
+                            }
+                        });
+                    });
+                });
+
+                const wCenter = centeringWeights[centering] || 1.0;
+                
+                // FoM_stat: Weighted confirmations minus penalized soft violations
+                // We store this in 'matchScore' to maintain seamless backward compatibility with your UI
+                let fomStat = wCenter * (nConfirmTotal - (1.5 * violations.softCount));
+                if (fomStat === 0 && Object.keys(rules).length === 0) fomStat = 1.0; // Baseline for P with no rules
+
                 validSettings.push({
                     number: sgNumber,
                     symbol: setting.symbol,
                     standardSymbol: sg.standard_symbol,
                     pointGroup: sg.point_group,
                     centrosymmetric: sg.centrosymmetric,
-                    // 'violations' kept = hardCount for backward compatibility
-                    // with any caller that hasn't been updated.
                     violations: violations.hardCount,
                     hardViolations: violations.hardCount,
                     softViolations: violations.softCount,
                     violatedReflections: violations.details,
                     violatedReflectionsHard: violations.detailsHard,
                     violatedReflectionsSoft: violations.detailsSoft,
-                    matchScore: matchScore
+                    matchScore: fomStat
                 });
             }
         }
     }
-    // Sort: hard violations ASC → soft violations ASC → matchScore DESC → number DESC
+    
+    // Sort: hard violations ASC -> FoM_stat (matchScore) DESC -> soft violations ASC -> number DESC
     validSettings.sort((a, b) => {
         if (a.hardViolations !== b.hardViolations) return a.hardViolations - b.hardViolations;
+        if (Math.abs(a.matchScore - b.matchScore) > 1e-4) return b.matchScore - a.matchScore;
         if (a.softViolations !== b.softViolations) return a.softViolations - b.softViolations;
-        if (a.matchScore !== b.matchScore) return b.matchScore - a.matchScore;
         return b.number - a.number;
     });
+    
     return validSettings;
 }
 
