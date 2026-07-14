@@ -1109,13 +1109,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // space group, fichier crée avec Gemmi, je mets le script aussi sur git
     // nouvelle version, règles de CCTBX, depuis le 17 janvier 2026
+    //v2 depuis le 14 juillet 2026
     let spaceGroupData = null;
     let webGPUSupportsCompute = true; 
   
    // Function to load space group JSON data, error if not found, ..
     async function loadSpaceGroupData() {
         try {
-            const response = await fetch('cctbx_space_groups_all_settings.json');
+            const response = await fetch('cctbx_space_groups_all_settings_v2.json');
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
@@ -1123,7 +1124,7 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log("Space group data (all settings) loaded successfully.");
         } catch (error) {
             console.error("Could not load space group data:", error);
-            showStatus("Warning: Could not load cctbx_space_groups_all_settings.json. Space group analysis will be disabled.", "error", 8000);
+            showStatus("Warning: Could not load cctbx_space_groups_all_settings_v2.json. Space group analysis will be disabled.", "error", 8000);
         }
     }
     
@@ -4451,27 +4452,22 @@ const generatePDFReport = async (singleSolution = null) => {
   	yPos += 3; // Add back spacing after the block
   	
 
-// Niggli 
+
+    // Niggli 
     // Show for ALL systems (including triclinic) to confirm standard setting
     doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Niggli Reduced Cell:', margin, yPos); 
     yPos += 6;
-
-
-
-
-
- 
 
     try {
         const niggliResult = reduceToNiggliCell(sol);
         const nCell = niggliResult.cell;
 
-        // Calculate Niggli Volume
+        // Calculate Niggli Volume robustly
         const r = Math.PI / 180.0;
         const ca = Math.cos(nCell.alpha * r);
         const cb = Math.cos(nCell.beta * r);
         const cg = Math.cos(nCell.gamma * r);
-        const term = 1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg;
+        const term = Math.max(0, 1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
         const nVol = (term > 0) ? (nCell.a * nCell.b * nCell.c * Math.sqrt(term)) : 0;
 
         // Define labels and data separately
@@ -4483,6 +4479,8 @@ const generatePDFReport = async (singleSolution = null) => {
             { label: 'beta', value: `= ${nCell.beta.toFixed(3)} deg` },
             { label: 'gamma', value: `= ${nCell.gamma.toFixed(3)} deg` }
         ];
+
+
 
         doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); // Use smaller table body font
 

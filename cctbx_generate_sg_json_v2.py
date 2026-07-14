@@ -11,18 +11,25 @@ from cctbx import sgtbx
 import sys
 
 def evaluate_rule(h, k, l, rule_str):
-    """Evaluates if a reflection satisfies a textual rule."""
+    """Evaluates if a reflection satisfies a textual rule safely."""
     try:
-        expr = rule_str.replace("=2n", "%2==0") \
-                       .replace("=4n", "%4==0") \
-                       .replace("=6n", "%6==0") \
-                       .replace("=3n", "%3==0") \
-                       .replace("-h", "(-h)") \
-                       .replace("-k", "(-k)") \
-                       .replace("-l", "(-l)")
+        if "=" not in rule_str:
+            return False
+            
+        lhs, rhs = rule_str.split("=")
         
+        # Map the right-hand side to its modulus integer
+        mod_map = {"2n": 2, "3n": 3, "4n": 4, "6n": 6}
+        if rhs not in mod_map:
+            return False
+            
+        mod_val = mod_map[rhs]
+        
+        # Evaluate the mathematical expression on the left-hand side natively
         context = {'h': h, 'k': k, 'l': l}
-        return eval(expr, {}, context)
+        lhs_val = eval(lhs, {}, context)
+        
+        return (lhs_val % mod_val) == 0
     except Exception:
         return False
 
@@ -70,11 +77,12 @@ def check_zonal_from_points(present_tuples, idx1, idx2):
     combo_v1_plus_2v2 = [p[idx1] + 2*p[idx2] for p in present_tuples]
     
     if all(c % 4 == 0 for c in combo_2v1_plus_v2): 
-        return f"2{n1}+{n2}=4n"
+        return f"2*{n1}+{n2}=4n"
     if all(c % 4 == 0 for c in combo_2v1_minus_v2): 
-        return f"2{n1}-{n2}=4n"
+        return f"2*{n1}-{n2}=4n"
     if all(c % 4 == 0 for c in combo_v1_plus_2v2): 
-        return f"{n1}+2{n2}=4n"
+        return f"{n1}+2*{n2}=4n"
+
 
     # --- 2. PRIORITY: Standard Glide Sums (4n) ---
     # Check this before Axial 2n. 
@@ -104,30 +112,29 @@ def check_zonal_from_points(present_tuples, idx1, idx2):
     
     return None
 
-
 def is_redundant(specific_rule, general_rules, axes_indices):
     """Checks if a specific rule is already covered by general HKL rules."""
     if not general_rules:
         return False
 
     valid_points_under_general = []
+    is_diagonal = axes_indices.get('diagonal', False)
+    active_axes = [key for key, v in axes_indices.items() if v is None and key != 'diagonal']
     
-    # Scan range 1-24 to catch 4n/6n periodicity
     for i in range(1, 25):
-        h, k, l = 0, 0, 0
-        active_axes = [key for key, v in axes_indices.items() if v is None]
-        
-        if len(active_axes) == 1:  # Axial check
-            if axes_indices['h'] is None: h = i
-            elif axes_indices['k'] is None: k = i
-            elif axes_indices['l'] is None: l = i
+        if len(active_axes) == 1 and not is_diagonal:  # Axial check
+            h, k, l = 0, 0, 0
+            if active_axes[0] == 'h': h = i
+            elif active_axes[0] == 'k': k = i
+            elif active_axes[0] == 'l': l = i
             
             if all(evaluate_rule(h, k, l, r) for r in general_rules):
                 valid_points_under_general.append((h, k, l))
                 
-        elif len(active_axes) == 2:  # Zonal check
+        elif len(active_axes) >= 2 or is_diagonal:  # Zonal check
             for j in range(1, 25):
-                if axes_indices.get('diagonal'): # hhl
+                h, k, l = 0, 0, 0
+                if is_diagonal:  # hhl
                     h, k, l = i, i, j
                 elif axes_indices['l'] == 0:  # hk0
                     h, k = i, j
@@ -142,22 +149,17 @@ def is_redundant(specific_rule, general_rules, axes_indices):
     if not valid_points_under_general:
         return False
 
-    derived_rule = None
-    
-    if len(active_axes) == 1:
+    if len(active_axes) == 1 and not is_diagonal:
         idx_map = {'h': 0, 'k': 1, 'l': 2}
         axis_char = active_axes[0]
-        idx = idx_map[axis_char]
-        vals = [p[idx] for p in valid_points_under_general]
-        derived_rule = get_condition_string(vals, axis_char)
+        vals = [p[idx_map[axis_char]] for p in valid_points_under_general]
+        return get_condition_string(vals, axis_char) == specific_rule
         
-    elif len(active_axes) == 2:
+    else:
         idx_map = {'h': 0, 'k': 1, 'l': 2}
-        idx1 = idx_map[active_axes[0]]
-        idx2 = idx_map[active_axes[1]]
-        derived_rule = check_zonal_from_points(valid_points_under_general, idx1, idx2)
-
-    return derived_rule == specific_rule
+        idx1 = 0 if is_diagonal else idx_map[active_axes[0]]
+        idx2 = 2 if is_diagonal else idx_map[active_axes[1]]
+        return check_zonal_from_points(valid_points_under_general, idx1, idx2) == specific_rule
 
 def analyze_systematic_absences(space_group_info):
     sg = space_group_info.group()
@@ -244,7 +246,7 @@ def analyze_systematic_absences(space_group_info):
             if not is_covered:
                 # Check coverage by zones
                 parents = []
-                if axis_name == 'h00': parents = ['hk0', 'h0l', 'hhl']
+                if axis_name == 'h00': parents = ['hk0', 'h0l']
                 elif axis_name == '0k0': parents = ['hk0', '0kl']
                 elif axis_name == '00l': parents = ['h0l', '0kl', 'hhl']
                 

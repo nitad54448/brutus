@@ -1056,18 +1056,19 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
                         break;
                     case 'tetragonal':
                     case 'hexagonal':
-                        // Figure out which axes are 'a' and which is 'c'
-                        const axes = [nCell.a, nCell.b, nCell.c];
-                        const tol = 0.05;
-                        if (Math.abs(axes[0] - axes[1]) < tol) { // a == b
-                            newTrialCell.a = (axes[0] + axes[1]) / 2.0;
-                            newTrialCell.c = axes[2];
-                        } else if (Math.abs(axes[0] - axes[2]) < tol) { // a == c
-                            newTrialCell.a = (axes[0] + axes[2]) / 2.0;
-                            newTrialCell.c = axes[1];
+                        // Robustly find repeated axis ('a') and unique axis ('c') by closest pair
+                        const diffAB = Math.abs(nCell.a - nCell.b);
+                        const diffAC = Math.abs(nCell.a - nCell.c);
+                        const diffBC = Math.abs(nCell.b - nCell.c);
+                        if (diffAB <= diffAC && diffAB <= diffBC) { // a == b
+                            newTrialCell.a = (nCell.a + nCell.b) / 2.0;
+                            newTrialCell.c = nCell.c;
+                        } else if (diffAC <= diffAB && diffAC <= diffBC) { // a == c
+                            newTrialCell.a = (nCell.a + nCell.c) / 2.0;
+                            newTrialCell.c = nCell.b;
                         } else { // b == c
-                            newTrialCell.a = (axes[1] + axes[2]) / 2.0;
-                            newTrialCell.c = axes[0];
+                            newTrialCell.a = (nCell.b + nCell.c) / 2.0;
+                            newTrialCell.c = nCell.a;
                         }
                         break;
                     case 'orthorhombic':
@@ -1082,7 +1083,8 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
                         newTrialCell.beta = nCell.beta; // Niggli cell will have alpha=gamma=90
                         break;
                 }
-                
+
+
                 // 6. Send this new, "squeezed" cell to be re-tested
 
                 refineAndTestSolution(newTrialCell);
@@ -1258,6 +1260,9 @@ function reduceToNiggliCell(sol, opts) {
 // ==========================================
 // 2. THE ENGINE (Robust Krivy-Gruber)
 // ==========================================
+// ==========================================
+// 2. THE ENGINE (Robust Krivy-Gruber)
+// ==========================================
 function niggliReduceFromCell(cell, opts = {}) {
     const { a, b, c, alpha, beta, gamma, centering = 'P' } = cell;
     const maxIter = opts.maxIterations || 1000;
@@ -1267,11 +1272,18 @@ function niggliReduceFromCell(cell, opts = {}) {
     let B = cellToBasis(a, b, c, alpha, beta, gamma);
     let T = I3(); 
 
-    // Handle Centering
-    let centeringKey = (centering || 'P').toUpperCase();
-    const match = centeringKey.match(/\(([A-Z])\)/);
-    if (match) centeringKey = match[1];
-    else if (centeringKey.length > 1) centeringKey = centeringKey.charAt(0);
+    // Robust Centering Extraction (prioritize non-primitive centerings F, I, R, A, B, C over P)
+    let centeringKey = 'P';
+    if (centering) {
+        const str = String(centering).toUpperCase();
+        const priority = ['F', 'I', 'R', 'A', 'B', 'C', 'P'];
+        for (const cType of priority) {
+            if (str.includes(`(${cType})`) || str.startsWith(cType) || str === cType) {
+                centeringKey = cType;
+                break;
+            }
+        }
+    }
 
     const Cp = primitiveTransformByCentering[centeringKey];
     if (Cp && centeringKey !== 'P') {
@@ -1316,28 +1328,35 @@ function niggliReduceFromCell(cell, opts = {}) {
             continue;
         }
 
-        // Step 2: Sign Adjustment (Force Type I or Type II)
+        // Step 2: Sign Adjustment (Force strictly valid Type I or Type II)
         let s_xi = xi > eps ? 1 : (xi < -eps ? -1 : 0);
         let s_eta = eta > eps ? 1 : (eta < -eps ? -1 : 0);
         let s_zeta = zeta > eps ? 1 : (zeta < -eps ? -1 : 0);
         
-        if (s_xi * s_eta * s_zeta === 1) {
-            // Type I: +++, do nothing
-        } else if (s_xi * s_eta * s_zeta === -1) {
-            // Type II: ---, do nothing
+        const allPositive = (s_xi > 0 && s_eta > 0 && s_zeta > 0);
+        const allNonPositive = (s_xi <= 0 && s_eta <= 0 && s_zeta <= 0);
+        
+        if (allPositive || allNonPositive) {
+            // Already valid Type I (all > 0) or Type II (all <= 0), proceed to reduction steps
         } else {
-            // Mixed or zeros. Force to valid Type I or II with det=1 transforms
-            if (s_xi === 1 && s_eta === 1 && s_zeta === -1) { applyTrans([[-1, 0, 0], [0, -1, 0], [0, 0, 1]]); continue; }
-            if (s_xi === 1 && s_eta === -1 && s_zeta === 1) { applyTrans([[-1, 0, 0], [0, 1, 0], [0, 0, -1]]); continue; }
-            if (s_xi === -1 && s_eta === 1 && s_zeta === 1) { applyTrans([[1, 0, 0], [0, -1, 0], [0, 0, -1]]); continue; }
+            // Transform mixed signs or zero-with-positive to valid Type I or Type II (det = +1).
+            // Case 1: Two strictly negative, one strictly positive -> flip the two negatives to get Type I (+ + +)
+            if (s_xi < 0 && s_eta < 0 && s_zeta > 0) { applyTrans([[-1, 0, 0], [0, -1, 0], [0, 0, 1]]); continue; }
+            if (s_xi < 0 && s_eta > 0 && s_zeta < 0) { applyTrans([[-1, 0, 0], [0, 1, 0], [0, 0, -1]]); continue; }
+            if (s_xi > 0 && s_eta < 0 && s_zeta < 0) { applyTrans([[1, 0, 0], [0, -1, 0], [0, 0, -1]]); continue; }
             
-            // Zero handling
-            if (s_xi === 1 && s_eta === 0 && s_zeta === 0) { applyTrans([[-1, 0, 0], [0, 1, 0], [0, 0, -1]]); continue; }
-            if (s_xi === 0 && s_eta === 1 && s_zeta === 0) { applyTrans([[-1, 0, 0], [0, -1, 0], [0, 0, 1]]); continue; }
-            if (s_xi === 0 && s_eta === 0 && s_zeta === 1) { applyTrans([[1, 0, 0], [0, -1, 0], [0, 0, -1]]); continue; }
-            if (s_xi === -1 && s_eta === -1 && s_zeta === 1) { applyTrans([[1, 0, 0], [0, -1, 0], [0, 0, -1]]); continue; }
-            if (s_xi === -1 && s_eta === 1 && s_zeta === -1) { applyTrans([[-1, 0, 0], [0, 1, 0], [0, 0, -1]]); continue; }
-            if (s_xi === 1 && s_eta === -1 && s_zeta === -1) { applyTrans([[-1, 0, 0], [0, -1, 0], [0, 0, 1]]); continue; }
+            // Case 2: Two positive, one non-positive -> flip the two positives to get Type II (- - -)
+            if (s_xi > 0 && s_eta > 0 && s_zeta <= 0) { applyTrans([[-1, 0, 0], [0, -1, 0], [0, 0, 1]]); continue; }
+            if (s_xi > 0 && s_eta <= 0 && s_zeta > 0) { applyTrans([[-1, 0, 0], [0, 1, 0], [0, 0, -1]]); continue; }
+            if (s_xi <= 0 && s_eta > 0 && s_zeta > 0) { applyTrans([[1, 0, 0], [0, -1, 0], [0, 0, -1]]); continue; }
+            
+            // Case 3: One positive, two non-positive (with at least one zero) -> flip the positive to get Type II
+            if (s_xi > 0 && s_eta <= 0 && s_zeta === 0) { applyTrans([[-1, 0, 0], [0, 1, 0], [0, 0, -1]]); continue; }
+            if (s_xi > 0 && s_eta === 0 && s_zeta < 0)  { applyTrans([[-1, 0, 0], [0, -1, 0], [0, 0, 1]]); continue; }
+            if (s_eta > 0 && s_xi <= 0 && s_zeta === 0) { applyTrans([[1, 0, 0], [0, -1, 0], [0, 0, -1]]); continue; }
+            if (s_eta > 0 && s_xi === 0 && s_zeta < 0)  { applyTrans([[-1, 0, 0], [0, -1, 0], [0, 0, 1]]); continue; }
+            if (s_zeta > 0 && s_xi === 0 && s_eta <= 0) { applyTrans([[-1, 0, 0], [0, 1, 0], [0, 0, -1]]); continue; }
+            if (s_zeta > 0 && s_eta === 0 && s_xi < 0)  { applyTrans([[1, 0, 0], [0, -1, 0], [0, 0, -1]]); continue; }
         }
 
         // Step 3: Reduction
@@ -1357,9 +1376,16 @@ function niggliReduceFromCell(cell, opts = {}) {
         }
     }
     
+    const finalCell = basisToCell(B);
+    // Clean numerical dust around 90 degrees
+    const cleanAngle = (ang) => Math.abs(ang - 90) < 1e-10 ? 90 : ang;
+    finalCell.alpha = cleanAngle(finalCell.alpha);
+    finalCell.beta = cleanAngle(finalCell.beta);
+    finalCell.gamma = cleanAngle(finalCell.gamma);
+
     const finalMetric = basisToMetric(B);
     return {
-        cell: basisToCell(B),
+        cell: finalCell,
         transform: T,
         basis: B,
         metric: finalMetric.G,
@@ -1704,30 +1730,59 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
     });
     return validSettings;
 }
+
 const satisfiesCondition = (h, k, l, condStr) => {
-    if (condStr === "h+k, k+l, h+l=2n") { const h_int = Math.round(h), k_int = Math.round(k), l_int = Math.round(l); return ((h_int + k_int) % 2 === 0 && (k_int + l_int) % 2 === 0 && (h_int + l_int) % 2 === 0); }
+    if (condStr === "h+k, k+l, h+l=2n") { 
+        const h_int = Math.round(h), k_int = Math.round(k), l_int = Math.round(l); 
+        return ((h_int + k_int) % 2 === 0 && (k_int + l_int) % 2 === 0 && (h_int + l_int) % 2 === 0); 
+    }
+    
+    // Extract shared equality suffix (e.g., "=2n" or "=4n") to handle shorthand like "h, l=2n"
+    const rhsMatch = condStr.match(/=\s*(\d+)n/);
+    const defaultRhs = rhsMatch ? rhsMatch[0] : "=2n";
+    
     const conditions = condStr.split(',').map(s => s.trim());
     for (const condition of conditions) {
-        const match = condition.match(/([0-9]*[hkl\+\-]+)\s*=\s*(\d+)n/);
-        if (!match) { console.warn(`[satisfiesCondition] Could not parse rule part: "${condition}" in rule string "${condStr}"`); continue; }
-        const [, expr, modStr] = match; const mod = parseInt(modStr);
-        if (isNaN(mod) || mod <= 0) { console.warn(`[satisfiesCondition] Invalid modulus in rule part: "${condition}"`); continue; }
-        let value = 0; const terms = expr.match(/[+-]?[0-9]*[hkl]/g) || [];
+        let cleanCond = condition.replace(/\*/g, '');
+        
+        // If a shorthand part like "h" is missing its modulus, append the shared suffix
+        if (!cleanCond.includes('=')) {
+            cleanCond += defaultRhs;
+        }
+        
+        const match = cleanCond.match(/([0-9]*[hkl\+\-]+)\s*=\s*(\d+)n/);
+        if (!match) { 
+            console.warn(`[satisfiesCondition] Could not parse rule part: "${condition}" in rule string "${condStr}"`); 
+            continue; 
+        }
+        const [, expr, modStr] = match; 
+        const mod = parseInt(modStr);
+        if (isNaN(mod) || mod <= 0) { 
+            console.warn(`[satisfiesCondition] Invalid modulus in rule part: "${condition}"`); 
+            continue; 
+        }
+        let value = 0; 
+        const terms = expr.match(/[+-]?[0-9]*[hkl]/g) || [];
         for (const term of terms) {
             let sign = 1, coeff = 1, variable = '';
             const coeffMatch = term.match(/^([+-]?)(\d*)([hkl])$/);
             if (coeffMatch) {
-                sign = (coeffMatch[1] === '-') ? -1 : 1; coeff = coeffMatch[2] ? parseInt(coeffMatch[2]) : 1; variable = coeffMatch[3];
+                sign = (coeffMatch[1] === '-') ? -1 : 1; 
+                coeff = coeffMatch[2] ? parseInt(coeffMatch[2]) : 1; 
+                variable = coeffMatch[3];
                 const h_int = Math.round(h), k_int = Math.round(k), l_int = Math.round(l);
                 if (variable === 'h') value += sign * coeff * h_int;
                 else if (variable === 'k') value += sign * coeff * k_int;
                 else if (variable === 'l') value += sign * coeff * l_int;
-            } else { console.warn(`[satisfiesCondition] Could not parse term "${term}" in expression "${expr}"`); }
+            } else { 
+                console.warn(`[satisfiesCondition] Could not parse term "${term}" in expression "${expr}"`); 
+            }
         }
         if (Math.round(value) % mod !== 0) { return false; }
     }
     return true;
 };
+
 function countViolations(indexed_hkls, rules) {
     let hardCount = 0;
     let softCount = 0;
@@ -1838,10 +1893,18 @@ function countViolations(indexed_hkls, rules) {
     const details = detailsHard.concat(detailsSoft).slice(0, 5);
     return { count, hardCount, softCount, details, detailsHard, detailsSoft };
 }
+
 function getReflectionZone(h, k, l) {
-    if (k === 0 && l === 0 && h !== 0) return 'h00'; if (h === 0 && l === 0 && k !== 0) return '0k0'; if (h === 0 && k === 0 && l !== 0) return '00l';
-    if (h === 0 && k !== 0 && l !== 0) return '0kl'; if (k === 0 && h !== 0 && l !== 0) return 'h0l'; if (l === 0 && h !== 0 && k !== 0) return 'hk0';
-    if (h !== 0 && h === k && l !== 0 && h !== l) return 'hhl'; if (k !== 0 && k === l && h !== 0 && h !== k) return 'hkk'; if (h !== 0 && h === l && k !== 0 && k !== h) return 'hll';
+    const ah = Math.abs(h), ak = Math.abs(k), al = Math.abs(l);
+    if (ak === 0 && al === 0 && ah !== 0) return 'h00'; 
+    if (ah === 0 && al === 0 && ak !== 0) return '0k0'; 
+    if (ah === 0 && ak === 0 && al !== 0) return '00l';
+    if (ah === 0 && ak !== 0 && al !== 0) return '0kl'; 
+    if (ak === 0 && ah !== 0 && al !== 0) return 'h0l'; 
+    if (al === 0 && ah !== 0 && ak !== 0) return 'hk0';
+    if (ah !== 0 && ah === ak && al !== 0) return 'hhl'; 
+    if (ak !== 0 && ak === al && ah !== 0) return 'hkk'; 
+    if (ah !== 0 && ah === al && ak !== 0) return 'hll';
     return 'hkl';
 }
 
