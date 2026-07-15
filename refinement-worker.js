@@ -51,68 +51,78 @@ self.onmessage = (e) => {
     const msg = e.data;
     if (!msg || !msg.type) return;
 
-    switch (msg.type) {
-        case 'init': {
-            baseParams = msg.baseParams;
-            state = {
-                q_obs: msg.q_obs,
-                original_indices: msg.original_indices,
-                tth_obs_rad: msg.tth_obs_rad,
-                peaks_sorted_by_q: msg.peaks_sorted_by_q,
-                N_FOR_M20: msg.N_FOR_M20,
-                min_m20: msg.min_m20,
-                q_max: msg.q_max,
-                d_min: msg.d_min,
-                foundSolutions,
-                foundSolutionMap,
-            };
-            break;
-        }
-
-        case 'reset': {
-            foundSolutions = [];
-            foundSolutionMap = new Map();
-            if (state) {
-                state.foundSolutions = foundSolutions;
-                state.foundSolutionMap = foundSolutionMap;
+    try {
+        switch (msg.type) {
+            case 'init': {
+                baseParams = msg.baseParams;
+                state = {
+                    q_obs: msg.q_obs,
+                    original_indices: msg.original_indices,
+                    tth_obs_rad: msg.tth_obs_rad,
+                    peaks_sorted_by_q: msg.peaks_sorted_by_q,
+                    N_FOR_M20: msg.N_FOR_M20,
+                    min_m20: msg.min_m20,
+                    q_max: msg.q_max,
+                    d_min: msg.d_min,
+                    foundSolutions,
+                    foundSolutionMap,
+                };
+                break;
             }
-            break;
-        }
 
-        case 'refineBatch': {
-            const { cells, batchId } = msg;
-            if (!state || !baseParams) {
-                // Surface the ordering bug instead of silently returning 'done'
-                self.postMessage({ type: 'cellError', message: 'Worker not initialized (missing state/baseParams)', batchId });
+            case 'reset': {
+                foundSolutions = [];
+                foundSolutionMap = new Map();
+                if (state) {
+                    state.foundSolutions = foundSolutions;
+                    state.foundSolutionMap = foundSolutionMap;
+                }
+                break;
+            }
+
+            case 'refineBatch': {
+                const { cells, batchId } = msg;
+                if (!state || !baseParams) {
+                    self.postMessage({ type: 'cellError', message: 'Worker not initialized (missing state/baseParams)', batchId });
+                    self.postMessage({ type: 'done', batchId });
+                    return;
+                }
+                if (!Array.isArray(cells)) {
+                    self.postMessage({ type: 'cellError', message: 'cells payload is not an array', batchId });
+                    self.postMessage({ type: 'done', batchId });
+                    return;
+                }
+                for (let i = 0; i < cells.length; i++) {
+                    runOneCell(cells[i], 'batchId', batchId);
+                }
                 self.postMessage({ type: 'done', batchId });
-                return;
+                break;
             }
-            for (let i = 0; i < cells.length; i++) {
-                runOneCell(cells[i], 'batchId', batchId);
-            }
-            self.postMessage({ type: 'done', batchId });
-            break;
-        }
 
-        // Legacy single-cell path documented above (point 3): treat exactly
-        // like a one-cell 'refineBatch', keyed by taskId instead of batchId.
-        // This was missing (fell through to default and was silently
-        // dropped), which would hang any caller still waiting on a
-        // 'solution'/'done' reply for a 'refine' message.
-        case 'refine': {
-            const { cell, taskId } = msg;
-            if (!state || !baseParams) {
-                self.postMessage({ type: 'cellError', message: 'Worker not initialized (missing state/baseParams)', taskId });
+            case 'refine': {
+                const { cell, taskId } = msg;
+                if (!state || !baseParams) {
+                    self.postMessage({ type: 'cellError', message: 'Worker not initialized (missing state/baseParams)', taskId });
+                    self.postMessage({ type: 'done', taskId });
+                    return;
+                }
+                runOneCell(cell, 'taskId', taskId);
                 self.postMessage({ type: 'done', taskId });
-                return;
+                break;
             }
-            runOneCell(cell, 'taskId', taskId);
-            self.postMessage({ type: 'done', taskId });
-            break;
-        }
 
-        default:
-            // Unknown message type; ignore.
-            break;
+            default:
+                break;
+        }
+    } catch (err) {
+        // Catch-all to guarantee the main thread is NEVER left hanging
+        const idField = (msg.batchId !== undefined) ? 'batchId' : 'taskId';
+        const idValue = msg[idField];
+        if (idValue !== undefined) {
+            self.postMessage({ type: 'cellError', message: `Fatal batch error: ${err.message || err}`, [idField]: idValue });
+            self.postMessage({ type: 'done', [idField]: idValue });
+        } else {
+            console.error("Fatal worker error without batch ID:", err);
+        }
     }
 };

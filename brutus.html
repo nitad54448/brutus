@@ -1571,24 +1571,35 @@ const setupWorker = () => {
             if (this.workers.length > 0) return; // idempotent
             for (let i = 0; i < this.size; i++) {
                 const w = new Worker('refinement-worker.js');
-                w.onmessage = (e) => this._onMessage(e);
+                w.activeBatches = new Set(); // Track pending batches on this worker
+                w.onmessage = (e) => this._onMessage(e, w);
                 w.onerror = (err) => {
-                    console.error(`Refinement worker ${i} error:`, err.message);
+                    console.error(`Refinement worker ${i} hard crash:`, err.message);
+                    // Prevent infinite hangs by resolving all batches assigned to this crashed worker
+                    for (const id of w.activeBatches) {
+                        const resolve = this.pendingResolvers.get(id);
+                        if (resolve) {
+                            this.pendingResolvers.delete(id);
+                            resolve();
+                        }
+                    }
+                    w.activeBatches.clear();
                 };
                 this.workers.push(w);
             }
         }
 
-        _onMessage(e) {
+        _onMessage(e, w) {
             const msg = e.data;
             if (!msg || !msg.type) return;
             if (msg.type === 'solution') {
-                // Solution messages arrive as they're found within a batch, before
-                // that batch's 'done' message. handleNewSolution dedups/sorts/updates UI.
                 handleNewSolution(msg.payload);
+            } else if (msg.type === 'cellError' || msg.type === 'batchError') {
+                // Point 2 Fix: Stop dropping error messages
+                console.warn(`[RefinementWorkerPool] Error in batch/task ${msg.batchId ?? msg.taskId}:`, msg.message);
             } else if (msg.type === 'done') {
-                // The worker may use batchId (new) or taskId (legacy). We try both.
                 const id = (msg.batchId !== undefined) ? msg.batchId : msg.taskId;
+                if (w && w.activeBatches) w.activeBatches.delete(id);
                 const resolve = this.pendingResolvers.get(id);
                 if (resolve) {
                     this.pendingResolvers.delete(id);
@@ -1657,6 +1668,7 @@ const setupWorker = () => {
                 });
                 const worker = this.workers[this.rrIndex];
                 this.rrIndex = (this.rrIndex + 1) % numWorkers;
+                worker.activeBatches.add(batchId);
                 worker.postMessage({ type: 'refineBatch', cells: slice, batchId });
                 promises.push(p);
             }
