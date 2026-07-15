@@ -105,16 +105,20 @@ const invert3x3 = (M) => {
     ];
 };
 
+
 const choleskyDecomposition = (matrix) => {
     const n = matrix.length;
-    const L = Array(n).fill(0).map(() => Array(n).fill(0));
+    // Fast procedural 2D array initialization (avoids .map/.fill closure overhead)
+    const L = new Array(n);
+    for (let i = 0; i < n; i++) {
+        L[i] = new Float64Array(n);
+    }
     for (let i = 0; i < n; i++) {
         for (let j = 0; j <= i; j++) {
             let sum = 0;
             for (let k = 0; k < j; k++) sum += L[i][k] * L[j][k];
             if (i === j) {
                 const val = matrix[i][i] - sum;
-                // !(val > 1e-12) catches NaN, <= 1e-12, and -Infinity
                 if (!(val > 1e-12) || !isFinite(val)) return null; 
                 L[i][j] = Math.sqrt(val);
             } else {
@@ -125,6 +129,23 @@ const choleskyDecomposition = (matrix) => {
     }
     return L;
 };
+
+const choleskyInvert = (L) => {
+    const n = L.length;
+    const inverse = new Array(n);
+    for (let i = 0; i < n; i++) {
+        inverse[i] = new Float64Array(n);
+    }
+    const b = new Float64Array(n);
+    for (let j = 0; j < n; j++) {
+        b.fill(0); 
+        b[j] = 1;
+        const invCol = choleskySolve(L, b);
+        for (let i = 0; i < n; i++) inverse[i][j] = invCol[i];
+    }
+    return inverse;
+};
+
 
 const metricFromReciprocalMetric = (G_star) => invert3x3(G_star);
 
@@ -431,17 +452,6 @@ const choleskySolve = (L, b) => {
         x[i] = (y[i] - sum) / L[i][i];
     }
     return x;
-};
-
-const choleskyInvert = (L) => {
-    const n = L.length;
-    const inverse = Array(n).fill(0).map(() => Array(n).fill(0));
-    for (let j = 0; j < n; j++) {
-        const b = Array(n).fill(0); b[j] = 1;
-        const invCol = choleskySolve(L, b);
-        for (let i = 0; i < n; i++) inverse[i][j] = invCol[i];
-    }
-    return inverse;
 };
 
 
@@ -1947,8 +1957,7 @@ function getReflectionZone(h, k, l) {
 // otherwise this standalone handler will override the batched refinement engine!
 // ============================================================================
 
-if (typeof self !== 'undefined' && typeof  WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) {
-
+if (typeof self !== 'undefined' && typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope && !self.IS_REFINEMENT_WORKER) {
     self.onmessage = function(e) {
         
         // --- 1. Get data from main thread ---

@@ -11,7 +11,6 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="worker-logic.js"></script>
     <script src="webgpu-engine.js"></script>
 
@@ -2247,6 +2246,14 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
             handleWavelengthPresetChange({ onLoad: true });
         }
         
+        if (tth_out.length > 1 && tth_out[0] > tth_out[tth_out.length - 1]) {
+            console.warn("Descending 2θ scan detected. Sorting ascending to prevent binary search failure...");
+            const combined = tth_out.map((t, i) => ({ t, int: int_out[i] })).sort((a, b) => a.t - b.t);
+            tth_out = combined.map(item => item.t);
+            int_out = combined.map(item => item.int);
+        }
+
+
         // Store full dataset
         fullExperimentalData = { tth: tth_out, intensity: int_out };
         updateWorkingData(); // This will apply stripping if needed
@@ -3779,13 +3786,11 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
         });
     };
     
+
     const updateSolutionsTable = () => {
-        ui.solutionsTableBody.innerHTML = '';
-        displayedSolutions.forEach((sol, index) => {
-           
-            if (!sol || !sol.system) return;
-           
-            const row = document.createElement('tr'); row.dataset.index = index; 
+        // Build the entire table markup in memory first
+        const rowsHtml = displayedSolutions.map((sol, index) => {
+            if (!sol || !sol.system) return '';
             let paramsCell = '', anglesCell = '';
             switch(sol.system) {
                 case 'cubic': paramsCell = `a = ${sol.a.toFixed(4)}`; anglesCell = `90, 90, 90`; break;
@@ -3793,7 +3798,6 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
                 case 'hexagonal': paramsCell = `a = ${sol.a.toFixed(4)}, c = ${sol.c.toFixed(4)}`; anglesCell = `90, 90, 120`; break;
                 case 'orthorhombic': paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; anglesCell = `90, 90, 90`; break;
                 case 'monoclinic': paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; anglesCell = `90, ${sol.beta.toFixed(3)}, 90`; break;
-                // depuis 5 nov 25
                 case 'triclinic': 
                     paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; 
                     anglesCell = `&alpha; = ${sol.alpha.toFixed(3)}<br>&beta; = ${sol.beta.toFixed(3)}<br>&gamma; = ${sol.gamma.toFixed(3)}`; 
@@ -3803,14 +3807,12 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
             if (sol.zero_correction) {
                 anglesCell += `<br><span style="font-size:0.9em; color: var(--text-dark);">(Z=${sol.zero_correction.toFixed(4)}°)</span>`;
             }
-
-
-            const vol = sol.volume ? sol.volume.toFixed(2) : '0.00';
-            const m20 = sol.m20 ? sol.m20.toFixed(2) : '0.00';
-
-            row.innerHTML = `<td>${sol.system.substring(0,4)}</td><td>${paramsCell}</td><td>${anglesCell}</td><td>${sol.volume.toFixed(2)}</td><td>${sol.m20.toFixed(2)}</td>`;
-            ui.solutionsTableBody.appendChild(row);
-        });
+            const isSelected = (selectedSolution === sol) ? ' class="selected"' : '';
+            return `<tr data-index="${index}"${isSelected}><td>${sol.system.substring(0,4)}</td><td>${paramsCell}</td><td>${anglesCell}</td><td>${sol.volume.toFixed(2)}</td><td>${sol.m20.toFixed(2)}</td></tr>`;
+        }).join('');
+        
+        // Single DOM write
+        ui.solutionsTableBody.innerHTML = rowsHtml;
         
         ui.solutionsTableHeaders.forEach(h => {
             h.classList.remove('sort-asc', 'sort-desc');
@@ -4242,10 +4244,12 @@ const generatePDFReport = async (singleSolution = null) => {
   	doc.setFont(FONT.LABEL, 'normal').text(`Data File:`, margin, yPos);
   	doc.setFont(FONT.DATA, 'normal').text(ui.fileName.textContent, margin + 25, yPos);
   	yPos += 10;
-            
-  	const canvas = await html2canvas(ui.chartCanvas, { backgroundColor: '#ffffff', scale: 2 });
-  	const imgData = canvas.toDataURL('image/png');
-  	const imgProps = doc.getImageProperties(imgData);
+      
+const imgData = xrdChart.toBase64Image('image/png', 1.0);      
+
+
+  	
+const imgProps = doc.getImageProperties(imgData);
   	// Fit the chart image within the remaining page area, preserving aspect ratio.
   	// Previously only width was constrained, which clipped tall canvases at the bottom.
   	const availableWidth = pdfWidth - 2 * margin;

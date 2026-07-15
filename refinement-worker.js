@@ -17,7 +17,7 @@
 //      state (mainly the worker's own foundSolutionMap).
 //
 // The worker imports worker-logic.js which defines refineAndTestSolution and friends.
-
+self.IS_REFINEMENT_WORKER = true;
 importScripts('worker-logic.js');
 
 // Per-worker state, initialised by the 'init' message

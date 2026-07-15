@@ -258,67 +258,85 @@ class WebGPUEngine {
         // Byte alignment for copyBufferToBuffer: WebGPU requires size to be a multiple of 4.
         // One cell is already a multiple of 4 bytes (4 or 8 f32s), so any count*structSize is safe.
 
-        for (let i = 0; i < totalChunks; i++) {
-            if (stopSignal.stop) break;
-            await new Promise(r => setTimeout(r, 0));
+try {
+            for (let i = 0; i < totalChunks; i++) {
+                if (stopSignal.stop) break;
+                await new Promise(r => setTimeout(r, 0));
 
-            configViewU32[0] = i * hklsPerChunk;
-            this.device.queue.writeBuffer(configBuffer, 0, configData);
+                configViewU32[0] = i * hklsPerChunk;
+                this.device.queue.writeBuffer(configBuffer, 0, configData);
 
-            const commandEncoder = this.device.createCommandEncoder();
-            const passEncoder = commandEncoder.beginComputePass();
-            passEncoder.setPipeline(this.pipeline);
-            passEncoder.setBindGroup(0, bindGroup);
-            passEncoder.dispatchWorkgroups(workgroupsX, safeWorkgroupsY, 1);
-            passEncoder.end();
+                const commandEncoder = this.device.createCommandEncoder();
+                const passEncoder = commandEncoder.beginComputePass();
+                passEncoder.setPipeline(this.pipeline);
+                passEncoder.setBindGroup(0, bindGroup);
+                passEncoder.dispatchWorkgroups(workgroupsX, safeWorkgroupsY, 1);
+                passEncoder.end();
 
-            // Copy only the counter this chunk. We will decide how many result bytes to
-            // copy once we know the counter value.
-            commandEncoder.copyBufferToBuffer(counterBuffer, 0, counterReadBuffer, 0, 4);
-            this.device.queue.submit([commandEncoder.finish()]);
-            await this.device.queue.onSubmittedWorkDone();
-
-            await counterReadBuffer.mapAsync(GPUMapMode.READ);
-            const numSolutions = new Uint32Array(counterReadBuffer.getMappedRange())[0];
-            counterReadBuffer.unmap();
-
-            // SMART BUFFER COPY: only copy back the cells that were actually written.
-            // Previously the engine copied resultsBuffer.size bytes every chunk, which
-            // means copying the entire (possibly 50k-cell) staging buffer even when only
-            // a handful of new cells landed. Now we copy ceil to (countToRead * structSize).
-            if (numSolutions > solutionsReadCount) {
-                const countToRead = Math.min(numSolutions, maxSolutions);
-                const bytesToCopy = countToRead * solutionStructSize;
-
-                const copyEncoder = this.device.createCommandEncoder();
-                copyEncoder.copyBufferToBuffer(resultsBuffer, 0, resultsReadBuffer, 0, bytesToCopy);
-                this.device.queue.submit([copyEncoder.finish()]);
+                // Copy only the counter this chunk. We will decide how many result bytes to
+                // copy once we know the counter value.
+                commandEncoder.copyBufferToBuffer(counterBuffer, 0, counterReadBuffer, 0, 4);
+                this.device.queue.submit([commandEncoder.finish()]);
                 await this.device.queue.onSubmittedWorkDone();
 
-                await resultsReadBuffer.mapAsync(GPUMapMode.READ, 0, bytesToCopy);
-                const rawResults = new Float32Array(resultsReadBuffer.getMappedRange(0, bytesToCopy));
-                const newBatch = [];
+                // Safely map counter buffer (catching aborts if device is lost or stopped)
+                try {
+                    await counterReadBuffer.mapAsync(GPUMapMode.READ);
+                } catch (err) {
+                    console.warn("GPU mapAsync aborted (counter):", err.message);
+                    stoppedEarly = true;
+                    break;
+                }
 
-                for (let k = solutionsReadCount; k < countToRead; k++) {
-    const cellObj = cfg.parseCell(rawResults, k * cfg.structFloats);
-    // Fast pre-filter: only keep cells with physically reasonable unit cell dimensions (2.0 Å to 50.0 Å)
-    if (cellObj && cellObj.a >= 2.0 && cellObj.a <= 50.0) {
-        newBatch.push(cellObj);
-    }
-}
-               
-                resultsReadBuffer.unmap();
-                solutionsReadCount = countToRead;
-                if (onIntermediateResults && newBatch.length > 0) onIntermediateResults(newBatch);
+                const numSolutions = new Uint32Array(counterReadBuffer.getMappedRange())[0];
+                counterReadBuffer.unmap();
+
+                // SMART BUFFER COPY: only copy back the cells that were actually written.
+                // Previously the engine copied resultsBuffer.size bytes every chunk, which
+                // means copying the entire (possibly 50k-cell) staging buffer even when only
+                // a handful of new cells landed. Now we copy ceil to (countToRead * structSize).
+                if (numSolutions > solutionsReadCount) {
+                    const countToRead = Math.min(numSolutions, maxSolutions);
+                    const bytesToCopy = countToRead * solutionStructSize;
+
+                    const copyEncoder = this.device.createCommandEncoder();
+                    copyEncoder.copyBufferToBuffer(resultsBuffer, 0, resultsReadBuffer, 0, bytesToCopy);
+                    this.device.queue.submit([copyEncoder.finish()]);
+                    await this.device.queue.onSubmittedWorkDone();
+
+                    try {
+                        await resultsReadBuffer.mapAsync(GPUMapMode.READ, 0, bytesToCopy);
+                    } catch (err) {
+                        console.warn("GPU mapAsync aborted (results):", err.message);
+                        stoppedEarly = true;
+                        break;
+                    }
+
+                    const rawResults = new Float32Array(resultsReadBuffer.getMappedRange(0, bytesToCopy));
+                    const newBatch = [];
+
+                    for (let k = solutionsReadCount; k < countToRead; k++) {
+                        const cellObj = cfg.parseCell(rawResults, k * cfg.structFloats);
+                        // Fast pre-filter: only keep cells with physically reasonable unit cell dimensions (2.0 Å to 50.0 Å)
+                        if (cellObj && cellObj.a >= 2.0 && cellObj.a <= 50.0) {
+                            newBatch.push(cellObj);
+                        }
+                    }
+
+                    resultsReadBuffer.unmap();
+                    solutionsReadCount = countToRead;
+                    if (onIntermediateResults && newBatch.length > 0) onIntermediateResults(newBatch);
+                }
+
+                if (numSolutions >= maxSolutions) { stoppedEarly = true; break; }
+                if (progressCallback) progressCallback((i + 1) / totalChunks, numSolutions);
             }
-
-            if (numSolutions >= maxSolutions) { stoppedEarly = true; break; }
-            if (progressCallback) progressCallback((i + 1) / totalChunks, numSolutions);
+        } finally {
+            // Guaranteed cleanup: prevents VRAM leaks even if an error or abort occurs above
+            qObsBuffer.destroy(); hklBasisBuffer.destroy(); peakCombosBuffer.destroy(); binomialBuffer.destroy();
+            counterBuffer.destroy(); resultsBuffer.destroy(); counterReadBuffer.destroy(); resultsReadBuffer.destroy();
+            configBuffer.destroy(); debugCounterBuffer.destroy(); debugLogBuffer.destroy(); qTolerancesBuffer.destroy();
         }
-
-        qObsBuffer.destroy(); hklBasisBuffer.destroy(); peakCombosBuffer.destroy(); binomialBuffer.destroy();
-        counterBuffer.destroy(); resultsBuffer.destroy(); counterReadBuffer.destroy(); resultsReadBuffer.destroy();
-        configBuffer.destroy(); debugCounterBuffer.destroy(); debugLogBuffer.destroy(); qTolerancesBuffer.destroy();
 
         return { potentialCells: [], stoppedEarly };
     }
