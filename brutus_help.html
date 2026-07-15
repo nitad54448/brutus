@@ -1079,9 +1079,10 @@
                     maximum observed $2\theta$, applying Friedel's law to keep only symmetry-unique $(hkl)$ indices
                     (e.g. $l > 0$, or $l=0,\,k > 0$, or $l=k=0,\,h > 0$ for triclinic).
                 </li>
+
                 <li>
-                    <strong>Index observed peaks.</strong>
-                    All peaks in the curated list are matched against the theoretical pattern using the Q-space tolerance.
+                    <strong>Index observed peaks (1.5× Tolerance Relaxation).</strong>
+                    All peaks in the curated list are matched against the theoretical pattern. During space group analysis—and when generating the final PDF report table—Brutus applies a <strong>1.5× safety multiplier</strong> to your stated <code>2θ Error</code> window. For example, an input tolerance of 0.04° opens an effective 0.06° matching window. This relaxation prevents slight sample zero-shifts or high-angle refinement drift from rejecting valid reflections, which would otherwise trigger false systematic absences and disqualify the correct space group.
                 </li>
                 <li>
                     <strong>Build a high-confidence subset.</strong>
@@ -1130,7 +1131,7 @@
                 <li>
                     <strong>Ambiguous peaks (in italics in the PDF report):</strong>
                     Peaks excluded from extinction analysis due to potential overlap are printed in italics to
-                    distinguish them from the high-confidence subset.
+                    distinguish them from the high-confidence subset. A * is also added to the respective line.
                 </li>
                 <li>
                     <strong>Soft-violation warnings:</strong>

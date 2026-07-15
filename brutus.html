@@ -4775,8 +4775,7 @@ const generatePDFReport = async (singleSolution = null) => {
     
     
     	 	doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.TABLE_HEADER);
-const tableHeader = ' h  k  l| 2th_exp 2theta 2th_calc |   d_corr    d_calc  | diff(2th)';
-
+            const tableHeader = ' h  k  l| 2th_exp 2th_cor 2th_cal diff(2t)|   d_corr   d_calc  diff(d)';
     	 	doc.text(tableHeader, margin, yPos); yPos += 4;
       	 
     // Use the cached list from the analysis, or recalculate if it's missing
@@ -4821,29 +4820,47 @@ const hklList = sol.analysis?.hklList || generateHKL_for_analysis(sol, lambda, t
       	 	reportLines.sort((a, b) => a.tth_calc - b.tth_calc);
       	 	
       	 	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
-      	 	reportLines.forEach(line => {
-        	 	 if (yPos > 285) { doc.addPage(); yPos = 20; doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.TABLE_HEADER); doc.text(tableHeader, margin, yPos); yPos += 4; doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); }
-          	 	 
-          	 	 const hkl_key = `${line.h},${line.k},${line.l}`;
-          	 	 if (ambiguousHkls.has(hkl_key)) {
-            	 	 	 doc.setFont(FONT.DATA, 'italic');
-          	 	 }
-    
-          	 	 const lambdaForD = (line.hasKa2Child && lambdaKa1) ? lambdaKa1 : lambda;
-          	 	 const d_corr = line.tth_corr ? lambdaForD / (2 * Math.sin(line.tth_corr * Math.PI / 360)) : null;
-          
-                    const tth_m = line.tth_meas ? line.tth_meas.toFixed(3) : '-'; 
-                    const tth_c = line.tth_corr ? line.tth_corr.toFixed(3) : '-'; 
-                    const d_c_str = d_corr ? d_corr.toFixed(5) : '-'; 
-                    const diff_2t = line.tth_corr ? (line.tth_corr - line.tth_calc).toFixed(3) : '-';        
+      	 
 
-          	 	 const _marker = line.hasKa2Child ? '*' : ' '; const hkl_str = `${String(line.h).padStart(2)} ${String(line.k).padStart(2)} ${String(line.l).padStart(2)}${_marker}`.padEnd(8);
-          	 	 const pdfLine = `${hkl_str}| ${tth_m.padStart(7)} ${tth_c.padStart(7)} ${line.tth_calc.toFixed(3).padStart(7)} | ${d_c_str.padStart(9)} ${line.d_calc.toFixed(5).padStart(9)} | ${diff_2t.padStart(8)}`;
-          	 	 doc.text(pdfLine, margin, yPos);
-          	 	 
-          	 	 doc.setFont(FONT.DATA, 'normal'); // Reset font to normal for the next line
-          	 	 yPos += 3.5;
-      	 	});
+
+    reportLines.forEach(line => {
+    if (yPos > 285) { doc.addPage(); yPos = 20; doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.TABLE_HEADER); doc.text(tableHeader, margin, yPos); yPos += 4; doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); }
+    
+    const hkl_key = `${line.h},${line.k},${line.l}`;
+    const isAmbiguous = ambiguousHkls.has(hkl_key);
+    if (isAmbiguous) {
+        doc.setFont(FONT.DATA, 'italic');
+    }
+
+    const lambdaForD = (line.hasKa2Child && lambdaKa1) ? lambdaKa1 : lambda;
+    const d_corr = line.tth_corr ? lambdaForD / (2 * Math.sin(line.tth_corr * Math.PI / 360)) : null;
+
+    const tth_m = line.tth_meas ? line.tth_meas.toFixed(3) : '-'; 
+    const tth_c = line.tth_corr ? line.tth_corr.toFixed(3) : '-'; 
+    const diff_2t = line.tth_corr ? (line.tth_corr - line.tth_calc).toFixed(3) : '-'; 
+
+    const d_c_str = d_corr ? d_corr.toFixed(5) : '-'; 
+    const diff_d = d_corr ? (d_corr - line.d_calc).toFixed(5) : '-';
+
+    const _marker = line.hasKa2Child ? '*' : ' '; 
+    const hkl_str = `${String(line.h).padStart(2)} ${String(line.k).padStart(2)} ${String(line.l).padStart(2)}${_marker}`.padEnd(8);
+    
+    // Build the line (using let so we can append to it)
+    let pdfLine = `${hkl_str}| ${tth_m.padStart(7)} ${tth_c.padStart(7)} ${line.tth_calc.toFixed(3).padStart(7)} ${diff_2t.padStart(8)}| ${d_c_str.padStart(8)} ${line.d_calc.toFixed(5).padStart(8)} ${diff_d.padStart(8)}`;
+    
+    // Append star at the end if uncertain
+    if (isAmbiguous) {
+        pdfLine += ' *';
+    }
+
+    doc.text(pdfLine, margin, yPos);
+    
+    doc.setFont(FONT.DATA, 'normal'); // Reset font to normal for the next line
+    yPos += 3.5;
+});
+
+
+
 
             // Footnote about Ka2-marked rows
             if (reportLines.some(l => l.hasKa2Child)) {
@@ -4876,7 +4893,7 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 14 July 2026</div>
+<div id="app-footer">Brutus, 15 July 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-report">Generate Report</div>
