@@ -52,15 +52,10 @@ def get_condition_string(present_values, axis_name):
 
 def check_zonal_from_points(present_tuples, idx1, idx2):
     """
-    Deduces zonal condition (h+k=4n, 2h+l=4n, etc) from a list of tuple indices.
-    Priority:
-    1. Complex/Diamond Glides (4n) - Specific sums involving coefficients
-    2. Standard Glides (4n) - Simple sums/diffs
-    3. Axial Restrictions (2n) - h=2n must be checked BEFORE h+k=2n
-    4. Centering Sums (2n/3n) - Weakest conditions
+    Deduces zonal conditions, returning a list of all coexisting independent rules.
     """
     if not present_tuples: 
-        return None
+        return []
     
     names = {0: 'h', 1: 'k', 2: 'l'}
     n1, n2 = names[idx1], names[idx2]
@@ -70,47 +65,47 @@ def check_zonal_from_points(present_tuples, idx1, idx2):
     sums = [p[idx1] + p[idx2] for p in present_tuples]
     diffs = [p[idx1] - p[idx2] for p in present_tuples]
     
-    # --- 1. PRIORITY: Diamond/Complex Glides (4n) ---
-    # These are very specific to space groups like I-43d or Fd-3m (0kl)
-    combo_2v1_plus_v2 = [2*p[idx1] + p[idx2] for p in present_tuples]
-    combo_2v1_minus_v2 = [2*p[idx1] - p[idx2] for p in present_tuples]
-    combo_v1_plus_2v2 = [p[idx1] + 2*p[idx2] for p in present_tuples]
+    rules = []
     
-
-    if all(c % 4 == 0 for c in combo_2v1_plus_v2): 
-        return f"2{n1}+{n2}=4n"
-    if all(c % 4 == 0 for c in combo_2v1_minus_v2): 
-        return f"2{n1}-{n2}=4n"
-    if all(c % 4 == 0 for c in combo_v1_plus_2v2): 
-        return f"{n1}+2{n2}=4n"
+    # --- 1. PRIORITY: Diamond/Complex Glides (4n) ---
+    # Use elif and explicit '*' so only the primary rule is kept and eval() remains safe
+    if all((2*p[idx1] + p[idx2]) % 4 == 0 for p in present_tuples): 
+        rules.append(f"2*{n1}+{n2}=4n")
+    elif all((2*p[idx1] - p[idx2]) % 4 == 0 for p in present_tuples): 
+        rules.append(f"2*{n1}-{n2}=4n")
+    elif all((p[idx1] + 2*p[idx2]) % 4 == 0 for p in present_tuples): 
+        rules.append(f"{n1}+2*{n2}=4n")
 
     # --- 2. PRIORITY: Standard Glide Sums (4n) ---
-    # Check this before Axial 2n. 
-    # Example: Fd-3m 0kl requires k+l=4n.
+    has_4n_sum = False
     if all(s % 4 == 0 for s in sums): 
-        return f"{n1}+{n2}=4n"
-    if all(d % 4 == 0 for d in diffs): 
-        return f"{n1}-{n2}=4n"
+        rules.append(f"{n1}+{n2}=4n")
+        has_4n_sum = True
+    elif all(d % 4 == 0 for d in diffs):  # Changed to elif to prevent redundant k-l=4n
+        rules.append(f"{n1}-{n2}=4n")
 
     # --- 3. PRIORITY: Axial Conditions (2n) ---
-
-    if all(v % 2 == 0 for v in v1): 
-        return f"{n1}=2n"
-    if all(v % 2 == 0 for v in v2): 
-        return f"{n2}=2n"
+    has_n1_2n = all(v % 2 == 0 for v in v1)
+    has_n2_2n = all(v % 2 == 0 for v in v2)
+    
+    if has_n1_2n: 
+        rules.append(f"{n1}=2n")
+    if has_n2_2n: 
+        rules.append(f"{n2}=2n")
 
     # --- 4. PRIORITY: Weak Centering Sums (3n, 2n) ---
     if all(s % 3 == 0 for s in sums): 
-        return f"{n1}+{n2}=3n"
-    if all(d % 3 == 0 for d in diffs): 
-        return f"{n1}-{n2}=3n"
+        rules.append(f"{n1}+{n2}=3n")
+    elif all(d % 3 == 0 for d in diffs): 
+        rules.append(f"{n1}-{n2}=3n")
 
-    if all(s % 2 == 0 for s in sums): 
-        return f"{n1}+{n2}=2n"
-    if all(d % 2 == 0 for d in diffs): 
-        return f"{n1}-{n2}=2n"
-    
-    return None
+    if not (has_4n_sum or (has_n1_2n and has_n2_2n)):
+        if all(s % 2 == 0 for s in sums): 
+            rules.append(f"{n1}+{n2}=2n")
+        elif all(d % 2 == 0 for d in diffs): 
+            rules.append(f"{n1}-{n2}=2n")
+            
+    return rules
 
 def is_redundant(specific_rule, general_rules, axes_indices):
     """Checks if a specific rule is already covered by general HKL rules."""
@@ -149,6 +144,7 @@ def is_redundant(specific_rule, general_rules, axes_indices):
     if not valid_points_under_general:
         return False
 
+
     if len(active_axes) == 1 and not is_diagonal:
         idx_map = {'h': 0, 'k': 1, 'l': 2}
         axis_char = active_axes[0]
@@ -159,7 +155,10 @@ def is_redundant(specific_rule, general_rules, axes_indices):
         idx_map = {'h': 0, 'k': 1, 'l': 2}
         idx1 = 0 if is_diagonal else idx_map[active_axes[0]]
         idx2 = 2 if is_diagonal else idx_map[active_axes[1]]
-        return check_zonal_from_points(valid_points_under_general, idx1, idx2) == specific_rule
+        # CHANGED: Check membership in the returned list instead of direct string equality
+        return specific_rule in check_zonal_from_points(valid_points_under_general, idx1, idx2)
+
+
 
 def analyze_systematic_absences(space_group_info):
     sg = space_group_info.group()
@@ -197,7 +196,6 @@ def analyze_systematic_absences(space_group_info):
         ('0kl', {'h': 0, 'k': None, 'l': None}, 1, 2),
         ('h0l', {'h': None, 'k': 0, 'l': None}, 0, 2),
         ('hk0', {'h': None, 'k': None, 'l': 0}, 0, 1),
-        # Detect conditions on the diagonal (e.g., I-43d)
         ('hhl', {'h': None, 'k': None, 'l': None, 'diagonal': True}, 0, 2)
     ]
     
@@ -217,10 +215,14 @@ def analyze_systematic_absences(space_group_info):
                 if not sg.is_sys_absent(tuple(hkl)):
                     points.append(tuple(hkl))
         
-        rule = check_zonal_from_points(points, idx1, idx2)
-        if rule:
-            if not is_redundant(rule, hkl_rules, axes_map):
-                conditions[zone_name] = [rule]
+        # CHANGED: Process the returned list and filter redundancies individually
+        rules = check_zonal_from_points(points, idx1, idx2)
+        if rules:
+            valid_rules = [r for r in rules if not is_redundant(r, hkl_rules, axes_map)]
+            if valid_rules:
+                conditions[zone_name] = valid_rules
+
+
 
     # --- 3. Axial Conditions ---
     axes_defs = [
