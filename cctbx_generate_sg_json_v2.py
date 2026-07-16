@@ -76,13 +76,13 @@ def check_zonal_from_points(present_tuples, idx1, idx2):
     combo_2v1_minus_v2 = [2*p[idx1] - p[idx2] for p in present_tuples]
     combo_v1_plus_2v2 = [p[idx1] + 2*p[idx2] for p in present_tuples]
     
-    if all(c % 4 == 0 for c in combo_2v1_plus_v2): 
-        return f"2*{n1}+{n2}=4n"
-    if all(c % 4 == 0 for c in combo_2v1_minus_v2): 
-        return f"2*{n1}-{n2}=4n"
-    if all(c % 4 == 0 for c in combo_v1_plus_2v2): 
-        return f"{n1}+2*{n2}=4n"
 
+    if all(c % 4 == 0 for c in combo_2v1_plus_v2): 
+        return f"2{n1}+{n2}=4n"
+    if all(c % 4 == 0 for c in combo_2v1_minus_v2): 
+        return f"2{n1}-{n2}=4n"
+    if all(c % 4 == 0 for c in combo_v1_plus_2v2): 
+        return f"{n1}+2{n2}=4n"
 
     # --- 2. PRIORITY: Standard Glide Sums (4n) ---
     # Check this before Axial 2n. 
