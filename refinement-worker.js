@@ -55,6 +55,12 @@ self.onmessage = (e) => {
         switch (msg.type) {
             case 'init': {
                 baseParams = msg.baseParams;
+                // Clear per-worker state on init. Without this, a second 'init'
+                // (a new run that doesn't send 'reset' first) would keep the old
+                // foundSolutions/foundSolutionMap, leaking stale solutions into the
+                // new run and growing the dedup map unbounded across runs.
+                foundSolutions = [];
+                foundSolutionMap = new Map();
                 state = {
                     q_obs: msg.q_obs,
                     original_indices: msg.original_indices,

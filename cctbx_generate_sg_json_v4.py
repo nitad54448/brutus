@@ -1,9 +1,19 @@
-# gemini_cctbx_generate_sg_json_v2.py
-# 18 Jan 2026 - Fixed cctbx symbol recognition errors
+# cctbx_generate_sg_json_v4.py
+# 17 Jul 2026 - Rule-string ordering fix for the JS (brutus) parser
 #
-# Changes from previous version:
-# 1. Fixed "Space group symbol not recognized" error by adding "Hall:" prefix.
-# 2. Preserves strict logic for d-glides (4n) and hhl zones.
+# Changes from v3 (18 Jan 2026):
+# 1. Diagonal glide rules now always emit the DOUBLED term first
+#    ("2*l+h=4n" instead of "h+2*l=4n"). Algebraically identical, but the
+#    worker's expression regex silently truncated a trailing coefficient
+#    (parsing "h+2*l=4n" as "2l"), which corrupted violation counts and
+#    space-group ranking for any setting hitting that branch.
+# 2. Removed the redundant axial rule ("l=2n"/"h=2n") that was appended
+#    alongside a diagonal 4n rule. Only the axis actually forced even by the
+#    4n rule is suppressed; an independently all-even other axis is still kept.
+#
+# Changes from v2 (retained):
+# - Fixed "Space group symbol not recognized" via the "Hall:" prefix.
+# - Strict logic for d-glides (4n) and hhl zones.
 
 import json
 from collections import OrderedDict, defaultdict
@@ -68,13 +78,23 @@ def check_zonal_from_points(present_tuples, idx1, idx2):
     rules = []
     
     # --- 1. PRIORITY: Diamond/Complex Glides (4n) ---
-    # Use elif and explicit '*' so only the primary rule is kept and eval() remains safe
+    # Use elif and explicit '*' so only the primary rule is kept and eval() remains safe.
+    # NOTE: the doubled term is always emitted FIRST (coefficient-leading) so the
+    # downstream JS parser's expression regex captures the whole left-hand side.
+    # A trailing-coefficient form like "h+2*l=4n" is silently truncated to "2l" there,
+    # so "2*l+h=4n" is emitted instead (algebraically identical).
+    # diag_forced_axis records which single axis the 4n rule forces to be even
+    # (2*x+y=4n forces y even, not x); used below to drop only the redundant axial rule.
+    diag_forced_axis = None
     if all((2*p[idx1] + p[idx2]) % 4 == 0 for p in present_tuples): 
         rules.append(f"2*{n1}+{n2}=4n")
+        diag_forced_axis = n2
     elif all((2*p[idx1] - p[idx2]) % 4 == 0 for p in present_tuples): 
         rules.append(f"2*{n1}-{n2}=4n")
+        diag_forced_axis = n2
     elif all((p[idx1] + 2*p[idx2]) % 4 == 0 for p in present_tuples): 
-        rules.append(f"{n1}+2*{n2}=4n")
+        rules.append(f"2*{n2}+{n1}=4n")   # doubled term first (was "{n1}+2*{n2}=4n")
+        diag_forced_axis = n1
 
     # --- 2. PRIORITY: Standard Glide Sums (4n) ---
     has_4n_sum = False
@@ -88,9 +108,13 @@ def check_zonal_from_points(present_tuples, idx1, idx2):
     has_n1_2n = all(v % 2 == 0 for v in v1)
     has_n2_2n = all(v % 2 == 0 for v in v2)
     
-    if has_n1_2n: 
+    # Drop the axial rule that is already implied by a diagonal 4n rule
+    # (e.g. "2*h+l=4n" forces l even, so "l=2n" is redundant). Only the axis
+    # actually constrained by the 4n rule is suppressed; the other axis, if
+    # independently all-even, is still reported.
+    if has_n1_2n and diag_forced_axis != n1: 
         rules.append(f"{n1}=2n")
-    if has_n2_2n: 
+    if has_n2_2n and diag_forced_axis != n2: 
         rules.append(f"{n2}=2n")
 
     # --- 4. PRIORITY: Weak Centering Sums (3n, 2n) ---
