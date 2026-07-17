@@ -723,6 +723,25 @@ const get_hkl_search_list = (system) => {
                 }
             }
         }
+        // Deep axial reflections (h00)/(0k0)/(00l) beyond the general grid depth.
+        // buildHklBasis (splitSpecial=true for monoclinic) front-loads all axial
+        // HKLs, so these survive truncation to N_hkl and let the search index a
+        // low-angle peak coming from a single long/"strange" axis whose diagnostic
+        // axial order exceeds max_mono (=6). Depth 12 matches the orthorhombic grid
+        // and triples the previous reach; cost is ~3 reflections per extra order and
+        // the combinatorial count C(N_hkl,4) is unchanged (N_hkl is fixed), so these
+        // only displace the highest-magnitude tail regulars, never the low-magnitude
+        // mixed reflections that carry beta (the D=hl term). (Note: a trial made of
+        // four pure axials is rank-deficient in D and is cheaply rejected by the
+        // shader's near-zero-determinant filter; this stays a small fraction, ~1.5%
+        // of combinations at N_hkl=100.) l>0 only, matching the (h===0 && l<0)
+        // exclusion above; no overlap with the grid since n starts at max_h+1.
+        const max_axial_mono = 12;
+        for (let n = max_h + 1; n <= max_axial_mono; n++) {
+            hkls.push([n, 0, 0]);
+            hkls.push([0, n, 0]);
+            hkls.push([0, 0, n]);
+        }
     } else if (system === 'triclinic') {
         for (let h = -max_tri; h <= max_tri; h++) for (let k = -max_tri; k <= max_tri; k++) for (let l = 0; l <= max_tri; l++) {
             if (h === 0 && k === 0 && l === 0) continue; if (l === 0 && k < 0) continue; if (l === 0 && k === 0 && h <= 0) continue; hkls.push([h, k, l]);

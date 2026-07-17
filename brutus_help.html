@@ -404,10 +404,14 @@
                 <li>
                     <strong>HKL Basis Size ($N_{hkl}$):</strong>
                     Defines the size of the pool of theoretical Miller index triplets (HKLs) used to construct trial matrices.
-                    Brutus generates a list of simple HKLs (e.g. 100, 011, 112), sorted by $h^2+k^2+l^2$, and takes the first
-                    $N_{hkl}$ of them. Increasing this allows finding cells with larger unit-cell edges or complex centering,
-                    but increases the number of HKL combinations factorially.
-                    <br><em>Defaults: 300 (Ortho), 100 (Mono), 40 (Tri).</em>
+                    Brutus generates a candidate list of simple HKLs and sorts it by $h^2+k^2+l^2$. For
+                    <strong>orthorhombic and monoclinic</strong> the list is then re-ordered so that all <em>axial</em>
+                    reflections — (h00), (0k0), (00l), i.e. two indices zero — are moved to the front before the list is
+                    truncated to $N_{hkl}$ (see <a href="#indexing-method">Axial front-loading</a> below for why). For
+                    <strong>triclinic</strong> no re-ordering is applied; the first $N_{hkl}$ by magnitude are taken directly.
+                    Increasing $N_{hkl}$ allows finding cells with larger unit-cell edges or complex centering, but increases
+                    the number of HKL combinations factorially.
+                    <br><em>Defaults: 300 (Ortho), 100 (Mono), 40 (Tri). Per-system hard ceilings (u32 limit): 2954 / 568 / 123.</em>
                 </li>
                 <li>
                     <strong>Peaks to Combine ($N_{peaks}$):</strong>
@@ -666,6 +670,42 @@
                 These numbers can grow very rapidly. For example, increasing the Monoclinic $N_{hkl}$ from 100 to 150
                 multiplies the HKL combinations by roughly $(150/100)^4 \approx 5\times$, and increasing $N_{peaks}$
                 from 7 to 9 multiplies the peak combinations by $C(9,4)/C(7,4) = 126/35 \approx 3.6\times$.
+            </p>
+
+            <h4>Axial Front-Loading (finding "strange" axis ratios)</h4>
+            <p>
+                The HKL basis is sorted by index magnitude $h^2+k^2+l^2$, but that magnitude is only a proxy for a
+                reflection's actual $Q$ when the cell is roughly isotropic. For a cell with one very long (or very short)
+                axis, the reflection that indexes a given low-angle peak can be a high-order <em>axial</em> reflection —
+                e.g. a long $c$ axis makes $(0\,0\,l)$ with large $l$ appear at low angle. Under a pure magnitude sort such
+                a reflection sits far down the list and is discarded when the basis is truncated to $N_{hkl}$, so the cell
+                cannot be found.
+            </p>
+            <p>
+                To prevent this, for <strong>orthorhombic and monoclinic</strong> Brutus partitions the sorted list into
+                <em>axial</em> reflections (two of $h,k,l$ equal to zero) and everything else, and places all axials at the
+                front before truncation. This guarantees that the axis-defining reflections survive regardless of $N_{hkl}$,
+                giving the brute-force solver a chance to assign a high-order axial to a low-angle peak and so recover an
+                unusual axis ratio. Because $N_{hkl}$ (and therefore $C(N_{hkl},k)$) is fixed, front-loading changes only
+                <em>which</em> reflections are kept — it swaps the highest-magnitude tail reflections for the axials — and
+                does not increase the search cost.
+            </p>
+            <p>
+                The depth of the axial set matters. Orthorhombic generates reflections to index 12, so its axials already
+                reach $(0\,0\,12)$. Monoclinic's general grid only reaches index 6, which was too shallow for genuinely long
+                axes (a $c \approx 30\;\text{Å}$ axis needs $(0\,0\,l)$ well beyond $l=6$ to index its observable peaks), so
+                Brutus additionally injects deep axial reflections $(h00)/(0k0)/(00l)$ out to <strong>index 12</strong> for
+                monoclinic. These are cheap (three reflections per order) and are front-loaded like the rest; the only
+                overhead is that an all-axial 4-tuple is rank-deficient in the $D=hl$ (i.e. $\beta$) column and is discarded
+                by the near-zero-determinant filter — roughly $1.5\%$ of combinations at $N_{hkl}=100$.
+            </p>
+            <p>
+                <strong>Triclinic is deliberately excluded</strong> from front-loading. With $k=6$, the reciprocal angles
+                ($D=kl$, $E=hl$, $F=hk$) are carried <em>only</em> by mixed reflections, and the basis is small (default
+                $N_{hkl}=40$). Promoting axials there would crowd out the mixed reflections needed to determine the angles
+                and drive most trials singular, so triclinic keeps the plain magnitude ordering. The practical consequence
+                is that triclinic cells with one very long axis are intrinsically harder for this tool; raising $N_{hkl}$
+                (up to its ceiling of 123) is the available lever.
             </p>
 
             <h4>GPU Memory Management &amp; Safe Batching</h4>
