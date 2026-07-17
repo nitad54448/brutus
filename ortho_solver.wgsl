@@ -40,7 +40,7 @@ struct Config {
 const PI: f32 = 3.1415926535;
 const WORKGROUP_SIZE_Y: u32 = 8u;
 const MAX_DEBUG_CELLS: u32 = 10u;
-const MAX_FOM_PEAKS: u32 = 20u; 
+const MAX_FOM_PEAKS: u32 = 32u; // unified with mono/tri (errors[] is already array<f32,32>)
 
 // Orthorhombic Constants (K=3)
 const K_VALUE: u32 = 3u; 

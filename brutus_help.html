@@ -237,8 +237,10 @@
             </p>
             <ul>
                 <li><code>brutus.html</code> — the main application: UI, chart rendering (Chart.js), data file parsing, peak detection, space-group analysis, and PDF report generation.</li>
-                <li><code>worker-logic.js</code> — shared logic loaded both by the main thread (for CPU searches and post-processing) and as a Web Worker (for background CPU indexing). Contains all crystallographic mathematics: HKL generation, Q-calculation, least-squares solvers, figure-of-merit calculations, and the Niggli reduction.</li>
-                <li><code>webgpu-engine.js</code> — the GPU-accelerated brute-force search for orthorhombic, monoclinic, and triclinic systems.</li>
+                <li><code>worker-logic.js</code> — shared logic loaded three ways: directly on the main thread (for post-processing and helper maths), as a standalone Web Worker (for the background CPU indexing of cubic/tetragonal/hexagonal), and via <code>importScripts()</code> inside each refinement worker. Contains all crystallographic mathematics: HKL generation, Q-calculation, least-squares solvers, figure-of-merit calculations, error propagation, and the Niggli reduction. A guard (<code>self.IS_REFINEMENT_WORKER</code>) suppresses its standalone message handler when it is imported by a refinement worker.</li>
+                <li><code>refinement-worker.js</code> — a thin batch-refinement worker. GPU-found candidate cells are refined (full weighted least-squares, M(20), error propagation) not on the main thread but across a <strong>pool of these workers</strong>, sized to <code>hardwareConcurrency − 2</code> (minimum 1) to leave cores free for the UI and the GPU driver. Candidate cells are streamed to the pool in round-robin batches while the GPU search is still running, so refinement overlaps GPU execution.</li>
+                <li><code>webgpu-engine.js</code> — the GPU-accelerated brute-force search for orthorhombic, monoclinic, and triclinic systems. Manages the WebGPU device, buffers, dispatch chunking, and combinadic bookkeeping; loads the WGSL compute shaders below.</li>
+                <li><code>ortho_solver.wgsl</code>, <code>monoclinic_solver.wgsl</code>, <code>triclinic_solver.wgsl</code> — the WGSL compute kernels. Each unranks HKL combinations on the fly from a u32 combinadic (combinatorial-number-system) index, solves the per-trial linear system (3×3, 4×4, or 6×6), applies the geometric and figure-of-merit filters, and atomically appends surviving cells to the results buffer.</li>
             </ul>
         </section>
 
@@ -419,11 +421,12 @@
                 <li>
                     <strong>FoM Tolerance:</strong>
                     The "Fail-Fast" threshold for the GPU's internal pre-filter. On the GPU, after solving a trial cell,
-                    an average absolute deviation of $Q$ is computed over the first $\max(N_{peaks}, 10)$ observed peaks.
-                    If this deviation exceeds <code>FoM Tolerance × (user 2θ Error converted to ΔQ)</code>, the cell is
-                    discarded before being sent to the CPU. A value of 1.0 means the trial must match exactly within your
-                    stated error; a larger value (e.g. 3) is more permissive and will pass more candidates (including
-                    valid ones with large zero-shifts) to CPU refinement.
+                    the mean normalised $Q$ residual is computed over the first $\min(\max(N_{peaks}, 10),\, 32)$ observed
+                    peaks (the upper limit is the shader's <code>MAX_FOM_PEAKS = 32</code>). If this exceeds
+                    <code>FoM Tolerance</code> (each residual already divided by that peak's Q tolerance, itself derived from
+                    the user's 2θ Error), the cell is discarded before being sent to the CPU. A value of 1.0 means the trial
+                    must match on average to within your stated error; a larger value (e.g. 3) is more permissive and will
+                    pass more candidates (including valid ones with large zero-shifts) to CPU refinement.
                     <br><em>Default: 3.</em>
                 </li>
                 <li>
@@ -672,15 +675,34 @@
             </p>
             <ol>
                 <li>
-                    <strong>Hardware Limit (VRAM):</strong>
-                    The program detects your GPU's available memory. On mobile devices or laptops with integrated graphics,
-                    the batch size is automatically reduced to fit within the available VRAM.
+                    <strong>Dispatch chunking (thread budget):</strong>
+                    The HKL-combination dimension is split into chunks so that no single GPU dispatch launches more than
+                    a fixed per-system thread budget: <strong>500,000</strong> trials/dispatch for Orthorhombic and Monoclinic,
+                    and a tighter <strong>50,000</strong> for Triclinic (whose 6×6 solve and 720-permutation inner loop make
+                    each thread far heavier). The engine computes
+                    <code>hklsPerChunk = safeWorkgroupsY × workgroupSizeY</code>, iterates the full search as
+                    <code>ceil(totalHklCombos / hklsPerChunk)</code> sequential dispatches, and yields to the event loop
+                    (<code>setTimeout(0)</code>) between chunks so the browser tab stays responsive.
+                </li>
+                <li>
+                    <strong>WebGPU dimension ceiling:</strong>
+                    A compute dispatch may request at most 65,535 workgroups per dimension; Brutus additionally clamps the
+                    Y (HKL) dimension to <code>16,383</code> workgroups per dispatch as a conservative cross-driver limit.
+                    This bound, combined with the thread budget above, is what fixes the chunk size — not a memory heuristic.
                 </li>
                 <li>
                     <strong>Time Limit (TDR Prevention):</strong>
-                    On Windows, if a GPU computation takes longer than ~2 seconds, the OS assumes the driver has frozen
-                    and resets it (<code>DXGI_ERROR_DEVICE_HUNG</code>). Brutus enforces a strict "Speed Limit" per batch
-                    (e.g. max 100,000 trials per GPU dispatch for Triclinic) to keep the GPU responsive.
+                    On Windows, if a single GPU dispatch takes longer than ~2 seconds, the OS assumes the driver has frozen
+                    and resets it (<code>DXGI_ERROR_DEVICE_HUNG</code>). The smaller Triclinic thread budget exists
+                    specifically to keep each dispatch well under this watchdog timeout.
+                </li>
+                <li>
+                    <strong>Buffer sizing:</strong>
+                    At device-request time Brutus asks the adapter for its maximum <code>maxBufferSize</code> and
+                    <code>maxStorageBufferBindingSize</code>. The results buffer is then sized to
+                    <code>Buffer/Candidate (kCells) × cell-struct-size</code> (32 bytes/cell for Triclinic, 16 for the others).
+                    All GPU buffers are explicitly destroyed after each run (in a <code>finally</code> block) to avoid VRAM
+                    leaks across repeated searches.
                 </li>
             </ol>
             <blockquote>
@@ -699,17 +721,30 @@
             <ol>
                 <li>
                     <strong>Geometric Filter:</strong>
-                    Cells are rejected immediately if they are singular (near-zero determinant), have unphysical edge lengths
-                    ($< 2\;\text{Å}$ or $> 50\;\text{Å}$), have invalid angles ($< 20°$ or $> 160°$ for monoclinic/triclinic),
-                    or exceed the user's <code>Max Volume</code>.
+                    Cells are rejected immediately if the reciprocal metric is singular (near-zero determinant), if any
+                    edge length falls outside $2\;\text{Å} \le a,b,c \le 50\;\text{Å}$, or if the volume is below
+                    $20\;\text{Å}^3$ or above the user's <code>Max Volume</code>. Angle bounds are applied on the GPU
+                    directly and are system-specific:
+                    <ul>
+                        <li><strong>Monoclinic:</strong> $\beta$ is folded to its obtuse representation and required to lie in
+                            $89° \le \beta \le 150°$.</li>
+                        <li><strong>Triclinic:</strong> each of $\alpha, \beta, \gamma$ must lie in $60° \le \angle \le 150°$.</li>
+                    </ul>
+                    (These GPU pre-filter windows are deliberately tighter than the CPU refinement stage, which accepts a
+                    broader $10°$–$170°$ range; the GPU stage only needs to reject obviously degenerate trial cells cheaply.)
                 </li>
                 <li>
                     <strong>Figure of Merit Pre-filter:</strong>
-                    For surviving cells, the GPU calculates a fast internal score: the average absolute deviation
-                    $\langle|\Delta Q|\rangle$ over the first $\max(N_{peaks}, 10)$ observed peaks. If this deviates
-                    beyond <code>FoM Tolerance × ΔQ_{user}</code> (where $\Delta Q_{user}$ is the Q tolerance derived from the
-                    user's 2θ Error), the cell is discarded. Only cells passing this filter are stored in the GPU buffer
-                    for CPU refinement.
+                    For surviving cells, the GPU calculates a fast internal score: the mean of the per-peak normalised
+                    residual $\langle |\Delta Q_i| / \Delta Q_{tol,i}\rangle$, evaluated over the first
+                    $\min(\max(N_{peaks}, 10),\, 32)$ observed peaks. The lower bound of 10 guarantees a meaningful sample
+                    even for very small $N_{peaks}$; the upper bound is the shader constant <code>MAX_FOM_PEAKS = 32</code>,
+                    now identical across all three solvers (orthorhombic was previously capped at 20). The matching
+                    tolerance $\Delta Q_{tol,i}$ is the per-peak Q tolerance derived from the user's 2θ Error (see
+                    <a href="#refinement">Q-Space Tolerance</a>). If the mean normalised residual exceeds
+                    <code>FoM Tolerance</code>, the cell is discarded. A running-sum "fail-fast" test aborts the peak loop
+                    as soon as the partial sum can no longer pass, so most rejects touch only the first 2–3 peaks. Only
+                    cells passing this filter are written to the GPU results buffer for CPU refinement.
                 </li>
             </ol>
         </section>
@@ -800,8 +835,9 @@
                     robustness when the zero shift is large enough to cause mis-assignments in Round 1.</li>
             </ol>
             <p>
-                The same two-round strategy is applied to both GPU candidates (monoclinic/triclinic) and CPU candidates
-                (cubic/tetragonal/hexagonal/orthorhombic).
+                The same two-round strategy is applied to every candidate regardless of its origin: GPU-searched systems
+                (orthorhombic, monoclinic, triclinic) and CPU-searched systems (cubic, tetragonal, hexagonal). GPU
+                candidates are refined in parallel by a pool of dedicated Web Workers (see <a href="#introduction">Architecture</a>).
             </p>
 
             <h3>Minimum Peaks Required for Acceptance</h3>
@@ -858,11 +894,36 @@
                 \times \underbrace{k!}_{\text{Constant per system}} $$
             </div>
             <p>
-                The <strong>HKL Combos</strong> count is the critical hardware constraint. It maps directly to
-                the number of GPU threads dispatched. Since WebGPU uses 32-bit unsigned integers (<code>u32</code>) for
-                thread indexing, this value <strong>must remain below $2^{32}-1 \approx 4.29 \times 10^9$</strong>.
-                Brutus automatically calculates this limit based on your HKL Basis Size and prevents the search
-                from starting if you exceed it.
+                The <strong>HKL Combos</strong> count $C(N_{hkl}, k)$ is the critical hardware constraint, and the reason
+                is specific to how the shaders work. Rather than materialising an enormous list of HKL tuples in memory,
+                each GPU thread receives a single linear index and reconstructs its own unique $k$-combination on the fly
+                using the <em>combinatorial number system</em> (<code>get_combinadic_indices</code>), which reads a
+                precomputed table of binomial coefficients. Both that linear index and every entry of the binomial table
+                are 32-bit unsigned integers (<code>u32</code>). Consequently the entire enumeration must fit in
+                <strong>$C(N_{hkl}, k) < 2^{32}-1 \approx 4.29 \times 10^9$</strong>: past that point the thread index and
+                the unranking arithmetic would overflow, silently producing wrong HKL assignments and truncating the
+                search. Widening the host-side table would not help — the limit is intrinsic to the u32 shader.
+            </p>
+            <p>
+                This translates into a hard ceiling on the HKL Basis Size, distinct for each system:
+            </p>
+            <table>
+                <thead><tr><th>System</th><th>$k$</th><th>Max $N_{hkl}$</th><th>$C(\text{Max}, k)$</th></tr></thead>
+                <tbody>
+                    <tr><td>Orthorhombic</td><td>3</td><td><strong>2,954</strong></td><td>$4.292 \times 10^9$</td></tr>
+                    <tr><td>Monoclinic</td><td>4</td><td><strong>568</strong></td><td>$4.291 \times 10^9$</td></tr>
+                    <tr><td>Triclinic</td><td>6</td><td><strong>123</strong></td><td>$4.249 \times 10^9$</td></tr>
+                </tbody>
+            </table>
+            <p>
+                Each value is the largest $N_{hkl}$ for which $C(N_{hkl}, k)$ still fits in u32
+                (e.g. $C(124, 6) \approx 4.47 \times 10^9$ already overflows, so Triclinic stops at 123). Brutus enforces
+                this on two levels: a <strong>pre-flight check</strong> recomputes $C(N_{hkl}, k)$ from your inputs and, if
+                it exceeds the ceiling, disables the <em>Start Indexing</em> button (turning it red with a "Too Large"
+                label) and shows an explanatory status message; and a <strong>backstop clamp</strong> inside the GPU task
+                caps $N_{hkl}$ at the per-system maximum and warns if it ever had to intervene. In normal use you will hit
+                the button block first — the clamp only guards against a stale or programmatically-set value slipping
+                through.
             </p>
 
             <h3>System-Specific Breakdown</h3>
@@ -978,9 +1039,11 @@
         <section id="evaluating-solutions">
             <h2>Evaluating Solutions</h2>
             <p>
-                The indexing search usually produces several candidate cells. Brutus keeps at most the best 50,
-                ranked by M(20), after the search. Selecting the correct one requires interpreting figures of merit
-                and checking the refined fit visually.
+                The indexing search usually produces several candidate cells. To keep the live ledger bounded, whenever
+                the in-memory list grows past 50 entries it is sorted by M(20) and pruned back to the best 40. At the end
+                of the run a final de-duplication pass (<code>applyFinalSieve</code>) removes symmetry-equivalent and
+                transformed duplicates, so the displayed set is typically a few tens of distinct cells ranked by M(20).
+                Selecting the correct one requires interpreting figures of merit and checking the refined fit visually.
             </p>
 
             <h3>de Wolff Figure of Merit: M(20) / M(N)</h3>

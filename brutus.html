@@ -3322,7 +3322,13 @@ systemsToSearch.forEach(system => {
     let qTolerancesArray, qObsArray;
     if (webgpuSystems.length > 0) {
         const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(filteredPeaks, baseParams.wavelength);
-        const n_peaks_for_fom = Math.min(q_obs.length, 20);
+        // 32, not 20: the WGSL solvers cap the FoM loop at MAX_FOM_PEAKS and
+        // index q_tolerances[i] for i < min(finalFomCount, MAX_FOM_PEAKS). With
+        // MAX_FOM_PEAKS unified to 32 across all three shaders, a 20-length
+        // buffer was read out of bounds whenever finalFomCount (= max(10,
+        // gpuPeaksCount)) exceeded 20. Sizing to 32 covers every system; the
+        // shader's own min() still caps the actual number of peaks read.
+        const n_peaks_for_fom = Math.min(q_obs.length, 32);
         qTolerancesArray = new Float32Array(n_peaks_for_fom);
         for (let i = 0; i < n_peaks_for_fom; i++) {
             qTolerancesArray[i] = get_q_tolerance(
@@ -3454,6 +3460,7 @@ systemsToSearch.forEach(system => {
             permutations: 6,
             defaultPeaks: 7,
             defaultHkl: 300,
+            maxHkl: 2954,   // C(2954,3) < 2^32 < C(2955,3): u32 combinadic limit (K=3)
             splitSpecialHkls: true,
         },
         monoclinic: {
@@ -3466,6 +3473,7 @@ systemsToSearch.forEach(system => {
             permutations: 24,
             defaultPeaks: 7,
             defaultHkl: 100,
+            maxHkl: 568,    // C(568,4) < 2^32 < C(569,4): u32 combinadic limit (K=4)
             splitSpecialHkls: true,
         },
         triclinic: {
@@ -3478,6 +3486,7 @@ systemsToSearch.forEach(system => {
             permutations: 720,
             defaultPeaks: 8,
             defaultHkl: 40,
+            maxHkl: 123,    // C(123,6) < 2^32 < C(124,6): u32 combinadic limit (K=6)
             splitSpecialHkls: false,
         },
     };
@@ -3530,7 +3539,23 @@ systemsToSearch.forEach(system => {
         return async () => {
             const K_VALUE = cfg.K;
             const n_peaks_for_combo = Math.max(K_VALUE, parseInt(ui.gpuPeaksCount.value, 10) || cfg.defaultPeaks);
-            const n_hkl_for_basis = Math.max(K_VALUE * 2, parseInt(ui.gpuHklTriplets.value, 10) || cfg.defaultHkl);
+            let n_hkl_for_basis = Math.max(K_VALUE * 2, parseInt(ui.gpuHklTriplets.value, 10) || cfg.defaultHkl);
+
+            // --- u32 combinadic guard ---------------------------------------
+            // The WGSL solvers unrank HKL K-combinations with a u32 linear index
+            // and a u32 binomial_table (get_combinadic_indices). Once C(n_hkl, K)
+            // reaches 2^32, both the linear index AND the unranking binomials
+            // overflow, silently corrupting the search (truncated bound + wrong
+            // HKL triplets). cfg.maxHkl is the largest basis size that keeps the
+            // whole combination space u32-addressable (ortho 2954 / mono 568 /
+            // tri 123). Widening the JS binomial table would NOT help: the shader
+            // is u32 end-to-end.
+            const maxHklForU32 = cfg.maxHkl;
+            if (n_hkl_for_basis > maxHklForU32) {
+                showStatus(`${cfg.label}: HKL basis capped at ${maxHklForU32} (GPU ${K_VALUE}-peak u32 combination limit).`, 'error', 6000);
+                n_hkl_for_basis = maxHklForU32;
+            }
+            // ----------------------------------------------------------------
 
             if (filteredPeaks.length < K_VALUE) {
                 showStatus(`${cfg.label} search requires at least ${K_VALUE} peaks. Skipping.`, "error");
