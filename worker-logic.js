@@ -808,12 +808,16 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
 
     // --- REFINEMENT LOGIC ---
 
-    if (refineZero) {
-        // --- PATH A: Full Zero-Correction Refinement ---
-        // Unified for both GPU (Monoclinic/Triclinic/Ortho) and CPU (Cubic/Tetra/Hex) candidates.
-        // We do TWO rounds of pairing+fit with proper LS weighting:
-        //   Round 1: pair with z=0 assumption → fit cell+z → get z_estimate
-        //   Round 2: pair using q values corrected by z_estimate → re-fit
+    {
+        // --- REFINEMENT ---
+        // refineZero=true  (PATH A): add a zero-shift column to the LS design
+        //   matrix and do TWO rounds of pairing+fit with proper LS weighting:
+        //     Round 1: pair with z=0 assumption → fit cell+z → get z_estimate
+        //     Round 2: pair using q values corrected by z_estimate → re-fit
+        // refineZero=false (PATH B): fit the cell with a FIXED zero (no extra
+        //   column, single pairing round, no zero correction applied). This
+        //   restores the non-zero-refined path that used to live here — without
+        //   it, unchecking "Refine Zero" made this function post nothing at all.
 
         const pair_and_fit = (zero_corr_deg) => {
             const indexed_pairs = [];
@@ -848,10 +852,14 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
 
             const M = indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
             const q_vec = indexed_pairs.map(p => p.q_obs);
-            M.forEach((row, i) => {
-                const tth_rad = tth_obs_rad[peak_indices[i]];
-                row.push((2 / (wavelength ** 2)) * Math.sin(tth_rad));
-            });
+            if (refineZero) {
+                // Extra design column for the zero-shift parameter. Omitted when
+                // refineZero is false so the fit has exactly the cell params.
+                M.forEach((row, i) => {
+                    const tth_rad = tth_obs_rad[peak_indices[i]];
+                    row.push((2 / (wavelength ** 2)) * Math.sin(tth_rad));
+                });
+            }
             const tth_rads_for_rows = peak_indices.map(idx => tth_obs_rad[idx]);
             const ls_weights = ls_weights_for_2theta(tth_rads_for_rows);
 
@@ -862,8 +870,9 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
 
         // Round 1
         let result = pair_and_fit(0);
-        // Round 2: re-pair using the zero estimate from round 1
-        if (result) {
+        // Round 2 (only when refining zero): re-pair using the round-1 estimate.
+        // With refineZero=false there is no zero-shift param to iterate on.
+        if (result && refineZero) {
             const z1_deg = result.fit.solution[result.fit.solution.length - 1] * DEG;
             if (Math.abs(z1_deg) > 1e-4) {
                 const result2 = pair_and_fit(z1_deg);
@@ -876,7 +885,12 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
             const refined_cell = extractCellFromFit(fitResult_with_zero_final.solution, system);
 
             if (refined_cell) {
-                refined_cell.zero_correction = fitResult_with_zero_final.solution[fitResult_with_zero_final.solution.length - 1] * DEG;
+                // Only attach a zero_correction when we actually refined one.
+                // Leaving it undefined lets applyFinalSieve treat this as a
+                // 0-DoF (fixed-zero) model, distinct from a zero-refined one.
+                if (refineZero) {
+                    refined_cell.zero_correction = fitResult_with_zero_final.solution[fitResult_with_zero_final.solution.length - 1] * DEG;
+                }
                 refined_cell.volume = getVolume(refined_cell);
                 
                 const q_calc_set_refined = new Set(generateHKL_for_worker(refined_cell, q_max, d_min, wavelength).map(r => r.q));
@@ -885,7 +899,7 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
                 const peaks_for_merit_20_refined = [];
                 for (let i = 0; i < n_20; i++) {
                     const original_peak = peaks_sorted_by_q[i];
-                    const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
+                    const corrected_tth_deg = original_peak.tth - (refined_cell.zero_correction || 0);
                     const corrected_tth_rad = corrected_tth_deg * RAD;
                     const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
                     peaks_for_merit_20_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
@@ -896,7 +910,7 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
                 if (final_m20 > min_m20) {
                     const peaks_for_merit_all_refined = [];
                     for (let i = 0; i < n_all; i++) {
-                        const original_peak = peaks_sorted_by_q[i]; const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
+                        const original_peak = peaks_sorted_by_q[i]; const corrected_tth_deg = original_peak.tth - (refined_cell.zero_correction || 0);
                         const corrected_tth_rad = corrected_tth_deg * RAD; const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
                         peaks_for_merit_all_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
                     }

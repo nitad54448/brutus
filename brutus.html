@@ -1464,18 +1464,43 @@ let isTableUpdateScheduled = false;
 
 // New function to centralize updates (Throttled with requestAnimationFrame)
 const handleNewSolution = (newSolution) => {
-    // verif, si pas vide
     if (!newSolution || !newSolution.system) return;
-    
-    // --- FAST SYNCHRONOUS DATA OPERATIONS ---
-    // Let the workers push data to memory as fast as possible without blocking
-    solutions.push(newSolution);
 
-    // Max Limit Pruning
-    if (solutions.length > MAX_SOLUTIONS_BEFORE_PRUNING) {
-        // Always sort by quality (M20) before cutting
-        solutions.sort((a, b) => b.m20 - a.m20); 
-        solutions = solutions.slice(0, PRUNE_TO_COUNT);
+    // --- CROSS-WORKER DEDUP ---
+    // Each refinement worker dedups only against its OWN foundSolutionMap, so
+    // two workers can independently post the same physical cell. Undeduped
+    // duplicates eat slots in the M20-capped list (50 -> 40) and can evict
+    // genuinely distinct solutions BEFORE applyFinalSieve ever runs. The list
+    // is capped at ~50, so a linear scan per insert is negligible, and keying
+    // on getSolutionKey (loaded on the main thread via worker-logic.js) is
+    // robust against the sort/slice/sieve reassignments elsewhere.
+    let solKey = null;
+    try { solKey = getSolutionKey(newSolution); } catch (e) { solKey = null; }
+
+    let isDuplicate = false;
+    if (solKey !== null) {
+        newSolution._solKey = solKey;
+        const dupIdx = solutions.findIndex(s => s._solKey === solKey);
+        if (dupIdx !== -1) {
+            isDuplicate = true;
+            if (newSolution.m20 > solutions[dupIdx].m20) {
+                solutions[dupIdx] = newSolution;   // keep the better copy
+            } else {
+                return;                            // weaker duplicate: drop, no re-render
+            }
+        }
+    }
+
+    if (!isDuplicate) {
+        // --- FAST SYNCHRONOUS DATA OPERATIONS ---
+        solutions.push(newSolution);
+
+        // Max Limit Pruning
+        if (solutions.length > MAX_SOLUTIONS_BEFORE_PRUNING) {
+            // Always sort by quality (M20) before cutting
+            solutions.sort((a, b) => b.m20 - a.m20);
+            solutions = solutions.slice(0, PRUNE_TO_COUNT);
+        }
     }
 
     // LED indicator update (lightweight DOM manipulation is fine here)
@@ -1485,7 +1510,7 @@ const handleNewSolution = (newSolution) => {
     // Gate the heavy sorting and DOM rebuilding behind requestAnimationFrame
     if (!isTableUpdateScheduled) {
         isTableUpdateScheduled = true;
-        
+
         requestAnimationFrame(() => {
             // Sort solutions based on current UI state
             sortSolutions();
@@ -1495,7 +1520,7 @@ const handleNewSolution = (newSolution) => {
 
             // Rebuild the DOM table (now capped at browser refresh rate, ~60Hz)
             updateSolutionsTable();
-            
+
             // Release the lock for the next frame
             isTableUpdateScheduled = false;
         });
@@ -4909,7 +4934,7 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 15 July 2026</div>
+<div id="app-footer">Brutus, 17 July 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-report">Generate Report</div>
