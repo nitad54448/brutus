@@ -179,19 +179,53 @@ const PERMUTATIONS_6: array<u32, 4320> = array<u32, 4320>(
 
 // === Helper Functions ===
 
-fn solve6x6(A: Mat6x6, b: Vec6) -> Vec6 {
-    var M: Mat6x6 = A;
+// solve6x6 is GONE. It used to be called 720x per invocation with an
+// IDENTICAL M and only the right-hand side changing, and it took M *by value*
+// (`var M: Mat6x6 = A`) - so each call copied 36 floats into private memory and
+// redid the whole O(n^3) elimination from scratch. That is ~25,900 redundant
+// float copies plus 719 redundant factorisations per invocation.
+//
+// It is replaced by a factor-once / substitute-many pair below. This is
+// bitwise identical, not merely equivalent: the elimination multiplier
+//     fac = M[r*n+i] / pivot
+// depends only on M, never on the RHS, and so does the pivot-singularity test.
+// Storing the 15 multipliers and replaying `v[r] -= fac * v[i]` in the same
+// nested order performs the exact same float ops on v, in the exact same
+// sequence, as the original did. Back-substitution then runs against the same
+// reduced U. Same bits out.
+
+// Reduce A to upper-triangular U, recording the 15 elimination multipliers.
+// Returns false if a pivot is singular - in which case the ORIGINAL code would
+// have returned a zero vector for every one of the 720 permutations, so the
+// caller can bail out of the whole permutation loop at once.
+fn factor6x6(A: Mat6x6, U: ptr<function, Mat6x6>, facs: ptr<function, array<f32, 15>>) -> bool {
+    (*U) = A;
+    let n: u32 = 6u;
+    var fi: u32 = 0u;
+    for (var i: u32 = 0u; i < n; i = i + 1u) {
+        let pivot: f32 = (*U)[i * n + i];
+        if (abs(pivot) < 1e-10) { return false; }
+        for (var r: u32 = i + 1u; r < n; r = r + 1u) {
+            let fac: f32 = (*U)[r * n + i] / pivot;
+            (*facs)[fi] = fac;
+            fi = fi + 1u;
+            for (var c: u32 = i; c < n; c = c + 1u) {
+                (*U)[r * n + c] = (*U)[r * n + c] - fac * (*U)[i * n + c];
+            }
+        }
+    }
+    return true;
+}
+
+// Apply the stored multipliers to one RHS, then back-substitute.
+fn substitute6x6(U: ptr<function, Mat6x6>, facs: ptr<function, array<f32, 15>>, b: Vec6) -> Vec6 {
     var v: Vec6 = b;
     let n: u32 = 6u;
+    var fi: u32 = 0u;
     for (var i: u32 = 0u; i < n; i = i + 1u) {
-        let pivot: f32 = M[i * n + i];
-        if (abs(pivot) < 1e-10) { return Vec6(0.0, 0.0, 0.0, 0.0, 0.0, 0.0); }
         for (var r: u32 = i + 1u; r < n; r = r + 1u) {
-            let fac: f32 = M[r * n + i] / pivot;
-            for (var c: u32 = i; c < n; c = c + 1u) {
-                M[r * n + c] = M[r * n + c] - fac * M[i * n + c];
-            }
-            v[r] = v[r] - fac * v[i];
+            v[r] = v[r] - (*facs)[fi] * v[i];
+            fi = fi + 1u;
         }
     }
     var x: Vec6;
@@ -199,9 +233,9 @@ fn solve6x6(A: Mat6x6, b: Vec6) -> Vec6 {
         let i: u32 = u32(i_s);
         var s: f32 = v[i];
         for (var j: u32 = i + 1u; j < n; j = j + 1u) {
-            s = s - M[i * n + j] * x[j];
+            s = s - (*U)[i * n + j] * x[j];
         }
-        x[i] = s / M[i * n + i];
+        x[i] = s / (*U)[i * n + i];
     }
     return x;
 }
@@ -289,9 +323,21 @@ fn get_combinadic_indices(linear_index: u32, n_max: u32) -> array<u32, 6> {
 // === Optimized FoM Validator (Abs Diff) ===
 fn validate_fom_avg_diff(p: Vec6) -> f32 {
     let n_peaks_to_check = min(config.u_params1.z, MAX_FOM_PEAKS);
+
+    // --- FIX: unsigned underflow guard ---------------------------------
+    // count_to_sum was computed as `n_peaks_to_check - config.u_params1.y`
+    // with BOTH operands u32. If max_impurities >= n_peaks_for_fom that
+    // wraps to ~4.29e9 and the selection-sort loop below runs essentially
+    // forever -> GPU hang / device lost. At exactly equal it produced a
+    // 0/0 NaN average instead. The UI clamps the impurity field to max=3,
+    // but only on 'blur', and the value is read raw with parseInt at run
+    // time, so nothing downstream actually enforces it.
+    // Clamp here so the shader is safe regardless of what JS sends.
+    if (n_peaks_to_check == 0u) { return 999.0; }
+    let max_imp = min(config.u_params1.y, n_peaks_to_check - 1u);
     
     // --- OPTIMIZATION: If no impurities, skip sorting entirely ---
-    if (config.u_params1.y == 0u) {
+    if (max_imp == 0u) {
         var sum_abs_error: f32 = 0.0;
         
         // Fail-Fast Threshold
@@ -340,7 +386,7 @@ fn validate_fom_avg_diff(p: Vec6) -> f32 {
         errors[i] = norm;
     }
 
-    let count_to_sum = n_peaks_to_check - config.u_params1.y;
+    let count_to_sum = n_peaks_to_check - max_imp; // guarded above, cannot underflow
     var sum_of_valid_errors: f32 = 0.0;
 
     for (var i: u32 = 0u; i < count_to_sum; i = i + 1u) {
@@ -413,6 +459,14 @@ fn main(
         q_obs[peak_combos[p_offset + 5u]]
     );
 
+    // 5b. Factor M ONCE. M does not depend on the permutation - only the RHS
+    // does - so the elimination that used to run 720 times now runs once.
+    // If M is singular, every permutation would have yielded a zero vector and
+    // been rejected by extractCell, so we can abandon this combo entirely.
+    var U_lu: Mat6x6;
+    var lu_facs: array<f32, 15>;
+    if (!factor6x6(M, &U_lu, &lu_facs)) { return; }
+
     // 6. Loop over all 720 permutations
     for(var p_idx: u32 = 0u; p_idx < 720u; p_idx = p_idx + 1u) {
         let perm_offset = p_idx * 6u;
@@ -425,7 +479,7 @@ fn main(
              q_base[PERMUTATIONS_6[perm_offset + 5u]]
         );
          
-        let fit_params = solve6x6(M, q_perm);
+        let fit_params = substitute6x6(&U_lu, &lu_facs, q_perm);
         let cell = extractCell(fit_params);
          
         if (cell.a > 0.0) { 

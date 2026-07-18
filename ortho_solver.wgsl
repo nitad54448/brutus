@@ -114,9 +114,21 @@ fn get_combinadic_indices(linear_index: u32, n_max: u32) -> array<u32, 3> {
 // === Optimized FoM (Absolute Difference) ===
 fn validate_fom_avg_diff(A: f32, B: f32, C: f32) -> f32 {
     let n_peaks_to_check = min(config.u_params1.z, MAX_FOM_PEAKS);
+
+    // --- FIX: unsigned underflow guard ---------------------------------
+    // count_to_sum was computed as `n_peaks_to_check - config.u_params1.y`
+    // with BOTH operands u32. If max_impurities >= n_peaks_for_fom that
+    // wraps to ~4.29e9 and the selection-sort loop below runs essentially
+    // forever -> GPU hang / device lost. At exactly equal it produced a
+    // 0/0 NaN average instead. The UI clamps the impurity field to max=3,
+    // but only on 'blur', and the value is read raw with parseInt at run
+    // time, so nothing downstream actually enforces it.
+    // Clamp here so the shader is safe regardless of what JS sends.
+    if (n_peaks_to_check == 0u) { return 999.0; }
+    let max_imp = min(config.u_params1.y, n_peaks_to_check - 1u);
     
     // --- OPTIMIZATION 1: Fail-Fast (No Impurities) ---
-    if (config.u_params1.y == 0u) {
+    if (max_imp == 0u) {
         var sum_abs_error: f32 = 0.0;
         let max_allowed_total = config.f_params.w * f32(n_peaks_to_check);
 
@@ -163,7 +175,7 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32) -> f32 {
         errors[i] = norm;
     }
 
-    let count_to_sum = n_peaks_to_check - config.u_params1.y;
+    let count_to_sum = n_peaks_to_check - max_imp; // guarded above, cannot underflow
     var sum_of_valid_errors: f32 = 0.0;
 
     for (var i: u32 = 0u; i < count_to_sum; i = i + 1u) {

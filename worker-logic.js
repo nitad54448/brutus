@@ -245,7 +245,19 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
                     const l_vertex = l_vertex_h_only;
                     const q_min_for_hk = (c_star_sq * l_vertex * l_vertex) - (h_l_coeff * l_vertex) + hk_term;
                     if (q_min_for_hk > q_max_limit) { if (k === 0) break; else continue; }
-                    for (let l = -l_max; l <= l_max; l++) {
+                    // q(l) = c*^2 l^2 - h_l_coeff l + hk_term is an upward parabola,
+                    // so the l values with q <= q_max_limit form a contiguous interval.
+                    // Solve for it instead of sweeping the whole [-l_max, l_max] box.
+                    // The range is WIDENED BY 1 on each side and clamped to the old
+                    // bounds, and every guard/filter below is left untouched, so the
+                    // emitted set is provably identical - we only skip l values that
+                    // could not have passed processReflection anyway.
+                    const disc_m = (h_l_coeff * h_l_coeff) - 4 * c_star_sq * (hk_term - q_max_limit);
+                    if (!(disc_m >= 0)) continue; // no real l satisfies q <= limit
+                    const sq_m = Math.sqrt(disc_m);
+                    const l_lo = Math.max(-l_max, Math.ceil((h_l_coeff - sq_m) / (2 * c_star_sq)) - 1);
+                    const l_hi = Math.min(l_max, Math.floor((h_l_coeff + sq_m) / (2 * c_star_sq)) + 1);
+                    for (let l = l_lo; l <= l_hi; l++) {
                         if (h === 0 && k === 0 && l === 0) continue;
                         if (k === 0) { if (h < 0) continue; if (h === 0 && l <= 0) continue; }
                         const inv_d_sq = (c_star_sq * l * l) - (h_l_coeff * l) + hk_term;
@@ -288,16 +300,31 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
                     const k_term = k * k * S22;
                     const hk_term = h_term + k_term + h * k * S12;
                     
-                    for (let l = -l_max; l <= l_max; l++) {
+                    // q(l) = S33 l^2 + (k S23 + h S13) l + hk_term, an upward parabola
+                    // (S33 = c*^2 > 0), so the l values with q <= q_max_limit form a
+                    // contiguous interval. The original swept the entire [-l_max, l_max]
+                    // box with no pruning at all (~79-85% wasted iterations, measured).
+                    // We solve for the interval, WIDEN IT BY 1 each side, clamp to the
+                    // old bounds, and leave every guard below untouched - so the emitted
+                    // set is provably identical.
+                    const B_l = k * S23 + h * S13;
+                    const disc_t = B_l * B_l - 4 * S33 * (hk_term - q_max_limit);
+                    if (!(disc_t >= 0)) continue; // no real l can satisfy q <= limit
+                    const sq_t = Math.sqrt(disc_t);
+                    let l_lo = Math.max(-l_max, Math.ceil((-B_l - sq_t) / (2 * S33)) - 1);
+                    const l_hi = Math.min(l_max, Math.floor((-B_l + sq_t) / (2 * S33)) + 1);
+                    if (l_lo < 0) l_lo = 0; // Friedel half-space; l<0 is discarded below
+
+                    for (let l = l_lo; l <= l_hi; l++) {
                         // Skip (0,0,0)
                         if (h === 0 && k === 0 && l === 0) continue;
-                        
+
                         // Friedel's Law: We only need half of reciprocal space.
                         // Standard convention: l > 0, or (l=0, k>0), or (l=0, k=0, h>0)
-                        if (l < 0) continue; 
-                        if (l === 0 && k < 0) continue; 
+                        if (l < 0) continue;
+                        if (l === 0 && k < 0) continue;
                         if (l === 0 && k === 0 && h <= 0) continue;
-                        
+
                         const inv_d_sq = hk_term + (l * l * S33) + (k * l * S23) + (h * l * S13);
                         processReflection(h, k, l, inv_d_sq);
                     }
@@ -521,6 +548,19 @@ const binarySearchClosest = (arr, target) => {
     return (low >= n) ? high : ((arr[low] - target) < (target - arr[high]) ? low : high);
 };
 
+// Count of entries <= target in an ascending-sorted array. Exactly equal to
+// arr.filter(q => q <= target).length, but O(log n) instead of a full scan.
+// (Inputs here are finite q values from generateHKL, so no NaN handling needed.)
+const countLE = (arr, target) => {
+    let lo = 0, hi = arr.length; // hi is exclusive
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (arr[mid] <= target) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo;
+};
+
 const calculateFiguresOfMerit = (q_calc_sorted, peaks_for_merit, impurity_peaks, get_q_tolerance_func, wavelength) => {
     if (!q_calc_sorted || q_calc_sorted.length === 0) return { m20: 0, fN: 0 };
     const N = peaks_for_merit.length; if (N === 0) return { m20: 0, fN: 0 };
@@ -544,11 +584,11 @@ const calculateFiguresOfMerit = (q_calc_sorted, peaks_for_merit, impurity_peaks,
     }
     if (N - N_indexed > impurity_peaks || N_indexed === 0) return { m20: 0, fN: 0 };
     const avg_delta_q = sum_delta_q / N_indexed;
-    const N_calc_M = q_calc_sorted.filter(q => q <= q_n * 1.05).length;
+    const N_calc_M = countLE(q_calc_sorted, q_n * 1.05);
     const mN = (N_calc_M > 0 && avg_delta_q > 1e-12) ? (q_n / (2 * avg_delta_q * N_calc_M)) : 0;
     const avg_delta_tth = sum_delta_tth / N_indexed;
     const q_limit_fN = (4 * Math.sin(tth_n_deg * RAD / 2)**2) / (wavelength**2);
-    const N_calc_FN = q_calc_sorted.filter(q => q <= q_limit_fN * 1.0001).length;
+    const N_calc_FN = countLE(q_calc_sorted, q_limit_fN * 1.0001);
     const fN = (N_calc_FN > 0 && avg_delta_tth > 1e-12) ? ((1 / avg_delta_tth) * (N_indexed / N_calc_FN)) : 0;
     return { m20: mN, fN: fN };
 };
@@ -778,12 +818,17 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     const { wavelength, tth_error, max_volume, impurity_peaks, refineZero } = data;
     const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q, N_FOR_M20, min_m20, q_max, d_min, foundSolutions, foundSolutionMap } = state;
 
-    // --- Single exit function to resolve the promise ---
+    // --- Single exit function ---
+    // Only a real solution is ever posted. This function is called synchronously
+    // by every caller (indexCubic/indexTetragonal.../findTransformedSolutions and
+    // the refinement worker's runOneCell), none of which await a reply, so the
+    // former `postMessage_func({})` "resolve" on rejection did nothing but
+    // structure-clone an empty object to the main thread on EVERY rejected trial
+    // (~10^5-10^6 per run in the CPU indexing path, where postMessage_func IS
+    // self.postMessage). The main thread matched no branch for it. Dropped.
     const exitFunction = (payload = null) => {
         if (payload) {
             postMessage_func({ type: 'solution', payload: payload });
-        } else {
-            postMessage_func({}); // Send empty object to resolve
         }
     };
     

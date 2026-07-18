@@ -240,7 +240,7 @@
                 <li><code>worker-logic.js</code> — shared logic loaded three ways: directly on the main thread (for post-processing and helper maths), as a standalone Web Worker (for the background CPU indexing of cubic/tetragonal/hexagonal), and via <code>importScripts()</code> inside each refinement worker. Contains all crystallographic mathematics: HKL generation, Q-calculation, least-squares solvers, figure-of-merit calculations, error propagation, and the Niggli reduction. A guard (<code>self.IS_REFINEMENT_WORKER</code>) suppresses its standalone message handler when it is imported by a refinement worker.</li>
                 <li><code>refinement-worker.js</code> — a thin batch-refinement worker. GPU-found candidate cells are refined (full weighted least-squares, M(20), error propagation) not on the main thread but across a <strong>pool of these workers</strong>, sized to <code>hardwareConcurrency − 2</code> (minimum 1) to leave cores free for the UI and the GPU driver. Candidate cells are streamed to the pool in round-robin batches while the GPU search is still running, so refinement overlaps GPU execution.</li>
                 <li><code>webgpu-engine.js</code> — the GPU-accelerated brute-force search for orthorhombic, monoclinic, and triclinic systems. Manages the WebGPU device, buffers, dispatch chunking, and combinadic bookkeeping; loads the WGSL compute shaders below.</li>
-                <li><code>ortho_solver.wgsl</code>, <code>monoclinic_solver.wgsl</code>, <code>triclinic_solver.wgsl</code> — the WGSL compute kernels. Each unranks HKL combinations on the fly from a u32 combinadic (combinatorial-number-system) index, solves the per-trial linear system (3×3, 4×4, or 6×6), applies the geometric and figure-of-merit filters, and atomically appends surviving cells to the results buffer.</li>
+                <li><code>ortho_solver.wgsl</code>, <code>monoclinic_solver.wgsl</code>, <code>triclinic_solver.wgsl</code> — the WGSL compute kernels. Each unranks HKL combinations on the fly from a u32 combinadic (combinatorial-number-system) index, solves the per-trial linear system (3×3, 4×4, or 6×6), applies the geometric and figure-of-merit filters, and atomically appends surviving cells to the results buffer. In the triclinic kernel the 6×6 coefficient matrix depends only on the chosen HKL combination, not on the peak-to-HKL assignment, so it is Gauss-eliminated <strong>once</strong> per combination and the stored multipliers are then re-applied to each of the $6! = 720$ permuted right-hand sides. This is arithmetically identical to re-solving the system from scratch each time (the elimination multipliers are a function of the matrix alone), and a singular matrix now abandons the whole combination immediately rather than being re-detected 720 times.</li>
             </ul>
         </section>
 
@@ -371,8 +371,25 @@
                 </li>
                 <li>
                     <strong>Impurity Peaks:</strong>
-                    The number of unindexed peaks tolerated among the first 20 when computing M(20). If your sample
+                    The number of unindexed peaks tolerated when scoring a candidate. If your sample
                     contains a known minor impurity phase, set this to 1 or 2 to avoid penalising the correct solution.
+                    It is applied at two separate stages, over different peak sets:
+                    <ul>
+                        <li>On the <strong>CPU</strong>, during M(20)/M(N) scoring, over the first
+                            $N$ peaks used for the merit figure.</li>
+                        <li>On the <strong>GPU</strong>, during the figure-of-merit pre-filter, over the
+                            $\min(\max(N_{peaks}, 10),\, 32)$ peaks described under
+                            <a href="#indexing-method">Two-Stage GPU Filtering</a> — which is generally
+                            <em>not</em> the same count as the CPU stage.</li>
+                    </ul>
+                    In both cases the worst-fitting residuals are discarded, not specific peaks you nominate.
+                    The value is capped internally at one fewer than the number of peaks being scored, so at
+                    least one peak always contributes.
+                    <br>
+                    <em>Performance note:</em> leaving this at 0 lets the GPU pre-filter use its "fail-fast"
+                    early abort. Any non-zero value disables that abort (every peak must be scored before the
+                    worst can be identified and dropped) and adds a small sort, so the GPU stage runs
+                    measurably slower. Prefer 0 unless you genuinely have impurity lines.
                 </li>
                 <li>
                     <strong>2θ Error (°):</strong>
@@ -785,6 +802,15 @@
                     <code>FoM Tolerance</code>, the cell is discarded. A running-sum "fail-fast" test aborts the peak loop
                     as soon as the partial sum can no longer pass, so most rejects touch only the first 2–3 peaks. Only
                     cells passing this filter are written to the GPU results buffer for CPU refinement.
+                    <br><br>
+                    <strong>Impurity tolerance.</strong> If <code>Impurity Peaks</code> is non-zero, the shader takes a
+                    second path: it scores every peak, then averages only the best
+                    $(N_{fom} - N_{impurity})$ residuals via a partial selection sort, so the worst-fitting peaks are
+                    discarded rather than penalising the cell. Note this path cannot use the fail-fast abort — every
+                    peak must be scored before the worst can be identified — so a non-zero
+                    <code>Impurity Peaks</code> makes the GPU stage noticeably slower. The impurity count is clamped
+                    inside the shader to at most $N_{fom} - 1$, so at least one peak always contributes to the average
+                    regardless of what is entered in the UI.
                 </li>
             </ol>
         </section>
