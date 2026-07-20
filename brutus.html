@@ -4601,6 +4601,15 @@ const imgProps = doc.getImageProperties(imgData);
   	
 
 
+    // Lattice centering is printed BEFORE the reduced cells, because the
+    // reduction headings and subtitles refer to it ("the detected A-centering
+    // is NOT applied"). Stating the centering first makes that readable in order.
+    if (sol.analysis && sol.analysis.centering) {
+        doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text(`Lattice Centering:`, margin, yPos);
+        doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(sol.analysis.centering, margin + 42, yPos);
+        yPos += 7;
+    }
+
     // Cell reduction
     // Show for ALL systems (including triclinic) to confirm standard setting.
     // TWO cells are reported. Under the strict IUCr definition (Int. Tables A,
@@ -4681,16 +4690,21 @@ const imgProps = doc.getImageProperties(imgData);
             if (centeringStr.includes(`(${cType})`)) { centeringKey = cType; break; }
         }
 
-        let subtitle1;
+        let subtitle1, title1;
         if (centeringKey === 'P') {
+            // Lattice is primitive: no centering transform exists to apply, so the
+            // qualifier would be meaningless. This cell IS the reduced cell.
+            title1 = 'Reduced (Niggli) Cell:';
             subtitle1 = 'Krivy-Gruber reduction of the solved lattice metric. Lattice is primitive, so this IS the reduced (Niggli) cell.';
         } else if (centeringKey === null) {
+            title1 = 'Standardised Conventional Cell:';
             subtitle1 = 'Krivy-Gruber reduction of the solved lattice metric. Centering undetermined, so no primitive cell is derived.';
         } else {
+            title1 = 'Standardised Conventional Cell (centering not applied):';
             subtitle1 = `Krivy-Gruber reduction of the conventional basis only; the detected ${centeringKey}-centering is NOT applied, so this is not the reduced cell of the lattice.`;
         }
 
-        drawCellBlock('Standardised Conventional Cell (centering not applied):', nCell, subtitle1);
+        drawCellBlock(title1, nCell, subtitle1);
 
         // --- (2) True primitive Niggli cell (centering APPLIED) ---
         if (centeringKey && centeringKey !== 'P') {
@@ -4735,7 +4749,7 @@ const imgProps = doc.getImageProperties(imgData);
             if (symmetryOrder[niggliSym] > currentOrder) {
                 detectedHigherSyms.push({
                     system: niggliSym,
-                    note: `Conventional-cell metric: ${niggliSym}`,
+                    note: `Metric: ${niggliSym}`,
                     cell: nCell
                 });
             }
@@ -4783,10 +4797,22 @@ const imgProps = doc.getImageProperties(imgData);
                     if (sym.system !== 'cubic' && sym.system !== 'orthorhombic' && sym.system !== 'tetragonal') {
                         paramStr += `, al=${c.alpha.toFixed(2)}, be=${c.beta.toFixed(2)}, ga=${c.gamma.toFixed(2)}`;
                     }
+                    const labelStr = `* ${sym.note.toUpperCase()}:`;
                     doc.setFont(FONT.DATA, 'bold');
-                    doc.text(`* ${sym.note.toUpperCase()}:`, margin + 4, yPos);
+                    doc.text(labelStr, margin + 4, yPos);
                     doc.setFont(FONT.DATA, 'normal');
-                    doc.text(paramStr, margin + 50, yPos);
+                    // Measure the label rather than assuming it fits a fixed 50 mm
+                    // column: long notes ("A-CENTERED ORTHORHOMBIC:") previously
+                    // overprinted the parameters. Fall back to a new line if the
+                    // pair cannot fit the printable width.
+                    const labelW = doc.getTextWidth(labelStr);
+                    const paramX = Math.max(margin + 50, margin + 4 + labelW + 3);
+                    if (paramX + doc.getTextWidth(paramStr) > pdfWidth - margin) {
+                        yPos += 3.5;
+                        doc.text(paramStr, margin + 8, yPos);
+                    } else {
+                        doc.text(paramStr, paramX, yPos);
+                    }
                     yPos += 4;
                 });
                 
@@ -4813,9 +4839,7 @@ const imgProps = doc.getImageProperties(imgData);
 
       	// maille
       	if (sol.analysis) {
-          	 doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text(`Lattice Centering:`, margin, yPos); // Changed to H2, normal
-          	 doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(sol.analysis.centering, margin + 42, yPos); 
-          	 yPos += 7; // Spacing
+           	 // (Lattice Centering now printed above the cell-reduction block.)
           	 
           	 // possible groupes
           	 doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Possible Extinctions:', margin, yPos); // Changed to H2, normal

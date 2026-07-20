@@ -1499,8 +1499,11 @@
                     This is the cell the pseudo-symmetry / symmetry-upgrade check actually operates on, so showing
                     it makes that step auditable. Strictly, it is the Niggli cell of the sublattice spanned by
                     <strong>a</strong>, <strong>b</strong>, <strong>c</strong> — a real lattice, but not the
-                    crystal's, which is why neither reserved term is used in the heading. When the lattice really
-                    is primitive the two cells coincide, and the subtitle says so explicitly.
+                    crystal's, which is why neither reserved term is used in the heading. When the lattice is
+                    primitive there is no centering transform to apply and the two cells coincide, so the heading
+                    changes to plain <strong>Reduced (Niggli) Cell</strong> and the second block is not printed.
+                    The <strong>Lattice Centering</strong> line is printed immediately above these blocks, since
+                    the headings refer to it.
                 </li>
                 <li>
                     <strong>Reduced (Niggli) Cell — primitive</strong> — printed only when the absence
