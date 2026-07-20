@@ -1131,8 +1131,9 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
             const niggliResult = reduceToNiggliCell(sol);
             const nCell = niggliResult.cell;
             
-            // 2. Use the "Label Maker" to find the "true" symmetry of the squeezed cell
-            // We use a slightly loose tolerance (0.05) to catch pseudo-symmetries
+            // 2. Use the "Label Maker" to find the "true" symmetry of the squeezed cell.
+            // Tolerance 0.25 (A / deg) is deliberately loose to catch pseudo-symmetries
+            // in experimental powder data.
             const idealSymmetry = getSymmetry(nCell.a, nCell.b, nCell.c, nCell.alpha, nCell.beta, nCell.gamma, 0.25);
 
             // 3. Compare the "true" label to the original label
@@ -1330,8 +1331,10 @@ function matMul3(M, C) {
   return out;
 }
 function I3() { return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]; }
-function signStrict(x) { return x >= 0 ? 1 : -1; }
-const primitiveTransformByCentering = { P: [[1,0,0],[0,1,0],[0,0,1]], A: [[0.5, 0.5, 0], [0.5, -0.5, 0], [0, 0, 1]], B: [[0.5, 0, 0.5], [0.5, 0, -0.5], [0, 1, 0]], C: [[1, 0, 0], [0, 0.5, 0.5], [0, -0.5, 0.5]], I: [[-0.5,  0.5,  0.5], [ 0.5, -0.5,  0.5], [ 0.5,  0.5, -0.5]], F: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]], R: [[ 2/3, -1/3, -1/3], [ 1/3,  1/3, -2/3], [ 1/3,  1/3,  1/3]], };
+// Conventional-to-primitive transforms (columns = primitive vectors in terms of
+// the conventional a,b,c). All are right-handed (det > 0). The A/B/C matrices
+// preserve their own unique axis: A keeps a, B keeps b, C keeps c.
+const primitiveTransformByCentering = { P: [[1,0,0],[0,1,0],[0,0,1]], A: [[1, 0, 0], [0, 0.5, -0.5], [0, 0.5, 0.5]], B: [[0.5, 0, -0.5], [0, 1, 0], [0.5, 0, 0.5]], C: [[0.5, -0.5, 0], [0.5, 0.5, 0], [0, 0, 1]], I: [[-0.5,  0.5,  0.5], [ 0.5, -0.5,  0.5], [ 0.5,  0.5, -0.5]], F: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]], R: [[ 2/3, -1/3, -1/3], [ 1/3,  1/3, -2/3], [ 1/3,  1/3,  1/3]], };
 
 
 
@@ -1407,6 +1410,7 @@ function niggliReduceFromCell(cell, opts = {}) {
 
     let iterations = 0;
     let changed = true;
+    let converged = false;
 
     const applyTrans = (M) => {
         B = rightMul(B, M);
@@ -1419,9 +1423,11 @@ function niggliReduceFromCell(cell, opts = {}) {
         changed = false;
         iterations++;
 
+        // Gradually relax the tolerance if a near-degenerate metric stalls the
+        // reduction, so ties resolve instead of cycling. Convergence is normally
+        // reached in well under 20 iterations; maxIter is the real ceiling.
         if (iterations > 50) eps = 1e-4;
-        if (iterations > 100) eps = 1e-3;
-        if (iterations > 150) break; // Hard bailout
+        if (iterations > 200) eps = 1e-3;
 
         // Step 1: Sort A <= B <= C (strictly preserving determinant = +1)
         if (A > Bm + eps || (Math.abs(A - Bm) <= eps && Math.abs(xi) > Math.abs(eta) + eps)) {
@@ -1480,7 +1486,11 @@ function niggliReduceFromCell(cell, opts = {}) {
              applyTrans([[1, 0, 1], [0, 1, 1], [0, 0, 1]]); continue;
         }
     }
-    
+    // The loop ends either because no transform fired this pass (changed stayed
+    // false -> reduced) or because the iteration ceiling was hit (not reduced).
+    converged = !changed || iterations < maxIter;
+    if (iterations >= maxIter) converged = false;
+
     const finalCell = basisToCell(B);
     // Clean numerical dust around 90 degrees
     const cleanAngle = (ang) => Math.abs(ang - 90) < 1e-10 ? 90 : ang;
@@ -1494,7 +1504,8 @@ function niggliReduceFromCell(cell, opts = {}) {
         transform: T,
         basis: B,
         metric: finalMetric.G,
-        iterations: iterations
+        iterations: iterations,
+        converged: converged
     };
 }
 
@@ -1504,10 +1515,10 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
     const minAngle = 60.0, maxAngle = 150.0;
     const niggliSystemGuess = getSymmetryForEquivCells(niggliCell.a, niggliCell.b, niggliCell.c, niggliCell.alpha, niggliCell.beta, niggliCell.gamma);
     const niggliVolume = getVolumeForEquivCells({ ...niggliCell, system: niggliSystemGuess });
-    results.primitiveCells.push({ ...niggliCell, description: "Niggli Cell", centering: 'P', volume: niggliVolume });
+    results.primitiveCells.push({ ...niggliCell, description: "Reduced Cell (Niggli, centering not applied)", centering: 'P', volume: niggliVolume });
     if (originalSystem) {
         const niggliBasis = cellToBasis(niggliCell.a, niggliCell.b, niggliCell.c, niggliCell.alpha, niggliCell.beta, niggliCell.gamma);
-        const primitiveToCenteredTransforms = { 'I': [[0,1,1],[1,0,1],[1,1,0]], 'F': [[-1,1,1],[1,-1,1],[1,1,-1]], 'A': [[1,1,0],[-1,1,0],[0,0,1]], 'B': [[1,0,1],[0,1,0],[-1,0,1]], 'C': [[1,0,0],[0,1,-1],[0,1,1]], 'R': [[1,0,1],[-1,1,1],[0,-1,1]] };
+        const primitiveToCenteredTransforms = { 'I': [[0,1,1],[1,0,1],[1,1,0]], 'F': [[-1,1,1],[1,-1,1],[1,1,-1]], 'A': [[1,0,0],[0,1,-1],[0,1,1]], 'B': [[1,0,1],[0,1,0],[-1,0,1]], 'C': [[1,-1,0],[1,1,0],[0,0,1]], 'R': [[1,0,1],[-1,1,1],[0,-1,1]] };
         const validBravaisCenterings = { 'cubic': ['P', 'I', 'F'], 'tetragonal': ['P', 'I'], 'orthorhombic': ['P', 'I', 'F', 'A', 'B', 'C'], 'hexagonal': ['P', 'R'], 'monoclinic': ['P', 'A', 'B', 'C', 'I'], 'triclinic': ['P'] };
         const allowedCenterings = validBravaisCenterings[originalSystem] || ['P'];
         for (const [centeringType, transform] of Object.entries(primitiveToCenteredTransforms)) {
@@ -1837,6 +1848,23 @@ function determineCentering(indexed_hkls, system) {
     else { const specialCenterings = plausible.filter(c => ['A', 'B', 'C'].includes(c)); finalCenterings = specialCenterings.length > 0 ? specialCenterings : ['P']; if (plausible.includes('P') && !finalCenterings.includes('P') && specialCenterings.length > 0) { finalCenterings.push('P'); } if (finalCenterings.length === 0) finalCenterings = ['P']; }
     finalCenterings = finalCenterings.filter(c => (validBravaisCenterings[system] || ['P']).includes(c));
     if (finalCenterings.length === 0) finalCenterings = ['P'];
+
+    // --- REPORTED centering vs SEARCHED centering ---
+    // P is defined with forbidden() === false, so it can never accumulate a
+    // violation and is therefore ALWAYS among the zero-violation candidates.
+    // Listing it next to a real centering ("A-centered (A) or Primitive (P)")
+    // is structurally guaranteed rather than informative, and it is not done
+    // for F or I, which are collapsed to a single symbol above. So the
+    // human-readable description reports only the genuine centering.
+    //
+    // finalCenterings itself keeps P, because it is passed to rankSpaceGroups()
+    // as the allowed-centering filter: dropping it there would remove every
+    // primitive space group from the ranking. Whether the lattice is primitive
+    // is settled by the space-group analysis and the extinction list, not by
+    // this line. P remains relevant to cell reduction, where it means
+    // "no centering transform applied".
+    let reportedCenterings = finalCenterings.filter(c => c !== 'P');
+    if (reportedCenterings.length === 0) reportedCenterings = ['P'];
     
     // Remove Primitive (P) from the reported dictionaries since it cannot have violations
     delete violations['P'];
@@ -1847,7 +1875,8 @@ function determineCentering(indexed_hkls, system) {
     
     return {
         plausibleCenterings: finalCenterings,
-        description: finalCenterings.map(c => centeringTests[c]?.name || c).join(' or '),
+        reportedCenterings: reportedCenterings,
+        description: reportedCenterings.map(c => centeringTests[c]?.name || c).join(' or '),
         violations: violations,
         violationsHard: violationsHard,
         violationsSoft: violationsSoft,

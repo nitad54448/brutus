@@ -1307,7 +1307,7 @@
         <li><strong>Soft violations:</strong> A reflection breaks a rule, but the peak is considered unreliable. These do <em>not</em> penalise the space group's ranking, but are listed in the report for the user to review. A violation is flagged as "soft" if the peak is:
             <ul style="margin-top: 0.5rem; margin-bottom: 0.5rem;">
                 <li><strong>Kα<sub>2</sub>-suspect:</strong> Flagged as a likely Kα<sub>2</sub> companion (position <em>and</em> intensity ratio — see below). Never applies to Custom or Kα<sub>1</sub>-only radiation, or to Kα<sub>2</sub>-stripped data.</li>
-                <li><strong>Weak:</strong> The peak height is below 5% of a <strong>local</strong> maximum, measured over a &plusmn;15° 2θ window centred on the peak. The local window matters: diffracted intensity falls off steeply with angle (Lorentz–polarisation, Debye–Waller, absorption), so an earlier version that compared against 5% of the <em>global</em> maximum was effectively an angle cutoff in disguise — above roughly 90° 2θ nearly every genuine reflection fell below it, and the entire back-reflection region silently lost its power to falsify an absence rule. Comparing each peak with peaks at comparable 2θ preserves the crystallographic intent (a truly forbidden reflection should have zero intensity) without the angular bias.</li>
+                <li><strong>Weak:</strong> The peak height is below 5% of a <strong>local</strong> maximum, measured over a &plusmn;15° 2θ window centered on the peak. The local window matters: diffracted intensity falls off steeply with angle (Lorentz–polarisation, Debye–Waller, absorption), so an earlier version that compared against 5% of the <em>global</em> maximum was effectively an angle cutoff in disguise — above roughly 90° 2θ nearly every genuine reflection fell below it, and the entire back-reflection region silently lost its power to falsify an absence rule. Comparing each peak with peaks at comparable 2θ preserves the crystallographic intent (a truly forbidden reflection should have zero intensity) without the angular bias.</li>
                 <li><strong>Ambiguous:</strong> The assigned $(hkl)$ violates a rule, but an <em>allowed</em> theoretical reflection explains the observed peak about as well. The alternative must be <strong>competitive</strong>, not merely present: it qualifies if it lies within your stated <code>2θ Error</code> of the observed position, or fits no more than <strong>2×</strong> worse than the assigned reflection does. An earlier version demoted the violation whenever <em>any</em> allowed reflection fell anywhere in the overlap window, even one many times further from the peak — see the note on wavelength below.</li>
             </ul>
         </li>
@@ -1326,8 +1326,39 @@
         This matters most for pseudo-symmetric cells. A hexagonal lattice indexed in a monoclinic setting,
         for example, produces a false body-centering signal: roughly half the reflections appear absent, and
         without the override every surviving counter-example is demoted as weak or overlapped, so the cell is
-        reported as <em>I</em>-centred with zero hard violations. That false centering then propagates into the
+        reported as <em>I</em>-centered with zero hard violations. That false centering then propagates into the
         Niggli reduction (see <a href="#advanced-topics">Advanced Topics</a>).
+    </p>
+    <h4>Why <em>Primitive (P)</em> is not listed as an alternative</h4>
+    <p>
+        A primitive lattice imposes <strong>no</strong> centering condition: its test function forbids nothing, so
+        <em>P</em> can never accumulate a single violation. It is therefore always among the zero-violation
+        candidates, for every pattern, by construction. Reporting
+        &ldquo;<em>A</em>-centered (A) or Primitive (P)&rdquo; would state something structurally guaranteed
+        rather than something measured, and it was never done for <em>F</em> or <em>I</em>, which are collapsed
+        to a single symbol. The <strong>Lattice Centering</strong> line therefore names only the genuine centering
+        found — <em>P</em> appears there only when no centering survives at all.
+    </p>
+    <p>
+        <em>P</em> is still retained internally and passed to the space-group ranking as an allowed centering;
+        removing it there would delete every primitive space group (<em>P</em>2<sub>1</sub>2<sub>1</sub>2<sub>1</sub>,
+        <em>Pbcn</em>, <em>Pca</em>2<sub>1</sub> …) from the candidate list. The question &ldquo;is this lattice
+        actually primitive?&rdquo; is answered by the <strong>Possible Extinctions</strong> list and the
+        space-group ranking, not by the centering line.
+    </p>
+    <p>
+        <strong>How to read this.</strong> A genuine centering produces a condition on
+        <em>general</em> $hkl$ — <em>hkl</em>: $k+l=2n$ for <em>A</em>, $h+k+l=2n$ for <em>I</em>, and so on —
+        and that condition appears in the extinction list. If the extinction list contains only
+        <em>zonal</em> conditions ($h0l$, $0kl$, $hk0$: glide planes) and <em>axial</em> conditions
+        ($h00$, $0k0$, $00l$: screw axes) with no general-$hkl$ rule, the lattice is primitive and the
+        centering shown survived only because no measured reflection happened to fall in its forbidden parity
+        class. Treat such an assignment as unconfirmed and prefer the primitive space groups in the ranking.
+    </p>
+    <p>
+        Beyond this, <em>P</em> remains meaningful in one other place: <strong>cell reduction</strong>, where it
+        simply means &ldquo;no centering transform applied&rdquo; before the Křivý–Gruber algorithm runs
+        (see <a href="#advanced-topics">Advanced Topics</a>).
     </p>
     <h4>Why the <em>Ambiguous</em> test is proximity-weighted</h4>
     <p>
@@ -1433,23 +1464,74 @@
                 a 264 Å³ sublattice with no recognisable symmetry.
             </p>
             <p>
-                After reduction, the code calls <code>getSymmetry()</code> with a slightly loose tolerance (0.05 Å / 0.05°)
+                After reduction, the code calls <code>getSymmetry()</code> with a deliberately loose tolerance (0.25 Å / 0.25°)
                 to detect <em>pseudo-symmetry</em>: a cell found as monoclinic might, after Niggli reduction, reveal
                 all angles equal to 90° and two equal axes — i.e. it is actually tetragonal. If the detected
                 symmetry is <em>higher</em> than the search symmetry (and the user has selected that higher-symmetry system),
                 a new trial cell is constructed with the correct symmetry and re-refined and re-scored.
             </p>
             <p>
-                A true-primitive reduction of a genuinely centred lattice is still available to callers that want
+                A true-primitive reduction of a genuinely centered lattice is still available to callers that want
                 it, by passing an explicit centering to the reduction routine; it is simply no longer taken from
                 the absence analysis by default.
+            </p>
+
+            <h4>Two cells in the PDF report, and what they are called</h4>
+            <p>
+                Because the internal reduction ignores centering, reporting only that cell would be misleading:
+                for a centered lattice it is <em>not</em> primitive, yet a heading of &ldquo;Niggli cell&rdquo; implies
+                that it is. This is a definitional point, not a stylistic one. In
+                <em>International Tables for Crystallography</em> Vol. A, §9.2, the <strong>reduced cell</strong> is
+                <em>defined</em> as a primitive cell, and Niggli reduction is specified on the primitive basis. Both
+                &ldquo;reduced cell&rdquo; and &ldquo;Niggli&rdquo; therefore already assert primitivity, so a heading
+                such as &ldquo;Reduced Cell (Niggli, centering not applied)&rdquo; asserts and then retracts the same
+                property, and printing it above a line reading &ldquo;Lattice Centering: Body-centered (I)&rdquo; is
+                self-contradictory.
+            </p>
+            <p>
+                The report therefore prints <strong>both</strong> cells and reserves the Niggli name for the one
+                that has earned it:
+            </p>
+            <ul>
+                <li>
+                    <strong>Standardised Conventional Cell (centering not applied)</strong> — the Křivý–Gruber
+                    reduction of the solved <em>conventional</em> basis, with the centering deliberately ignored.
+                    This is the cell the pseudo-symmetry / symmetry-upgrade check actually operates on, so showing
+                    it makes that step auditable. Strictly, it is the Niggli cell of the sublattice spanned by
+                    <strong>a</strong>, <strong>b</strong>, <strong>c</strong> — a real lattice, but not the
+                    crystal's, which is why neither reserved term is used in the heading. When the lattice really
+                    is primitive the two cells coincide, and the subtitle says so explicitly.
+                </li>
+                <li>
+                    <strong>Reduced (Niggli) Cell — primitive</strong> — printed only when the absence
+                    analysis has detected a genuine centering (I, F, A, B, C or R). The conventional cell is first
+                    transformed to its primitive basis, then reduced. This is the reduced cell of the lattice in
+                    the strict sense, and it is the one to quote or use as a database key. The subtitle states the
+                    volume ratio to the cell above (1/2 for I, A, B and C; 1/4 for F; 1/3 for R). If the centering
+                    could not be determined, this block is omitted rather than guessed.
+                </li>
+            </ul>
+            <p>
+                For the same reason, the pseudo-symmetry alert reads
+                <strong>&ldquo;HIGHER SYMMETRY DETECTED IN CONVENTIONAL CELL METRIC&rdquo;</strong> and its entries are
+                labelled <em>Conventional-cell metric</em>: that check runs on the first block, not on the primitive
+                cell.
+            </p>
+            <p>
+                <strong>Worked example.</strong> A body-centered cubic solution with
+                <em>a</em> = 18.8800 Å, <em>V</em> = 6729.89 Å<sup>3</sup> reports a first block identical to the
+                input (the conventional cell is already reduced), and a second block giving the rhombohedral
+                primitive cell: <em>a</em> = <em>b</em> = <em>c</em> = 16.3506 Å,
+                α = β = γ = 109.471°, <em>V</em> = 3364.93 Å<sup>3</sup> — exactly half, as expected for I-centering.
+                Seeing both makes it immediately clear that the full-volume cell is the conventional setting and
+                not a failed reduction.
             </p>
             <p>
                 Niggli cells are also used for:
             </p>
             <ul>
-                <li><strong>Database searching:</strong> Different conventional cells describing the same lattice reduce to the same Niggli cell, making it a canonical key for identification.</li>
-                <li><strong>Standardised reporting:</strong> The Niggli cell is included in the PDF report for each major candidate, providing an unambiguous description for cross-referencing.</li>
+                <li><strong>Database searching:</strong> Different settings of the same lattice reduce to the same cell, making it a canonical key for identification. Use the <em>second</em> (primitive) block for this: reduction is centering-independent by default, so the first block is canonical only across settings of a given lattice, whereas reduced-cell databases expect the centering to have been applied first.</li>
+                <li><strong>Standardised reporting:</strong> Both cells are included in the PDF report for each major candidate, providing an unambiguous description for cross-referencing.</li>
             </ul>
 
             <h3>2. Matrix-Based Cell Transformations</h3>
@@ -1459,9 +1541,9 @@
                 The matrices include:
             </p>
             <ul>
-                <li>Face-centred (F) → primitive: $P = \tfrac{1}{2}\bigl[(0,1,1),(1,0,1),(1,1,0)\bigr]$</li>
-                <li>Body-centred (I) → primitive: $P = \tfrac{1}{2}\bigl[(-1,1,1),(1,-1,1),(1,1,-1)\bigr]$</li>
-                <li>C-centred → primitive: $P = \tfrac{1}{2}\bigl[(1,1,0),(-1,1,0),(0,0,2)\bigr]$</li>
+                <li>Face-centered (F) → primitive: $P = \tfrac{1}{2}\bigl[(0,1,1),(1,0,1),(1,1,0)\bigr]$</li>
+                <li>Body-centered (I) → primitive: $P = \tfrac{1}{2}\bigl[(-1,1,1),(1,-1,1),(1,1,-1)\bigr]$</li>
+                <li>C-centered → primitive: $P = \tfrac{1}{2}\bigl[(1,1,0),(-1,1,0),(0,0,2)\bigr]$</li>
                 <li>Axis halvings (a/2, b/2, c/2) and one C→P transformation.</li>
             </ul>
             <p>
@@ -1480,7 +1562,7 @@
 
             <h3>4. Orthorhombic–Hexagonal Relationship</h3>
             <p>
-                A hexagonal lattice can sometimes be described as C-centred orthorhombic with
+                A hexagonal lattice can sometimes be described as C-centered orthorhombic with
                 $b/a \approx \sqrt{3}$ (or permutations). All orthorhombic solutions are checked against this
                 condition (within 3% tolerance), and potential hexagonal equivalents are generated and evaluated.
             </p>

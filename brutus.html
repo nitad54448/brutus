@@ -4601,36 +4601,30 @@ const imgProps = doc.getImageProperties(imgData);
   	
 
 
-    // Niggli 
-    // Show for ALL systems (including triclinic) to confirm standard setting
-    doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Niggli Reduced Cell:', margin, yPos); 
-    yPos += 6;
+    // Cell reduction
+    // Show for ALL systems (including triclinic) to confirm standard setting.
+    // TWO cells are reported. Under the strict IUCr definition (Int. Tables A,
+    // sec. 9.2) a "reduced cell" is primitive, so the Niggli name is reserved
+    // for block (2) only.
+    //   (1) Standardised Conventional Cell - the Krivy-Gruber reduction of the
+    //       solved conventional basis, with the centering deliberately ignored.
+    //       This is the cell the pseudo-symmetry / symmetry-upgrade check
+    //       operates on, so showing it makes that step auditable. It is NOT the
+    //       reduced cell of a centered lattice.
+    //   (2) Reduced (Niggli) Cell - the conventional cell transformed to its
+    //       primitive basis using the centering inferred from systematic
+    //       absences, then reduced. Shown only for a genuine centering
+    //       (I, F, A, B, C, R); for P the two blocks would coincide.
+    // Two blocks need up to ~50 mm; break early rather than splitting a cell table.
+    if (yPos > 225) { doc.addPage(); yPos = 20; }
 
     try {
-        const niggliResult = reduceToNiggliCell(sol);
-        const nCell = niggliResult.cell;
-
-        // Calculate Niggli Volume robustly
         const r = Math.PI / 180.0;
-        const ca = Math.cos(nCell.alpha * r);
-        const cb = Math.cos(nCell.beta * r);
-        const cg = Math.cos(nCell.gamma * r);
-        const term = Math.max(0, 1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
-        const nVol = (term > 0) ? (nCell.a * nCell.b * nCell.c * Math.sqrt(term)) : 0;
-
-        // Define labels and data separately
-        const niggliData = [
-            { label: 'a', value: `= ${nCell.a.toFixed(4)} A` },
-            { label: 'b', value: `= ${nCell.b.toFixed(4)} A` },
-            { label: 'c', value: `= ${nCell.c.toFixed(4)} A` },
-            { label: 'alpha', value: `= ${nCell.alpha.toFixed(3)} deg` },
-            { label: 'beta', value: `= ${nCell.beta.toFixed(3)} deg` },
-            { label: 'gamma', value: `= ${nCell.gamma.toFixed(3)} deg` }
-        ];
-
-
-
-        doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); // Use smaller table body font
+        const cellVolume = (cl) => {
+            const ca = Math.cos(cl.alpha * r), cb = Math.cos(cl.beta * r), cg = Math.cos(cl.gamma * r);
+            const term = Math.max(0, 1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
+            return (term > 0) ? (cl.a * cl.b * cl.c * Math.sqrt(term)) : 0;
+        };
 
         // Define column X positions
         const col1LabelEndX = margin + 15;
@@ -4638,32 +4632,96 @@ const imgProps = doc.getImageProperties(imgData);
         const col2LabelEndX = margin + 78;
         const col2DataStartX = col2LabelEndX + 2;
 
-        // Row 1
-        doc.text(niggliData[0].label, col1LabelEndX, yPos, { align: 'right' }); // 'a'
-        doc.text(niggliData[0].value, col1DataStartX, yPos); // '= 5.xxxx A'
-        doc.text(niggliData[3].label, col2LabelEndX, yPos, { align: 'right' }); // 'alpha'
-        doc.text(niggliData[3].value, col2DataStartX, yPos); // '= 90.xxx deg'
-        yPos += 4;
+        // Renders one titled a/b/c + angles + volume block, advancing yPos.
+        const drawCellBlock = (title, cl, subtitle) => {
+            doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text(title, margin, yPos);
+            yPos += 5;
+            if (subtitle) {
+                doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.SMALL);
+                doc.setTextColor(90, 90, 90);
+                doc.text(subtitle, margin, yPos);
+                doc.setTextColor(0, 0, 0);
+                yPos += 5;
+            }
 
-        // Row 2
-        doc.text(niggliData[1].label, col1LabelEndX, yPos, { align: 'right' }); // 'b'
-        doc.text(niggliData[1].value, col1DataStartX, yPos); // '= 6.xxxx A'
-        doc.text(niggliData[4].label, col2LabelEndX, yPos, { align: 'right' }); // 'beta'
-        doc.text(niggliData[4].value, col2DataStartX, yPos); // '= 90.xxx deg'
-        yPos += 4;
+            const d = [
+                { label: 'a',     value: `= ${cl.a.toFixed(4)} A` },
+                { label: 'b',     value: `= ${cl.b.toFixed(4)} A` },
+                { label: 'c',     value: `= ${cl.c.toFixed(4)} A` },
+                { label: 'alpha', value: `= ${cl.alpha.toFixed(3)} deg` },
+                { label: 'beta',  value: `= ${cl.beta.toFixed(3)} deg` },
+                { label: 'gamma', value: `= ${cl.gamma.toFixed(3)} deg` }
+            ];
 
-        // Row 3
-        doc.text(niggliData[2].label, col1LabelEndX, yPos, { align: 'right' }); // 'c'
-        doc.text(niggliData[2].value, col1DataStartX, yPos); // '= 8.xxxx A'
-        doc.text(niggliData[5].label, col2LabelEndX, yPos, { align: 'right' }); // 'gamma'
-        doc.text(niggliData[5].value, col2DataStartX, yPos); // '= 90.xxx deg'
-        yPos += 4;
+            doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
 
+            for (let i = 0; i < 3; i++) {
+                doc.text(d[i].label, col1LabelEndX, yPos, { align: 'right' });
+                doc.text(d[i].value, col1DataStartX, yPos);
+                doc.text(d[i + 3].label, col2LabelEndX, yPos, { align: 'right' });
+                doc.text(d[i + 3].value, col2DataStartX, yPos);
+                yPos += 4;
+            }
 
-        // vol
-            doc.text("Volume", col1LabelEndX, yPos, { align: 'right' }); 
-            doc.text(`= ${nVol.toFixed(2)} A^3`, col1DataStartX, yPos);
+            doc.text("Volume", col1LabelEndX, yPos, { align: 'right' });
+            doc.text(`= ${cellVolume(cl).toFixed(2)} A^3`, col1DataStartX, yPos);
             yPos += 6;
+        };
+
+        // --- (1) Metric-only reduction (centering NOT applied) ---
+        const niggliResult = reduceToNiggliCell(sol);
+        const nCell = niggliResult.cell;
+        const nVol = cellVolume(nCell);
+
+        // Resolve the centering letter from the absence analysis string,
+        // e.g. "Body-centered (I)" -> "I". Unknown/absent -> 'P'.
+        const centeringStr = String((sol.analysis && sol.analysis.centering) || '').toUpperCase();
+        let centeringKey = null;   // null = not determined
+        for (const cType of ['F', 'I', 'R', 'A', 'B', 'C', 'P']) {
+            if (centeringStr.includes(`(${cType})`)) { centeringKey = cType; break; }
+        }
+
+        let subtitle1;
+        if (centeringKey === 'P') {
+            subtitle1 = 'Krivy-Gruber reduction of the solved lattice metric. Lattice is primitive, so this IS the reduced (Niggli) cell.';
+        } else if (centeringKey === null) {
+            subtitle1 = 'Krivy-Gruber reduction of the solved lattice metric. Centering undetermined, so no primitive cell is derived.';
+        } else {
+            subtitle1 = `Krivy-Gruber reduction of the conventional basis only; the detected ${centeringKey}-centering is NOT applied, so this is not the reduced cell of the lattice.`;
+        }
+
+        drawCellBlock('Standardised Conventional Cell (centering not applied):', nCell, subtitle1);
+
+        // --- (2) True primitive Niggli cell (centering APPLIED) ---
+        if (centeringKey && centeringKey !== 'P') {
+            try {
+                const primResult = reduceToNiggliCell(sol, { centering: centeringKey });
+                const pCell = primResult.cell;
+                const pVol = cellVolume(pCell);
+                const ratio = (pVol > 0) ? (nVol / pVol) : 0;
+
+                drawCellBlock(
+                    'Reduced (Niggli) Cell - primitive:',
+                    pCell,
+                    `Reduced cell of the ${centeringKey}-centered lattice, centering applied`
+                        + (ratio > 0 ? `; volume is 1/${ratio.toFixed(0)} of the cell above.` : '.')
+                );
+
+                if (primResult.converged === false) {
+                    doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.SMALL);
+                    doc.setTextColor(180, 0, 0);
+                    doc.text('Warning: reduction did not converge; cell above may not be fully reduced.', margin, yPos);
+                    doc.setTextColor(0, 0, 0);
+                    yPos += 5;
+                }
+            } catch (ePrim) {
+                doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.SMALL);
+                doc.setTextColor(180, 0, 0);
+                doc.text(`Reduced (Niggli) cell could not be computed for ${centeringKey}-centering.`, margin, yPos);
+                doc.setTextColor(0, 0, 0);
+                yPos += 6;
+            }
+        }
 
             // --- HIGHER SYMMETRY / PSEUDO-SYMMETRY CHECK ---
             const symmetryOrder = { 'cubic': 6, 'hexagonal': 5, 'tetragonal': 4, 'orthorhombic': 3, 'monoclinic': 2, 'triclinic': 1 };
@@ -4673,11 +4731,11 @@ const imgProps = doc.getImageProperties(imgData);
             const niggliSym = getSymmetry(nCell.a, nCell.b, nCell.c, nCell.alpha, nCell.beta, nCell.gamma, 0.25);
             const detectedHigherSyms = [];
             
-            // 1. Check if the primitive Niggli cell itself matches a higher symmetry
+            // 1. Check if the standardised conventional cell itself matches a higher symmetry
             if (symmetryOrder[niggliSym] > currentOrder) {
                 detectedHigherSyms.push({
                     system: niggliSym,
-                    note: `Primitive ${niggliSym}`,
+                    note: `Conventional-cell metric: ${niggliSym}`,
                     cell: nCell
                 });
             }
@@ -4710,7 +4768,7 @@ const imgProps = doc.getImageProperties(imgData);
                 
                 doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY);
                 doc.setTextColor(220, 38, 38); // Distinct red warning color
-                doc.text("HIGHER SYMMETRY DETECTED IN NIGGLI CELL", margin, yPos);
+                doc.text("HIGHER SYMMETRY DETECTED IN CONVENTIONAL CELL METRIC", margin, yPos);
                 doc.setTextColor(0, 0, 0); // Reset text color to black
                 yPos += 4.5;
                 
