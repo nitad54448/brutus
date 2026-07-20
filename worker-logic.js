@@ -69,9 +69,16 @@ const getSymmetry = (a, b, c, alpha, beta, gamma, tol = 0.25) => {
         if (eq(a, b) || eq(b, c) || eq(a, c)) return 'tetragonal';
         return 'orthorhombic';
     }
-    if (is90(alpha) && is90(gamma) && is120(beta)) return 'hexagonal';
-    if (is90(beta) && is90(gamma) && is120(alpha)) return 'hexagonal';
-    if (is90(alpha) && is90(beta) && is120(gamma)) return 'hexagonal';
+    // Hexagonal needs BOTH the angle pattern (two 90s + one 120) AND the two
+    // edges spanning the 120 to be equal. Checking angles alone misclassifies a
+    // monoclinic cell that merely happens to have a 120 angle. Note the 120 can
+    // land on alpha, beta or gamma: the Niggli reduction of a hexagonal lattice
+    // orders axes by length (A <= B <= C), so whenever c < a in the conventional
+    // hexagonal setting the reduced cell comes out as (c, a, a, 120, 90, 90) and
+    // the 120 appears as alpha, not gamma.
+    if (is90(alpha) && is90(gamma) && is120(beta)  && eq(a, c)) return 'hexagonal';
+    if (is90(beta)  && is90(gamma) && is120(alpha) && eq(b, c)) return 'hexagonal';
+    if (is90(alpha) && is90(beta)  && is120(gamma) && eq(a, b)) return 'hexagonal';
     if (is90(alpha) && is90(gamma) && !is90(beta)) return 'monoclinic';
     if (is90(beta) && is90(gamma) && !is90(alpha)) return 'monoclinic'; // b,c unique
     if (is90(alpha) && is90(beta) && !is90(gamma)) return 'monoclinic'; // a,b unique
@@ -1339,8 +1346,18 @@ function reduceToNiggliCell(sol, opts) {
     const alpha = sol.alpha ?? 90;
     const beta = sol.beta ?? 90;
     const gamma = sol.gamma ?? (sol.system === 'hexagonal' ? 120 : 90);
-    const centering = (sol.analysis?.centering) || 'P';
-    
+
+    // The Niggli cell and the higher-symmetry "squeeze" are questions about the
+    // METRIC of the lattice we actually solved. They must not be driven by
+    // sol.analysis.centering, which is a space-group *guess* from systematic
+    // absences. That guess is unreliable exactly when reduction matters most:
+    // a pseudo-symmetric cell (e.g. a hexagonal lattice forced into a monoclinic
+    // setting) produces a false centering, and applying the corresponding
+    // primitive transform extracts a half-volume SUBLATTICE with no relation to
+    // the true symmetry. Reduce the solved cell's own lattice; callers wanting a
+    // true-primitive reduction may pass opts.centering explicitly.
+    const centering = opts && opts.centering ? opts.centering : 'P';
+
     // Call the engine
     return niggliReduceFromCell({ a, b, c, alpha, beta, gamma, centering }, opts);
 }
@@ -1574,15 +1591,31 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
     // intensities. Heights are missing for older callers that did not
     // pass them through; in that case the threshold is never triggered
     // and behaviour is identical to the position-only check.
+    // The baseline must be LOCAL in 2theta, not a fraction of the global
+    // maximum. Diffracted intensity falls off with angle (Lorentz-polarisation,
+    // Debye-Waller, absorption), so a global 5%-of-max cut does not mean "weak"
+    // — above roughly 90 deg it means "high angle", and it silently strips the
+    // whole back-reflection region of any power to falsify an absence rule.
+    // Comparing each peak with peaks at COMPARABLE 2theta keeps the original
+    // crystallographic intent (a truly forbidden reflection has zero intensity)
+    // without the angular bias.
     const LOW_INTENSITY_FRACTION = 0.05;
-    let maxHeight = 0;
-    for (const p of obs_peaks) {
-        const h = p.height;
-        if (typeof h === 'number' && isFinite(h) && h > maxHeight) maxHeight = h;
-    }
-    const lowIntensityThreshold = maxHeight > 0
-        ? maxHeight * LOW_INTENSITY_FRACTION
-        : -Infinity; // disable demotion if no heights available
+    const LOCAL_WINDOW_DEG = 15.0;
+
+    const heightedPeaks = obs_peaks.filter(p => typeof p.height === 'number' && isFinite(p.height));
+    let globalMaxHeight = 0;
+    for (const p of heightedPeaks) if (p.height > globalMaxHeight) globalMaxHeight = p.height;
+
+    const lowIntensityThresholdAt = (tth) => {
+        if (globalMaxHeight <= 0) return -Infinity; // no heights -> disable demotion
+        let localMax = 0;
+        for (const p of heightedPeaks) {
+            if (Math.abs(p.tth - tth) <= LOCAL_WINDOW_DEG && p.height > localMax) localMax = p.height;
+        }
+        // Fall back to the global scale only if the local window is empty.
+        const scale = localMax > 0 ? localMax : globalMaxHeight;
+        return scale * LOW_INTENSITY_FRACTION;
+    };
 
     obs_peaks.forEach(peak => {
         const corrected_tth = peak.tth - zero_correction;
@@ -1596,14 +1629,15 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
             // into the other.
             const altHkls = all_calc_hkls
                 .filter(hkl => Math.abs(hkl.tth - bestMatch.hkl.tth) < overlapWindow)
-                .map(hkl => ({ h: hkl.h, k: hkl.k, l: hkl.l }));
+                .map(hkl => ({ h: hkl.h, k: hkl.k, l: hkl.l, tth: hkl.tth }));
             const peakHeight = (typeof peak.height === 'number' && isFinite(peak.height)) ? peak.height : null;
-            const isLowIntensity = (peakHeight !== null) && (peakHeight < lowIntensityThreshold);
+            const isLowIntensity = (peakHeight !== null) && (peakHeight < lowIntensityThresholdAt(peak.tth));
             indexed_hkls.push({
                 h: bestMatch.hkl.h, k: bestMatch.hkl.k, l: bestMatch.hkl.l,
                 tth: peak.tth, calc_tth: bestMatch.hkl.tth,
                 ka2Suspect: !!peak.ka2Suspect,
                 altHkls: altHkls,
+                tol: tthError,
                 height: peakHeight,
                 lowIntensity: isLowIntensity
             });
@@ -1637,7 +1671,16 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
         const nearbyCount = all_calc_hkls.filter(calc => { if (calc.h === refl.h && calc.k === refl.k && calc.l === refl.l) return false; return Math.abs(calc.tth - refl.calc_tth) < tthError; }).length;
         return nearbyCount === 0;
     });
-    const hkls_for_analysis = unambiguous_hkls.length > 0 ? unambiguous_hkls : unique_indexed_hkls;
+
+    // Do NOT restrict the analysis to isolated reflections. Overlap is handled
+    // per-reflection downstream (the altHkls demotion in countViolations /
+    // determineCentering), so pre-filtering here is both redundant and harmful:
+    // in a pseudo-symmetric cell nearly every reflection overlaps a neighbour,
+    // so this filter used to discard ~3/4 of the indexed peaks and leave a
+    // biased remnant. The set it kept was precisely the set least able to
+    // falsify a centering. Keep every unique indexed reflection and let the
+    // hard/soft accounting weigh them.
+    const hkls_for_analysis = unique_indexed_hkls;
     if (hkls_for_analysis.length < 5) { fallbackResult.centering = 'Unknown (too few unambiguous peaks in range)'; return fallbackResult; }
     const unambiguousSet = new Set(unambiguous_hkls.map(r => `${r.h},${r.k},${r.l}`));
     const ambiguousHkls = new Set(unique_indexed_hkls.filter(r => !unambiguousSet.has(`${r.h},${r.k},${r.l}`)).map(r => `${r.h},${r.k},${r.l}`));
@@ -1660,6 +1703,64 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
         usedKa2SoftScoring: anyKa2Suspects
     };
 }
+// How much worse than the assigned reflection an allowed alternative may fit
+// and still count as a genuine competitor.
+const AMBIGUITY_MARGIN = 2.0;
+
+/**
+ * Is there an ALLOWED alternative hkl that explains this observed peak about as
+ * well as the assigned (rule-violating) one?
+ *
+ * The old test asked only whether an allowed hkl existed anywhere in the overlap
+ * window. That is far too permissive, and it degrades badly with wavelength.
+ * Peak separation follows d(2theta) = 2*tan(theta) * (dd/d), so a fixed 2theta
+ * window corresponds to a lattice resolution of (dd/d) = d(2theta)/(2 tan theta)
+ * — which blows up as theta falls. Short-wavelength anodes push the whole
+ * pattern to low 2theta, so the same window swallows far more reflections. For
+ * one real cell (the FAP monoclinic solution) the mean number of calculated hkl
+ * within +-0.06 deg is ~4 for Cr, ~6 for Cu, ~15 for Mo and ~20 for Ag. Under a
+ * mere presence test, essentially every violation on Mo/Ag data is demoted and
+ * the extinction analysis stops working.
+ *
+ * Note the fix is NOT a wavelength factor on the window. Instrumental 2theta
+ * uncertainty is set by alignment, sample displacement and detector resolution,
+ * and is very nearly independent of the anode — so widening or narrowing the
+ * window per wavelength would be inventing physics. What was wrong is the
+ * binary test. Requiring the alternative to be COMPETITIVE with the assigned
+ * reflection adapts automatically: on a crowded short-wavelength pattern the
+ * extra neighbours are mostly far from the observed position and no longer
+ * excuse the violation, while a genuine near-coincidence still does.
+ *
+ * A candidate competes if it lies within the user's stated tolerance of the
+ * observed peak, or fits no more than AMBIGUITY_MARGIN times worse than the
+ * assigned reflection does.
+ */
+function hasCompetingAllowedAlt(refl, isAllowed) {
+    const alts = refl && refl.altHkls;
+    if (!alts || alts.length <= 1) return false;
+
+    const isSame = (a) => a.h === refl.h && a.k === refl.k && a.l === refl.l;
+    const obs = refl.tth;
+
+    // Without an observed position (or without per-alt positions) we cannot
+    // judge proximity; fall back to the original presence test.
+    if (typeof obs !== 'number' || !isFinite(obs)) {
+        return alts.some(a => !isSame(a) && isAllowed(a));
+    }
+
+    const assignedTth = (typeof refl.calc_tth === 'number' && isFinite(refl.calc_tth))
+        ? refl.calc_tth : obs;
+    const dAssigned = Math.abs(assignedTth - obs);
+    const floor = (typeof refl.tol === 'number' && isFinite(refl.tol)) ? refl.tol : Infinity;
+    const limit = Math.max(dAssigned * AMBIGUITY_MARGIN, floor);
+
+    return alts.some(a => {
+        if (isSame(a) || !isAllowed(a)) return false;
+        if (typeof a.tth !== 'number' || !isFinite(a.tth)) return true; // unknown -> old behaviour
+        return Math.abs(a.tth - obs) <= limit;
+    });
+}
+
 function determineCentering(indexed_hkls, system) {
     const centeringTests = { 'P': { name: 'Primitive (P)', forbidden: (h, k, l) => false }, 'I': { name: 'Body-centered (I)', forbidden: (h, k, l) => (h + k + l) % 2 !== 0 }, 'F': { name: 'Face-centered (F)', forbidden: (h, k, l) => !( (h%2===0 && k%2===0 && l%2===0) || (h%2!==0 && k%2!==0 && l%2!==0) ) }, 'A': { name: 'A-centered (A)', forbidden: (h, k, l) => (k + l) % 2 !== 0 }, 'B': { name: 'B-centered (B)', forbidden: (h, k, l) => (h + l) % 2 !== 0 }, 'C': { name: 'C-centered (C)', forbidden: (h, k, l) => (h + k) % 2 !== 0 } };
     const validBravaisCenterings = { 'cubic': ['P', 'I', 'F'], 'tetragonal': ['P', 'I'], 'orthorhombic': ['P', 'I', 'F', 'A', 'B', 'C'], 'hexagonal': ['P'], 'monoclinic': ['P', 'A', 'B', 'C', 'I'], 'triclinic': ['P'] };
@@ -1690,22 +1791,37 @@ function determineCentering(indexed_hkls, system) {
             const hardViolatingPeaks = violatingPeaks.filter(p => {
                 if (p.ka2Suspect) return false;
                 if (p.lowIntensity) return false;
-                if (p.altHkls && p.altHkls.length > 1) {
-                    const hasAllowedAlt = p.altHkls.some(alt => {
-                        if (alt.h === p.h && alt.k === p.k && alt.l === p.l) return false;
-                        return !test.forbidden(Math.round(alt.h), Math.round(alt.k), Math.round(alt.l));
-                    });
-                    if (hasAllowedAlt) return false;
+                if (hasCompetingAllowedAlt(p, alt => !test.forbidden(Math.round(alt.h), Math.round(alt.k), Math.round(alt.l)))) {
+                    return false;
                 }
                 return true;
             });
-            const softViolatingPeaks = violatingPeaks.filter(p => !hardViolatingPeaks.includes(p));
+            let softViolatingPeaks = violatingPeaks.filter(p => !hardViolatingPeaks.includes(p));
+
+            // --- CONSENSUS OVERRIDE (see countViolations for rationale) ---
+            // A centering mode must not survive on the strength of demotions
+            // alone. Ka2 ghosts, weak tails and overlaps do not preferentially
+            // land on the forbidden parity class; a large soft pile is evidence
+            // that the centering is simply wrong.
+            const CONSENSUS_MIN_COUNT = 5;
+            const CONSENSUS_MIN_FRACTION = 0.15;
+            let effectiveHard = hardViolatingPeaks;
+            let effectiveSoft = softViolatingPeaks;
+            if (effectiveHard.length === 0 &&
+                effectiveSoft.length >= CONSENSUS_MIN_COUNT &&
+                effectiveSoft.length >= CONSENSUS_MIN_FRACTION * indexed_hkls.length) {
+                effectiveHard = effectiveSoft;
+                effectiveSoft = [];
+            }
+
             violations[key] = violatingPeaks.length; // total
-            violationsHard[key] = hardViolatingPeaks.length;
-            violationsSoft[key] = softViolatingPeaks.length;
+            violationsHard[key] = effectiveHard.length;
+            violationsSoft[key] = effectiveSoft.length;
+            const hardViolatingPeaksFinal = effectiveHard;
+            const softViolatingPeaksFinal = effectiveSoft;
             // Details: store hard violators preferentially, fall back to soft.
             if (violations[key] > 0 && violations[key] <= MAX_DETAILS_TO_STORE) {
-                const detailsSource = hardViolatingPeaks.length > 0 ? hardViolatingPeaks : softViolatingPeaks;
+                const detailsSource = hardViolatingPeaksFinal.length > 0 ? hardViolatingPeaksFinal : softViolatingPeaksFinal;
                 violationDetails[key] = detailsSource.slice(0, MAX_DETAILS_TO_STORE).map(p => ({ h: p.h, k: p.k, l: p.l, tth: p.tth, ka2Suspect: !!p.ka2Suspect, lowIntensity: !!p.lowIntensity }));
             }
         }
@@ -1975,20 +2091,12 @@ function countViolations(indexed_hkls, rules) {
         // group: the peak could equally well be assigned to the allowed
         // alternative. Treat such cases as soft so a single near-tolerance
         // peak can't kill an otherwise excellent space group.
-        if (isViolation && reflection.altHkls && reflection.altHkls.length > 1) {
-            const hasAllowedAlt = reflection.altHkls.some(alt => {
-                if (alt.h === h && alt.k === k && alt.l === l) return false;
-                return !hklViolatesRules(alt.h, alt.k, alt.l);
-            });
-            if (hasAllowedAlt) {
-                const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
-                violationDetail = `(${h},${k},${l})${tth_string} ambiguous (allowed alt within tol)`;
-                if (isViolation) {
-                    softCount++;
-                    detailsSoft.push(violationDetail);
-                }
-                continue; // skip the original hard/soft accounting below
-            }
+        if (isViolation && hasCompetingAllowedAlt(reflection, alt => !hklViolatesRules(alt.h, alt.k, alt.l))) {
+            const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
+            violationDetail = `(${h},${k},${l})${tth_string} ambiguous (allowed alt within tol)`;
+            softCount++;
+            detailsSoft.push(violationDetail);
+            continue; // skip the original hard/soft accounting below
         }
 
         if (isViolation) {
@@ -2001,6 +2109,24 @@ function countViolations(indexed_hkls, rules) {
             }
         }
     }
+    // --- CONSENSUS OVERRIDE ---
+    // Each demotion above (Ka2-ghost, weak, overlapped) is a statement that ONE
+    // reflection is poor evidence. None of them licenses ignoring a systematic
+    // trend. Noise, tails and Ka2 ghosts are not correlated with h+k+l parity,
+    // so if many independent reflections all break the SAME rule, the rule is
+    // genuinely broken and the demotions are concealing a real result. Promote
+    // the whole soft pile to hard once it passes both an absolute and a
+    // proportional floor.
+    const CONSENSUS_MIN_COUNT = 5;
+    const CONSENSUS_MIN_FRACTION = 0.15;
+    const nExamined = indexed_hkls.length;
+    if (hardCount === 0 && softCount >= CONSENSUS_MIN_COUNT &&
+        softCount >= CONSENSUS_MIN_FRACTION * nExamined) {
+        hardCount = softCount;
+        softCount = 0;
+        detailsHard.push(...detailsSoft.splice(0, detailsSoft.length));
+    }
+
     // 'count' and 'details' kept as combined values for any pre-existing
     // caller that doesn't yet read the split fields. detailsHard/detailsSoft
     // are uncapped (used by the PDF report to list every violating hkl);

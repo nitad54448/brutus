@@ -559,6 +559,10 @@
     <option value="Fe_avg">Fe K-alpha (Avg)</option>
     <option value="Mo_ka1">Mo Ka1</option>
     <option value="Mo_avg">Mo K-alpha (Avg)</option>
+    <option value="Ag_ka1">Ag Ka1</option>
+    <option value="Ag_avg">Ag K-alpha (Avg)</option>
+    <option value="Cr_ka1">Cr Ka1</option>
+    <option value="Cr_avg">Cr K-alpha (Avg)</option>
     <option value="custom">Custom (Monochromatic)</option>
 </select>
 
@@ -717,7 +721,12 @@ document.addEventListener('DOMContentLoaded', () => {
         'Fe': { ka1: 1.93604, ka2: 1.93998, ka_avg: 1.93735, ratio: 0.497 },
         'Mo': { ka1: 0.70930, ka2: 0.71359, ka_avg: 0.71073, ratio: 0.497 },
         // Cr kept just in case, though not in dropdown
-        'Cr': { ka1: 2.28970, ka2: 2.29361, ka_avg: 2.29100, ratio: 0.497 }, 
+        'Cr': { ka1: 2.28970, ka2: 2.29361, ka_avg: 2.29100, ratio: 0.497 },
+        // Ag: short-wavelength anode, increasingly common for total-scattering /
+        // high-Q work. ka_avg follows the same (2*ka1 + ka2)/3 convention as the
+        // entries above. VERIFY the 5th decimal against your Bearden (1967) table
+        // before relying on it for precise work.
+        'Ag': { ka1: 0.55941, ka2: 0.56381, ka_avg: 0.56088, ratio: 0.497 },
         'custom': { ka1: null, ka2: null, ka_avg: null, ratio: 0.5 }
     };
 
@@ -768,6 +777,38 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     /**
+     * Intensity sanity check for a candidate Kα₂ companion.
+     *
+     * A Kα₂ line carries a fixed fraction of its Kα₁ parent — preset.ratio,
+     * ≈0.497 for all the characteristic doublets. We accept a candidate only if
+     * the measured height ratio is consistent with that, allowing generous
+     * slack for peak-fitting error, background and partial overlap.
+     *
+     * The upper bound is the one that matters: a peak as tall as, or taller
+     * than, its supposed parent CANNOT be that parent's ghost. Flagging it
+     * would discard a real reflection from the space-group evidence. The lower
+     * bound is looser, since a Kα₂ sitting on a falling background or partly
+     * merged into a neighbour can measure low.
+     *
+     * If heights are unavailable we fall back to the old position-only
+     * behaviour rather than silently rejecting everything.
+     */
+    const KA2_RATIO_MAX_FACTOR = 1.7;  // vs expected ratio -> ~0.85 of parent
+    const KA2_RATIO_MIN_FACTOR = 0.35; // vs expected ratio -> ~0.17 of parent
+    const ka2RatioIsPlausible = (parent, child, preset) => {
+        const hp = parent?.intensity ?? parent?.height;
+        const hc = child?.intensity ?? child?.height;
+        if (typeof hp !== 'number' || typeof hc !== 'number' ||
+            !isFinite(hp) || !isFinite(hc) || hp <= 0) {
+            return true; // no usable heights -> position-only, as before
+        }
+        const expected = (preset && preset.ratio) ? preset.ratio : 0.497;
+        const observed = hc / hp;
+        return observed <= expected * KA2_RATIO_MAX_FACTOR &&
+               observed >= expected * KA2_RATIO_MIN_FACTOR;
+    };
+
+    /**
      * Walk pickedPeaks, set p.ka2Suspect = true on any peak whose 2θ matches
      * the predicted Ka2 ghost of an earlier (lower-2θ) peak. Also stores
      * p.ka2ParentIdx for traceability.
@@ -780,15 +821,30 @@ document.addEventListener('DOMContentLoaded', () => {
      * Re-runs cleanly: clears flags before re-tagging.
      */
     const flagKa2SuspectPeaks = () => {
-        // Reset all flags first (preserve user confirmations)
+        // Reset ALL flags first, unconditionally. This must clear
+        // userConfirmedReal peaks too: a peak flagged under (say) Cu Ka and
+        // then right-clicked as "real" would otherwise keep ka2Suspect = true
+        // forever, since this loop skipped it and the tagging loop below also
+        // skips it. That silently defeats the manual override — the peak stays
+        // excluded from indexing and keeps counting as a soft violation.
+        // Clearing here is safe because the tagging loop re-applies the flag
+        // only to peaks that still match, and never to userConfirmedReal ones.
+        //
+        // It also guarantees that switching to a radiation WITHOUT a Ka2
+        // component (Custom, or any *_ka1 preset) leaves no stale flags behind:
+        // the reset runs before the `!preset` early return below, so every peak
+        // is cleared and no Ka2-based demotion can survive the switch.
         pickedPeaks.forEach(p => {
-            if (!p.userConfirmedReal) p.ka2Suspect = false;
+            p.ka2Suspect = false;
             p.ka2ParentIdx = null;
             p.hasKa2Child = false; // becomes true if a Ka2-suspect child is found below
         });
 
         const preset = getActiveKa2Preset();
-        if (!preset) return; // no doublet → nothing to flag
+        // No doublet to expect: Custom radiation, any Ka1-only preset, or a
+        // preset lacking ka1/ka2. Nothing is flagged, so no peak is demoted to
+        // "soft" on Ka2 grounds and none is withheld from the indexing search.
+        if (!preset) return;
         if (ui.stripKa2Checkbox?.checked) return; // already stripped
 
         // pickedPeaks is kept sorted by 2θ; rely on that.
@@ -806,6 +862,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (q.tth - tth2Pred > tol) break;
                 if (q.userConfirmedReal) continue; // user said this is real
                 if (Math.abs(q.tth - tth2Pred) <= tol) {
+                    // Position alone is not enough. The Ka2 line is a fixed
+                    // fraction of its Ka1 parent (preset.ratio, ~0.497 for the
+                    // Cu/Co/Fe/Mo/Cr doublets), so a candidate sitting at the
+                    // right angle but carrying the wrong intensity is a genuine
+                    // reflection that happens to fall near the predicted ghost
+                    // position — not a ghost. Without this check any real peak
+                    // at the doublet spacing is silently demoted to soft
+                    // evidence and stops constraining the space group.
+                    if (!ka2RatioIsPlausible(parent, q, preset)) continue;
                     q.ka2Suspect = true;
                     q.ka2ParentIdx = i;
                     parent.hasKa2Child = true; // parent is provably Kα1 → use λ_Kα1 for it
@@ -4340,8 +4405,25 @@ const imgProps = doc.getImageProperties(imgData);
 	{ label: 'Max Volume (A^3):', value: ui.maxVolume.value },
       	{ label: 'Ka1 Wavelength (A):', value: parseFloat(ui.wavelength.value).toFixed(5) },
       	{ label: 'Tolerance (2theta):', value: ui.tthError.value },
-      	{ label: 'Ka2 Stripped:', value: ui.stripKa2Checkbox.checked ? 'True' : 'False' },
-      	{ label: "Ka2-suspect peaks:", value: String(pickedPeaks.filter(p => p.ka2Suspect).length) },
+      	{ label: 'Ka2 Stripped:',
+      	  // 'False' would be a lie for radiation that has no Ka2 to strip
+      	  // (Custom, or any Ka1-only preset). In those cases the checkbox is
+      	  // forced off AND disabled, so 'False' reads as a user decision not
+      	  // to strip rather than 'not applicable'. getActiveKa2Preset() is
+      	  // null exactly when the radiation has no doublet component, which
+      	  // is the same gate the Ka2 tagger uses - so the two stay consistent.
+      	  value: getActiveKa2Preset()
+      	             ? (ui.stripKa2Checkbox.checked ? 'True' : 'False')
+      	             : 'N/A' },
+      	// 'Ka2-suspect peaks' was listed here, but this block documents the USER'S
+      	// INPUT SETTINGS, so that a run can be reproduced from it. The suspect
+      	// count is a derived finding from the peak list, not a setting. It was
+      	// also actively misleading whenever Ka2 stripping is on: the tagger
+      	// early-returns in that case, so the value was structurally always 0 and
+      	// read as "no ghosts found" rather than "never looked for". The
+      	// information is surfaced where it is relevant instead - the hard/soft
+      	// note in the space-group section, printed only when Ka2-suspect peaks
+      	// actually affected scoring.
       	{ label: 'Impurity Peaks:', value: ui.impurityPeaksInput.value },
       	{ label: 'Min Peak (%):', value: ui.peakThresholdValue.textContent },
       	{ label: 'Refine Zero:', value: ui.refineZeroCheckbox.checked ? 'True' : 'False' },
@@ -4959,7 +5041,7 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 18 July 2026</div>
+<div id="app-footer">Brutus, 20 July 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-report">Generate Report</div>

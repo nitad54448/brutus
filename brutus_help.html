@@ -342,7 +342,46 @@
             <ul>
                 <li>
                     <strong>Radiation Preset:</strong>
-                    Select the X-ray source (e.g. Cu Kα, Co Kα, Mo Kα, synchrotron, etc.). This sets the internal Ka1 and Ka2 wavelength values used for Kα<sub>2</sub> stripping and d-spacing calculations.
+                    Selects the X-ray source, setting the internal Kα<sub>1</sub> and Kα<sub>2</sub> wavelength values
+                    (Bearden, 1967) used for Kα<sub>2</sub> stripping and d-spacing calculations. Each anode is offered
+                    both as a pure <em>Kα<sub>1</sub></em> preset and as a <em>Kα-average</em> preset; the average is
+                    <em>(2·Kα<sub>1</sub> + Kα<sub>2</sub>)/3</em>, weighting the doublet by its 2:1 intensity ratio.
+                    <strong>Custom (Monochromatic)</strong> makes the wavelength field editable and disables all
+                    Kα<sub>2</sub> handling.
+                    <table style="margin-top:0.75rem; border-collapse:collapse; font-size:0.92em;">
+                        <tr style="border-bottom:1px solid #bbb;">
+                            <th style="text-align:left;padding:0.2rem 0.9rem 0.2rem 0;">Anode</th>
+                            <th style="text-align:right;padding:0.2rem 0.9rem;">Kα<sub>1</sub> (Å)</th>
+                            <th style="text-align:right;padding:0.2rem 0.9rem;">d<sub>min</sub> at 130°</th>
+                            <th style="text-align:right;padding:0.2rem 0.9rem;">Rel. no. of reflections</th>
+                            <th style="text-align:left;padding:0.2rem 0;">Typical use</th>
+                        </tr>
+                        <tr><td>Cr</td><td style="text-align:right;">2.28970</td><td style="text-align:right;">1.264 Å</td><td style="text-align:right;">0.30</td><td>Residual stress, large cells, polymers</td></tr>
+                        <tr><td>Fe</td><td style="text-align:right;">1.93604</td><td style="text-align:right;">1.068 Å</td><td style="text-align:right;">0.50</td><td>Mn/Cr-bearing samples</td></tr>
+                        <tr><td>Co</td><td style="text-align:right;">1.78896</td><td style="text-align:right;">0.987 Å</td><td style="text-align:right;">0.64</td><td>Fe-bearing samples (avoids fluorescence)</td></tr>
+                        <tr><td>Cu</td><td style="text-align:right;">1.54056</td><td style="text-align:right;">0.850 Å</td><td style="text-align:right;">1.00</td><td>General-purpose workhorse</td></tr>
+                        <tr><td>Mo</td><td style="text-align:right;">0.70930</td><td style="text-align:right;">0.391 Å</td><td style="text-align:right;">10.2</td><td>Strong absorbers, capillary/transmission</td></tr>
+                        <tr><td>Ag</td><td style="text-align:right;">0.55941</td><td style="text-align:right;">0.309 Å</td><td style="text-align:right;">20.7</td><td>High-Q and total-scattering work</td></tr>
+                    </table>
+                    <p style="margin-top:0.6rem;">
+                        <strong>Choosing a wavelength for indexing.</strong> The relative reflection count scales as
+                        $1/\lambda^{3}$ for a fixed cell volume, and both extremes cause trouble:
+                    </p>
+                    <ul>
+                        <li><strong>Long wavelengths (Cr, Fe)</strong> access very few reflections. M(20) needs 20 indexed
+                            lines, and with a large cell you may simply not reach them. Excellent for stress analysis;
+                            a weak choice for indexing.</li>
+                        <li><strong>Short wavelengths (Mo, Ag)</strong> give 10–20× more reflections, but compress them into
+                            low 2θ where angular dispersion is poor, so they overlap heavily. For one real monoclinic cell,
+                            the mean number of calculated reflections falling within &plusmn;0.06° 2θ is about 4 for Cr,
+                            6 for Cu, 15 for Mo and 20 for Ag. The extinction analysis is built to cope with this (see the
+                            <em>Ambiguous</em> criterion in the space-group section), but expect more soft violations.</li>
+                    </ul>
+                    <p>
+                        A further consequence: the doublet separation grows with tan θ, so on Mo or Ag data — where most
+                        peaks sit at low 2θ — the Kα<sub>2</sub> ghosts are barely separated and the Kα<sub>2</sub> tagger
+                        will flag few or no peaks. That is expected, not a malfunction.
+                    </p>
                 </li>
                 <li>
                     <strong>Ka1 Wavelength (Å):</strong>
@@ -549,13 +588,46 @@
             <h3>Suspected Kα<sub>2</sub> Peaks &amp; Wavelength Treatment</h3>
             <p>
                 If your data has <em>not</em> been stripped of Kα<sub>2</sub>, Brutus automatically scans the
-                peak list to flag suspected Kα<sub>2</sub> ghosts:
+                peak list to flag suspected Kα<sub>2</sub> ghosts. A candidate must satisfy <strong>two</strong>
+                independent tests:
             </p>
+            <div class="note" style="margin: 1rem 0; padding: 0.75rem 1rem; border-left: 3px solid #888;">
+                <strong>When no Kα<sub>2</sub> exists, none of this applies.</strong>
+                The entire Kα<sub>2</sub> tagger is inactive for radiation with no doublet component — that is,
+                <strong>Custom</strong> wavelengths, any <em>Kα<sub>1</sub>-only</em> preset, and data for which
+                Kα<sub>2</sub> stripping is enabled. In those cases no peak is ever marked Kα<sub>2</sub>-suspect,
+                so no reflection is withheld from the indexing search or from the M(20) calculation, and no
+                extinction violation is demoted to "soft" on Kα<sub>2</sub> grounds. Switching to such a
+                radiation also clears any flags raised under a previous doublet preset, so nothing stale
+                survives the change.
+            </div>
+            <ul>
+                <li><strong>Position:</strong> the peak lies at the 2θ predicted for the Kα<sub>2</sub> companion
+                    of an earlier (lower-2θ) parent peak, within an angle-adaptive tolerance. Since the doublet
+                    separation grows with 2θ, the tolerance is the larger of your <code>2θ Error</code> and 25%
+                    of the expected split.
+                </li>
+                <li><strong>Intensity ratio:</strong> the peak height is consistent with the characteristic
+                    doublet ratio (≈0.497 for Cu, Co, Fe, Mo and Cr Kα). Brutus accepts a candidate only if the
+                    measured child/parent height ratio lies roughly between 0.17 and 0.85 — that is, within
+                    0.35× to 1.7× of the expected value, with generous slack for peak-fitting error, background
+                    and partial overlap.
+                    <br><br>
+                    The upper bound is the important one: a peak as tall as, or taller than, its supposed parent
+                    <em>cannot</em> be that parent's ghost. Position alone is not sufficient evidence, and earlier
+                    versions tested position only — so any genuine reflection that happened to fall near a
+                    predicted ghost position was silently demoted to soft evidence and stopped constraining the
+                    space group. If peak heights are unavailable, Brutus falls back to the position-only test
+                    rather than rejecting every candidate.
+                </li>
+            </ul>
+            <p>Flagged peaks are then treated as follows:</p>
             <ul>
                 <li><strong>Yellow Rows:</strong> Suspected Kα<sub>2</sub> peaks are highlighted in yellow in the table
                     and marked with ⚠. These are <strong>excluded</strong> from the combinatorial indexing search
                     and from the M(20) Figure of Merit calculation, and count only as "soft" violations
-                    during space-group analysis.
+                    during space-group analysis (subject to the consensus override described in the
+                    space-group section).
                 </li>
                 <li><strong>Kα<sub>1</sub> Wavelength for Parent Peaks:</strong> The parent peak of each Kα<sub>2</sub>
                     ghost is identified (marked with a <code>*</code>). Brutus recalculates its d-spacing using the
@@ -564,6 +636,8 @@
                 </li>
                 <li><strong>Manual Override:</strong> Right-click a yellow row to mark it as a confirmed real peak
                     if it was flagged incorrectly (e.g. due to a near-coincidence with another phase).
+                    A confirmed peak is never re-flagged, is returned to the indexing search and the M(20)
+                    calculation, and no longer contributes a Kα<sub>2</sub>-based soft violation.
                 </li>
             </ul>
 
@@ -1214,25 +1288,65 @@
                     All peaks in the curated list are matched against the theoretical pattern. During space group analysis—and when generating the final PDF report table—Brutus applies a <strong>1.5× safety multiplier</strong> to your stated <code>2θ Error</code> window. For example, an input tolerance of 0.04° opens an effective 0.06° matching window. This relaxation prevents slight sample zero-shifts or high-angle refinement drift from rejecting valid reflections, which would otherwise trigger false systematic absences and disqualify the correct space group.
                 </li>
                 <li>
-                    <strong>Build a high-confidence subset.</strong>
-                    To avoid ambiguity from overlapping reflections, Brutus retains only peaks for which <em>no other</em>
-                    theoretical $(hkl)$ lies within the <code>2θ Error</code> window. This "unambiguous" subset is used
-                    exclusively for extinction analysis.
+                    <strong>Retain all indexed reflections.</strong>
+                    Every uniquely indexed peak is passed to the extinction analysis. Earlier versions kept only
+                    an "unambiguous" subset — peaks for which <em>no other</em> theoretical $(hkl)$ fell within the
+                    <code>2θ Error</code> window — but this proved actively harmful on pseudo-symmetric cells.
+                    When a lattice of higher symmetry is described in a lower-symmetry setting, the reflections
+                    that overlap are precisely the symmetry-related ones, so the filter discarded most of the
+                    pattern (typically 70–80% of peaks) and kept the biased remnant <em>least</em> able to
+                    falsify a centering. Overlap is now handled per reflection instead, via the
+                    <strong>Ambiguous</strong> demotion described below.
                 </li>
                 <li>
     <strong>Determine centering and extinctions.</strong>
     The indexed peaks are compared against the extinction rules (centering conditions and
     glide/screw symmetry conditions) for all candidate space groups. To prevent noise or overlap from unfairly disqualifying a valid space group, Brutus classifies violations into two categories:
     <ul>
-        <li><strong>Hard violations:</strong> A strong (intensity &ge; 5% of maximum), real (non-Kα<sub>2</sub>), and unambiguous reflection clearly breaks a rule. These heavily penalise the space group and lower its ranking.</li>
+        <li><strong>Hard violations:</strong> A strong, real (non-Kα<sub>2</sub>), unambiguous reflection clearly breaks a rule. These heavily penalise the space group and lower its ranking.</li>
         <li><strong>Soft violations:</strong> A reflection breaks a rule, but the peak is considered unreliable. These do <em>not</em> penalise the space group's ranking, but are listed in the report for the user to review. A violation is flagged as "soft" if the peak is:
             <ul style="margin-top: 0.5rem; margin-bottom: 0.5rem;">
-                <li><strong>Kα<sub>2</sub>-suspect:</strong> Flagged as a likely Kα<sub>2</sub> companion.</li>
-                <li><strong>Weak:</strong> The peak intensity is very low (&lt; 5% of the maximum intensity), making it potential background noise.</li>
-                <li><strong>Ambiguous:</strong> The assigned $(hkl)$ violates a rule, but there is an alternative, <em>allowed</em> theoretical reflection within the 2θ tolerance window.</li>
+                <li><strong>Kα<sub>2</sub>-suspect:</strong> Flagged as a likely Kα<sub>2</sub> companion (position <em>and</em> intensity ratio — see below). Never applies to Custom or Kα<sub>1</sub>-only radiation, or to Kα<sub>2</sub>-stripped data.</li>
+                <li><strong>Weak:</strong> The peak height is below 5% of a <strong>local</strong> maximum, measured over a &plusmn;15° 2θ window centred on the peak. The local window matters: diffracted intensity falls off steeply with angle (Lorentz–polarisation, Debye–Waller, absorption), so an earlier version that compared against 5% of the <em>global</em> maximum was effectively an angle cutoff in disguise — above roughly 90° 2θ nearly every genuine reflection fell below it, and the entire back-reflection region silently lost its power to falsify an absence rule. Comparing each peak with peaks at comparable 2θ preserves the crystallographic intent (a truly forbidden reflection should have zero intensity) without the angular bias.</li>
+                <li><strong>Ambiguous:</strong> The assigned $(hkl)$ violates a rule, but an <em>allowed</em> theoretical reflection explains the observed peak about as well. The alternative must be <strong>competitive</strong>, not merely present: it qualifies if it lies within your stated <code>2θ Error</code> of the observed position, or fits no more than <strong>2×</strong> worse than the assigned reflection does. An earlier version demoted the violation whenever <em>any</em> allowed reflection fell anywhere in the overlap window, even one many times further from the peak — see the note on wavelength below.</li>
             </ul>
         </li>
     </ul>
+    <p style="margin-top:0.75rem;">
+        <strong>Consensus override.</strong> Each demotion above asserts that <em>one</em> reflection is poor
+        evidence; none of them licenses ignoring a systematic trend. Noise, peak tails and Kα<sub>2</sub> ghosts
+        are not correlated with reflection parity, so if many independent reflections all break the
+        <em>same</em> rule, the rule is genuinely broken and the demotions are concealing a real result.
+        Brutus therefore promotes an entire soft pile back to hard when it passes both an absolute and a
+        proportional floor: at least <strong>5 violations</strong> <em>and</em> at least <strong>15%</strong>
+        of the reflections examined. A couple of weak stragglers will not disqualify a genuine centering;
+        a systematic breach will.
+    </p>
+    <p>
+        This matters most for pseudo-symmetric cells. A hexagonal lattice indexed in a monoclinic setting,
+        for example, produces a false body-centering signal: roughly half the reflections appear absent, and
+        without the override every surviving counter-example is demoted as weak or overlapped, so the cell is
+        reported as <em>I</em>-centred with zero hard violations. That false centering then propagates into the
+        Niggli reduction (see <a href="#advanced-topics">Advanced Topics</a>).
+    </p>
+    <h4>Why the <em>Ambiguous</em> test is proximity-weighted</h4>
+    <p>
+        Peak separation follows $\Delta(2\theta) = 2\tan\theta \cdot (\Delta d / d)$. A <em>fixed</em> 2θ window
+        therefore corresponds to a lattice resolution of $\Delta d/d = \Delta(2\theta) / (2\tan\theta)$, which
+        grows without bound as θ falls. Short-wavelength anodes push the whole pattern to low 2θ, so the same
+        window swallows far more reflections — around 20 neighbours per reflection for Ag against 6 for Cu.
+        Under a mere presence test, essentially every violation on Mo or Ag data would be demoted and the
+        extinction analysis would stop working.
+    </p>
+    <p>
+        Note that the remedy is <em>not</em> a wavelength-dependent tolerance. Instrumental 2θ uncertainty is set
+        by alignment, sample displacement and detector resolution, and is very nearly independent of the anode:
+        a 0.04° tolerance means 0.04° whichever tube is fitted, so widening or narrowing the window per
+        wavelength would misrepresent the instrument. What needed fixing was the binary nature of the old test.
+        Requiring the alternative to be <em>competitive</em> with the assigned reflection adapts automatically —
+        on a crowded short-wavelength pattern the extra neighbours are mostly far from the observed position and
+        no longer excuse the violation, while a genuine near-coincidence still does.
+    </p>
     The zone assignment for each $(hkl)$ (e.g. <code>h00</code>, <code>0k0</code>, <code>hk0</code>, <code>hkl</code> etc.)
     is used to apply the correct subset of conditions for that zone.
 </li>
@@ -1258,14 +1372,30 @@
                     or small systematic errors in peak positions.
                 </li>
                 <li>
+                    <strong>Absolute violation counts are larger than in earlier versions.</strong>
+                    Because every indexed reflection now reaches the extinction analysis rather than a small
+                    isolated subset, all centerings and space groups accumulate more violations than you may be
+                    used to. Compare candidates against <em>each other</em>, not against remembered absolute
+                    numbers from previous releases.
+                </li>
+                <li>
                     <strong>Ambiguous peaks (in italics in the PDF report):</strong>
-                    Peaks excluded from extinction analysis due to potential overlap are printed in italics to
-                    distinguish them from the high-confidence subset. A * is also added to the respective line.
+                    Peaks that overlap another theoretical reflection within the tolerance window are printed in
+                    italics, with a <code>*</code> added to the respective line. These peaks are no longer excluded
+                    from extinction analysis — the italics simply mark that any rule violation they raise is
+                    demoted to soft unless the consensus override applies.
                 </li>
                 <li>
                     <strong>Soft-violation warnings:</strong>
                     Space groups that are only challenged by Kα<sub>2</sub>-suspect reflections are flagged. They may
                     still be the correct space group; strip Kα<sub>2</sub> and re-run to resolve the ambiguity.
+                </li>
+                <li>
+                    <strong>A centering with 0 hard violations but a large soft pile:</strong>
+                    Read this with suspicion, and check whether the consensus thresholds were only just missed.
+                    It is the signature of a pseudo-symmetric cell, where a false centering survives purely on
+                    the strength of demotions. Inspect the listed soft violations: if many of them break the
+                    same rule, the centering is probably wrong.
                 </li>
             </ul>
         </section>
@@ -1282,9 +1412,25 @@
             <h3>1. Niggli Cell Reduction &amp; Symmetry Upgrade</h3>
             <p>
                 For each solution, Brutus computes the <strong>Niggli reduced cell</strong> — the standardised,
-                most compact primitive cell for the lattice. The conventional (possibly centred) cell is first
-                reduced to primitive using the detected centering (I, F, C, etc.), and then the Niggli algorithm
-                is applied.
+                most compact cell for the lattice — by applying the Křivý–Gruber reduction directly to the
+                solved cell.
+            </p>
+            <p>
+                The reduction deliberately does <em>not</em> use the centering inferred from systematic absences.
+                The Niggli cell and the symmetry upgrade are questions about the <strong>metric</strong> of the
+                lattice actually solved, whereas the detected centering is a space-group <em>guess</em>, and that
+                guess is least reliable exactly when reduction matters most. If a pseudo-symmetric cell is
+                wrongly assigned a centering, applying the corresponding primitive transform extracts a
+                half-volume <em>sublattice</em> bearing no relation to the true symmetry — the reduction then
+                reports a spurious triclinic-looking cell and the symmetry upgrade never fires. Reducing the
+                solved lattice on its own terms makes this step robust to an incorrect absence analysis.
+            </p>
+            <p>
+                As a worked example: a hexagonal cell forced into a monoclinic setting
+                ($a \approx c \approx 9.40$ Å, $b \approx 6.90$ Å, $\beta \approx 120°$, $V = 527$ Å³) is
+                reduced correctly to a cell with two near-equal edges and a 120° angle, revealing the hexagonal
+                metric. Had the false <em>I</em>-centering been applied first, the result would instead have been
+                a 264 Å³ sublattice with no recognisable symmetry.
             </p>
             <p>
                 After reduction, the code calls <code>getSymmetry()</code> with a slightly loose tolerance (0.05 Å / 0.05°)
@@ -1292,6 +1438,11 @@
                 all angles equal to 90° and two equal axes — i.e. it is actually tetragonal. If the detected
                 symmetry is <em>higher</em> than the search symmetry (and the user has selected that higher-symmetry system),
                 a new trial cell is constructed with the correct symmetry and re-refined and re-scored.
+            </p>
+            <p>
+                A true-primitive reduction of a genuinely centred lattice is still available to callers that want
+                it, by passing an explicit centering to the reduction routine; it is simply no longer taken from
+                the absence analysis by default.
             </p>
             <p>
                 Niggli cells are also used for:
@@ -1586,7 +1737,11 @@
             </ol>
 
             <div class="footer">
-                <p>Help guide generated with the help of an AI, based on source code analysis, 13 July 2026.</p>
+                <p>Help guide generated with the help of an AI, based on source code analysis, 13 July 2026.
+                Revised 20 July 2026: extinction-analysis selection criteria (local weak threshold, consensus
+                override, removal of the unambiguous pre-filter, proximity-weighted ambiguity test),
+                Kα<sub>2</sub> intensity-ratio test, centering-independent Niggli reduction, and Cr/Ag
+                radiation presets.</p>
             </div>
         </section>
 
