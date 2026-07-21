@@ -410,6 +410,32 @@
 
         /* right click */
 
+        #swap-overlay {
+            display: none; position: fixed; inset: 0; z-index: 3000;
+            background: rgba(0,0,0,0.55); align-items: center; justify-content: center;
+        }
+        #swap-overlay.open { display: flex; }
+        #swap-modal {
+            background: var(--medium-bg); border: 1px solid var(--border-color);
+            border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            width: min(680px, 92vw); max-height: 86vh; display: flex; flex-direction: column;
+            padding: 18px 20px; color: var(--text-light);
+        }
+        #swap-title { margin: 0 0 4px 0; font-size: 1.05rem; }
+        #swap-sub { margin: 0 0 12px 0; font-size: 0.8rem; color: var(--text-dark); }
+        #swap-table-wrap { overflow-y: auto; flex: 1 1 auto; border: 1px solid var(--border-color); border-radius: 6px; }
+        #swap-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+        #swap-table th, #swap-table td { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--border-color); }
+        #swap-table th { position: sticky; top: 0; background: var(--light-bg); color: var(--text-dark); font-weight: 500; }
+        #swap-table tr:last-child td { border-bottom: none; }
+        #swap-table input {
+            width: 46px; background: var(--light-bg); border: 1px solid var(--border-color);
+            color: var(--text-light); border-radius: 4px; padding: 3px 5px; text-align: center; font-size: 0.82rem;
+        }
+        #swap-table input.changed { border-color: #d97706; background: rgba(217,119,6,0.12); }
+        #swap-table tr.unindexed td { color: var(--text-dark); font-style: italic; }
+        #swap-msg { min-height: 18px; margin-top: 10px; font-size: 0.8rem; color: #f87171; }
+        #swap-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; }
         #context-menu {
             display: none;
             position: absolute;
@@ -700,7 +726,38 @@
                 <p>Load a data file to begin indexing.</p>
             </div>
             <div id="results-container" style="width: 100%; height: 100%; display: none; flex-direction: column; position: relative;">
-                <canvas id="xrd-chart"></canvas>
+                <div id="chart-toolbar" style="display:flex; flex-wrap:wrap; gap:0.9rem; align-items:center; padding:0.35rem 0.6rem; font-size:0.8rem; color:#374151; border-bottom:1px solid #e5e7eb; background:#fafafa;">
+                    <label style="display:flex; align-items:center; gap:0.3rem;" title="Abscissa. The data itself is never re-measured; only the view changes.">
+                        <span style="font-weight:600;">X</span>
+                        <select id="x-axis-mode" style="font-size:0.78rem; padding:0.1rem 0.2rem;">
+                            <option value="tth" selected>2&theta; (&deg;)</option>
+                            <option value="theta">&theta; (&deg;)</option>
+                            <option value="d">d (&Aring;)</option>
+                            <option value="q">Q (&Aring;&#8315;&sup1;)</option>
+                        </select>
+                    </label>
+                    <label style="display:flex; align-items:center; gap:0.3rem;" title="Ordinate scaling. Tick labels always show real intensity.">
+                        <span style="font-weight:600;">Y</span>
+                        <select id="y-axis-mode" style="font-size:0.78rem; padding:0.1rem 0.2rem;">
+                            <option value="linear">I</option>
+                            <option value="sqrt" selected>&radic;I</option>
+                            <option value="log">log I</option>
+                        </select>
+                    </label>
+                    <label style="display:flex; align-items:center; gap:0.3rem;" title="Where Ctrl+click puts a new peak. Hold Shift while clicking to bypass snapping.">
+                        <span style="font-weight:600;">Snap</span>
+                        <select id="snap-mode" style="font-size:0.78rem; padding:0.1rem 0.2rem;">
+                            <option value="auto" selected>Auto</option>
+                            <option value="data">Data max</option>
+                            <option value="hkl">hkl line</option>
+                            <option value="off">Off</option>
+                        </select>
+                    </label>
+                    <span id="snap-readout" style="color:#6b7280; font-variant-numeric:tabular-nums;"></span>
+                </div>
+                <div style="flex:1 1 auto; min-height:0; position:relative;">
+                    <canvas id="xrd-chart"></canvas>
+                </div>
             </div>
 
         </div>
@@ -1045,6 +1102,10 @@ document.addEventListener('DOMContentLoaded', () => {
         solutionsTableHeaders: document.querySelectorAll('#solutions-table-container th'),
         solutionsLed: document.getElementById('solutions-led'),
         chartCanvas: document.getElementById('xrd-chart'),
+        xAxisMode: document.getElementById('x-axis-mode'),
+        yAxisMode: document.getElementById('y-axis-mode'),
+        snapMode: document.getElementById('snap-mode'),
+        snapReadout: document.getElementById('snap-readout'),
         placeholder: document.getElementById('placeholder'),
         resultsContainer: document.getElementById('results-container'),
         tthMinSlider: document.getElementById('tth-min-slider'),
@@ -1405,9 +1466,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const debouncedUpdateAndRedraw = debounce(() => {
         updateWorkingData();
         if (xrdChart) {
-            const experimentalPoints = workingExperimentalData.tth.map((t, i) => ({ x: t, y: Math.max(0, workingExperimentalData.intensity[i]) }));
-            xrdChart.data.datasets[0].data = experimentalPoints;
-            xrdChart.update('none'); // pas d'animation, sinon c'est trop lent
+            // Stripping and deconvolution both change the intensities, so the
+            // ordinate is rescaled as well as redrawn.
+            setExperimentalTrace(true); // pas d'animation, sinon c'est trop lent
         }
         findPeaks();
     }, 250);
@@ -1938,12 +1999,14 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
             
             // Redraw Chart
             if (xrdChart) {
-                const experimentalPoints = workingExperimentalData.tth.map((t, i) => ({ 
-                    x: t, 
-                    y: Math.max(0, workingExperimentalData.intensity[i]) 
-                }));
-                xrdChart.data.datasets[0].data = experimentalPoints;
-                xrdChart.update('none');
+                // d and Q are functions of lambda, so a new wavelength moves every
+                // abscissa on those axes - the whole plot has to be rebuilt, not
+                // just re-fed with intensities. On theta / 2-theta nothing moves.
+                if (xAxisMode === 'd' || xAxisMode === 'q') {
+                    rebuildPlot(false);
+                } else {
+                    setExperimentalTrace(false);
+                }
             }
 
             // Re-find peaks on the (possibly newly stripped) data using the
@@ -2360,33 +2423,18 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
         fullExperimentalData = { tth: tth_out, intensity: int_out };
         updateWorkingData(); // This will apply stripping if needed
 
-        // Build experimental points for Chart.js
-        const experimentalPoints = workingExperimentalData.tth.map((t, i) => ({
-            x: t,
-            y: Math.max(0, workingExperimentalData.intensity[i])
-        }));
 
         // Hide placeholder, show chart, custom cursor (depuis sept 2025)
         ui.placeholder.style.display = 'none';
         ui.resultsContainer.style.display = 'flex';
         
-        const yMax = maxOfArray(workingExperimentalData.intensity) || 1000;
-
         // Initialize chart if not already created
         if (!xrdChart) {
             initializeChart(); // Use the dedicated function
-            xrdChart.data.datasets[0].data = experimentalPoints;
-            xrdChart.options.scales.y.min = -yMax * 0.05;
-            xrdChart.options.scales.y.max = yMax * 1.1;
-            xrdChart.update('none');
         } else {
-            // Just update existing chart
-            xrdChart.data.datasets[0].data = experimentalPoints;
-            xrdChart.options.scales.y.min = -yMax * 0.05;
-            xrdChart.options.scales.y.max = yMax * 1.1;
             xrdChart.resetZoom('none'); // Reset zoom on new file
-            xrdChart.update('none');
         }
+        setExperimentalTrace(true);
 
         // Enable peak controls
         ui.peakControls.classList.remove('hidden');
@@ -2419,23 +2467,19 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
         if(!xrdChart) return;
         const min = parseFloat(ui.tthMinSlider.value);
         const max = parseFloat(ui.tthMaxSlider.value);
-        xrdChart.options.scales.x.min = min;
-        xrdChart.options.scales.x.max = max;
+        // The sliders are always in 2-theta, the axis may not be. Map both ends
+        // and take the numeric extremes, because d runs the other way round.
+        const xa = xF(min), xb = xF(max);
+        xrdChart.options.scales.x.min = Math.min(xa, xb);
+        xrdChart.options.scales.x.max = Math.max(xa, xb);
         if (updateYScale) {
-            // Now uses workingExperimentalData
             const visibleIntensities = workingExperimentalData.intensity.filter((_, index) => {
                 const tth = workingExperimentalData.tth[index];
                 return tth >= min && tth <= max;
             });
-            if (visibleIntensities.length > 0) {
-                const yMaxInRange = maxOfArray(visibleIntensities);
-                xrdChart.options.scales.y.min = -yMaxInRange * 0.05;
-                xrdChart.options.scales.y.max = yMaxInRange * 1.1;
-            } else {
-                const yMax = maxOfArray(workingExperimentalData.intensity) || 1000;
-                xrdChart.options.scales.y.min = -yMax * 0.05;
-                xrdChart.options.scales.y.max = yMax * 1.1;
-            }
+            const yb = yBoundsFor(visibleIntensities.length ? visibleIntensities : workingExperimentalData.intensity);
+            xrdChart.options.scales.y.min = yb.min;
+            xrdChart.options.scales.y.max = yb.max;
         }
         xrdChart.update('none');
         updateAllMarkers();
@@ -2592,7 +2636,12 @@ ui.tthMinSlider.addEventListener('input', () => {
 
                 // 5-point least-squares quadratic fit (Savitzky-Golay coefficients)
                 // Parabola y = ax^2 + bx + c, centered at x=0 (idx)
-                const a = (2*y1 - y2 - 2*y3 - y4 + 2*y5) / 7.0;
+                // Least-squares quadratic through 5 equally spaced points, x = -2..2.
+                // Sum(x^2) = 10, Sum(x^4) = 34, N = 5 give a = (Sum(x^2 y) - 2 Sum(y)) / 14.
+                // The divisor was 7, i.e. a came out twice too large, which halved every
+                // vertex offset delta = -b / (2a). Sub-step peak positions were therefore
+                // systematically pulled only half way to the true maximum.
+                const a = (2*y1 - y2 - 2*y3 - y4 + 2*y5) / 14.0;
                 const b = (-2*y1 - y2 + 0*y3 + y4 + 2*y5) / 10.0;
                 
                 // Check for valid maximum (downward parabola, a < 0)
@@ -2612,7 +2661,11 @@ ui.tthMinSlider.addEventListener('input', () => {
                 const denominator = (y1 - 2 * y2 + y3); 
                 
 if (denominator < -1e-10) { 
-                    const delta = (y1 - y3) / denominator; 
+                    // Three-point parabolic interpolation: delta = (y1 - y3) / (2 (y1 - 2 y2 + y3)).
+                    // The factor 1/2 was missing, so this branch overshot by exactly 2x -
+                    // the opposite sign of error to the 5-point branch above, which is why
+                    // edge peaks and interior peaks disagreed about where a maximum was.
+                    const delta = 0.5 * (y1 - y3) / denominator; 
                     if (Math.abs(delta) < 1.0) { 
                         refinedTth = tth[idx] + delta * avgStep; 
                     } 
@@ -3816,7 +3869,8 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
                 spaceGroupData,
                 parseFloat(ui.wavelength.value),
                 parseFloat(ui.tthError.value),
-                tthMaxVal
+                tthMaxVal,
+                parseInt(ui.impurityPeaksInput.value, 10) || 0
             );
         });
     } else {
@@ -3935,7 +3989,13 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
                 anglesCell += `<br><span style="font-size:0.9em; color: var(--text-dark);">(Z=${sol.zero_correction.toFixed(4)}°)</span>`;
             }
             const isSelected = (selectedSolution === sol) ? ' class="selected"' : '';
-            return `<tr data-index="${index}"${isSelected}><td>${sol.system.substring(0,4)}</td><td>${paramsCell}</td><td>${anglesCell}</td><td>${sol.volume.toFixed(2)}</td><td>${sol.m20.toFixed(2)}</td></tr>`;
+            // Mark solutions produced by Explore Group, with the number of swaps
+            // applied, so a derived cell is never mistaken for an independent hit.
+            const nSwaps = (sol.manualSwaps || []).length;
+            const sysCell = nSwaps > 0
+                ? `${sol.system.substring(0,4)}<br><span style="font-size:0.85em;color:#d97706;" title="${(sol.manualSwaps||[]).map(x=>x.from+'->'+x.to+' @ '+x.tth.toFixed(3)).join('; ')}">swap&times;${nSwaps}</span>`
+                : sol.system.substring(0,4);
+            return `<tr data-index="${index}"${isSelected}><td>${sysCell}</td><td>${paramsCell}</td><td>${anglesCell}</td><td>${sol.volume.toFixed(2)}</td><td>${sol.m20.toFixed(2)}</td></tr>`;
         }).join('');
         
         // Single DOM write
@@ -3954,11 +4014,11 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
         document.querySelectorAll('#solutions-table-body tr').forEach(r => r.classList.remove('selected'));
         row.classList.add('selected');
         const index = parseInt(row.dataset.index);
-        selectedSolution = displayedSolutions[index];
-        const lambda = parseFloat(ui.wavelength.value);
-        const maxTth = xrdChart.options.scales.x.max || Math.max(...pickedPeaks.map(p => p.tth));
-        currentHklList = generateHKL(maxTth, {...selectedSolution, lambda}, selectedSolution.system);
-        updateAllMarkers();
+        // applySolutionSelection rebuilds the line list with the refined zero
+        // folded in. The old inline version also took its 2-theta ceiling from
+        // the current x-axis maximum, so zooming in and then picking a solution
+        // silently truncated the calculated pattern at the edge of the view.
+        applySolutionSelection(displayedSolutions[index]);
     });
 
 
@@ -3979,7 +4039,11 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
         
         // Store the index
         ctxMenuTargetIndex = parseInt(row.dataset.index);
-        selectedSolution = displayedSolutions[ctxMenuTargetIndex]; // Update global selection
+        // Right-clicking a row selects it too, so it must refresh the calculated
+        // lines exactly like a left click. It used to assign selectedSolution on
+        // its own and leave currentHklList pointing at the previously selected
+        // cell, drawing one solution's ticks over another's.
+        applySolutionSelection(displayedSolutions[ctxMenuTargetIndex]);
         
         // Position and show menu
         contextMenu.style.top = `${e.pageY}px`;
@@ -4009,6 +4073,135 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
         }
     });
 
+    // 3b. Action: Swap hkl
+    // The indexer assigns each peak to its nearest calculated line. That can be
+    // wrong with nothing to flag it - in a permissive space group both candidates
+    // are allowed, so no violation appears - which is why this is manual rather
+    // than rule-driven. The user edits assignments; Apply re-refines and adds the
+    // result as an ordinary solution so M20 can be compared against the parent.
+    const SWAP_ROWS = 12;                  // low-angle peaks are where it matters
+    let swapParent = null, swapRows = [];
+    const swapOverlay = document.getElementById('swap-overlay');
+    const swapMsg = document.getElementById('swap-msg');
+
+    const closeSwapModal = () => {
+        swapOverlay.classList.remove('open');
+        swapParent = null; swapRows = [];
+    };
+
+    document.getElementById('ctx-swap').addEventListener('click', () => {
+        if (ctxMenuTargetIndex < 0) return;
+        const parent = solutions[ctxMenuTargetIndex];
+        if (!parent) return;
+        const wl = parseFloat(ui.wavelength.value);
+        const te = parseFloat(ui.tthError.value);
+        const tMin = parseFloat(ui.tthMinSlider.value);
+        const tMax = parseFloat(ui.tthMaxSlider.value);
+        const pk = pickedPeaks.filter(p => p.tth >= tMin && p.tth <= tMax);
+        if (pk.length < 6) { showStatus('Not enough peaks in the 2-theta range.', 'error', 4000); return; }
+
+        swapParent = parent;
+        swapRows = getPeakAssignments(parent, pk, wl, te, tMax, SWAP_ROWS);
+        if (!swapRows.length) { showStatus('No peaks to show for this solution.', 'error', 4000); return; }
+
+        const tbody = document.getElementById('swap-tbody');
+        tbody.innerHTML = swapRows.map((r, i) => {
+            const cls = r.indexed ? '' : ' class="unindexed"';
+            const v = (x) => (x == null ? '' : x);
+            return `<tr${cls} data-row="${i}">` +
+                   `<td>${r.tth.toFixed(3)}</td>` +
+                   `<td>${r.d_obs != null ? r.d_obs.toFixed(4) : '-'}</td>` +
+                   `<td><input type="number" step="1" data-f="h" data-row="${i}" value="${v(r.h)}"></td>` +
+                   `<td><input type="number" step="1" data-f="k" data-row="${i}" value="${v(r.k)}"></td>` +
+                   `<td><input type="number" step="1" data-f="l" data-row="${i}" value="${v(r.l)}"></td>` +
+                   `<td>${r.calc_tth != null ? r.calc_tth.toFixed(3) : '-'}</td>` +
+                   `<td>${r.diff != null ? r.diff.toFixed(3) : '-'}</td></tr>`;
+        }).join('');
+
+        // Highlight edited fields so the user can see exactly what will change.
+        tbody.querySelectorAll('input').forEach(inp => {
+            inp.addEventListener('input', () => {
+                const r = swapRows[parseInt(inp.dataset.row, 10)];
+                const orig = r[inp.dataset.f];
+                const cur = inp.value.trim();
+                const same = (cur === '' && orig == null) || (cur !== '' && Number(cur) === orig);
+                inp.classList.toggle('changed', !same);
+            });
+        });
+
+        document.getElementById('swap-title').textContent =
+            `Swap hkl - ${parent.system}, a=${parent.a.toFixed(4)}` +
+            (parent.b ? `, b=${parent.b.toFixed(4)}` : '') + (parent.c ? `, c=${parent.c.toFixed(4)}` : '');
+        swapMsg.textContent = '';
+        swapOverlay.classList.add('open');
+        contextMenu.style.display = 'none';
+    });
+
+    document.getElementById('swap-cancel').addEventListener('click', closeSwapModal);
+    swapOverlay.addEventListener('click', (e) => { if (e.target === swapOverlay) closeSwapModal(); });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && swapOverlay.classList.contains('open')) closeSwapModal();
+    });
+
+    document.getElementById('swap-apply').addEventListener('click', () => {
+        if (!swapParent) return;
+        const wl = parseFloat(ui.wavelength.value);
+        const te = parseFloat(ui.tthError.value);
+        const tMin = parseFloat(ui.tthMinSlider.value);
+        const tMax = parseFloat(ui.tthMaxSlider.value);
+        const imp = parseInt(ui.impurityPeaksInput.value, 10) || 0;
+        const rz = !!(ui.refineZeroCheckbox && ui.refineZeroCheckbox.checked);
+        const pk = pickedPeaks.filter(p => p.tth >= tMin && p.tth <= tMax);
+
+        // Collect only rows the user actually changed.
+        const overrides = [];
+        let bad = null;
+        document.querySelectorAll('#swap-tbody tr').forEach(tr => {
+            const i = parseInt(tr.dataset.row, 10);
+            const r = swapRows[i];
+            const get = (f) => tr.querySelector(`input[data-f="${f}"]`).value.trim();
+            const hs = get('h'), ks = get('k'), ls = get('l');
+            if (hs === '' && ks === '' && ls === '') return;              // untouched blank row
+            if (hs === '' || ks === '' || ls === '') { bad = bad || `row at ${r.tth.toFixed(3)} deg: h, k and l must all be given`; return; }
+            const h = Number(hs), k = Number(ks), l = Number(ls);
+            if (![h, k, l].every(Number.isInteger)) { bad = bad || `row at ${r.tth.toFixed(3)} deg: indices must be integers`; return; }
+            if (h === r.h && k === r.k && l === r.l) return;              // unchanged
+            overrides.push({ tth: r.tth, h, k, l });
+        });
+        if (bad) { swapMsg.textContent = bad; return; }
+        if (!overrides.length) { swapMsg.textContent = 'No changes to apply.'; return; }
+
+        // Two peaks cannot be the same reflection. Catch it here rather than let
+        // the least-squares fit quietly average them into a distorted cell.
+        const seen = new Map();
+        swapRows.forEach(r => { if (r.indexed) seen.set(`${r.h},${r.k},${r.l}`, r.tth); });
+        overrides.forEach(o => { const r = swapRows.find(x => x.tth === o.tth); if (r && r.indexed) seen.delete(`${r.h},${r.k},${r.l}`); });
+        for (const o of overrides) {
+            const key = `${o.h},${o.k},${o.l}`;
+            if (seen.has(key)) {
+                swapMsg.textContent = `(${key}) is already assigned to the peak at ${seen.get(key).toFixed(3)} deg.`;
+                return;
+            }
+            seen.set(key, o.tth);
+        }
+
+        const res = refineWithManualHkl(swapParent, pk, overrides, wl, te, tMax, rz, imp);
+        if (!res || res.error) { swapMsg.textContent = 'Refinement failed: ' + ((res && res.error) || 'unknown'); return; }
+
+        const child = res.cell;
+        try {
+            child.analysis = analyzeSystematicAbsences(child, pk, spaceGroupData, wl, te, tMax, imp);
+        } catch (err) { child.analysis = null; }
+        solutions.push(child);
+        displayedSolutions = [...solutions];
+        updateSolutionsTable();
+        updateAllMarkers();
+        closeSwapModal();
+        const list = res.swaps.map(x => `${x.from}->${x.to}`).join(', ');
+        showStatus(`Applied ${res.swaps.length} swap(s): ${list}. ` +
+                   `M20 ${(swapParent.m20 || 0).toFixed(1)} -> ${(child.m20 || 0).toFixed(1)}`, 'success', 8000);
+    });
+
     // 4. Action: Single Report
     document.getElementById('ctx-report').addEventListener('click', () => {
         if (ctxMenuTargetIndex > -1) {
@@ -4017,6 +4210,135 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
         }
     });
 
+
+    // ===================== AXIS SYSTEM =====================================
+    // Everything the program computes with stays in its natural units: peak
+    // positions in 2-theta degrees, intensities in raw counts. The plot is a
+    // *view* on top of that. xF/yF map an internal quantity onto whatever the
+    // user selected; xInv maps a plotted abscissa back to 2-theta for
+    // hit-testing. Chart.js is always handed a plain linear scale, even in log
+    // mode, so pixel math, floating-bar markers and getValueForPixel behave
+    // identically in every combination - only the tick formatter converts back
+    // to real units. Nothing downstream of the plot ever sees a transformed
+    // value, so indexing, refinement and the report are untouched by the view.
+    const LOG_FLOOR = 0.1;                 // counts: keeps log10 finite at zero
+    const DEG_PER_RAD = 180 / Math.PI;
+    const getLambda = () => parseFloat(ui.wavelength.value) || 1.54184;
+
+    const AXIS_X = {
+        tth: {
+            label: '2\u03B8 (degrees)', reverse: false, digits: 3,
+            f: (t) => t,
+            inv: (v) => v
+        },
+        theta: {
+            label: '\u03B8 (degrees)', reverse: false, digits: 3,
+            f: (t) => t / 2,
+            inv: (v) => v * 2
+        },
+        d: {
+            // Reversed on purpose: large d belongs on the left so the pattern
+            // keeps the same left-to-right shape it has in 2-theta.
+            label: 'd-spacing (\u00C5)', reverse: true, digits: 4,
+            f: (t) => getLambda() / (2 * Math.sin(Math.max(t, 1e-4) * Math.PI / 360)),
+            inv: (v) => {
+                const s = getLambda() / (2 * Math.max(v, 1e-9));
+                return s >= 1 ? 180 : 2 * Math.asin(s) * DEG_PER_RAD;
+            }
+        },
+        q: {
+            label: 'Q = 4\u03C0\u00B7sin\u03B8/\u03BB (\u00C5\u207B\u00B9)', reverse: false, digits: 4,
+            f: (t) => 4 * Math.PI * Math.sin(Math.max(t, 1e-4) * Math.PI / 360) / getLambda(),
+            inv: (v) => {
+                const s = Math.max(v, 0) * getLambda() / (4 * Math.PI);
+                return s >= 1 ? 180 : 2 * Math.asin(s) * DEG_PER_RAD;
+            }
+        }
+    };
+
+    const AXIS_Y = {
+        linear: { label: 'Intensity (a.u.)',        f: (i) => i,                          inv: (v) => v },
+        sqrt:   { label: '\u221AIntensity (a.u.)',  f: (i) => Math.sqrt(Math.max(0, i)),  inv: (v) => v * v },
+        log:    { label: 'Intensity (a.u., log)',   f: (i) => Math.log10(Math.max(i, LOG_FLOOR)), inv: (v) => Math.pow(10, v) }
+    };
+
+    let xAxisMode = 'tth';    // 2-theta by default
+    let yAxisMode = 'sqrt';   // sqrt(I) by default: shows weak lines without hiding strong ones
+
+    const xAx = () => AXIS_X[xAxisMode] || AXIS_X.tth;
+    const yAx = () => AXIS_Y[yAxisMode] || AXIS_Y.sqrt;
+    const xF   = (t) => xAx().f(t);
+    const xInv = (v) => xAx().inv(v);
+    const yF   = (i) => yAx().f(i);
+
+    // The 2-theta interval currently on screen, ordered low-to-high whatever
+    // direction the axis runs in.
+    const visibleTthRange = () => {
+        if (!xrdChart) return [-Infinity, Infinity];
+        const a = xInv(xrdChart.scales.x.min);
+        const b = xInv(xrdChart.scales.x.max);
+        return a <= b ? [a, b] : [b, a];
+    };
+
+    // Points carry their untransformed tth and I so tooltips and hit-testing
+    // never have to invert anything.
+    const buildExperimentalPoints = () => workingExperimentalData.tth.map((t, i) => {
+        const I = Math.max(0, workingExperimentalData.intensity[i]);
+        return { x: xF(t), y: yF(I), tth: t, I };
+    });
+
+    // The ONLY supported way to push the measured pattern into the chart.
+    // Writing datasets[0].data directly is what let raw counts land on a
+    // transformed axis: the tick formatter then inverted values that had never
+    // been transformed, so a 1e4 count was labelled 1e8 on the sqrt scale, and
+    // the trace was drawn with the wrong shape into the bargain. Everything
+    // that changes the working data - file load, wavelength, Ka2 stripping,
+    // deconvolution - goes through here instead of touching the dataset.
+    const setExperimentalTrace = (rescaleY = false) => {
+        if (!xrdChart || !workingExperimentalData || !workingExperimentalData.tth.length) return;
+        xrdChart.data.datasets[0].data = buildExperimentalPoints();
+        if (rescaleY) {
+            const yb = yBoundsFor(workingExperimentalData.intensity);
+            xrdChart.options.scales.y.min = yb.min;
+            xrdChart.options.scales.y.max = yb.max;
+        }
+        xrdChart.update('none');
+    };
+
+    // Y bounds expressed in transformed space, from raw intensities.
+    const yBoundsFor = (intensities) => {
+        const raw = maxOfArray(intensities) || 1000;
+        if (yAxisMode === 'log') {
+            const top = Math.log10(Math.max(raw, LOG_FLOOR));
+            const bot = Math.log10(LOG_FLOOR);
+            const span = Math.max(top - bot, 1);
+            return { min: bot - span * 0.02, max: top + span * 0.05 };
+        }
+        const top = yF(raw);
+        return { min: -top * 0.05, max: top * 1.1 };
+    };
+
+    // Snap indicator: a dashed guide at the position a Ctrl+click would use.
+    Chart.register({
+        id: 'snapIndicator',
+        afterDraw: chart => {
+            const tth = chart.$snapTth;
+            if (typeof tth !== 'number' || !isFinite(tth)) return;
+            const xs = chart.scales.x, ys = chart.scales.y;
+            const xv = xF(tth);
+            if (xv < xs.min || xv > xs.max) return;
+            const x = xs.getPixelForValue(xv);
+            const ctx = chart.ctx;
+            ctx.save();
+            ctx.strokeStyle = chart.$snapKind === 'hkl' ? 'rgba(37, 99, 235, 0.9)' : 'rgba(16, 185, 129, 0.9)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath(); ctx.moveTo(x, ys.top); ctx.lineTo(x, ys.bottom); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.beginPath(); ctx.arc(x, ys.top + 7, 4, 0, Math.PI * 2); ctx.stroke();
+            ctx.restore();
+        }
+    });
 
     Chart.register({ id: 'verticalCursorLine', afterDraw: chart => { if (chart.tooltip?._active?.length) { let x = chart.tooltip._active[0].element.x; let yAxis = chart.scales.y; let ctx = chart.ctx; ctx.save(); ctx.beginPath(); ctx.moveTo(x, yAxis.top); ctx.lineTo(x, yAxis.bottom); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(156, 163, 175, 0.7)'; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.restore(); } } });
     // Plugin that draws the "currently-edited peak" indicator as a thin
@@ -4033,8 +4355,9 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
             if (typeof tth !== 'number' || !isFinite(tth)) return;
             const xScale = chart.scales.x;
             const yScale = chart.scales.y;
-            if (tth < xScale.min || tth > xScale.max) return;
-            const x = xScale.getPixelForValue(tth);
+            const xv = xF(tth);
+            if (xv < xScale.min || xv > xScale.max) return;
+            const x = xScale.getPixelForValue(xv);
             const ctx = chart.ctx;
             ctx.save();
             ctx.fillStyle = 'rgba(245, 158, 11, 0.25)';
@@ -4045,13 +4368,17 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
     Chart.register({ id: 'legendMargin', beforeInit(chart) { const originalFit = chart.legend.fit; chart.legend.fit = function() { originalFit.bind(chart.legend)(); this.height += 15; }; } });
 
     //  initializeChart
+    //  Rebuilt from scratch on every axis-mode change: switching the abscissa
+    //  rewrites every x value in every dataset, and switching the ordinate
+    //  rewrites the y bounds, so mutating in place would leave stale geometry.
     const initializeChart = () => {
         if (xrdChart) xrdChart.destroy();
-        
-        // Now uses workingExperimentalData, depuis 22 oct 2025, 
-        const experimentalPoints = workingExperimentalData.tth.map((t, i) => ({ x: t, y: Math.max(0, workingExperimentalData.intensity[i]) }));
-        const yMax = maxOfArray(workingExperimentalData.intensity) || 1000;
-        
+        if (!workingExperimentalData || !workingExperimentalData.tth.length) return;
+
+        const experimentalPoints = buildExperimentalPoints();
+        const yb = yBoundsFor(workingExperimentalData.intensity);
+        const ax = xAx(), ay = yAx();
+
         xrdChart = new Chart(ui.chartCanvas, {
             type: 'line',
             data: {
@@ -4063,53 +4390,38 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
             },
             options: {
                 responsive: true, maintainAspectRatio: false, animation: false,
-/* echelle par défaut, changée le 6 nov 2024 pour éviter affichage de 10 chiffres 
-  scales: {
-                    x: { type: 'linear', title: { display: true, text: '2-theta (degrees)' } },
-                    y: { title: { display: true, text: 'Intensity (a.u.)' }, min: -yMax * 0.05, max: yMax * 1.1, suggestedMin: 0 }
-                }, */
-
-scales: {
-    x: { 
-        type: 'linear', 
-        title: { display: true, text: '2-theta (degrees)' },
-        offset: false,
-        ticks: {
-            includeBounds: false, 
-            callback: function(value, index, ticks) {
-                // Formats 2-theta labels to a max of 3 decimal places
-                return value.toLocaleString(undefined, { 
-                    maximumFractionDigits: 3 
-                });
-            }
-        },
-        grid: {
-            drawTicks: true,  
-            drawBorder: true  
-        }
-    },
-    y: { 
-        title: { display: true, text: 'Intensity (a.u.)' }, 
-        min: -yMax * 0.05, 
-        max: yMax * 1.1, 
-        suggestedMin: 0,
-        offset: false, 
-        ticks: {
-            includeBounds: false, 
-            callback: function(value, index, ticks) {
-                // Formats Intensity labels to a max of 2 decimal places
-                return value.toLocaleString(undefined, { 
-                    maximumFractionDigits: 2 
-                });
-            }
-        },
-        grid: {
-            drawTicks: true,  
-            drawBorder: true  
-        }
-    }
-},
-
+                scales: {
+                    x: {
+                        type: 'linear',
+                        reverse: ax.reverse,
+                        title: { display: true, text: ax.label },
+                        offset: false,
+                        ticks: {
+                            includeBounds: false,
+                            callback: (value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: ax.digits })
+                        },
+                        grid: { drawTicks: true, drawBorder: true }
+                    },
+                    y: {
+                        title: { display: true, text: ay.label },
+                        min: yb.min,
+                        max: yb.max,
+                        offset: false,
+                        ticks: {
+                            includeBounds: false,
+                            // Ticks are spaced in transformed space but labelled with the
+                            // intensity they actually stand for, so a sqrt or log plot is
+                            // still read in counts rather than in sqrt-counts or decades.
+                            callback: (value) => {
+                                const real = ay.inv(value);
+                                if (!isFinite(real)) return '';
+                                if (Math.abs(real) >= 100000) return real.toExponential(1);
+                                return real.toLocaleString(undefined, { maximumFractionDigits: Math.abs(real) < 10 ? 2 : 0 });
+                            }
+                        },
+                        grid: { drawTicks: true, drawBorder: true }
+                    }
+                },
                 plugins: {
                     zoom: {
                         pan: { enabled: true, mode: 'xy', threshold: 5, onPanComplete: () => { updateAllMarkers(); } },
@@ -4118,67 +4430,45 @@ scales: {
                     legend: { position: 'top' },
                     tooltip: {
                         callbacks: {
-
+                            // Every abscissa flavour is shown at once, so switching the
+                            // X axis is a change of layout, never a loss of information.
                             title: function(tooltipItems) {
                                 if (!tooltipItems.length) return '';
-                                
                                 const item = tooltipItems[0];
-                                const tth = item.parsed.x;
-                                const datasetIndex = item.datasetIndex;
-                                const lambda = parseFloat(document.getElementById('wavelength').value) || 1.54184;
-
-                                // 1. Always show the 2-theta of the hovered item
-                                let title = `2θ: ${tth.toFixed(4)}°`;
-
-                                // 2. Always calculate d-spacing from THAT 2-theta
-                                const d_spacing = lambda / (2 * Math.sin(tth * Math.PI / 360));
-                                title += `, d: ${d_spacing.toFixed(5)} Å`;
-
-                                // 3. Add HKL info depending on what is hovered
-                                // Logic for CALCULATED (blue) peaks
-                                if (datasetIndex === 2 && currentHklList && currentHklList.length > 0) {
-                                    // Find the HKL for this calculated peak
-                                    let closestPeak = null;
-                                    let minDiff = Infinity;
+                                const raw = item.raw || {};
+                                const tth = (typeof raw.tth === 'number') ? raw.tth : xInv(item.parsed.x);
+                                const lam = getLambda();
+                                const st = Math.sin(tth * Math.PI / 360);
+                                const dsp = st > 0 ? lam / (2 * st) : NaN;
+                                const Q = 4 * Math.PI * st / lam;
+                                const lines = [
+                                    `2\u03B8 ${tth.toFixed(4)}\u00B0   \u03B8 ${(tth / 2).toFixed(4)}\u00B0`,
+                                    `d ${isFinite(dsp) ? dsp.toFixed(5) : '-'} \u00C5   Q ${Q.toFixed(4)} \u00C5\u207B\u00B9`
+                                ];
+                                const di = item.datasetIndex;
+                                if ((di === 1 || di === 2) && currentHklList && currentHklList.length) {
+                                    let best = null, bd = Infinity;
                                     for (const hkl of currentHklList) {
                                         const diff = Math.abs(tth - hkl.tth);
-                                        if (diff < minDiff) {
-                                            minDiff = diff;
-                                            closestPeak = hkl;
-                                        }
+                                        if (diff < bd) { bd = diff; best = hkl; }
                                     }
-                                    // For a calculated peak, it should be a near-perfect match
-                                    if (closestPeak && minDiff < 1e-4) {
-                                        title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l})`;
-                                    }
-                                
-                                //  OBSERVED (red) peaks
-                                } else if (datasetIndex === 1 && currentHklList && currentHklList.length > 0) {
-                                    // Find the NEAREST calculated HKL to this observed peak
-                                    let closestPeak = null;
-                                    let minDiff = Infinity;
-                                    for (const hkl of currentHklList) {
-                                        const diff = Math.abs(tth - hkl.tth);
-                                        if (diff < minDiff) {
-                                            minDiff = diff;
-                                            closestPeak = hkl;
-                                        }
-                                    }
-                                    const tolerance = parseFloat(ui.tthError.value) || 0.04;
-                                    if (closestPeak && minDiff < tolerance) {
-                                        // Show the nearest HKL for context
-                                        title += ` (Nearest Calc: ${closestPeak.tth.toFixed(4)}°, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}))`;
+                                    // A calculated tick is its own line, so it must match
+                                    // essentially exactly; an observed peak only has to be
+                                    // inside the user's stated 2-theta error.
+                                    const tol = (di === 2) ? 1e-4 : (parseFloat(ui.tthError.value) || 0.04);
+                                    if (best && bd < tol) {
+                                        lines.push(`hkl (${best.h},${best.k},${best.l})`);
+                                        if (di === 1) lines.push(`\u0394 from calc: ${(tth - best.tth).toFixed(4)}\u00B0`);
                                     }
                                 }
-                                return title;
+                                return lines;
                             },
-
                             label: function(context) {
                                 const datasetLabel = context.dataset.label || '';
                                 if (datasetLabel === 'Observed Peaks' || datasetLabel === 'Calculated Peaks') return null;
-                                let label = datasetLabel ? `${datasetLabel}: ` : '';
-                                if (context.parsed.y !== null) { label += Math.round(context.parsed.y); }
-                                return label;
+                                const raw = context.raw || {};
+                                const I = (typeof raw.I === 'number') ? raw.I : yAx().inv(context.parsed.y);
+                                return `Intensity: ${Math.round(I)}`;
                             }
                         }
                     }
@@ -4187,9 +4477,6 @@ scales: {
         });
     };
 
-
-
-    
     ui.chartCanvas.addEventListener('wheel', e => {
         e.preventDefault();
         if (!xrdChart || !xrdChart.chartArea) return;
@@ -4212,24 +4499,27 @@ scales: {
 
     const updateAllMarkers = () => {
         if (!xrdChart) return;
-        const xMin = xrdChart.scales.x.min; const xMax = xrdChart.scales.x.max;
+        // Filter in 2-theta, plot in whatever the axis currently is.
+        const [tthLo, tthHi] = visibleTthRange();
         const yMin = xrdChart.scales.y.min; const yMax = xrdChart.scales.y.max;
         const yRange = yMax - yMin;
         const markerHeight = yRange * 0.02;
-        const visibleObsPeaks = pickedPeaks.filter(p => p.tth >= xMin && p.tth <= xMax);
-        xrdChart.data.datasets[1].data = visibleObsPeaks.map(p => ({ x: p.tth, y: [yMin, yMin + markerHeight] }));
-        if (selectedSolution) {
+
+        const visibleObsPeaks = pickedPeaks.filter(p => p.tth >= tthLo && p.tth <= tthHi);
+        xrdChart.data.datasets[1].data = visibleObsPeaks.map(p => ({ x: xF(p.tth), y: [yMin, yMin + markerHeight], tth: p.tth }));
+
+        if (selectedSolution && currentHklList.length) {
             const calculatedBottom = yMin + markerHeight * 1.2;
             const calculatedTop = calculatedBottom + markerHeight;
-            const visibleCalcPeaks = currentHklList.filter(hkl => hkl.tth >= xMin && hkl.tth <= xMax);
-            xrdChart.data.datasets[2].data = visibleCalcPeaks.map(hkl => ({ x: hkl.tth, y: [calculatedBottom, calculatedTop] }));
+            const visibleCalcPeaks = currentHklList.filter(hkl => hkl.tth >= tthLo && hkl.tth <= tthHi);
+            xrdChart.data.datasets[2].data = visibleCalcPeaks.map(hkl => ({ x: xF(hkl.tth), y: [calculatedBottom, calculatedTop], tth: hkl.tth }));
         } else {
             xrdChart.data.datasets[2].data = [];
         }
-        // Selected-peak indicator: stash the 2θ on the chart instance;
-        // the selectedPeakLine plugin reads it on each draw and converts
-        // it to a pixel via xScale.getPixelForValue, which is exact (no
-        // bar-centering offset). Set to undefined to hide.
+
+        // Selected-peak indicator: stash the 2-theta on the chart instance; the
+        // selectedPeakLine plugin converts it through the current axis on each
+        // draw, which is exact (no bar-centering offset). undefined hides it.
         if (selectedPeakIndex !== null && pickedPeaks[selectedPeakIndex]) {
             xrdChart.$selectedPeakTth = pickedPeaks[selectedPeakIndex].tth;
         } else {
@@ -4237,6 +4527,145 @@ scales: {
         }
         xrdChart.update('none');
     };
+
+    // ---- Calculated line list ------------------------------------------------
+    // The measured pattern is plotted exactly as recorded, zero error and all.
+    // The refined cell, on the other hand, describes the sample AFTER the zero
+    // error has been taken out: 2theta_corrected = 2theta_observed - Z. So to
+    // put a calculated line next to the observed peak it explains, it has to be
+    // pushed back into the observed frame, 2theta_plot = 2theta_calc + Z.
+    // Skipping that step leaves every blue tick displaced from its red partner
+    // by exactly Z - small, uniform, and easily mistaken for a bad cell. The
+    // untouched value is kept as tth_calc for anything that wants the corrected
+    // frame instead.
+    const rebuildHklList = () => {
+        if (!selectedSolution || !workingExperimentalData.tth.length) { currentHklList = []; return; }
+        const lambda = getLambda();
+        const zero = selectedSolution.zero_correction || 0;
+        const dataMax = workingExperimentalData.tth[workingExperimentalData.tth.length - 1];
+        // Generate past the end of the data by |Z| + 1 so that shifting the list
+        // cannot leave the top of the pattern bare.
+        const maxTth = Math.min(179.9, dataMax + Math.abs(zero) + 1);
+        const raw = generateHKL(maxTth, { ...selectedSolution, lambda }, selectedSolution.system) || [];
+        currentHklList = raw.map(r => ({ ...r, tth_calc: r.tth, tth: r.tth + zero }));
+    };
+
+    // Single entry point for "this solution is now the displayed one", so the
+    // line list can never drift out of step with the highlighted table row.
+    const applySolutionSelection = (sol) => {
+        selectedSolution = sol || null;
+        rebuildHklList();
+        updateAllMarkers();
+    };
+
+    const rebuildPlot = (resetY = true) => {
+        if (!workingExperimentalData || !workingExperimentalData.tth.length) return;
+        initializeChart();
+        rebuildHklList();
+        updatePlotRange(resetY);
+    };
+
+    ui.xAxisMode.addEventListener('change', () => { xAxisMode = ui.xAxisMode.value; rebuildPlot(true); });
+    ui.yAxisMode.addEventListener('change', () => { yAxisMode = ui.yAxisMode.value; rebuildPlot(true); });
+    ui.snapMode.addEventListener('change', () => {
+        if (xrdChart) { xrdChart.$snapTth = undefined; ui.snapReadout.textContent = ''; xrdChart.render(); }
+    });
+
+    // ---- Snapping ------------------------------------------------------------
+    // A pixel is a poor estimate of a peak position: at typical zoom one pixel
+    // is a few hundredths of a degree, which is the same size as the tolerance
+    // the indexer works to. So a Ctrl+click snaps to something real - the
+    // nearest local maximum of the measured trace, or the nearest calculated
+    // hkl line of the selected solution, whichever is closer. Hold Shift to
+    // place a peak exactly where you clicked instead.
+    const SNAP_WINDOW_DEG = 0.35;
+
+    const nearestDataIndex = (tth) => {
+        const arr = workingExperimentalData.tth;
+        if (!arr || !arr.length) return -1;
+        let lo = 0, hi = arr.length - 1;
+        while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid] < tth) lo = mid + 1; else hi = mid; }
+        if (lo > 0 && Math.abs(arr[lo - 1] - tth) <= Math.abs(arr[lo] - tth)) lo--;
+        return lo;
+    };
+
+    // Highest measured point within the snap window, found by scanning outward
+    // from the click rather than hill-climbing, so a click landing in a local
+    // dip between two shoulders still finds the real maximum.
+    const snapToData = (tth) => {
+        const X = workingExperimentalData.tth, Y = workingExperimentalData.intensity;
+        if (!X || !X.length) return null;
+        const i0 = nearestDataIndex(tth);
+        if (i0 < 0) return null;
+        let best = i0;
+        for (let i = i0; i < X.length && X[i] - tth <= SNAP_WINDOW_DEG; i++) if (Y[i] > Y[best]) best = i;
+        for (let i = i0; i >= 0 && tth - X[i] <= SNAP_WINDOW_DEG; i--) if (Y[i] > Y[best]) best = i;
+        return { tth: X[best], height: Math.max(0, Y[best]), kind: 'data' };
+    };
+
+    const snapToHkl = (tth) => {
+        if (!currentHklList || !currentHklList.length) return null;
+        let best = null, bd = Infinity;
+        for (const h of currentHklList) { const d = Math.abs(h.tth - tth); if (d < bd) { bd = d; best = h; } }
+        if (!best || bd > SNAP_WINDOW_DEG) return null;
+        return { tth: best.tth, kind: 'hkl', hkl: best };
+    };
+
+    const resolveSnap = (tth, mode) => {
+        if (mode === 'off') return null;
+        const dataHit = (mode === 'data' || mode === 'auto') ? snapToData(tth) : null;
+        const hklHit  = (mode === 'hkl'  || mode === 'auto') ? snapToHkl(tth)  : null;
+        if (dataHit && hklHit) {
+            return Math.abs(dataHit.tth - tth) <= Math.abs(hklHit.tth - tth) ? dataHit : hklHit;
+        }
+        return dataHit || hklHit;
+    };
+
+    const tthFromEvent = (e) => {
+        if (!xrdChart || !xrdChart.chartArea) return null;
+        const rect = xrdChart.canvas.getBoundingClientRect();
+        const px = e.clientX - rect.left;
+        if (px < xrdChart.chartArea.left || px > xrdChart.chartArea.right) return null;
+        const v = xrdChart.scales.x.getValueForPixel(px);
+        if (v === undefined || v === null || !isFinite(v)) return null;
+        const tth = xInv(v);
+        return isFinite(tth) ? Math.max(1e-4, tth) : null;
+    };
+
+    ui.chartCanvas.addEventListener('mousemove', (e) => {
+        if (!xrdChart) return;
+        const tth = tthFromEvent(e);
+        const hit = (tth === null) ? null : resolveSnap(tth, ui.snapMode.value);
+        const newTth = hit ? hit.tth : undefined;
+        const newKind = hit ? hit.kind : undefined;
+        if (tth === null) {
+            if (xrdChart.$snapTth !== undefined) { xrdChart.$snapTth = undefined; xrdChart.render(); }
+            ui.snapReadout.textContent = '';
+            return;
+        }
+        const shown = hit ? hit.tth : tth;
+        const lam = getLambda();
+        const st = Math.sin(shown * Math.PI / 360);
+        const dsp = st > 0 ? lam / (2 * st) : NaN;
+        const Q = 4 * Math.PI * st / lam;
+        let txt = `2\u03B8 ${shown.toFixed(3)}\u00B0   d ${isFinite(dsp) ? dsp.toFixed(4) : '-'} \u00C5   Q ${Q.toFixed(3)} \u00C5\u207B\u00B9`;
+        if (hit && hit.kind === 'hkl') txt += `   \u2192 hkl (${hit.hkl.h},${hit.hkl.k},${hit.hkl.l})`;
+        else if (hit) txt += '   \u2192 data maximum';
+        ui.snapReadout.textContent = txt;
+        // Only repaint when the snap target actually moved: mousemove fires far
+        // faster than a full-pattern redraw can keep up with.
+        if (newTth !== xrdChart.$snapTth || newKind !== xrdChart.$snapKind) {
+            xrdChart.$snapTth = newTth;
+            xrdChart.$snapKind = newKind;
+            xrdChart.render();
+        }
+    });
+
+    ui.chartCanvas.addEventListener('mouseleave', () => {
+        if (!xrdChart) return;
+        ui.snapReadout.textContent = '';
+        if (xrdChart.$snapTth !== undefined) { xrdChart.$snapTth = undefined; xrdChart.render(); }
+    });
 
     const resizer = document.getElementById('drag-handle'); const leftPanel = document.getElementById('controls-panel');
     resizer.addEventListener('mousedown', (e) => { e.preventDefault(); document.body.style.cursor = 'col-resize';
@@ -4251,16 +4680,30 @@ scales: {
     
 ui.chartCanvas.addEventListener('click', (e) => {
         if (!e.ctrlKey || !xrdChart) return;
-        const rect = xrdChart.canvas.getBoundingClientRect(); const x = e.clientX - rect.left;
-        if (x < xrdChart.chartArea.left || x > xrdChart.chartArea.right) return;
-        let tth = xrdChart.scales.x.getValueForPixel(x); if (!tth) return; // 'const' to 'let'
-        if (tth <= 1e-4) tth = 1e-4; // <-- ADD THIS LINE
-        const lambda = parseFloat(ui.wavelength.value); if (isNaN(lambda)) { showStatus('Wavelength is not a valid number.', 'error'); return; }
-        const sin_theta = Math.sin(tth * Math.PI / 360); if (sin_theta <= 0) return;
-        pickedPeaks.push({ tth, d: 0, q: 0 });
+        const tthRaw = tthFromEvent(e);
+        if (tthRaw === null) return;
+        // Shift is the deliberate escape hatch from snapping.
+        const hit = e.shiftKey ? null : resolveSnap(tthRaw, ui.snapMode.value);
+        const tth = Math.max(1e-4, hit ? hit.tth : tthRaw);
+
+        // A hand-added peak needs a height like any other: the space-group
+        // analysis uses it to separate a weak reflection from a strong one, and
+        // a peak inserted without one reads back as undefined and is scored as
+        // though it had no intensity at all.
+        let height = (hit && typeof hit.height === 'number') ? hit.height : 0;
+        if (!height) {
+            const di = nearestDataIndex(tth);
+            if (di >= 0) height = Math.max(0, workingExperimentalData.intensity[di]);
+        }
+
+        pickedPeaks.push({ tth, d: 0, q: 0, height });
         pickedPeaks.sort((a, b) => a.tth - b.tth);
         recalculatePeakValues(); // tag + d/q in one shot
-        updatePeakTable(); updateStartIndexingButtonState(); showStatus(`Peak added at ${tth.toFixed(3)}°`, 'success', 2000);
+        updatePeakTable(); updateStartIndexingButtonState();
+        const how = hit
+            ? (hit.kind === 'hkl' ? ` (snapped to hkl ${hit.hkl.h}${hit.hkl.k}${hit.hkl.l})` : ' (snapped to data maximum)')
+            : '';
+        showStatus(`Peak added at ${tth.toFixed(3)}\u00B0${how}`, 'success', 2000);
     });
 
 
@@ -4293,7 +4736,8 @@ const generatePDFReport = async (singleSolution = null) => {
                     spaceGroupData,
                     parseFloat(ui.wavelength.value),
                     parseFloat(ui.tthError.value),
-                    tthMaxVal
+                    tthMaxVal,
+                    parseInt(ui.impurityPeaksInput.value, 10) || 0
                 );
             }
         });
@@ -4928,9 +5372,32 @@ const imgProps = doc.getImageProperties(imgData);
                      if (yPos > 280) { doc.addPage(); yPos = 20; }
 
                      const softTag = sg.softViolations > 0 ? `  [+${sg.softViolations} soft]` : '';
+                     const extTag = (sg.extinctionsTotal > 0)
+                         ? `  [explains ${sg.extinctionsExplained}/${sg.extinctionsTotal} absences]` : '';
+                     // Systematic absences are blind to the presence of an
+                     // inversion centre: a centrosymmetric group and an acentric
+                     // subgroup with identical reflection conditions cannot be
+                     // told apart from a powder pattern alone. Mark the acentric
+                     // ones so an apparent "tie" is read as the real ambiguity it
+                     // is, resolvable only by |E| statistics or the structure.
+                     const acentricTag = (sg.centrosymmetric === false) ? '  [acentric]' : '';
                      doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.TABLE_BODY);
-                     doc.text(`${sg.number}: ${sg.symbol}${softTag}`, margin + 5, yPos);
+                     doc.text(`${sg.number}: ${sg.symbol}${softTag}${extTag}${acentricTag}`, margin + 5, yPos);
                      yPos += 4;
+
+                     // Name the detected systematic absences this setting cannot
+                     // account for. These are the discriminating evidence: a
+                     // setting that leaves one unexplained is predicting that
+                     // reflections which were never observed should be present.
+                     const unexplained = sg.extinctionsUnexplained || [];
+                     if (unexplained.length > 0) {
+                         if (yPos > 280) { doc.addPage(); yPos = 20; }
+                         doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
+                         doc.setTextColor(150, 60, 0);
+                         doc.text(`Does not explain: ${unexplained.join('; ')}`, margin + 10, yPos);
+                         doc.setTextColor(0, 0, 0);
+                         yPos += 4;
+                     }
 
                      const hardList = sg.violatedReflectionsHard || [];
                      const softList = sg.violatedReflectionsSoft || [];
@@ -5009,6 +5476,10 @@ const imgProps = doc.getImageProperties(imgData);
     	 	doc.text(tableHeader, margin, yPos); yPos += 4;
       	 
     // Use the cached list from the analysis, or recalculate if it's missing
+// When an extinction-aware re-refinement succeeded, compute the table from THAT
+// cell. Otherwise the table would show re-assigned hkl labels while its d_calc
+// and diff columns still came from a cell fitted to the old pairing - which is
+// exactly the inconsistency the re-refinement exists to remove.
 const hklList = sol.analysis?.hklList || generateHKL_for_analysis(sol, lambda, tthMaxVal);
       	 
     	 	if (hklList.length === 0) {
@@ -5018,24 +5489,47 @@ const hklList = sol.analysis?.hklList || generateHKL_for_analysis(sol, lambda, t
       	 	}
     
     	 	const ambiguousHkls = (sol.analysis ? sol.analysis.ambiguousHkls : new Set()) || new Set();
-  	 	const corrected_tth_obs = reportPeaks.map(p => ({ ...p, tth_corr: p.tth - (sol.zero_correction || 0) }));
+  	 	const corrected_tth_obs = reportPeaks.map(p => ({ ...p, tth_corr: p.tth - (sol.zero_correction || 0) }));
     	 	const reportLines = []; 
     	 	const assignedHkls = new Set();
     
+                 // Assignments the user set with "Swap hkl". The table is built by
+                 // nearest-line matching, which would otherwise quietly revert a manual
+                 // choice: the whole reason for swapping is that the nearest line is the
+                 // wrong one, so re-deriving it here reproduces the original mistake.
+                 const manualByTth = new Map();
+                 (sol.manualSwaps || []).forEach(sw => {
+                     if (sw && Number.isFinite(sw.h) && Number.isFinite(sw.k) && Number.isFinite(sw.l)) {
+                         manualByTth.set(Number(sw.tth).toFixed(4), sw);
+                     }
+                 });
+
     	 	corrected_tth_obs.forEach((corr_peak) => {
         	 	 let bestMatchHkl = null; let minDiff = Infinity;
         	 	 hklList.forEach(hkl => { const diff = Math.abs(hkl.tth - corr_peak.tth_corr); if (diff < minDiff) { minDiff = diff; bestMatchHkl = hkl; } });
 
                     // Match window must align exactly with the 1.5x tolerance used in the space-group analyzer
                  const indexWindow = tthError * 1.5;
-        	 	 if (bestMatchHkl && minDiff < indexWindow && corr_peak.tth_corr >= tthMinVal && corr_peak.tth_corr <= tthMaxVal) {
+
+                 // A manual assignment wins, and is kept even when it falls outside
+                 // the window - overruling the nearest-line rule is precisely what
+                 // the user asked for when they used Swap hkl.
+                 const _man = manualByTth.get(Number(corr_peak.tth).toFixed(4));
+                 let isManual = false;
+                 if (_man) {
+                     const forced = hklList.find(x => x.h === _man.h && x.k === _man.k && x.l === _man.l);
+                     if (forced) { bestMatchHkl = forced; minDiff = Math.abs(forced.tth - corr_peak.tth_corr); isManual = true; }
+                 }
+
+        	 	 if (bestMatchHkl && (isManual || minDiff < indexWindow) && corr_peak.tth_corr >= tthMinVal && corr_peak.tth_corr <= tthMaxVal) {
           	 	 	 reportLines.push({
 
           	 	 	    h: bestMatchHkl.h, k: bestMatchHkl.k, l: bestMatchHkl.l,
           	 	 	    tth_meas: corr_peak.tth, tth_corr: corr_peak.tth_corr,
           	 	 	    tth_calc: bestMatchHkl.tth, d_calc: bestMatchHkl.d,
           	 	 	    ka2Suspect: !!corr_peak.ka2Suspect,
-          	 	 	    hasKa2Child: !!corr_peak.hasKa2Child
+          	 	 	    hasKa2Child: !!corr_peak.hasKa2Child,
+          	 	 	    manual: isManual
           	 	 	 });
           	 	 	 assignedHkls.add(`${bestMatchHkl.h},${bestMatchHkl.k},${bestMatchHkl.l}`);
         	 	 }
@@ -5082,6 +5576,11 @@ const hklList = sol.analysis?.hklList || generateHKL_for_analysis(sol, lambda, t
     if (isAmbiguous) {
         pdfLine += ' *';
     }
+    // Flag assignments the user set by hand, so the table never looks like an
+    // unexplained departure from nearest-line indexing.
+    if (line.manual) {
+        pdfLine += '  (manual)';
+    }
 
     doc.text(pdfLine, margin, yPos);
     
@@ -5123,10 +5622,28 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 20 July 2026</div>
+<div id="app-footer">Brutus, 21 July 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
+    <div id="ctx-swap">Swap hkl</div>
     <div id="ctx-report">Generate Report</div>
+</div>
+<div id="swap-overlay">
+  <div id="swap-modal">
+    <h3 id="swap-title">Swap hkl</h3>
+    <p id="swap-sub">Edit any assignment, then Apply to create a new refined solution. Blank rows are left unchanged.</p>
+    <div id="swap-table-wrap">
+      <table id="swap-table">
+        <thead><tr><th>2&theta; obs</th><th>d obs</th><th>h</th><th>k</th><th>l</th><th>2&theta; calc</th><th>diff</th></tr></thead>
+        <tbody id="swap-tbody"></tbody>
+      </table>
+    </div>
+    <div id="swap-msg"></div>
+    <div id="swap-buttons">
+      <button id="swap-cancel" class="btn btn-secondary">Cancel</button>
+      <button id="swap-apply" class="btn btn-primary">Apply</button>
+    </div>
+  </div>
 </div>
 </body>
 </html>

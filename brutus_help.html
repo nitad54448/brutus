@@ -541,7 +541,56 @@
                         <li>Pan: click and drag.</li>
                         <li>Reset zoom: right-click on the chart.</li>
                         <li>Add peak manually: <code>Ctrl + Click</code> on the chart.</li>
+                        <li>Add peak at the exact cursor position, ignoring snapping: <code>Ctrl + Shift + Click</code>.</li>
                     </ul>
+                </li>
+                <li>
+                    <strong>Axis selectors.</strong>
+                    The toolbar above the chart chooses how the pattern is displayed. <code>X</code> offers
+                    2θ (the default), θ, d-spacing, or Q&nbsp;=&nbsp;4π·sinθ/λ. <code>Y</code> offers linear
+                    intensity, √I (the default), or logarithmic intensity.
+                    <br><br>
+                    These controls change the <em>view</em> only. Peak positions are stored in 2θ and
+                    intensities in raw counts no matter what is on screen, so indexing, refinement, the peak
+                    table and the PDF report are identical whichever axes you are looking at. The Y tick
+                    labels always show real intensity, even on the √I and log scales, so a number read off the
+                    axis means the same thing in every mode.
+                    <br><br>
+                    Two consequences are worth knowing. The d-axis is drawn in decreasing order, so that large
+                    d stays on the left and the pattern keeps the familiar left-to-right shape it has in 2θ.
+                    And because d and Q both depend on λ, changing the wavelength redraws the whole pattern in
+                    those two modes, while θ and 2θ are unaffected.
+                    <br><br>
+                    √I is the default because it is the useful compromise for indexing: counting statistics
+                    make the noise on a peak scale roughly as √I, so a √I plot shows something close to
+                    constant noise across the pattern, and weak high-angle reflections — the ones that
+                    discriminate between candidate cells — become visible without a strong low-angle peak
+                    flattening everything else. A log axis goes further and is useful for inspecting the
+                    background, but it exaggerates noise near zero.
+                </li>
+                <li>
+                    <strong>Snapping.</strong>
+                    At normal zoom one screen pixel spans a few hundredths of a degree, which is the same size
+                    as the <code>2θ Error</code> the indexer works to. A peak placed by eye is therefore
+                    limited by the pointer, not by the data. The <code>Snap</code> selector controls where a
+                    <code>Ctrl + Click</code> actually lands:
+                    <ul>
+                        <li><strong>Auto</strong> (default): whichever is nearer, the local maximum of the measured trace or a calculated hkl line of the selected solution.</li>
+                        <li><strong>Data max</strong>: the highest measured point within the snap window.</li>
+                        <li><strong>hkl line</strong>: the nearest calculated reflection of the selected solution.</li>
+                        <li><strong>Off</strong>: exactly where you clicked.</li>
+                    </ul>
+                    A dashed guide shows the target as you move the pointer, and the readout beside the
+                    selectors reports its 2θ, d and Q, plus the Miller indices when the target is a calculated
+                    line. Snapping to a data maximum also gives the new peak a real height, which the
+                    space-group analysis needs in order to tell a weak reflection from a strong one. Hold
+                    <code>Shift</code> while clicking to bypass snapping for a single peak.
+                    <br><br>
+                    Snapping to an hkl line is deliberately a separate choice from snapping to data. It places
+                    a peak where the <em>model</em> says a reflection should be, which is what you want when
+                    adding a reflection that is visible but too weak or too broad for the detector to have
+                    produced a clean maximum. It is not evidence that the reflection is there: a peak added
+                    that way agrees with the solution by construction, so it cannot be used to confirm it.
                 </li>
             </ul>
         </section>
@@ -870,7 +919,9 @@
                     residual $\langle |\Delta Q_i| / \Delta Q_{tol,i}\rangle$, evaluated over the first
                     $\min(\max(N_{peaks}, 10),\, 32)$ observed peaks. The lower bound of 10 guarantees a meaningful sample
                     even for very small $N_{peaks}$; the upper bound is the shader constant <code>MAX_FOM_PEAKS = 32</code>,
-                    now identical across all three solvers (orthorhombic was previously capped at 20). The matching
+                    even for very small $N_{peaks}$; the upper bound is the shader constant <code>MAX_FOM_PEAKS = 32</code>,
+                    which is the same for all three GPU solvers, so a cell is judged on the same amount of
+                    evidence whichever system found it. The matching
                     tolerance $\Delta Q_{tol,i}$ is the per-peak Q tolerance derived from the user's 2θ Error (see
                     <a href="#refinement">Q-Space Tolerance</a>). If the mean normalised residual exceeds
                     <code>FoM Tolerance</code>, the cell is discarded. A running-sum "fail-fast" test aborts the peak loop
@@ -978,6 +1029,20 @@
                 The same two-round strategy is applied to every candidate regardless of its origin: GPU-searched systems
                 (orthorhombic, monoclinic, triclinic) and CPU-searched systems (cubic, tetragonal, hexagonal). GPU
                 candidates are refined in parallel by a pool of dedicated Web Workers (see <a href="#introduction">Architecture</a>).
+            </p>
+
+            <p>
+                <strong>How the zero shift appears on the plot.</strong> The measured pattern is drawn exactly
+                as recorded, including its zero error, because that is the only thing actually observed. The
+                refined cell, in contrast, describes the sample once the zero error has been removed, so its
+                calculated lines live in the corrected frame
+                $2\theta_{true} = 2\theta_{obs} - \Delta_{zero}$. To draw a calculated line beside the
+                observed peak it explains, Brutus therefore maps it back the other way,
+                $2\theta_{plot} = 2\theta_{calc} + \Delta_{zero}$. Without that step every blue tick would sit
+                a distance $\Delta_{zero}$ from its red partner — a small, perfectly uniform offset across the
+                whole pattern, easy to misread as a slightly wrong cell. If you see a uniform offset between
+                red and blue ticks, suspect the zero error rather than the cell parameters; the refined value
+                is shown as $Z$ in the solutions table.
             </p>
 
             <h3>Minimum Peaks Required for Acceptance</h3>
@@ -1289,14 +1354,14 @@
                 </li>
                 <li>
                     <strong>Retain all indexed reflections.</strong>
-                    Every uniquely indexed peak is passed to the extinction analysis. Earlier versions kept only
-                    an "unambiguous" subset — peaks for which <em>no other</em> theoretical $(hkl)$ fell within the
-                    <code>2θ Error</code> window — but this proved actively harmful on pseudo-symmetric cells.
-                    When a lattice of higher symmetry is described in a lower-symmetry setting, the reflections
-                    that overlap are precisely the symmetry-related ones, so the filter discarded most of the
-                    pattern (typically 70–80% of peaks) and kept the biased remnant <em>least</em> able to
-                    falsify a centering. Overlap is now handled per reflection instead, via the
-                    <strong>Ambiguous</strong> demotion described below.
+                    Every uniquely indexed peak is passed to the extinction analysis, including peaks that
+                    overlap another theoretical $(hkl)$ within the <code>2θ Error</code> window. Filtering
+                    overlapped peaks out would be self-defeating on exactly the cells that need the most care:
+                    when a lattice of high symmetry is described in a lower-symmetry setting, the reflections
+                    that overlap <em>are</em> the symmetry-related ones, so such a filter removes most of the
+                    pattern (typically 70–80% of peaks) and keeps the biased remnant <em>least</em> able to
+                    falsify a centering. Overlap is therefore handled one reflection at a time, through the
+                    <strong>Ambiguous</strong> demotion described below, rather than by excluding peaks up front.
                 </li>
                 <li>
     <strong>Determine centering and extinctions.</strong>
@@ -1306,12 +1371,39 @@
         <li><strong>Hard violations:</strong> A strong, real (non-Kα<sub>2</sub>), unambiguous reflection clearly breaks a rule. These heavily penalise the space group and lower its ranking.</li>
         <li><strong>Soft violations:</strong> A reflection breaks a rule, but the peak is considered unreliable. These do <em>not</em> penalise the space group's ranking, but are listed in the report for the user to review. A violation is flagged as "soft" if the peak is:
             <ul style="margin-top: 0.5rem; margin-bottom: 0.5rem;">
-                <li><strong>Kα<sub>2</sub>-suspect:</strong> Flagged as a likely Kα<sub>2</sub> companion (position <em>and</em> intensity ratio — see below). Never applies to Custom or Kα<sub>1</sub>-only radiation, or to Kα<sub>2</sub>-stripped data.</li>
-                <li><strong>Weak:</strong> The peak height is below 5% of a <strong>local</strong> maximum, measured over a &plusmn;15° 2θ window centered on the peak. The local window matters: diffracted intensity falls off steeply with angle (Lorentz–polarisation, Debye–Waller, absorption), so an earlier version that compared against 5% of the <em>global</em> maximum was effectively an angle cutoff in disguise — above roughly 90° 2θ nearly every genuine reflection fell below it, and the entire back-reflection region silently lost its power to falsify an absence rule. Comparing each peak with peaks at comparable 2θ preserves the crystallographic intent (a truly forbidden reflection should have zero intensity) without the angular bias.</li>
-                <li><strong>Ambiguous:</strong> The assigned $(hkl)$ violates a rule, but an <em>allowed</em> theoretical reflection explains the observed peak about as well. The alternative must be <strong>competitive</strong>, not merely present: it qualifies if it lies within your stated <code>2θ Error</code> of the observed position, or fits no more than <strong>2×</strong> worse than the assigned reflection does. An earlier version demoted the violation whenever <em>any</em> allowed reflection fell anywhere in the overlap window, even one many times further from the peak — see the note on wavelength below.</li>
+                <li><strong>Kα<sub>2</sub>-suspect:</strong> Flagged as a likely Kα<sub>2</sub> companion (position <em>and</em> intensity ratio — see below). Never applies to Custom or Kα<sub>1</sub>-only radiation, or to Kα<sub>2</sub>-stripped data — see the note below on stripping residuals.</li>
+                <li><strong>Weak:</strong> The peak height is below 5% of a <strong>local</strong> maximum, measured over a &plusmn;15&deg; 2&theta; window centered on the peak. The window is local because diffracted intensity falls off steeply with angle (Lorentz&ndash;polarisation, Debye&ndash;Waller, absorption). Measured against a single global maximum, the same 5% threshold would act as an angle cutoff in disguise: above roughly 90&deg; 2&theta; nearly every genuine reflection would fall below it, and the whole back-reflection region would silently lose its power to falsify an absence rule. Comparing each peak against peaks at comparable 2&theta; preserves the crystallographic intent &mdash; a truly forbidden reflection should have no intensity &mdash; without the angular bias.</li>
+                <li><strong>Ambiguous:</strong> The assigned $(hkl)$ violates a rule, but an <em>allowed</em> theoretical reflection explains the observed peak about as well. The alternative must be <strong>competitive</strong>, not merely present: it qualifies only if it lies within your stated <code>2&theta; Error</code> of the observed position, or fits no more than <strong>2&times;</strong> worse than the assigned reflection does. Merely falling somewhere inside the overlap window is not enough &mdash; on a crowded pattern almost every reflection has some allowed neighbour, and accepting those would excuse every violation in turn. See the note on wavelength below.</li>
             </ul>
         </li>
     </ul>
+    <p style="margin-top:0.75rem;">
+        <strong>A note on Kα<sub>2</sub>-stripped data.</strong> Stripping is never perfect. Rachinger-type
+        algorithms subtract a scaled, shifted copy of the pattern, and the error accumulates towards high angle
+        where the doublet separation grows, leaving ripples or &ldquo;ringing&rdquo; beside strong peaks. It is
+        reasonable to ask whether disabling the Kα<sub>2</sub>-suspect test on stripped data lets those
+        artefacts through as hard evidence.
+    </p>
+    <p>
+        Enabling the test would not catch them, and would cause harm. The Kα<sub>2</sub>-suspect test looks for
+        a peak at a <em>specific</em> predicted offset from a lower-angle parent, with an intensity ratio near
+        0.497. A stripping residual has neither property: the companion it would have matched has already been
+        removed, and residuals sit immediately beside the parent on <em>either</em> side, not at the
+        Kα<sub>2</sub> offset. Running the test on stripped data would therefore flag mostly <em>genuine</em>
+        reflections that happen to fall near the old Kα<sub>2</sub> position of a strong neighbour — silently
+        removing real evidence.
+    </p>
+    <p>
+        What actually covers stripping residuals is the <strong>Weak</strong> demotion. Ringing is typically a
+        few percent of its parent peak, so it falls below the 5%-of-local-maximum floor and is demoted to soft
+        automatically — and because that floor is local rather than global, it keeps working at high angle
+        where residuals are worst. The <strong>Ambiguous</strong> demotion catches a further share, since
+        residuals sit close to a real reflection by construction. The gap worth knowing about is a residual
+        beside a very intense peak that clears the 5% floor: that one will count as a hard violation. If a
+        space group is being rejected by one or two violations sitting right next to your strongest
+        reflections, over-stripping is a realistic explanation — mark those peaks as excluded, or re-strip with
+        a lower ratio, before trusting the rejection.
+    </p>
     <p style="margin-top:0.75rem;">
         <strong>Consensus override.</strong> Each demotion above asserts that <em>one</em> reflection is poor
         evidence; none of them licenses ignoring a systematic trend. Noise, peak tails and Kα<sub>2</sub> ghosts
@@ -1360,6 +1452,243 @@
         simply means &ldquo;no centering transform applied&rdquo; before the Křivý–Gruber algorithm runs
         (see <a href="#advanced-topics">Advanced Topics</a>).
     </p>
+    <h4>Redundant rules are collapsed (4<em>n</em> beats 2<em>n</em>)</h4>
+    <p>
+        A rule is confirmed when nothing observed contradicts it. That test is one-sided, so a zone whose only
+        observed reflection is 004 confirms <em>00l</em>: $l=2n$ <strong>and</strong> <em>00l</em>: $l=4n$ —
+        the second implies the first, so both survive. Reporting both is redundant and actively understates the
+        result: $l=4n$ is the stronger claim, because it additionally forbids 002 and 006, and it is the only
+        one carrying information. Brutus therefore drops, within each zone, any confirmed rule that is implied
+        by another confirmed rule in the same zone, and reports only <em>00l</em>: $l=4n$.
+    </p>
+    <p>
+        Implication is tested by enumeration over the zone rather than algebraically, so compound shorthand
+        (&ldquo;<em>h, l=2n</em>&rdquo;) and any modulus are handled without special cases. The collapse is
+        <em>evidence-driven, not cosmetic</em>: if 002 or 006 were actually observed, $l=4n$ would be
+        contradicted and never confirmed in the first place, so the reported rule correctly falls back to
+        $l=2n$.
+    </p>
+    <p>
+        Redundancy also arises without any single rule implying another. Zektzerite confirms
+        <em>hk0</em>: $h=2n$, <em>hk0</em>: $k=2n$ <strong>and</strong> <em>hk0</em>: $h+k=2n$ — the third
+        follows from the first two (even + even is even) but from neither alone, so a pairwise test cannot see
+        it. A rule is therefore dropped when every reflection allowed by the <em>conjunction</em> of all the
+        others already satisfies it, applied iteratively so a mutually-redundant set collapses to a minimal
+        equivalent subset instead of vanishing. Rules from other zones count too, so a general <em>hkl</em>
+        condition can subsume a zonal restatement of itself. Zektzerite's eight reported conditions reduce to
+        four independent ones, with the discrimination unchanged: Abma and Ac2a still explain 4/4, Abmm 3/4,
+        Pccn 2/4.
+    </p>
+    <h4>The extinction test and the ranking use the same demotions</h4>
+    <p>
+        A rule is confirmed when every <em>reliable</em> reflection in its zone satisfies it. Reliability
+        excludes K&alpha;2-suspect peaks and peaks below the local intensity floor — and now also applies the
+        same <strong>ambiguity demotion</strong> the ranking uses: a reflection that formally breaks the rule
+        is forgiven when another calculated <em>hkl</em> within the same peak's tolerance window is not
+        forbidden by it, because the peak could equally well be that reflection.
+    </p>
+    <p>
+        Without this the two analyses contradict each other. In zektzerite the four soft violations all have
+        $k+l$ odd, so they blocked confirmation of <em>hkl</em>: $k+l=2n$ even though the centering test had
+        already forgiven the same four peaks and reported <code>A:0(+4 soft)</code>. The A-centering condition
+        was consequently missing from the detected list, and P-lattice candidates such as Pccn were never
+        penalised for failing to explain it.
+    </p>
+    <p>
+        The same consensus guard as the ranking applies: forgiving one overlap is reasonable, forgiving a
+        systematic trend is not. If five or more reflections — and at least 15% of those examined in the zone —
+        all break the same rule, the rule is treated as genuinely broken however excusable each individual case
+        looks.
+    </p>
+    <h4>Acentric settings are flagged</h4>
+    <p>
+        Systematic absences are blind to an inversion centre. Abma (#64) and Ac2a (#41) have
+        <em>byte-identical</em> reflection conditions, so no powder extinction analysis can separate them —
+        only $|E|$ statistics or the solved structure can. Settings lacking a centre of symmetry are therefore
+        marked <strong>[acentric]</strong> in the list, so an apparent tie is read as the genuine ambiguity it
+        is rather than as indecision by the ranking.
+    </p>
+    <p>
+        <strong>The same logic applies to ranking.</strong> A confirming reflection is weighted by how much of
+        its zone the condition <em>forbids</em>, normalised so an ordinary $2n$ rule keeps weight 1.0 and
+        $l=4n$ scores 1.5. A stricter condition is harder evidence: a reflection such as 004 is consistent
+        with $l=2n$ and with $l=4n$ alike, but surviving the $l=4n$ test excludes far more of the zone.
+        Weighting the two equally would leave <em>P</em>4<sub>1</sub>, <em>P</em>4<sub>3</sub>,
+        <em>P</em>4<sub>1</sub>22 and <em>P</em>4<sub>3</sub>22 tied with <em>P</em>4<sub>2</sub> and
+        <em>P</em>4<sub>2</sub>22 on identical evidence, and the ranking would fall through to the
+        space-group-number tiebreak — which happens to favour the higher-numbered, <em>less</em> constrained
+        groups. Because the weight is normalised rather than raw, an ordinary $2n$-based score is untouched:
+        the scheme promotes genuinely stronger rules instead of shifting the whole ranking against the
+        rule-free baseline.
+    </p>
+    <h4>A reflection belongs to every zone it fits</h4>
+    <p>
+        Zone labels are <strong>nested, not exclusive</strong>. In ITA notation <em>hk0</em> means simply
+        $l=0$ with <em>h</em> and <em>k</em> unrestricted, so 330 is an <em>hk0</em> reflection — and
+        simultaneously an <em>hh0</em>/<em>hhl</em> one, since $h=k$. Likewise 004 is <em>00l</em> and also
+        <em>hhl</em> (with $h=k=0$), and 300 is <em>h00</em> and also <em>hk0</em> and <em>h0l</em>. A
+        reflection must satisfy the condition of <em>every</em> family it belongs to.
+    </p>
+    <p>
+        Brutus therefore tests each reflection against all applicable zones rather than against a single
+        classifying label. The membership is deliberately inclusive, which is self-consistent with the printed
+        tables: I-4̄2d's <em>hhl</em>: $2h+l=4n$ specialises at $h=k=0$ to $l=4n$, exactly its separately-listed
+        <em>00l</em> condition, and Ia-3̄'s <em>hk0</em>: $h,k=2n$ specialises at $k=0$ to $h=2n$, exactly its
+        listed <em>h00</em> condition.
+    </p>
+    <p>
+        <strong>Why it matters — the database omits axial conditions on purpose.</strong> The bundled
+        <code>cctbx_space_groups_all_settings_v4.json</code> lists only the conditions not already implied by a
+        more general class. Pna2<sub>1</sub> (33), for example, is stored as just
+        <code>{0kl: k+l=2n, h0l: h=2n}</code>. The axial conditions that
+        <em>International Tables</em> prints for it — <em>00l</em>: $l=2n$, <em>0k0</em>: $k=2n$,
+        <em>h00</em>: $h=2n$ — are absent, because each follows by restriction: $k+l=2n$ at $k=0$
+        <em>is</em> $l=2n$. Inheritance is therefore not an optional refinement; without it those extinctions
+        are never tested at all.
+    </p>
+    <p>
+        Checked against structure factors computed directly from the space-group operations, over all
+        reflections to $h,k,l\le 6$:
+    </p>
+    <table>
+        <tr><th>Space group</th><th>Missed by single-zone</th><th>Missed by inclusive</th></tr>
+        <tr><td>Pna2<sub>1</sub> (33)</td><td>9 &nbsp;(001 003 005 010 030 050 100 300 500)</td><td>0</td></tr>
+        <tr><td>Pbcn (60)</td><td>9</td><td>0</td></tr>
+        <tr><td>Fddd (70)</td><td>6 &nbsp;(002 006 020 060 200 600)</td><td>0</td></tr>
+        <tr><td>I-4̄2d (122)</td><td>5 &nbsp;(002 006 110 330 550)</td><td>0</td></tr>
+        <tr><td>P4<sub>3</sub>2<sub>1</sub>2 (96)</td><td>0</td><td>0</td></tr>
+        <tr><td>Ia-3̄ (206)</td><td>0</td><td>0</td></tr>
+    </table>
+    <p>
+        The single-zone test carries real weight: across the whole database it decides the verdict for
+        <strong>264 of 527 settings</strong>, almost all of them axial reflections that a naive test would
+        treat as allowed. A cross-check over all 527 settings finds <strong>no case</strong> in which a
+        general-class condition contradicts a listed special-class condition, so inheritance can never
+        manufacture a false absence — it only ever restores a missing one.
+    </p>
+    <p>
+        Because inheritance only ever <em>adds</em> applicable rules, each space group is held to every
+        condition that genuinely applies to it. Groups that would otherwise show zero hard violations
+        therefore accumulate them, and fall in the ranking or drop out of the candidate list. That is the test
+        working as intended: those violations were always present in the data, they were simply not being
+        checked against.
+    </p>
+    <h4>Rewarding settings that explain the observed absences</h4>
+    <p>
+        Violation counting is <strong>one-sided</strong>: it only ever looks at reflections that <em>are</em>
+        present, so it can punish a setting for predicting an absence that did not happen, but it can never
+        reward one for predicting an absence that did. The consequence is structural — if one setting's
+        condition set is a strict <em>subset</em> of another's, it can never accumulate more violations, so the
+        least-constrained candidate wins by default.
+    </p>
+    <p>
+        Zektzerite is the worked example. The true structure is Cmca (#64); in a cyclically permuted axis
+        setting that is <strong>Abma</strong>, whose conditions are
+        <code>{hkl: k+l=2n, 0kl: k=2n &amp; l=2n, hk0: h=2n}</code> — exactly <strong>Abmm</strong> (#67) plus
+        <code>hk0: h=2n</code>. The observed absences include <em>h00</em>: $h=2n$, which Abmm
+        <em>cannot</em> explain: A-centering gives $k+l=0$ for every <em>h00</em> reflection, which is even for
+        all <em>h</em>, so Abmm predicts odd-<em>h</em> <em>h00</em> reflections that were never seen. Only the
+        <code>hk0: h=2n</code> of Abma accounts for them.
+    </p>
+    <p>
+        Each rule from the extinction analysis is therefore treated as evidence in its own right. A setting is
+        tested for whether it <em>entails</em> each detected condition — is every reflection the setting allows
+        in that zone already required to satisfy it? — and is rewarded or penalised accordingly, weighted by
+        the condition's selectivity and by how many observed reflections back it. The result is reported per
+        setting as <em>explains n/N absences</em>, with any it fails to account for listed explicitly.
+    </p>
+    <p>
+        Ranking order is now: hard violations ascending, then <strong>unexplained absences ascending</strong>,
+        then the confirmation figure of merit, then soft violations, then space-group number. The absence
+        pattern is deliberately promoted above the figure of merit, because the figure of merit counts
+        reflections that are present and is dominated by the well-populated zones that every candidate
+        explains equally; systematic absences are the discriminating evidence in space-group determination.
+        For zektzerite, Abma and Acam explain 4/4 detected conditions while Abmm, Acmm, Abm2, Ac2m and Ammm
+        explain 3/4.
+    </p>
+    <p>
+        <strong>Hard violations still come first.</strong> A genuinely observed reflection in a forbidden class
+        is strong evidence against a setting, so no amount of absence agreement will lift a candidate above one
+        with fewer hard violations. If an expected setting is missing from the list entirely, it has exceeded
+        <code>MAX_VIOLATIONS</code> (2) and the reflections responsible are worth inspecting individually —
+        they are frequently overlaps that the ambiguity demotion failed to rescue under the stricter rule set.
+    </p>
+    <h4>Swap hkl &mdash; correcting an assignment by hand</h4>
+    <p>
+        Indexing assigns each observed peak to the <em>nearest</em> calculated line. When two lines straddle a
+        peak that choice can be decided by a few thousandths of a degree, and it can be wrong
+        <strong>without producing any violation at all</strong>: in a permissive space group both candidates
+        are allowed, so nothing flags it. No rule-driven search can find those cases, because such a search
+        only ever sees assignments that some space group forbids. The decision is therefore yours.
+    </p>
+    <p>
+        Right-click a solution and choose <strong>Swap hkl</strong>. The dialog lists the first twelve peaks
+        with their current indices, observed <em>d</em>, calculated 2&theta; and the residual &mdash; the
+        low-angle end, where a mis-assignment does most damage to the refined cell. Edit any indices you
+        disagree with; edited fields are highlighted. <strong>Apply</strong> re-fits the cell (and the zero
+        error, if that refinement is enabled) with your assignments imposed and adds the result to the
+        solutions list as an ordinary solution, tagged <em>swap&times;n</em>. <strong>Cancel</strong> discards
+        everything.
+    </p>
+    <p>
+        Because the new solution is ordinary in every respect &mdash; its $M$ and $F$ are computed against the
+        full calculated line list, exactly like any other entry &mdash; you can compare it directly with its
+        parent. A correct swap improves the figures; a wrong one degrades them visibly, which is the point.
+        Applying <em>Swap hkl</em> to a swapped solution again lets you build up several changes step by step,
+        with the effect of each one visible.
+    </p>
+    <p>
+        The swapped assignments are carried on the new solution and honoured everywhere it is used: the
+        space-group analysis re-runs against them, and the <em>hkl</em> table in the report shows them marked
+        <em>(manual)</em> rather than silently reverting to nearest-line matching &mdash; which would otherwise
+        reproduce the very mistake you corrected, since the whole reason for swapping is that the nearest line
+        was the wrong one.
+    </p>
+    <p>
+        Two mistakes are caught before refinement: an incomplete row (<em>h</em>, <em>k</em> and <em>l</em>
+        must all be given) and assigning a reflection that another peak already holds, which would otherwise be
+        quietly averaged into a distorted cell. A manual assignment is honoured even when it is not the nearest
+        line and even when it falls outside the indexing window &mdash; overruling the nearest-line rule is
+        exactly what the command is for.
+    </p>
+    <p>
+        <strong>Worked example.</strong> In PbSO<sub>4</sub> (anglesite) the peak at 16.423&deg; indexes as
+        (1,0,0) at 0.015&deg; rather than (0,1,1) at &minus;0.002&deg; in the reduced setting. Swapping it and
+        re-refining recovers a &minus;0.012&deg; zero shift that the original assignment had been masking, and
+        returns a cell within 0.002 &Aring; of the published one.
+    </p>
+    <h4>Nothing is re-indexed automatically</h4>
+    <p>
+        Indexing is <strong>extinction-blind</strong>: each observed peak is assigned to the <em>nearest</em>
+        calculated line, whatever that line's parity, because the absence rules do not exist yet at that stage.
+        When two lines straddle a peak, the nearest one can easily be systematically absent. PbSO<sub>4</sub>
+        (anglesite, <em>Pnma</em>) is the classic case &mdash; the peak at 16.423&deg; takes (0,1,0), 0.019&deg;
+        off, over (1,0,1) at 0.024&deg;, though 010 breaks <em>0kl</em>: $k+l=2n$ and cannot exist in that
+        space group.
+    </p>
+    <p>
+        Brutus does <strong>not</strong> correct this by itself, and that is a deliberate choice.
+        Re-assigning such peaks automatically once the rules are known, then re-fitting the cell to match,
+        would alter a solution the user never asked to change; with several peaks involved the resulting
+        corrections are hard to interpret; and it would still miss the cases that matter most — an assignment
+        that is wrong while remaining <em>allowed</em>, which happens whenever the candidate space group is
+        permissive enough that neither choice violates anything. An automatic fix would give the appearance
+        of thoroughness while leaving the hardest errors untouched.
+    </p>
+    <p>
+        The report therefore shows exactly what the indexer decided, with no silent edits. Where a decision
+        looks wrong, correct it deliberately with <strong>Swap hkl</strong>, which leaves the original solution
+        untouched and adds the corrected one alongside it for comparison.
+    </p>
+    <p>
+        One consequence is worth knowing when reading figures of merit. The de Wolff figure is
+        $M_{20} = Q_{20} / (2\,\langle|\Delta Q|\rangle\,N_{20})$, and $N_{20}$ counts <em>possible</em>
+        calculated lines. Being extinction-blind inflates that count &mdash; for anglesite, 13 distinct lines to
+        $d=3.0$ &Aring; against 9 once <em>Pnma</em> is imposed &mdash; so $M_{20}$ is systematically
+        conservative for a centred or glide-rich lattice. A correct assignment is never penalised into being
+        discarded by the figure of merit; it is simply never considered, because assignment happens before the
+        space group is known.
+    </p>
     <h4>Why the <em>Ambiguous</em> test is proximity-weighted</h4>
     <p>
         Peak separation follows $\Delta(2\theta) = 2\tan\theta \cdot (\Delta d / d)$. A <em>fixed</em> 2θ window
@@ -1373,10 +1702,10 @@
         Note that the remedy is <em>not</em> a wavelength-dependent tolerance. Instrumental 2θ uncertainty is set
         by alignment, sample displacement and detector resolution, and is very nearly independent of the anode:
         a 0.04° tolerance means 0.04° whichever tube is fitted, so widening or narrowing the window per
-        wavelength would misrepresent the instrument. What needed fixing was the binary nature of the old test.
-        Requiring the alternative to be <em>competitive</em> with the assigned reflection adapts automatically —
-        on a crowded short-wavelength pattern the extra neighbours are mostly far from the observed position and
-        no longer excuse the violation, while a genuine near-coincidence still does.
+        wavelength would misrepresent the instrument. The competitiveness requirement addresses the problem
+        from the other end, and adapts on its own: on a crowded short-wavelength pattern the extra neighbours
+        are mostly far from the observed position and so do not excuse the violation, while a genuine
+        near-coincidence still does.
     </p>
     The zone assignment for each $(hkl)$ (e.g. <code>h00</code>, <code>0k0</code>, <code>hk0</code>, <code>hkl</code> etc.)
     is used to apply the correct subset of conditions for that zone.
@@ -1403,17 +1732,17 @@
                     or small systematic errors in peak positions.
                 </li>
                 <li>
-                    <strong>Absolute violation counts are larger than in earlier versions.</strong>
-                    Because every indexed reflection now reaches the extinction analysis rather than a small
-                    isolated subset, all centerings and space groups accumulate more violations than you may be
-                    used to. Compare candidates against <em>each other</em>, not against remembered absolute
-                    numbers from previous releases.
+                    <strong>Read violation counts relatively, not absolutely.</strong>
+                    Every indexed reflection reaches the extinction analysis, so the counts are large in
+                    absolute terms for every centering and every space group — and larger than in tables that
+                    score only a filtered subset of peaks. A count means something only alongside the other
+                    candidates in the same run. Compare candidates against <em>each other</em>.
                 </li>
                 <li>
                     <strong>Ambiguous peaks (in italics in the PDF report):</strong>
                     Peaks that overlap another theoretical reflection within the tolerance window are printed in
-                    italics, with a <code>*</code> added to the respective line. These peaks are no longer excluded
-                    from extinction analysis — the italics simply mark that any rule violation they raise is
+                    italics, with a <code>*</code> added to the respective line. They are still included in the
+                    extinction analysis — the italics simply mark that any rule violation they raise is
                     demoted to soft unless the consensus override applies.
                 </li>
                 <li>
@@ -1471,9 +1800,11 @@
                 a new trial cell is constructed with the correct symmetry and re-refined and re-scored.
             </p>
             <p>
-                A true-primitive reduction of a genuinely centered lattice is still available to callers that want
-                it, by passing an explicit centering to the reduction routine; it is simply no longer taken from
-                the absence analysis by default.
+                A true-primitive reduction of a genuinely centered lattice is available to callers that want
+                it, by passing an explicit centering to the reduction routine. It is not taken from the
+                absence analysis automatically: the centering derived there is a ranked hypothesis, not an
+                established fact, and feeding a hypothesis silently into the cell reduction would make the
+                reported cell depend on a guess the user never sees.
             </p>
 
             <h4>Two cells in the PDF report, and what they are called</h4>
@@ -1572,10 +1903,39 @@
 
             <h3>5. Swap Fishing for Ambiguity</h3>
             <p>
-                For each high-ranking solution, Brutus re-examines the first few low-angle peaks.
-                Pairs of peaks that are very close in angle (the most common source of mis-assignment in the
-                initial brute-force step) are identified, and a new hypothesis is created by swapping their HKL labels.
-                The swapped cell is fully refined and rescored. If it yields a higher M(20), it is retained.
+                Mis-assignment at the low-angle end is the commonest way a <em>correct</em> cell ends up with a
+                poor M(20): two calculated lines straddle one observed peak and the nearest-line rule picks the
+                wrong one by a few thousandths of a degree. For each high-ranking solution Brutus reconsiders
+                the first twelve indexed peaks and tries two kinds of alternative hypothesis.
+            </p>
+            <ul>
+                <li><strong>Reassignment.</strong> Give one peak a <em>different theoretical reflection</em>
+                    that also lies near it. This is the case that matters in practice: in PbSO<sub>4</sub> the
+                    16.42&deg; peak takes (1,0,0) over (0,1,1) by 0.005&deg;, and no exchange between two
+                    observed peaks can express that correction.</li>
+                <li><strong>Transposition.</strong> Exchange the HKL labels of the two closest peaks &mdash; the
+                    original behaviour, kept because it repairs a genuine ordering error in a single move
+                    without creating a duplicate assignment.</li>
+            </ul>
+            <p>
+                Each candidate is refined and rescored, and retained only if M(20) improves, so fishing can
+                only ever widen the search &mdash; it never overwrites a solution you already have. Candidates
+                are fitted against <em>all</em> indexed peaks rather than the bare minimum for the crystal
+                system, so a wrong swap shows up as a bad fit instead of being absorbed by a handful of rows.
+                Work is bounded at two alternatives per peak and twelve candidate cells per solution.
+            </p>
+            <p>
+                Alternatives are collected in a window <strong>wider</strong> than the indexing tolerance
+                (2.5&times;). A competing reflection just outside tolerance is precisely the interesting case:
+                if it is the right assignment the cell will shift to meet it. At the strict tolerance the
+                PbSO<sub>4</sub> example is invisible &mdash; (1,0,0) and (0,1,1) sit 0.048&deg; apart against a
+                0.040&deg; window, so no alternative would ever be found.
+            </p>
+            <p>
+                The scan covers enough peaks to satisfy every crystal system, which means at least six for
+                triclinic. This is a requirement rather than a tuning choice: swap fishing needs as many
+                indexed peaks as the system has parameters to refine, so a scan shorter than the triclinic
+                minimum could never run for triclinic cells at all.
             </p>
 
             <h3>6. Final De-Duplication (Sieving)</h3>

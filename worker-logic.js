@@ -898,7 +898,13 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
                 const original_idx = original_indices[i];
                 let q_to_match;
                 if (Math.abs(zero_corr_deg) > 1e-9) {
-                    const corrected_tth_rad = tth_obs_rad[original_idx] - 2 * zero_corr_deg * RAD;
+                    // zero_corr_deg is a shift in 2-theta DEGREES, so it converts to
+                    // radians directly. The stray factor of 2 that used to sit here made
+                    // round 2 re-pair against positions overshot by a full extra zero
+                    // offset, so the second fit was pulled away from the first instead of
+                    // converging on it. Every other consumer of zero_correction in this
+                    // file subtracts it exactly once; this line now agrees with them.
+                    const corrected_tth_rad = tth_obs_rad[original_idx] - zero_corr_deg * RAD;
                     q_to_match = (4 * Math.sin(corrected_tth_rad / 2) ** 2) / (wavelength ** 2);
                 } else {
                     q_to_match = q_obs[i];
@@ -1238,42 +1244,128 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
             });
         }
         try {
+            // --- SWAP FISHING ---
+            // Mis-assignment at the low-angle end is the commonest way a correct
+            // cell gets a poor M(20): two calculated lines straddle one observed
+            // peak and the nearest-line rule picks the wrong one by a few
+            // thousandths of a degree. Each alternative is tried as a separate
+            // hypothesis and kept only if refineAndTestSolution finds a better
+            // M(20), so this widens the search without ever overwriting anything.
+            //
+            // Two flavours are tried:
+            //   (a) REASSIGNMENT - give one peak a different theoretical
+            //       reflection that also lies within tolerance. This is the case
+            //       that matters in practice: PbSO4's 16.42 deg peak takes (1,0,0)
+            //       over (0,1,1) by 0.005 deg, and no exchange between two
+            //       observed peaks can express that correction.
+            //   (b) TRANSPOSITION - exchange the labels of the two closest peaks,
+            //       the original behaviour, kept because it fixes a genuine
+            //       ordering error in one move without creating a duplicate.
+            //
+            // The old code scanned only the first 4 peaks, which made the routine
+            // dead for triclinic (needs 6, so `4 < 6` aborted every time) and
+            // fragile for monoclinic (needed all 4 to index). It now scans enough
+            // peaks to satisfy every system.
             const system = sol.system;
             const min_peaks_needed = {cubic: 1, tetragonal: 2, hexagonal: 2, orthorhombic: 3, monoclinic: 4, triclinic: 6}[system];
             if (!min_peaks_needed || data.peaks.length < min_peaks_needed) return;
 
-            // (Removed the duplicate generateHKL_for_worker call on 13th july)
+            const SWAP_FISH_MAX_PEAKS  = 12;   // low-angle peaks reconsidered
+            const SWAP_FISH_MAX_ALTS   = 2;    // alternatives tried per peak
+            const SWAP_FISH_MAX_TRIALS = 12;   // candidate cells per solution
+            // Alternatives are collected in a WIDER window than the indexing
+            // tolerance. A competing reflection just outside tolerance is exactly
+            // the interesting case: if it is the right assignment the cell will
+            // shift to meet it, and the trial costs nothing because it is kept
+            // only when M(20) improves. At the strict tolerance the PbSO4 case is
+            // invisible - (1,0,0) and (0,1,1) sit 0.048 deg apart against a
+            // 0.040 deg window, so no alternative would ever be found.
+            const SWAP_FISH_ALT_WINDOW = 2.5;  // multiple of the q tolerance
 
-            const first_four_indexed = [];
-            for(let i=0; i<4 && i < q_obs.length; i++){
+            const nScan = Math.min(SWAP_FISH_MAX_PEAKS, q_obs.length);
+            const indexed = [];
+            for (let i = 0; i < nScan; i++) {
                 const q_o = q_obs[i];
-                const best_match_idx = binarySearchClosest(theoretical_q_array, q_o); // <--- AND USE IT HERE TOO!
-                if(best_match_idx >= 0 && best_match_idx < theoretical_hkls.length && Math.abs(q_o - theoretical_hkls[best_match_idx].q) < local_get_q_tolerance(original_indices[i])){
-                    first_four_indexed.push({q_obs: q_o, hkl: [theoretical_hkls[best_match_idx].h, theoretical_hkls[best_match_idx].k, theoretical_hkls[best_match_idx].l]});
-                }
+                const tol = local_get_q_tolerance(original_indices[i]);
+                const bi = binarySearchClosest(theoretical_q_array, q_o);
+                if (bi < 0 || bi >= theoretical_hkls.length) continue;
+                if (Math.abs(q_o - theoretical_hkls[bi].q) >= tol) continue;
+                const t = theoretical_hkls[bi];
+                indexed.push({ q_obs: q_o, tol: tol, bi: bi, hkl: [t.h, t.k, t.l] });
             }
+            if (indexed.length < min_peaks_needed) return;
 
-
-
-
-            if (first_four_indexed.length < min_peaks_needed) return;
-            let closest_pair = {i: -1, j: -1, diff: Infinity};
-            for(let i=0; i < first_four_indexed.length; i++){
-                for(let j=i+1; j<first_four_indexed.length; j++){
-                    const diff = Math.abs(first_four_indexed[i].q_obs - first_four_indexed[j].q_obs);
-                    if(diff < closest_pair.diff){ closest_pair = {i, j, diff}; }
+            // Fit the whole indexed set each time, not just the minimum number of
+            // peaks. Solving from exactly min_peaks_needed makes the trial cell
+            // hostage to those few rows; using every indexed peak keeps the
+            // candidate meaningful and lets a wrong swap show up as a bad fit.
+            const fitWith = (overrideIdx, overrideHkl) => {
+                const M = [], q_vec = [];
+                for (let n = 0; n < indexed.length; n++) {
+                    const hkl = (n === overrideIdx) ? overrideHkl : indexed[n].hkl;
+                    const row = getLSDesignRow(hkl, system);
+                    if (!row) continue;
+                    M.push(row); q_vec.push(indexed[n].q_obs);
                 }
-            }
-            if(closest_pair.i !== -1){
-                const swapped_indexed_peaks = JSON.parse(JSON.stringify(first_four_indexed));
-                const temp_hkl = swapped_indexed_peaks[closest_pair.i].hkl;
-                swapped_indexed_peaks[closest_pair.i].hkl = swapped_indexed_peaks[closest_pair.j].hkl;
-                swapped_indexed_peaks[closest_pair.j].hkl = temp_hkl;
-                const peaks_for_solve = swapped_indexed_peaks.slice(0, min_peaks_needed);
-                const M = peaks_for_solve.map(p => getLSDesignRow(p.hkl, system));
-                const q_vec = peaks_for_solve.map(p => p.q_obs);
+                if (M.length < min_peaks_needed) return null;
                 const fit = solveLeastSquares(M, q_vec);
-                if(fit && fit.solution){ const new_trial_cell = extractCellFromFit(fit.solution, system); if(new_trial_cell){ refineAndTestSolution(new_trial_cell); } }
+                if (!fit || !fit.solution) return null;
+                return extractCellFromFit(fit.solution, system);
+            };
+
+            let trials = 0;
+
+            // (a) Reassignment: alternatives within tolerance of the SAME peak.
+            // theoretical_hkls is sorted by q, so walk outward from the match
+            // until the tolerance is exceeded.
+            for (let n = 0; n < indexed.length && trials < SWAP_FISH_MAX_TRIALS; n++) {
+                const pk = indexed[n];
+                const searchTol = pk.tol * SWAP_FISH_ALT_WINDOW;
+                const alts = [];
+                for (let j = pk.bi - 1; j >= 0; j--) {
+                    if (Math.abs(pk.q_obs - theoretical_hkls[j].q) > searchTol) break;
+                    alts.push(theoretical_hkls[j]);
+                }
+                for (let j = pk.bi + 1; j < theoretical_hkls.length; j++) {
+                    if (Math.abs(pk.q_obs - theoretical_hkls[j].q) > searchTol) break;
+                    alts.push(theoretical_hkls[j]);
+                }
+                alts.sort((x, y) => Math.abs(x.q - pk.q_obs) - Math.abs(y.q - pk.q_obs));
+                let used = 0;
+                for (const alt of alts) {
+                    if (used >= SWAP_FISH_MAX_ALTS || trials >= SWAP_FISH_MAX_TRIALS) break;
+                    if (alt.h === pk.hkl[0] && alt.k === pk.hkl[1] && alt.l === pk.hkl[2]) continue;
+                    const cand = fitWith(n, [alt.h, alt.k, alt.l]);
+                    if (cand) { refineAndTestSolution(cand); trials++; }
+                    used++;
+                }
+            }
+
+            // (b) Transposition: exchange the labels of the two closest peaks.
+            let closest_pair = { i: -1, j: -1, diff: Infinity };
+            for (let i = 0; i < indexed.length; i++) {
+                for (let j = i + 1; j < indexed.length; j++) {
+                    const diff = Math.abs(indexed[i].q_obs - indexed[j].q_obs);
+                    if (diff < closest_pair.diff) closest_pair = { i, j, diff };
+                }
+            }
+            if (closest_pair.i !== -1 && trials < SWAP_FISH_MAX_TRIALS) {
+                const M = [], q_vec = [];
+                for (let n = 0; n < indexed.length; n++) {
+                    let hkl = indexed[n].hkl;
+                    if (n === closest_pair.i) hkl = indexed[closest_pair.j].hkl;
+                    else if (n === closest_pair.j) hkl = indexed[closest_pair.i].hkl;
+                    const row = getLSDesignRow(hkl, system);
+                    if (!row) continue;
+                    M.push(row); q_vec.push(indexed[n].q_obs);
+                }
+                if (M.length >= min_peaks_needed) {
+                    const fit = solveLeastSquares(M, q_vec);
+                    if (fit && fit.solution) {
+                        const cand = extractCellFromFit(fit.solution, system);
+                        if (cand) refineAndTestSolution(cand);
+                    }
+                }
             }
         } catch (e) { console.warn("Swap-fishing attempt failed:", e); }
         const progress = 80 + ((index + 1) / totalSolutions) * 15;
@@ -1538,7 +1630,7 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
 }
 
 // --- groups; utilise cctbx
-function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, wavelength, tthError, tthMax) {
+function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, wavelength, tthError, tthMax, impurity_peaks) {
     const MAX_VIOLATIONS = 2;
     const fallbackResult = {
         centering: 'Unknown',
@@ -1628,9 +1720,26 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
         return scale * LOW_INTENSITY_FRACTION;
     };
 
+    // Assignments the user set explicitly via "Swap hkl". These override the
+    // nearest-line rule wherever they apply - otherwise the analysis of a
+    // swapped solution would quietly revert to the indexing the user rejected.
+    const manualByTth = new Map();
+    for (const sw of (solution.manualSwaps || [])) {
+        if (sw && Number.isFinite(sw.h) && Number.isFinite(sw.k) && Number.isFinite(sw.l)) {
+            manualByTth.set(Number(sw.tth).toFixed(4), sw);
+        }
+    }
+
     obs_peaks.forEach(peak => {
         const corrected_tth = peak.tth - zero_correction;
-        const bestMatch = all_calc_hkls.reduce((best, hkl) => { const diff = Math.abs(hkl.tth - corrected_tth); return diff < best.minDiff ? { hkl, minDiff: diff } : best; }, { hkl: null, minDiff: Infinity });
+        let bestMatch = all_calc_hkls.reduce((best, hkl) => { const diff = Math.abs(hkl.tth - corrected_tth); return diff < best.minDiff ? { hkl, minDiff: diff } : best; }, { hkl: null, minDiff: Infinity });
+        const man = manualByTth.get(Number(peak.tth).toFixed(4));
+        if (man) {
+            const forced = all_calc_hkls.find(x => x.h === man.h && x.k === man.k && x.l === man.l);
+            // Honour it even if that line is not the nearest; only skip when the
+            // reflection does not exist for this lattice at all.
+            if (forced) bestMatch = { hkl: forced, minDiff: 0 };
+        }
         if (bestMatch.hkl && bestMatch.minDiff < indexWindow) {
             // Collect every calculated hkl whose 2theta is within
             // overlapWindow of the BEST-MATCH calculated 2theta (not of
@@ -1700,6 +1809,11 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
 
     const centeringResult = determineCentering(hkls_for_analysis, solution.system);
     const detectedExtinctions = detectExtinctions(hkls_for_analysis, solution.system, spaceGroupData);
+    // NOTHING is re-assigned here. The analysis reports what it finds and leaves
+    // the indexing alone: silently rewriting an hkl behind the user's back is
+    // exactly the behaviour this was changed to avoid. Correcting an assignment
+    // is a deliberate act, done through the "Swap hkl" command, which produces a
+    // separate solution the user can compare against this one.
     const rankedSpaceGroups = rankSpaceGroups(hkls_for_analysis, solution.system, centeringResult.plausibleCenterings, spaceGroupData, MAX_VIOLATIONS, detectedExtinctions);
     return {
         centering: centeringResult.description,
@@ -1717,6 +1831,181 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
 // How much worse than the assigned reflection an allowed alternative may fit
 // and still count as a genuine competitor.
 const AMBIGUITY_MARGIN = 2.0;
+
+// --- EXTINCTION-AWARE CELL RE-REFINEMENT ---
+// Re-assigning hkl labels alone is cosmetic, and worse, it makes the report
+// internally inconsistent: the cell was least-squares fitted against the OLD
+// pairing, so after relabelling, the diff column measures the new hkl against a
+// cell refined to the old one. For PbSO4 the 16.423 deg peak reads 0.023 off as
+// (1,0,1), against 0.019 as the forbidden (0,1,0) - the corrected assignment
+// looks worse purely because the cell was pulled toward 010 while fitting.
+//
+// The fix is to redo the fit with an extinction-filtered line list. Restricting
+// the candidate reflections to those the detected rules allow makes the pairing,
+// the cell, the zero error, the ESDs and the figures of merit all consistent
+// with the table in one step, because every one of them derives from that list.
+//
+// M20 improves for two independent reasons: <|dQ|> falls because the pairing is
+// correct, and N20 falls because extinct lines are no longer counted as
+// possible. This is reported alongside the original rather than replacing it,
+// so the effect of the constraint stays visible and auditable.
+// --- MANUAL HKL SWAP ---
+// Indexing assigns each peak to its nearest calculated line, and that choice can
+// be wrong without producing any violation at all: in a permissive space group
+// (P222 and friends) both candidates are allowed, so nothing flags the swap. A
+// rule-driven search cannot find those cases by construction - it only ever sees
+// assignments that some space group forbids - so the decision is handed to the
+// user instead.
+//
+// getPeakAssignments() reports what the indexer currently believes, and
+// refineWithManualHkl() re-fits the cell with chosen assignments overridden.
+// Figures of merit are computed the ordinary way against the FULL line list, so
+// the resulting solution is directly comparable with every other in the table.
+
+// What is each observed peak currently indexed as?
+function getPeakAssignments(solution, obs_peaks, wavelength, tthError, tthMax, limit) {
+    const lines = generateHKL_for_analysis(solution, wavelength, tthMax);
+    if (!lines.length) return [];
+    const zero = solution.zero_correction || 0;
+    const window = tthError * 1.5;
+    const out = [];
+    const peaks = (obs_peaks || [])
+        .filter(p => typeof p.tth === 'number' && isFinite(p.tth))
+        .slice().sort((x, y) => x.tth - y.tth);
+    for (const p of peaks) {
+        const tc = p.tth - zero;
+        let best = null, bd = Infinity;
+        for (const L of lines) { const d = Math.abs(L.tth - tc); if (d < bd) { bd = d; best = L; } }
+        const inRange = best && bd <= window;
+        const dObs = wavelength / (2 * Math.sin(tc * RAD / 2));
+        out.push({
+            tth: p.tth, tth_corr: tc,
+            h: inRange ? best.h : null, k: inRange ? best.k : null, l: inRange ? best.l : null,
+            calc_tth: inRange ? best.tth : null,
+            diff: inRange ? (tc - best.tth) : null,
+            d_obs: isFinite(dObs) ? dObs : null,
+            d_calc: inRange ? best.d : null,
+            indexed: !!inRange
+        });
+        if (limit && out.length >= limit) break;
+    }
+    return out;
+}
+
+// Re-fit with user-supplied assignments. `overrides` is a list of
+// { tth, h, k, l }; every other peak keeps its nearest-line assignment.
+// Returns { cell, swaps } on success or { error } with a reason, so the caller
+// can tell the user exactly why nothing happened.
+function refineWithManualHkl(solution, obs_peaks, overrides, wavelength, tthError, tthMax, refineZero, impurity_peaks) {
+    const system = solution.system;
+    if (!system) return { error: 'solution has no crystal system' };
+    const lines = generateHKL_for_analysis(solution, wavelength, tthMax);
+    if (!lines.length) return { error: 'no calculated reflections for this cell' };
+
+    const zero = solution.zero_correction || 0;
+    const window = tthError * 1.5;
+    const ovr = new Map();
+    for (const o of (overrides || [])) {
+        if (o == null) continue;
+        const h = Math.round(Number(o.h)), k = Math.round(Number(o.k)), l = Math.round(Number(o.l));
+        if (![h, k, l].every(Number.isFinite)) continue;
+        if (h === 0 && k === 0 && l === 0) return { error: '(0,0,0) is not a reflection' };
+        ovr.set(Number(o.tth).toFixed(4), { h, k, l });
+    }
+    if (ovr.size === 0) return { error: 'no changes to apply' };
+
+    const toQ = (t) => (4 * Math.sin(t * RAD / 2) ** 2) / (wavelength ** 2);
+    const peaks = (obs_peaks || []).filter(p => typeof p.tth === 'number' && isFinite(p.tth))
+                                   .slice().sort((x, y) => x.tth - y.tth);
+    const rows = [], qv = [], tthRads = [], swaps = [];
+    for (const p of peaks) {
+        const key = p.tth.toFixed(4);
+        const tc = p.tth - zero;
+        let best = null, bd = Infinity;
+        for (const L of lines) { const d = Math.abs(L.tth - tc); if (d < bd) { bd = d; best = L; } }
+        let hkl = (best && bd <= window) ? { h: best.h, k: best.k, l: best.l } : null;
+        if (ovr.has(key)) {
+            const man = ovr.get(key);
+            // A manual assignment is honoured even when it is not the nearest
+            // line, and even when it falls outside the indexing window. That is
+            // the entire point: the user is overruling the nearest-line rule.
+            swaps.push({
+                tth: p.tth,
+                h: man.h, k: man.k, l: man.l,      // numeric, so downstream
+                from: hkl ? `(${hkl.h},${hkl.k},${hkl.l})` : '(unindexed)',
+                to: `(${man.h},${man.k},${man.l})` // consumers need not re-parse
+            });
+            hkl = man;
+        }
+        if (!hkl) continue;                      // unindexed and untouched: skip
+        const row = getLSDesignRow([hkl.h, hkl.k, hkl.l], system);
+        if (!row) continue;
+        if (refineZero) row.push((2 / (wavelength ** 2)) * Math.sin(p.tth * RAD));
+        rows.push(row); qv.push(toQ(p.tth)); tthRads.push(p.tth * RAD);
+    }
+    const minIndexed = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7, triclinic: 7 };
+    const need = (minIndexed[system] || 6) + (refineZero ? 1 : 0);
+    if (rows.length < need) return { error: `only ${rows.length} indexed peaks; ${need} needed for ${system}` };
+
+    const fit = solveLeastSquares(rows, qv, ls_weights_for_2theta(tthRads));
+    if (!fit || !fit.solution) return { error: 'least-squares fit failed (singular design matrix?)' };
+    const cell = extractCellFromFit(fit.solution, system);
+    if (!cell) return { error: 'fit did not yield a valid cell' };
+    cell.system = system;
+    if (refineZero) cell.zero_correction = fit.solution[fit.solution.length - 1] * DEG;
+    cell.volume = getVolume(cell);
+    if (!isFinite(cell.volume) || cell.volume <= 0) return { error: 'refined cell has non-physical volume' };
+    try { cell.errors = propagateErrors(system, fit, cell); } catch (e) { cell.errors = null; }
+
+    // Figures of merit exactly as for any other solution: full line list, so the
+    // number is directly comparable with the parent and with independent hits.
+    try {
+        const refLines = generateHKL_for_analysis(cell, wavelength, tthMax);
+        const qSorted = new Float64Array(Array.from(new Set(refLines.map(r => toQ(r.tth))))).sort((a, b) => a - b);
+        const mk = (n) => peaks.slice(0, n).map((p, i) => {
+            const tc2 = p.tth - (cell.zero_correction || 0);
+            return { ...p, original_index: i, q: toQ(tc2), tth: tc2 };
+        });
+        const tolFor = (arr) => (i) => {
+            const th = (arr[i] ? arr[i].tth : 0) * RAD / 2;
+            return ((8 * Math.sin(th) * Math.cos(th)) / (wavelength ** 2)) * (tthError * Math.PI / 360) + 1e-9;
+        };
+        const p20 = mk(Math.min(20, peaks.length));
+        const f20 = calculateFiguresOfMerit(qSorted, p20, impurity_peaks || 0, tolFor(p20), wavelength);
+        cell.m20 = f20.m20; cell.fN_20 = f20.fN; cell.n_20 = p20.length;
+        const pAll = mk(peaks.length);
+        const fAll = calculateFiguresOfMerit(qSorted, pAll, impurity_peaks || 0, tolFor(pAll), wavelength);
+        cell.m_all = fAll.m20; cell.fN_all = fAll.fN; cell.n_all = pAll.length;
+    } catch (e) { /* FoM optional */ }
+    if (!isFinite(cell.m20)) cell.m20 = 0;
+
+    cell.manualSwaps = (solution.manualSwaps || []).concat(swaps);
+    cell.nPaired = rows.length;
+    return { cell: cell, swaps: swaps };
+}
+
+// Indexing is extinction-blind: each observed peak is assigned to the NEAREST
+// calculated line, whatever that line's parity, because the absence rules do
+// not exist yet at that point. When two lines straddle a peak the nearest one
+// can easily be systematically absent. PbSO4 (anglesite, Pnma) is the worked
+// example: the peak at 16.423 deg is assigned (0,1,0) at 16.404 (0.019 off)
+// rather than (1,0,1) at 16.447 (0.024 off) - a 0.005 deg margin - even though
+// 010 breaks 0kl: k+l=2n and cannot exist in that space group.
+//
+// Once detectExtinctions() has established the absence rules, that decision can
+// be revisited: a peak whose assignment is forbidden is re-assigned to the
+// nearest ALLOWED line, provided one lies inside the same indexing window.
+//
+// Three guards keep this from becoming a self-fulfilling loop:
+//   1. If no allowed line is in range the original assignment is KEPT. Such a
+//      peak is genuine evidence against the rules and must not be hidden.
+//   2. The rules are NOT re-derived afterwards. Re-running detectExtinctions on
+//      re-assigned data would confirm them trivially, since the data were just
+//      edited to satisfy them.
+//   3. A single pass, with a ceiling on how much may be re-assigned. Needing to
+//      move a large fraction of the pattern means the rules are wrong, not the
+//      assignments, so the whole pass is abandoned.
+
 
 /**
  * Is there an ALLOWED alternative hkl that explains this observed peak about as
@@ -1894,7 +2183,7 @@ function detectExtinctions(indexed_hkls, system, spaceGroupData) {
     potentialRules.forEach(ruleStr => {
         const parsedRule = parseRuleString(ruleStr); if (!parsedRule) return;
         const { zone, condition } = parsedRule;
-        const zoneReflections = indexed_hkls.filter(refl => getReflectionZone(refl.h, refl.k, refl.l) === zone);
+            const zoneReflections = indexed_hkls.filter(refl => zoneApplies(zone, refl.h, refl.k, refl.l));
         if (zoneReflections.length === 0) { return; }
         // A rule is "confirmed" if every reliable reflection in the
         // zone satisfies it. Two classes of unreliable reflections are
@@ -1909,10 +2198,111 @@ function detectExtinctions(indexed_hkls, system, spaceGroupData) {
         // to the full set so the test can still operate.
         const reliableZoneRefls = zoneReflections.filter(r => !r.ka2Suspect && !r.lowIntensity);
         const refSetForRule = reliableZoneRefls.length > 0 ? reliableZoneRefls : zoneReflections;
-        const allSatisfy = refSetForRule.every(refl => satisfiesCondition(refl.h, refl.k, refl.l, condition));
+        // A reflection that formally breaks the rule is forgiven if another
+        // calculated hkl within the same peak's ambiguity window is not
+        // forbidden by it — the peak could equally well be that reflection.
+        // This is the SAME demotion countViolations() applies when ranking; without
+        // it the two analyses disagree, and a rule the ranking is happy to treat
+        // as satisfied never appears in the detected list. The rule does not
+        // constrain an alternative outside its own zone, so such an alternative
+        // counts as allowed.
+        const ruleAllows = (a) => !zoneApplies(zone, a.h, a.k, a.l) ||
+                                  satisfiesCondition(a.h, a.k, a.l, condition);
+        let hardFails = 0, forgiven = 0;
+        for (const refl of refSetForRule) {
+            if (satisfiesCondition(refl.h, refl.k, refl.l, condition)) continue;
+            if (hasCompetingAllowedAlt(refl, ruleAllows)) forgiven++;
+            else hardFails++;
+        }
+        // Consensus guard, mirroring countViolations(): forgiving one overlap is
+        // reasonable, forgiving a systematic trend is not. Overlap is uncorrelated
+        // with index parity, so if many reflections in the zone all break the same
+        // rule, the rule is genuinely broken however excusable each case looks.
+        const EXT_CONSENSUS_MIN_COUNT = 5;
+        const EXT_CONSENSUS_MIN_FRACTION = 0.15;
+        const consensusBroken = forgiven >= EXT_CONSENSUS_MIN_COUNT &&
+                                forgiven >= EXT_CONSENSUS_MIN_FRACTION * refSetForRule.length;
+        const allSatisfy = (hardFails === 0) && !consensusBroken;
         if (allSatisfy) { confirmedRules.add(ruleStr); }
     });
-    if (confirmedRules.size === 0) { return ["None detected"]; } else { return Array.from(confirmedRules).sort(); }
+    if (confirmedRules.size === 0) { return ["None detected"]; }
+
+    // --- COLLAPSE SUBSUMED RULES ---
+    // A rule set built by "keep everything nothing contradicts" is riddled with
+    // redundancy. Two distinct cases:
+    //
+    //  (a) one rule implies another. If the only observed 00l is 004, both
+    //      00l: l=2n and 00l: l=4n survive, because l=4n implies l=2n. l=4n is
+    //      the stronger claim (it also forbids 002 and 006), so it is the only
+    //      one carrying information.
+    //  (b) a rule is implied by the CONJUNCTION of others without being implied
+    //      by any single one. Zektzerite reports hk0: h=2n, hk0: k=2n AND
+    //      hk0: h+k=2n; the third follows from the first two (even + even is
+    //      even) but from neither alone, so a pairwise test cannot see it.
+    //
+    // A rule is therefore dropped when every reflection allowed by ALL the
+    // other surviving rules already satisfies it. Removal is iterative, so a
+    // set of mutually-redundant rules collapses to a minimal equivalent subset
+    // rather than vanishing entirely. Rules using more indices are offered for
+    // removal first, so the conventional form (h=2n, k=2n) is kept over the
+    // derived combination (h+k=2n).
+    //
+    // Implication is tested by enumeration, not algebraically, so compound
+    // shorthand and any modulus are handled without special cases. Rules from
+    // OTHER zones are honoured too when they apply to the reflection, so e.g. a
+    // general hkl condition can subsume a zonal restatement of itself.
+    const rulesArr = Array.from(confirmedRules);
+    const zoneLatticeCache = {};
+    const zonePoints = (zone) => {
+        if (zoneLatticeCache[zone]) return zoneLatticeCache[zone];
+        const pts = [];
+        const R = 8;
+        for (let h = -R; h <= R; h++) for (let k = -R; k <= R; k++) for (let l = -R; l <= R; l++) {
+            if (h === 0 && k === 0 && l === 0) continue;
+            if (zoneApplies(zone, h, k, l)) pts.push([h, k, l]);
+        }
+        zoneLatticeCache[zone] = pts;
+        return pts;
+    };
+    // Is `target` implied by the conjunction of `others` over target's zone?
+    // Vacuous cases (nothing survives the others) are NOT treated as implied,
+    // so an over-constrained set can never silently delete a real rule.
+    const impliedByConjunction = (others, target) => {
+        const pts = zonePoints(target.zone);
+        if (pts.length === 0) return false;
+        let allowedAny = false;
+        for (const [h, k, l] of pts) {
+            let allowed = true;
+            for (const o of others) {
+                if (!zoneApplies(o.zone, h, k, l)) continue;
+                if (!satisfiesCondition(h, k, l, o.condition)) { allowed = false; break; }
+            }
+            if (!allowed) continue;
+            allowedAny = true;
+            if (!satisfiesCondition(h, k, l, target.condition)) return false;
+        }
+        return allowedAny;
+    };
+    const nIndices = (cond) => ['h', 'k', 'l'].filter(v => new RegExp('(^|[^a-z])' + v).test(String(cond))).length;
+    let kept = rulesArr.map(parseRuleString).map((p, i) => p ? { ...p, raw: rulesArr[i] } : null).filter(Boolean);
+    const unparsed = rulesArr.filter((r, i) => !parseRuleString(r));
+    // Offer the most "derived-looking" rules for removal first.
+    kept.sort((a, b) => nIndices(b.condition) - nIndices(a.condition) || a.raw.localeCompare(b.raw));
+    let removedSomething = true;
+    while (removedSomething && kept.length > 1) {
+        removedSomething = false;
+        for (let i = 0; i < kept.length; i++) {
+            const others = kept.filter((_, j) => j !== i);
+            if (others.length === 0) break;
+            if (impliedByConjunction(others, kept[i])) {
+                kept.splice(i, 1);
+                removedSomething = true;
+                break;
+            }
+        }
+    }
+    const survivors = kept.map(k => k.raw).concat(unparsed);
+    return (survivors.length > 0 ? survivors : rulesArr).sort();
 }
 
 
@@ -1922,6 +2312,57 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
     
     // Statistical weights for centering order: higher symmetry constrains more reciprocal space
     const centeringWeights = { 'P': 1.0, 'A': 1.5, 'B': 1.5, 'C': 1.5, 'I': 2.0, 'F': 2.0, 'R': 2.0 };
+    // Cache of condition selectivity weights, shared across all candidate settings.
+    const selectivityCache = {};
+
+    // --- DETECTED-EXTINCTION AGREEMENT ---
+    // countViolations() only ever looks at reflections that ARE present: it can
+    // punish a group for predicting an absence that did not happen, but it can
+    // never reward one for predicting an absence that did. That asymmetry means
+    // a group whose condition set is a strict SUBSET of another's can never
+    // score worse on violations, so the least-constrained group wins by default.
+    // Zektzerite is the worked example: Abma (#64) is exactly Abmm (#67) plus
+    // hk0: h=2n, and the data show h00: h=2n - a condition Abmm cannot explain,
+    // because A-centering gives k+l=0 for h00, which is even for every h.
+    //
+    // detectExtinctions() already distilled the observed absences into rules.
+    // Here each detected rule is treated as evidence: a setting that ENTAILS it
+    // is rewarded, one that leaves it unexplained is penalised. Weighting is by
+    // the condition's selectivity times the number of observed reflections in
+    // its zone, so a well-supported, highly restrictive condition counts for
+    // more than a weakly-sampled one.
+    const EXT_WEIGHT = 0.5;
+    const detectedList = (Array.isArray(detectedExtinctions) ? detectedExtinctions : [])
+        .map(s => { const p = String(s).split(': '); return p.length === 2 ? { zone: p[0].trim(), cond: p[1].trim() } : null; })
+        .filter(Boolean);
+    // Reflections observed in each detected zone = how much data backs the rule.
+    detectedList.forEach(dc => {
+        dc.nObs = indexed_hkls.filter(r => zoneApplies(dc.zone, r.h, r.k, r.l)).length;
+    });
+
+    // Does this rule set entail `cond` over `zone`? i.e. is every reflection the
+    // setting allows in that zone already required to satisfy the condition?
+    const entailmentCache = {};
+    const entails = (rules, zone, cond) => {
+        const key = JSON.stringify(rules) + '|' + zone + '|' + cond;
+        if (entailmentCache[key] !== undefined) return entailmentCache[key];
+        const R = 8;
+        let allowedAny = false, ok = true;
+        for (let h = -R; h <= R && ok; h++) for (let k = -R; k <= R && ok; k++) for (let l = -R; l <= R && ok; l++) {
+            if (h === 0 && k === 0 && l === 0) continue;
+            if (!zoneApplies(zone, h, k, l)) continue;
+            let allowed = true;
+            for (const { cond: rc } of applicableRules(rules, h, k, l)) {
+                if (!satisfiesCondition(h, k, l, rc)) { allowed = false; break; }
+            }
+            if (!allowed) continue;
+            allowedAny = true;
+            if (!satisfiesCondition(h, k, l, cond)) ok = false;
+        }
+        const res = allowedAny && ok;
+        entailmentCache[key] = res;
+        return res;
+    };
 
     for (const sg of candidateGroups) {
         const sgNumber = sg.number;
@@ -1935,21 +2376,52 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
             // Cutoff remains on HARD violations only
             if (violations.hardCount <= maxViolations) {
                 let nConfirmTotal = 0;
-                
+
+                // Selectivity weight for a condition, NORMALISED so that an ordinary
+                // "=2n" rule (which forbids half its zone) keeps weight 1.0. A
+                // reflection satisfying l=4n is stronger evidence than one
+                // satisfying l=2n, because l=4n forbids 3/4 of the zone against
+                // 1/2, so it scores 1.5. Without this, 004 confirms both equally
+                // and P41/P43 tie with P42/P4222 on identical data, leaving the
+                // ranking to fall through to the space-group-number tiebreak.
+                // Normalising (rather than using the raw forbidden fraction)
+                // keeps every existing 2n-based score unchanged, so this only
+                // promotes genuinely stronger rules instead of shifting the
+                // whole ranking relative to the rule-free baseline of 1.0.
+                const selectivity = (zone, cond) => {
+                    const key = zone + '|' + cond;
+                    if (selectivityCache[key] !== undefined) return selectivityCache[key];
+                    const R = 8;
+                    let total = 0, allowed = 0;
+                    for (let h = -R; h <= R; h++) for (let k = -R; k <= R; k++) for (let l = -R; l <= R; l++) {
+                        if (h === 0 && k === 0 && l === 0) continue;
+                        if (!zoneApplies(zone, h, k, l)) continue;
+                        total++;
+                        if (satisfiesCondition(h, k, l, cond)) allowed++;
+                    }
+                    // forbidden fraction / 0.5, clamped: a degenerate or unparsed
+                    // condition must not silently zero out a confirmation.
+                    let w = total > 0 ? (1 - allowed / total) / 0.5 : 1.0;
+                    w = Math.min(3.0, Math.max(0.5, w));
+                    selectivityCache[key] = w;
+                    return w;
+                };
+
                 // Harvest positive confirmations across all space group rules
                 Object.entries(rules).forEach(([zone, conditions]) => {
                     conditions.forEach(cond => {
+                        const w = selectivity(zone, cond);
                         indexed_hkls.forEach(refl => {
-                            const reflZone = getReflectionZone(refl.h, refl.k, refl.l);
                             // General 'hkl' rules apply to all reflections; specific zones apply only to their zone
-                            const applies = (zone === 'hkl') || (reflZone === zone);
-                            
+                            const applies = zoneApplies(zone, refl.h, refl.k, refl.l);
+
                             if (applies && satisfiesCondition(refl.h, refl.k, refl.l, cond)) {
-                                // Full point for strong/reliable reflections; 0.25 for Ka2-suspect or weak tails
+                                // Full point for strong/reliable reflections; 0.25 for Ka2-suspect or weak tails,
+                                // each scaled by how selective the confirmed condition is.
                                 if (!refl.ka2Suspect && !refl.lowIntensity) {
-                                    nConfirmTotal += 1.0;
+                                    nConfirmTotal += 1.0 * w;
                                 } else {
-                                    nConfirmTotal += 0.25;
+                                    nConfirmTotal += 0.25 * w;
                                 }
                             }
                         });
@@ -1957,10 +2429,25 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
                 });
 
                 const wCenter = centeringWeights[centering] || 1.0;
-                
-                // FoM_stat: Weighted confirmations minus penalized soft violations
+
+                // Reward/penalise agreement with the observed systematic absences.
+                let extBonus = 0, extExplained = 0, extMissed = [];
+                for (const dc of detectedList) {
+                    if (dc.nObs === 0) continue;
+                    const w = selectivity(dc.zone, dc.cond);
+                    if (entails(rules, dc.zone, dc.cond)) {
+                        extExplained++;
+                        extBonus += EXT_WEIGHT * w * dc.nObs;
+                    } else {
+                        extMissed.push(`${dc.zone}: ${dc.cond}`);
+                        extBonus -= EXT_WEIGHT * w * dc.nObs;
+                    }
+                }
+
+                // FoM_stat: Weighted confirmations minus penalized soft violations,
+                // plus agreement with the detected systematic absences.
                 // We store this in 'matchScore' to maintain seamless backward compatibility with your UI
-                let fomStat = wCenter * (nConfirmTotal - (1.5 * violations.softCount));
+                let fomStat = wCenter * (nConfirmTotal - (1.5 * violations.softCount)) + extBonus;
                 if (fomStat === 0 && Object.keys(rules).length === 0) fomStat = 1.0; // Baseline for P with no rules
 
                 validSettings.push({
@@ -1975,15 +2462,31 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
                     violatedReflections: violations.details,
                     violatedReflectionsHard: violations.detailsHard,
                     violatedReflectionsSoft: violations.detailsSoft,
+                    extinctionsExplained: extExplained,
+                    extinctionsTotal: detectedList.filter(d => d.nObs > 0).length,
+                    extinctionsUnexplained: extMissed,
+                    extinctionBonus: extBonus,
                     matchScore: fomStat
                 });
             }
         }
     }
     
-    // Sort: hard violations ASC -> FoM_stat (matchScore) DESC -> soft violations ASC -> number DESC
+    // Sort: hard violations ASC -> unexplained detected absences ASC
+    //       -> FoM_stat (matchScore) DESC -> soft violations ASC -> number DESC
+    //
+    // The absence pattern is promoted above matchScore deliberately. matchScore
+    // counts reflections that ARE present, so it cannot distinguish a setting
+    // from a strictly less-constrained one except by the handful of extra
+    // confirmations the extra rule happens to collect - and that difference is
+    // swamped by the shared, well-populated zones. Systematic ABSENCES are the
+    // primary evidence in space-group determination, so a setting that accounts
+    // for every detected absence ranks above one that leaves some unexplained,
+    // and matchScore then separates settings that explain the same pattern.
     validSettings.sort((a, b) => {
         if (a.hardViolations !== b.hardViolations) return a.hardViolations - b.hardViolations;
+        const au = (a.extinctionsUnexplained || []).length, bu = (b.extinctionsUnexplained || []).length;
+        if (au !== bu) return au - bu;
         if (Math.abs(a.matchScore - b.matchScore) > 1e-4) return b.matchScore - a.matchScore;
         if (a.softViolations !== b.softViolations) return a.softViolations - b.softViolations;
         return b.number - a.number;
@@ -2050,19 +2553,11 @@ function countViolations(indexed_hkls, rules) {
     const detailsHard = [];
     const detailsSoft = [];
 
-    // Helper: does this single (h,k,l) violate any zone or general rule?
+    // Helper: does this single (h,k,l) violate any applicable rule?
     // Mirrors the per-reflection checks below so we can probe alternative hkls.
     const hklViolatesRules = (h, k, l) => {
-        const zone = getReflectionZone(h, k, l);
-        const zoneRules = rules[zone] || [];
-        for (const cond of zoneRules) {
+        for (const { cond } of applicableRules(rules, h, k, l)) {
             if (!satisfiesCondition(h, k, l, cond)) return true;
-        }
-        const genRules = rules.hkl || [];
-        for (const cond of genRules) {
-            if (zone === 'hkl' || !rules[zone] || !rules[zone].some(zc => zc === cond)) {
-                if (!satisfiesCondition(h, k, l, cond)) return true;
-            }
         }
         return false;
     };
@@ -2083,33 +2578,18 @@ function countViolations(indexed_hkls, rules) {
         const isSoftSource = isSuspect || isLowIntensity;
         let isViolation = false;
         let violationDetail = null;
-        const zone = getReflectionZone(h, k, l);
-        const applicableZoneRules = rules[zone] || [];
-        const generalRules = rules.hkl || [];
         const softTagFor = (refl) => {
             const tags = [];
             if (refl.ka2Suspect) tags.push('Ka2-suspect');
             if (refl.lowIntensity) tags.push('weak');
             return tags.length > 0 ? ` [${tags.join(', ')}]` : '';
         };
-        for (const cond of applicableZoneRules) {
+        for (const { zone, cond } of applicableRules(rules, h, k, l)) {
             if (!satisfiesCondition(h, k, l, cond)) {
                 isViolation = true;
                 const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
                 violationDetail = `(${h},${k},${l})${tth_string} violates ${zone}: ${cond}${softTagFor(reflection)}`;
                 break;
-            }
-        }
-        if (!isViolation) {
-            for (const cond of generalRules) {
-                if (zone === 'hkl' || !rules[zone] || !rules[zone].some(zoneCond => zoneCond === cond)) {
-                    if (!satisfiesCondition(h, k, l, cond)) {
-                        isViolation = true;
-                        const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
-                        violationDetail = `(${h},${k},${l})${tth_string} violates hkl: ${cond}${softTagFor(reflection)}`;
-                        break;
-                    }
-                }
             }
         }
 
@@ -2177,6 +2657,81 @@ function getReflectionZone(h, k, l) {
     if (ak !== 0 && ak === al && ah !== 0) return 'hkk'; 
     if (ah !== 0 && ah === al && ak !== 0) return 'hll';
     return 'hkl';
+}
+
+// --- ZONE MEMBERSHIP (inclusive) ---
+// getReflectionZone() above returns ONE label, which is right for reporting but
+// wrong for testing reflection conditions: a reflection can belong to several
+// zone families at once and must satisfy the rules of EVERY family it belongs
+// to. 330 is an hk0 reflection (l=0) and simultaneously an hh0/hhl one (h=k);
+// 004 is 00l and also hhl (h=k=0). Testing only the single label silently
+// misses real extinctions - e.g. in I-42d (122), which has hhl: 2h+l=4n and no
+// hk0 rule, reflection 110 is systematically absent (2h+l=2, not 4n) yet was
+// classified 'hk0' and never tested against the hhl rule.
+//
+// Membership is deliberately INCLUSIVE (hkl contains everything, hk0 contains
+// h00, hhl contains hh0 and 00l, ...). This is REQUIRED, not merely tidier:
+// cctbx_space_groups_all_settings_v4.json stores only the conditions that are
+// not already implied by a more general class. Pna21 (33) is stored as just
+// {0kl: k+l=2n, h0l: h=2n}; the axial conditions International Tables prints
+// for it (00l: l=2n, 0k0: k=2n, h00: h=2n) are omitted because each follows by
+// restriction - k+l=2n at k=0 IS l=2n. Without inheritance those extinctions
+// were never tested: verified against structure factors from the group
+// operations, the old single-zone test missed 001/003/005/010/030/050/100/300/
+// 500 for Pna21, and changed verdicts for 264 of the 527 settings in the file.
+// A cross-check over all 527 settings found no case where a general-class
+// condition contradicts a listed special-class one, so inheritance can only
+// restore a missing absence, never invent a false one.
+//
+// NOTE: 'hkk', 'hll', 'hkh', 'h-hl', 'hh0' and 'hhh' do not occur in the
+// bundled database (only hkl, h0l, 0kl, hk0, 00l, hhl, 0k0, h00 are used).
+// They are kept for forward compatibility; 'hll' preserves the original
+// code's reading (|h|==|l|) which is ambiguous against a positional reading,
+// so re-check it if a database that uses that key is ever loaded.
+const ZONE_PREDICATES = {
+    'hkl':  () => true,
+    'hk0':  (h, k, l) => l === 0,
+    'h0l':  (h, k, l) => k === 0,
+    '0kl':  (h, k, l) => h === 0,
+    'h00':  (h, k, l) => k === 0 && l === 0,
+    '0k0':  (h, k, l) => h === 0 && l === 0,
+    '00l':  (h, k, l) => h === 0 && k === 0,
+    'hhl':  (h, k, l) => Math.abs(h) === Math.abs(k),
+    'hh0':  (h, k, l) => Math.abs(h) === Math.abs(k) && l === 0,
+    'hhh':  (h, k, l) => Math.abs(h) === Math.abs(k) && Math.abs(k) === Math.abs(l),
+    'hkk':  (h, k, l) => Math.abs(k) === Math.abs(l),
+    'hll':  (h, k, l) => Math.abs(h) === Math.abs(l),
+    'hkh':  (h, k, l) => Math.abs(h) === Math.abs(l),
+    'h-hl': (h, k, l) => h === -k,
+};
+
+// Does a rule labelled `zoneLabel` apply to this reflection?
+// Unknown labels fall back to the old exact-match behaviour so an unrecognised
+// key in the space-group database can never start matching everything.
+function zoneApplies(zoneLabel, h, k, l) {
+    const H = Math.round(h), K = Math.round(k), L = Math.round(l);
+    const pred = ZONE_PREDICATES[zoneLabel];
+    if (pred) return pred(H, K, L);
+    return getReflectionZone(H, K, L) === zoneLabel;
+}
+
+// All rule conditions that apply to a reflection, gathered across every zone
+// the reflection belongs to. Deduplicated by "zone: condition" so the same
+// predicate listed under two zones is not counted twice, while keeping the
+// zone label for reporting.
+function applicableRules(rules, h, k, l) {
+    const seen = new Set();
+    const out = [];
+    for (const [zone, conds] of Object.entries(rules || {})) {
+        if (!Array.isArray(conds)) continue;
+        if (!zoneApplies(zone, h, k, l)) continue;
+        for (const cond of conds) {
+            if (seen.has(cond)) continue;
+            seen.add(cond);
+            out.push({ zone, cond });
+        }
+    }
+    return out;
 }
 
 //20 nov, worker
