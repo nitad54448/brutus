@@ -453,17 +453,25 @@ const getVolume = (cell) => {
 };
 
 const getSolutionKey = (cell) => {
-    const P = 2; const std = standardizeCell(cell);
+    const P = 4; // Increased from 2 to 4 digits to prevent aggressive deduplication
+    const std = standardizeCell(cell);
     switch(std.system) {
-        case 'cubic': return `${std.system}_${std.a.toFixed(P)}`;
-        case 'tetragonal': case 'hexagonal': return `${std.system}_${std.a.toFixed(P)}_${std.c.toFixed(P)}`;
-        case 'orthorhombic': return `${std.system}_${[std.a,std.b,std.c].sort().map(p => p.toFixed(P)).join('_')}`;
-       
+        case 'cubic': 
+            return `${std.system}_${std.a.toFixed(P)}`;
+        case 'tetragonal': 
+        case 'hexagonal': 
+            return `${std.system}_${std.a.toFixed(P)}_${std.c.toFixed(P)}`;
+        case 'orthorhombic': 
+            return `${std.system}_${[std.a,std.b,std.c].sort().map(p => p.toFixed(P)).join('_')}`;
         case 'monoclinic': 
-    const ac = [std.a, std.c].sort((x, y) => x - y).map(p => p.toFixed(P)).join('_');
-    return `${std.system}_${ac}_${std.b.toFixed(P)}_${std.beta.toFixed(2)}`;
-
-        case 'triclinic': const vol = getVolumeTriclinic(std).toFixed(2); const angles = [std.alpha, std.beta, std.gamma].sort().map(a => a.toFixed(1)).join('_'); return `${std.system}_${vol}_${angles}`;
+            const ac = [std.a, std.c].sort((x, y) => x - y).map(p => p.toFixed(P)).join('_');
+            // Updated beta to use P instead of hardcoded 2
+            return `${std.system}_${ac}_${std.b.toFixed(P)}_${std.beta.toFixed(P)}`; 
+        case 'triclinic': 
+            // Updated volume and angles to use P instead of hardcoded 2 and 1
+            const vol = getVolumeTriclinic(std).toFixed(P); 
+            const angles = [std.alpha, std.beta, std.gamma].sort().map(a => a.toFixed(P)).join('_'); 
+            return `${std.system}_${vol}_${angles}`;
     }
 };
     
@@ -1243,85 +1251,95 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
                 }
             });
         }
+        
+
+
         try {
             // --- SWAP FISHING ---
-            // Mis-assignment at the low-angle end is the commonest way a correct
-            // cell gets a poor M(20): two calculated lines straddle one observed
-            // peak and the nearest-line rule picks the wrong one by a few
-            // thousandths of a degree. Each alternative is tried as a separate
-            // hypothesis and kept only if refineAndTestSolution finds a better
-            // M(20), so this widens the search without ever overwriting anything.
-            //
-            // Two flavours are tried:
-            //   (a) REASSIGNMENT - give one peak a different theoretical
-            //       reflection that also lies within tolerance. This is the case
-            //       that matters in practice: PbSO4's 16.42 deg peak takes (1,0,0)
-            //       over (0,1,1) by 0.005 deg, and no exchange between two
-            //       observed peaks can express that correction.
-            //   (b) TRANSPOSITION - exchange the labels of the two closest peaks,
-            //       the original behaviour, kept because it fixes a genuine
-            //       ordering error in one move without creating a duplicate.
-            //
-            // The old code scanned only the first 4 peaks, which made the routine
-            // dead for triclinic (needs 6, so `4 < 6` aborted every time) and
-            // fragile for monoclinic (needed all 4 to index). It now scans enough
-            // peaks to satisfy every system.
             const system = sol.system;
             const min_peaks_needed = {cubic: 1, tetragonal: 2, hexagonal: 2, orthorhombic: 3, monoclinic: 4, triclinic: 6}[system];
             if (!min_peaks_needed || data.peaks.length < min_peaks_needed) return;
 
-            const SWAP_FISH_MAX_PEAKS  = 12;   // low-angle peaks reconsidered
-            const SWAP_FISH_MAX_ALTS   = 2;    // alternatives tried per peak
-            const SWAP_FISH_MAX_TRIALS = 12;   // candidate cells per solution
-            // Alternatives are collected in a WIDER window than the indexing
-            // tolerance. A competing reflection just outside tolerance is exactly
-            // the interesting case: if it is the right assignment the cell will
-            // shift to meet it, and the trial costs nothing because it is kept
-            // only when M(20) improves. At the strict tolerance the PbSO4 case is
-            // invisible - (1,0,0) and (0,1,1) sit 0.048 deg apart against a
-            // 0.040 deg window, so no alternative would ever be found.
-            const SWAP_FISH_ALT_WINDOW = 2.5;  // multiple of the q tolerance
+            console.log(`\n[SWAP DEBUG] === Starting for ${system}, M20=${sol.m20.toFixed(2)}, Z=${(sol.zero_correction||0).toFixed(4)} ===`);
+
+            const SWAP_FISH_MAX_PEAKS  = 12;
+            const SWAP_FISH_MAX_ALTS   = 2;
+            const SWAP_FISH_MAX_TRIALS = 12;
+            const SWAP_FISH_ALT_WINDOW = 2.5;
 
             const nScan = Math.min(SWAP_FISH_MAX_PEAKS, q_obs.length);
             const indexed = [];
-            for (let i = 0; i < nScan; i++) {
-                const q_o = q_obs[i];
-                const tol = local_get_q_tolerance(original_indices[i]);
-                const bi = binarySearchClosest(theoretical_q_array, q_o);
-                if (bi < 0 || bi >= theoretical_hkls.length) continue;
-                if (Math.abs(q_o - theoretical_hkls[bi].q) >= tol) continue;
-                const t = theoretical_hkls[bi];
-                indexed.push({ q_obs: q_o, tol: tol, bi: bi, hkl: [t.h, t.k, t.l] });
-            }
-            if (indexed.length < min_peaks_needed) return;
+            const wl = wavelength;
+            const z_deg = sol.zero_correction || 0;
 
-            // Fit the whole indexed set each time, not just the minimum number of
-            // peaks. Solving from exactly min_peaks_needed makes the trial cell
-            // hostage to those few rows; using every indexed peak keeps the
-            // candidate meaningful and lets a wrong swap show up as a bad fit.
-            const fitWith = (overrideIdx, overrideHkl) => {
-                const M = [], q_vec = [];
-                for (let n = 0; n < indexed.length; n++) {
-                    const hkl = (n === overrideIdx) ? overrideHkl : indexed[n].hkl;
-                    const row = getLSDesignRow(hkl, system);
-                    if (!row) continue;
-                    M.push(row); q_vec.push(indexed[n].q_obs);
+            for (let i = 0; i < nScan; i++) {
+                const orig = state.peaks_sorted_by_q[i];
+                
+                // CRITICAL FIX: The old code used raw q_obs. We must subtract zero error
+                // before searching theoretical lines, or the peaks won't mathematically align!
+                const tc_deg = orig.tth - z_deg;
+                const corr_q_o = (4 * Math.sin(tc_deg * Math.PI / 360)**2) / (wl**2);
+                
+                const tol = local_get_q_tolerance(original_indices[i]);
+                const bi = binarySearchClosest(theoretical_q_array, corr_q_o);
+                
+                if (bi < 0 || bi >= theoretical_hkls.length) {
+                    console.log(`[SWAP DEBUG] Peak ${orig.tth.toFixed(3)} skipped. Closest index out of bounds.`);
+                    continue;
                 }
-                if (M.length < min_peaks_needed) return null;
-                const fit = solveLeastSquares(M, q_vec);
-                if (!fit || !fit.solution) return null;
-                return extractCellFromFit(fit.solution, system);
-            };
+                
+                const diff = Math.abs(corr_q_o - theoretical_hkls[bi].q);
+                if (diff >= tol) {
+                    console.log(`[SWAP DEBUG] Peak ${orig.tth.toFixed(3)} skipped. Diff ${diff.toFixed(5)} >= Tol ${tol.toFixed(5)}`);
+                    continue;
+                }
+                
+                const t = theoretical_hkls[bi];
+                indexed.push({ q_obs: corr_q_o, tol: tol, bi: bi, hkl: [t.h, t.k, t.l], tth: orig.tth });
+                console.log(`[SWAP DEBUG] Peak ${orig.tth.toFixed(3)} -> indexed to (${t.h},${t.k},${t.l})`);
+            }
+            
+            if (indexed.length < min_peaks_needed) {
+                console.log(`[SWAP DEBUG] Not enough indexed peaks (${indexed.length}). Aborting.`);
+                return;
+            }
 
             let trials = 0;
+            const maxTth = Math.max(...data.peaks.map(p => p.tth));
+
+            const applyAndTestSwap = (overrides) => {
+                const ovStr = overrides.map(o => `${o.tth.toFixed(3)}->(${o.h},${o.k},${o.l})`).join(', ');
+                console.log(`[SWAP DEBUG] Trying override: ${ovStr}`);
+                
+const res = refineWithManualHkl(sol, data.peaks, overrides, wavelength, tth_error, maxTth, data.refineZero, data.impurity_peaks, true);                
+                if (!res) { console.log(`[SWAP DEBUG] -> Failed: refineWithManualHkl returned null.`); return; }
+                if (res.error) { console.log(`[SWAP DEBUG] -> Failed: ${res.error}`); return; }
+                
+                if (res.cell) {
+                    const newCell = res.cell;
+                    console.log(`[SWAP DEBUG] -> Success! New M20=${newCell.m20.toFixed(2)} (Old=${sol.m20.toFixed(2)})`);
+                    
+                    const key = getSolutionKey(newCell);
+                    const existing = state.foundSolutionMap.get(key);
+                    
+                    if (!existing || newCell.m20 > existing.m20) {
+                        console.log(`[SWAP DEBUG] -> Posting new solution to UI! (Key: ${key})`);
+                        if (existing) state.foundSolutions[existing.index] = newCell;
+                        else state.foundSolutions.push(newCell);
+                        state.foundSolutionMap.set(key, { m20: newCell.m20, index: existing ? existing.index : state.foundSolutions.length - 1 });
+                        postMessage_func({ type: 'solution', payload: newCell });
+                    } else {
+                        console.log(`[SWAP DEBUG] -> Rejected: Existing solution with key ${key} has better/equal M20 (${existing.m20.toFixed(2)})`);
+                    }
+                }
+            };
 
             // (a) Reassignment: alternatives within tolerance of the SAME peak.
-            // theoretical_hkls is sorted by q, so walk outward from the match
-            // until the tolerance is exceeded.
             for (let n = 0; n < indexed.length && trials < SWAP_FISH_MAX_TRIALS; n++) {
                 const pk = indexed[n];
                 const searchTol = pk.tol * SWAP_FISH_ALT_WINDOW;
                 const alts = [];
+                
                 for (let j = pk.bi - 1; j >= 0; j--) {
                     if (Math.abs(pk.q_obs - theoretical_hkls[j].q) > searchTol) break;
                     alts.push(theoretical_hkls[j]);
@@ -1330,13 +1348,19 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
                     if (Math.abs(pk.q_obs - theoretical_hkls[j].q) > searchTol) break;
                     alts.push(theoretical_hkls[j]);
                 }
+                
                 alts.sort((x, y) => Math.abs(x.q - pk.q_obs) - Math.abs(y.q - pk.q_obs));
+                if (alts.length > 0) {
+                    console.log(`[SWAP DEBUG] Peak ${pk.tth.toFixed(3)} alts found: ` + alts.map(a => `(${a.h},${a.k},${a.l})`).join(', '));
+                }
+
                 let used = 0;
                 for (const alt of alts) {
                     if (used >= SWAP_FISH_MAX_ALTS || trials >= SWAP_FISH_MAX_TRIALS) break;
                     if (alt.h === pk.hkl[0] && alt.k === pk.hkl[1] && alt.l === pk.hkl[2]) continue;
-                    const cand = fitWith(n, [alt.h, alt.k, alt.l]);
-                    if (cand) { refineAndTestSolution(cand); trials++; }
+                    
+                    applyAndTestSwap([{ tth: pk.tth, h: alt.h, k: alt.k, l: alt.l }]);
+                    trials++;
                     used++;
                 }
             }
@@ -1350,24 +1374,16 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
                 }
             }
             if (closest_pair.i !== -1 && trials < SWAP_FISH_MAX_TRIALS) {
-                const M = [], q_vec = [];
-                for (let n = 0; n < indexed.length; n++) {
-                    let hkl = indexed[n].hkl;
-                    if (n === closest_pair.i) hkl = indexed[closest_pair.j].hkl;
-                    else if (n === closest_pair.j) hkl = indexed[closest_pair.i].hkl;
-                    const row = getLSDesignRow(hkl, system);
-                    if (!row) continue;
-                    M.push(row); q_vec.push(indexed[n].q_obs);
-                }
-                if (M.length >= min_peaks_needed) {
-                    const fit = solveLeastSquares(M, q_vec);
-                    if (fit && fit.solution) {
-                        const cand = extractCellFromFit(fit.solution, system);
-                        if (cand) refineAndTestSolution(cand);
-                    }
-                }
+                const pk1 = indexed[closest_pair.i];
+                const pk2 = indexed[closest_pair.j];
+                console.log(`[SWAP DEBUG] Trying transposition between ${pk1.tth.toFixed(3)} and ${pk2.tth.toFixed(3)}`);
+                applyAndTestSwap([
+                    { tth: pk1.tth, h: pk2.hkl[0], k: pk2.hkl[1], l: pk2.hkl[2] },
+                    { tth: pk2.tth, h: pk1.hkl[0], k: pk1.hkl[1], l: pk1.hkl[2] }
+                ]);
             }
         } catch (e) { console.warn("Swap-fishing attempt failed:", e); }
+
         const progress = 80 + ((index + 1) / totalSolutions) * 15;
         postMessage_func({ type: 'progress', payload: progress });
     });
@@ -1896,8 +1912,8 @@ function getPeakAssignments(solution, obs_peaks, wavelength, tthError, tthMax, l
 // { tth, h, k, l }; every other peak keeps its nearest-line assignment.
 // Returns { cell, swaps } on success or { error } with a reason, so the caller
 // can tell the user exactly why nothing happened.
-function refineWithManualHkl(solution, obs_peaks, overrides, wavelength, tthError, tthMax, refineZero, impurity_peaks) {
-    const system = solution.system;
+function refineWithManualHkl(solution, obs_peaks, overrides, wavelength, tthError, tthMax, refineZero, impurity_peaks, isAuto = false) {
+const system = solution.system;
     if (!system) return { error: 'solution has no crystal system' };
     const lines = generateHKL_for_analysis(solution, wavelength, tthMax);
     if (!lines.length) return { error: 'no calculated reflections for this cell' };
@@ -1979,7 +1995,8 @@ function refineWithManualHkl(solution, obs_peaks, overrides, wavelength, tthErro
     } catch (e) { /* FoM optional */ }
     if (!isFinite(cell.m20)) cell.m20 = 0;
 
-    cell.manualSwaps = (solution.manualSwaps || []).concat(swaps);
+// If it's an auto-swap, don't append it to the manual tracking log!
+    cell.manualSwaps = isAuto ? (solution.manualSwaps || []) : (solution.manualSwaps || []).concat(swaps);
     cell.nPaired = rows.length;
     return { cell: cell, swaps: swaps };
 }
@@ -2787,12 +2804,15 @@ if (typeof self !== 'undefined' && typeof WorkerGlobalScope !== 'undefined' && s
         // --- 3. Run the requested search ---
         self.postMessage({ type: 'progress', payload: 1 });
         
-        if (systemToSearch === 'cubic') {
+if (systemToSearch === 'cubic') {
             indexCubic(data, workerState, self.postMessage.bind(self));
         } else if (systemToSearch === 'tetragonal') {
             indexTetragonalOrHexagonal(data, workerState, self.postMessage.bind(self), 'tetragonal');
         } else if (systemToSearch === 'hexagonal') {
             indexTetragonalOrHexagonal(data, workerState, self.postMessage.bind(self), 'hexagonal');
+        } else if (systemToSearch === 'post_process') {
+            // Inject the GPU solutions into the worker so it runs them through findTransformedSolutions
+            foundSolutions.push(...(data.gpuSolutions || []));
         }
 
         self.postMessage({ type: 'progress', payload: 80 });

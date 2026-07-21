@@ -3776,6 +3776,27 @@ systemsToSearch.forEach(system => {
 
     // final
     await Promise.all(taskPromises);
+
+    // --- NEW: Send GPU solutions through the post-processing worker ---
+    if (webgpuSystems.length > 0 && solutions.length > 0 && !gpuStopSignal.stop) {
+        if (statusTextElement) statusTextElement.textContent = 'Post-processing GPU cells...';
+        await new Promise(resolve => {
+            const worker = new Worker(workerURL);
+            worker.onmessage = (e) => {
+                if (e.data.type === 'solution') handleNewSolution(e.data.payload);
+                else if (e.data.type === 'done') { worker.terminate(); resolve(); }
+            };
+            worker.onerror = () => resolve(); // Safely continue on error
+            worker.postMessage({ 
+                ...baseParams, 
+                systemToSearch: 'post_process', 
+                gpuSolutions: solutions, 
+                allowedSystems: systemsToSearch 
+            });
+        });
+    }
+    // ------------------------------------------------------------------
+
     await new Promise(resolve => setTimeout(resolve, 250));
     finalizeIndexing(gpuStopSignal.stop, mySessionToken);
 };
