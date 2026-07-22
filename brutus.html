@@ -625,7 +625,7 @@
         </div>
         <div>
             <label for="impurity-peaks" class="control-label">Impurity Peaks</label>
-            <input type="number" id="impurity-peaks" value="0" min="0" max="3" step="1" class="control-input">
+            <input type="number" id="impurity-peaks" value="1" min="0" max="3" step="1" class="control-input">
         </div>
     </div>
 
@@ -982,7 +982,9 @@ document.addEventListener('DOMContentLoaded', () => {
      *   original data, never re-stripping already-stripped data.
      */
     const handleWavelengthPresetChange = (opts = {}) => {
-        const onLoad = !!opts.onLoad;
+        // Note: opts.onLoad is still accepted for call-site compatibility, but
+        // preset behaviour is now identical on load and on manual change (strip
+        // OFF, λ = Kα-avg for _avg presets), so it is no longer read here.
         const selection = ui.wavelengthPreset.value;
 
         if (selection === 'custom') {
@@ -1000,20 +1002,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     ui.stripKa2Checkbox.disabled = true;
                 } else {
                     // Kα-average preset.
-                    //   On file load: enable strip by default, λ = Kα1 (since
-                    //     stripping leaves peaks at the Kα1 position).
-                    //   On manual preset change: strip is turned OFF — the
-                    //     user is changing radiation, so any prior strip is
-                    //     invalid; we revert to the original data and show
-                    //     λ = Kα-avg as a sensible default for raw doublet data.
+                    //   Strip is OFF by default (both on file load and on manual
+                    //   preset change): the user opts in to stripping explicitly.
+                    //   λ defaults to Kα-avg, the correct value for raw doublet
+                    //   data. When the user later ticks Strip, the handler swaps
+                    //   λ to Kα1 (stripping leaves peaks at the Kα1 position).
                     ui.stripKa2Checkbox.disabled = false;
-                    if (onLoad) {
-                        ui.stripKa2Checkbox.checked = true;
-                        ui.wavelength.value = data.ka1.toFixed(5);
-                    } else {
-                        ui.stripKa2Checkbox.checked = false;
-                        ui.wavelength.value = data.ka_avg.toFixed(5);
-                    }
+                    ui.stripKa2Checkbox.checked = false;
+                    ui.wavelength.value = data.ka_avg.toFixed(5);
                 }
             }
         }
@@ -1146,10 +1142,29 @@ document.addEventListener('DOMContentLoaded', () => {
         inputEl.value = value;
     }
 
+    // Single source of truth for the "Impurity Peaks" value used at RUN TIME.
+    // The input has min/max attributes, but those are only enforced on 'blur'
+    // (via validateNumberInput). Every place that actually starts a computation
+    // used to read the raw field with parseInt, so a value typed but not blurred
+    // — or any value outside [min,max] — reached the GPU shaders and the CPU
+    // refinement UNCLAMPED, and the two stages then disagreed about how many
+    // unindexed peaks a cell is allowed (the shader clamps to n-1 internally,
+    // the CPU FoM does not). Reading through this helper makes all consumers
+    // see the same clamped integer. Bounds come from the input's own min/max
+    // attributes so the runtime clamp can never drift from the markup.
+    function getImpurityPeaks() {
+        const el = ui.impurityPeaksInput;
+        const lo = Number.isFinite(parseInt(el.min, 10)) ? parseInt(el.min, 10) : 0;
+        const hiParsed = parseInt(el.max, 10);
+        const hi = Number.isFinite(hiParsed) ? hiParsed : Infinity;
+        const raw = parseInt(el.value, 10) || 0;
+        return Math.max(lo, Math.min(raw, hi));
+    }
+
     //  Add validation to all number inputs
     //c'est fait plus tard ?
     //ui.maxVolume.addEventListener('blur', () => validateNumberInput(ui.maxVolume, 4000));
-    ui.impurityPeaksInput.addEventListener('blur', () => validateNumberInput(ui.impurityPeaksInput, 0));
+    ui.impurityPeaksInput.addEventListener('blur', () => validateNumberInput(ui.impurityPeaksInput, 1));
     ui.tthError.addEventListener('blur', () => validateNumberInput(ui.tthError, 0.04));
     
     // Add validation to the new GPU inputs
@@ -1654,23 +1669,6 @@ const handleNewSolution = (newSolution) => {
 };
 
 
-    /**
-     * Dynamically prunes the global 'solutions' list if it exceeds the max count.
-     * It sorts by M(20) descending and keeps only the best ones.
-     */
-    const pruneSolutions = () => {
-        // Only run if we are over the limit
-        if (solutions.length <= MAX_SOLUTIONS_BEFORE_PRUNING) return;
-
-        // Sort by m20 descending to find the best ones; this is after "beautify", see sort
-        solutions.sort((a, b) => b.m20 - a.m20);
-        
-        // Keep only the top PRUNE_TO_COUNT solutions
-        solutions = solutions.slice(0, PRUNE_TO_COUNT);
-
-    };
-
-
 const setupWorker = () => {
     try {
         workerURL = 'worker-logic.js'; 
@@ -2023,7 +2021,7 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
         { id: 'wavelength', el: ui.wavelength, default: 1.54184 },
         { id: 'max-volume', el: ui.maxVolume, default: 2000 },
         { id: 'tth-error', el: ui.tthError, default: 0.04 },
-        { id: 'impurity-peaks', el: ui.impurityPeaksInput, default: 0 },
+        { id: 'impurity-peaks', el: ui.impurityPeaksInput, default: 1 },
         // Add new inputs to validation if they exist
         { id: 'gpu-hkl-triplets', el: ui.gpuHklTriplets, default: 100 },
         { id: 'gpu-peaks-count', el: ui.gpuPeaksCount, default: 7 },
@@ -3404,7 +3402,7 @@ systemsToSearch.forEach(system => {
         wavelength: parseFloat(ui.wavelength.value) || 1.54184,
         tth_error: parseFloat(ui.tthError.value) || 0.04,
         max_volume: parseFloat(ui.maxVolume.value) || 2000,
-        impurity_peaks: parseInt(ui.impurityPeaksInput.value, 10) || 0,
+        impurity_peaks: getImpurityPeaks(),
         refineZero: !!ui.refineZeroCheckbox.checked,
         fom_threshold: parseFloat(ui.gpuFomThreshold.value) || 0.8,
         max_solutions: (parseInt(ui.gpuBufferSize.value, 10) || 50) * 1000,
@@ -3893,7 +3891,7 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
                 parseFloat(ui.wavelength.value),
                 parseFloat(ui.tthError.value),
                 tthMaxVal,
-                parseInt(ui.impurityPeaksInput.value, 10) || 0
+                getImpurityPeaks()
             );
         });
     } else {
@@ -4172,7 +4170,7 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
         const te = parseFloat(ui.tthError.value);
         const tMin = parseFloat(ui.tthMinSlider.value);
         const tMax = parseFloat(ui.tthMaxSlider.value);
-        const imp = parseInt(ui.impurityPeaksInput.value, 10) || 0;
+        const imp = getImpurityPeaks();
         const rz = !!(ui.refineZeroCheckbox && ui.refineZeroCheckbox.checked);
         const pk = pickedPeaks.filter(p => p.tth >= tMin && p.tth <= tMax);
 
@@ -4689,8 +4687,22 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
     });
 
     const resizer = document.getElementById('drag-handle'); const leftPanel = document.getElementById('controls-panel');
+    // Bounds are read from the panel's own CSS (min-width / max-width) so the
+    // JS clamp can never drift from the stylesheet. Falls back to the declared
+    // 300/700 if the computed values are unavailable for any reason.
+    const panelCS = getComputedStyle(leftPanel);
+    const PANEL_MIN = parseFloat(panelCS.minWidth) || 300;
+    const PANEL_MAX = parseFloat(panelCS.maxWidth) || 700;
     resizer.addEventListener('mousedown', (e) => { e.preventDefault(); document.body.style.cursor = 'col-resize';
-        const moveHandler = (moveEvent) => { if (moveEvent.clientX > 350 && moveEvent.clientX < window.innerWidth - 350) { leftPanel.style.width = `${moveEvent.clientX}px`; } };
+        const moveHandler = (moveEvent) => {
+            // Clamp to [PANEL_MIN, PANEL_MAX] and also keep the results area from
+            // being squeezed below a usable width. The old code enforced neither
+            // the CSS max nor a hard min consistent with the stylesheet.
+            const maxByViewport = window.innerWidth - 350;
+            const upper = Math.min(PANEL_MAX, maxByViewport);
+            const width = Math.max(PANEL_MIN, Math.min(moveEvent.clientX, upper));
+            leftPanel.style.width = `${width}px`;
+        };
         const upHandler = () => { document.body.style.cursor = 'default'; window.removeEventListener('mousemove', moveHandler); window.removeEventListener('mouseup', upHandler); };
         window.addEventListener('mousemove', moveHandler); window.addEventListener('mouseup', upHandler);
     });
@@ -4758,7 +4770,7 @@ const generatePDFReport = async (singleSolution = null) => {
                     parseFloat(ui.wavelength.value),
                     parseFloat(ui.tthError.value),
                     tthMaxVal,
-                    parseInt(ui.impurityPeaksInput.value, 10) || 0
+                    getImpurityPeaks()
                 );
             }
         });

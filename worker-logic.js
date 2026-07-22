@@ -498,13 +498,6 @@ const choleskySolve = (L, b) => {
 
 
 
-const generatePermutations = (n) => {
-    if (n <= 0) return [[]]; if (n === 1) return [[0]]; const perms = [];
-    const subPerms = generatePermutations(n - 1); const item = n - 1;
-    for (const p of subPerms) { for (let i = 0; i < n; i++) { const newPerm = p.slice(0, i).concat(item).concat(p.slice(i)); perms.push(newPerm); } }
-    return perms;
-};
-
 const get_q_tolerance = (original_peak_index, tth_obs_rad, wavelength, tth_error) => {
     const theta_rad = tth_obs_rad[original_peak_index] / 2.0;
     const d_theta_rad = tth_error * Math.PI / 360;

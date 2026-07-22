@@ -273,7 +273,7 @@
                     On the <strong>Parameters</strong> tab:
                     <ul>
                         <li>Select the correct X-ray <code>Radiation Preset</code> (e.g. Cu Kα).</li>
-                        <li>Choose whether to enable <code>Strip K-alpha2</code>. When enabled, the Ka1 wavelength is used; when disabled, the average Kα wavelength is used. The default is ON (average Kα wavelength).</li>
+                        <li>Choose whether to enable <code>Strip K-alpha2</code>. When enabled, the Ka1 wavelength is used; when disabled, the average Kα wavelength is used. The default is OFF (average Kα wavelength).</li>
                         <li>Set a chemically reasonable <code>Max Volume (Å³)</code> to limit the search space.</li>
                         <li>Set <code>2θ Error (°)</code> according to your data quality (e.g. ≈0.02° for synchrotron, ≈0.05° for a typical lab diffractometer).</li>
                         <li>Leave <strong>Refine Zero-Point Error</strong> enabled unless you have a specific reason to turn it off.</li>
@@ -410,6 +410,11 @@
                     <strong>Impurity Peaks:</strong>
                     The number of unindexed peaks tolerated when scoring a candidate. If your sample
                     contains a known minor impurity phase, set this to 1 or 2 to avoid penalising the correct solution.
+                    The field accepts whole numbers from <strong>0 to 3</strong> and <strong>defaults to 1</strong>,
+                    which tolerates a single stray line (a common situation) without meaningfully loosening the search.
+                    Any value entered is clamped to the 0–3 range (read through a single helper) at the moment a
+                    search starts, so the CPU refinement and the GPU pre-filter always act on the <em>same</em>
+                    impurity count no matter what was typed.
                     It is applied at two separate stages, over different peak sets:
                     <ul>
                         <li>On the <strong>CPU</strong>, during M(20)/M(N) scoring, over the first
@@ -417,16 +422,19 @@
                         <li>On the <strong>GPU</strong>, during the figure-of-merit pre-filter, over the
                             $\min(\max(N_{peaks}, 10),\, 32)$ peaks described under
                             <a href="#indexing-method">Two-Stage GPU Filtering</a> — which is generally
-                            <em>not</em> the same count as the CPU stage.</li>
+                            <em>not</em> the same peak <em>count</em> as the CPU stage, even though the impurity
+                            allowance itself is now identical.</li>
                     </ul>
                     In both cases the worst-fitting residuals are discarded, not specific peaks you nominate.
-                    The value is capped internally at one fewer than the number of peaks being scored, so at
-                    least one peak always contributes.
+                    As an additional safety net, the value is also capped inside each GPU shader at one fewer than
+                    the number of peaks being scored, so at least one peak always contributes even if the field's
+                    bounds were ever changed.
                     <br>
-                    <em>Performance note:</em> leaving this at 0 lets the GPU pre-filter use its "fail-fast"
-                    early abort. Any non-zero value disables that abort (every peak must be scored before the
-                    worst can be identified and dropped) and adds a small sort, so the GPU stage runs
-                    measurably slower. Prefer 0 unless you genuinely have impurity lines.
+                    <em>Performance note:</em> setting this to 0 lets the GPU pre-filter use its "fail-fast"
+                    early abort. Any non-zero value (including the default of 1) disables that abort — every peak
+                    must be scored before the worst can be identified and dropped — and adds a small sort, so the
+                    GPU stage runs measurably slower. If you are confident the pattern is single-phase and want the
+                    fastest possible GPU search, set it to 0.
                 </li>
                 <li>
                     <strong>2θ Error (°):</strong>
@@ -935,9 +943,10 @@
                     $(N_{fom} - N_{impurity})$ residuals via a partial selection sort, so the worst-fitting peaks are
                     discarded rather than penalising the cell. Note this path cannot use the fail-fast abort — every
                     peak must be scored before the worst can be identified — so a non-zero
-                    <code>Impurity Peaks</code> makes the GPU stage noticeably slower. The impurity count is clamped
-                    inside the shader to at most $N_{fom} - 1$, so at least one peak always contributes to the average
-                    regardless of what is entered in the UI.
+                    <code>Impurity Peaks</code> makes the GPU stage noticeably slower. As a defensive backstop the
+                    impurity count is also clamped inside the shader to at most $N_{fom} - 1$, so at least one peak
+                    always contributes to the average — even though the UI value already reaches the shader clamped
+                    to its $[0,3]$ range.
                 </li>
             </ol>
         </section>

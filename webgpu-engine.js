@@ -176,6 +176,20 @@ class WebGPUEngine {
         if (!this.pipeline) throw new Error("Pipeline not created.");
 
         const K_VALUE = cfg.K;
+
+        // Packing invariants. hkl_basis is stored as [h,k,l,pad] (4 f32 per
+        // reflection) and peak_combos as `peakComboStride` u32 per combo. If
+        // either array is ever built with a length that isn't a whole number of
+        // records, n_hkls / numPeakCombos silently go fractional and mis-size
+        // the combinadic space and dispatch — no throw, just wrong results.
+        // Fail loud and early instead.
+        if (hklBasisArray.length % 4 !== 0) {
+            throw new Error(`hklBasisArray length ${hklBasisArray.length} is not a multiple of 4 (expected [h,k,l,pad] records).`);
+        }
+        if (peakCombos.length % cfg.peakComboStride !== 0) {
+            throw new Error(`peakCombos length ${peakCombos.length} is not a multiple of stride ${cfg.peakComboStride} for system ${cfg.systemName}.`);
+        }
+
         const n_hkls = hklBasisArray.length / 4;
         const binomialData = this.generateBinomialTable(n_hkls, K_VALUE);
         const binomialBuffer = this.createBuffer(binomialData, GPUBufferUsage.STORAGE);
