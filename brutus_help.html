@@ -393,14 +393,12 @@
                         <li>When a <strong>Custom</strong> preset is selected, this field becomes editable.</li>
                     </ul>
                 </li>
-                <li>
+  <li>
                     <strong>Strip K-alpha2:</strong>
-                    Applies the Rachinger (1948) Kα<sub>2</sub> stripping correction to remove the Kα<sub>2</sub> component before peak analysis.
-                    This single-pass, deterministic method sweeps from low to high 2θ, using already-corrected lower-2θ intensity
-                    to subtract the Kα<sub>2</sub> ghost. It yields highly accurate peak positions without ringing artifacts or negative dips.
+                    Applies the parameter-free Zhang (2026) dual-wavelength $q$-space differencing method to eliminate the Kα<sub>2</sub> component before peak analysis.
+                    Unlike traditional geometric or iterative corrections, this physics-based algorithm maps the profile into reciprocal $q$-space independently for Kα<sub>1</sub> and Kα<sub>2</sub>, forms a scaled difference profile ($\Delta y_\alpha(q) = y_{\alpha2}(q) - R \cdot y_{\alpha1}(q)$), and isolates the pure Kα<sub>1</sub> signal before projecting back to 2θ via inverse mapping. This preserves true peak intensities without ringing artifacts or baseline dropouts.
                     <br><br>
-                    The algorithm uses the Ka2/Ka1 intensity ratio (typically 0.5) and the wavelength ratio to compute the
-                    angular shift of each ghost. The default is <strong>OFF</strong> (average Kα wavelength is used).
+                    The algorithm utilizes the fixed wavelength separation and characteristic 2:1 intensity ratio ($R=0.5$). The default is <strong>OFF</strong> (average Kα wavelength is used).
                 </li>
                 <li>
                     <strong>Max Volume (Å³):</strong>
@@ -534,14 +532,15 @@
                     selected solution (blue ticks). A good solution exhibits visually convincing overlap across the full
                     angular range.
                 </li>
+        
                 <li>
                     <strong>Chart interaction:</strong>
                     <ul>
-                        <li>Zoom: mouse wheel (over the chart area zooms 2θ axis; scroll over the Y-axis zooms intensity).</li>
-                        <li>Pan: click and drag.</li>
-                        <li>Reset zoom: right-click on the chart.</li>
-                        <li>Add peak manually: <code>Ctrl + Click</code> on the chart.</li>
-                        <li>Add peak at the exact cursor position, ignoring snapping: <code>Ctrl + Shift + Click</code>.</li>
+                        <li><strong>Zoom:</strong> Use the mouse wheel (over the plot zooms the 2θ axis; over the Y-axis zooms intensity) or click-and-drag across the chart to rectangle-select an area.</li>
+                        <li><strong>Pan:</strong> Hold <code>Alt</code> + click-and-drag across the chart.</li>
+                        <li><strong>Reset zoom:</strong> Right-click anywhere on the chart.</li>
+                        <li><strong>Add peak manually:</strong> Hold <code>Ctrl</code> + click on the chart.</li>
+                        <li><strong>Add peak at exact cursor position:</strong> Hold <code>Ctrl + Shift</code> + click (ignores snapping).</li>
                     </ul>
                 </li>
                 <li>
@@ -605,11 +604,9 @@
 
             <h3>Algorithm Steps</h3>
             <ol>
-                <li>
+         <li>
                     <strong>Kα<sub>2</sub> stripping (optional):</strong>
-                    If <code>Strip K-alpha2</code> is enabled, the Rachinger (1948) correction is applied to the raw intensities.
-                    Even if the peak base shape is not perfectly preserved, this is unimportant here because only peak
-                    <em>positions</em> are used for indexing, and those are highly accurate.
+                    If <code>Strip K-alpha2</code> is enabled, the Zhang (2026) dual-wavelength $q$-space differencing method is applied to the raw intensities. By operating in reciprocal space, it cleanly decouples overlapping doublet reflections without needing prior background subtraction or empirical peak-shape parameters.
                 </li>
                 <li>
                     <strong>Background subtraction:</strong>
@@ -679,9 +676,14 @@
                     space-group section).
                 </li>
                 <li><strong>Kα<sub>1</sub> Wavelength for Parent Peaks:</strong> The parent peak of each Kα<sub>2</sub>
-                    ghost is identified (marked with a <code>*</code>). Brutus recalculates its d-spacing using the
-                    precise λ<sub>Ka1</sub> wavelength instead of the average, improving indexing accuracy for
-                    that peak.
+                    ghost is identified. Brutus recalculates its d-spacing using the precise λ<sub>Ka1</sub> wavelength instead of the average, improving indexing accuracy for that peak.
+                </li>
+                <li><strong>PDF Report Table Markers (*1 and *2):</strong> In the final PDF report, reflection pairs belonging to the same doublet are explicitly distinguished:
+                    <ul>
+                        <li><code>*1</code> marks the proven <strong>Kα<sub>1</sub> parent line</strong> ($d$-spacing computed with λ<sub>Ka1</sub>).</li>
+                        <li><code>*2</code> marks the corresponding <strong>Kα<sub>2</sub> companion line</strong> ($d$-spacing computed with λ<sub>Ka2</sub>).</li>
+                    </ul>
+                    Because both lines originate from the same physical crystal plane, their calculated $d$-spacings will match perfectly in the report table.
                 </li>
                 <li><strong>Manual Override:</strong> Right-click a yellow row to mark it as a confirmed real peak
                     if it was flagged incorrectly (e.g. due to a near-coincidence with another phase).
@@ -2142,12 +2144,14 @@
                     <em>X-Ray Diffraction Procedures for Polycrystalline and Amorphous Materials</em>, 2nd ed.
                     New York: Wiley-Interscience.
                 </li>
+        
                 <li>
-                    <strong>Kα<sub>2</sub> Stripping Algorithm</strong><br>
-                    Rachinger, W. A. (1948).
-                    "A Correction for the α1 α2 Doublet in the Measurement of Widths of X-ray Diffraction Lines."
-                    <em>Journal of Scientific Instruments</em> <strong>25</strong>, 254.
+                    <strong>Kα<sub>2</sub> Elimination Algorithm (q-space differencing)</strong><br>
+                    Zhang, Z., Lv, B., Zhao, G., Sun, X., Chang, S., Zhang, J., Rodriguez-Carvajal, J., Chen, X. &amp; Feng, Z. (2026).
+                    "Parameter-free Kα<sub>2</sub> elimination for X-ray diffraction via dual-wavelength q-space differencing."
+                    <em>Measurement</em> <strong>276</strong>, 121448.
                 </li>
+
                 <li>
                     <strong>Savitzky–Golay smoothing</strong><br>
                     Savitzky, A. &amp; Golay, M. J. E. (1964).
@@ -2179,10 +2183,7 @@
 
             <div class="footer">
                 <p>Help guide generated with the help of an AI, based on source code analysis, 13 July 2026.
-                Revised 20 July 2026: extinction-analysis selection criteria (local weak threshold, consensus
-                override, removal of the unambiguous pre-filter, proximity-weighted ambiguity test),
-                Kα<sub>2</sub> intensity-ratio test, centering-independent Niggli reduction, and Cr/Ag
-                radiation presets.</p>
+                Revised 22 July 2026: parameter-free Zhang (2026) Kα<sub>2</sub> q-space elimination, standard Chart.js zoom (wheel/rectangle) and Alt+drag pan controls, and explicit *1/*2 doublet companion notation in PDF reports.</p>
             </div>
         </section>
 

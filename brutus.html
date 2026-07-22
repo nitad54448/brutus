@@ -493,8 +493,8 @@
     <p>Generic 2-column (2&theta; intensity), .xrdml, .brml, .ras, .uxd, .udf, GSAS .esd</p>
     <hr>
     <h4>Chart Interaction:</h4>
-    <p><b>Zoom:</b> Use the mouse wheel over the plot, X-axis, or Y-axis. Right-click to reset zoom.</p>
-    <p><b>Pan:</b> Click and drag the chart to pan.</p>
+    <p><b>Zoom:</b> Use the mouse wheel, or select an area. Right-click to reset zoom.</p>
+    <p><b>Pan:</b> Alt + drag the chart to pan.</p>
     <p><b>Add Peak:</b> Hold <b>Ctrl</b> and click on the chart to manually add a peak at that position.</p>
 </div>
 
@@ -1859,75 +1859,77 @@ const setupWorker = () => {
     const max_hkl_analysis = 10;
 
 
+
     /**
-     * Rachinger Kα2 stripping correction (1948 method).
+     * Zhang Kα2 elimination algorithm (2026 method).
      *
-     * For each 2θ point, the observed intensity is approximately:
-     *   I_obs(2θ) = I_Kα1(2θ) + r * I_Kα1(2θ_parent)
-     * where 2θ_parent is the Ka1 angle whose Ka2 ghost lands at 2θ:
-     *   sin(θ_parent) = sin(θ) * (λ_Ka1 / λ_Ka2)
-     * and r is the Ka2/Ka1 intensity ratio (~0.5 for typical X-ray tubes).
+     * Dual-wavelength q-space differencing method without empirical parameters
+     * or iterative deconvolution[cite: 2]. Grounded in the physical separation of the Kα
+     * doublet in reciprocal space[cite: 2]:
+     *   1. Map observed 2θ profile to q-space independently using λ_Kα1 and λ_Kα2[cite: 2].
+     *   2. Resample both profiles onto a common, uniformly spaced q-grid[cite: 2].
+     *   3. Compute scaled difference Δy_α(q) = y_α2(q) - R * y_α1(q)[cite: 2].
+     *   4. Isolate positive anomalous component corresponding to pure Kα1[cite: 2].
+     *   5. Project back to 2θ domain via inverse mapping T_α2^(-1)[cite: 2].
      *
-     * We sweep low-2θ → high-2θ, using the already-corrected lower-2θ
-     * intensity to subtract the Ka2 ghost from the current point. Single
-     * pass, deterministic, no iteration, no ringing artifacts.
-     *
-     * Trade-offs vs Richardson-Lucy deconvolution:
-     *   + ~10× more accurate peak positions (verified on synthetic doublets)
-     *   + 98-100% suppression at high 2θ (vs ~85-90% for damped RL)
-     *   + Won't invent peaks or produce negative dips
-     *   - At very low 2θ where Kα1+Kα2 are unresolved, the Ka2 contribution
-     *     overlaps the Ka1 tail and only ~60% suppression is possible. This
-     *     is a fundamental limitation, not implementation-dependent.
-     *
-     * Reference: Rachinger, J. Sci. Instrum. 25 (1948) 254.
+     * Reference: Zhang et al., Measurement 276 (2026) 121448[cite: 2].
      */
-    const stripRachinger = (tth, intensity, ka1, ka2, ratio) => {
+    const stripZhang = (tth, intensity, ka1, ka2, ratio) => {
         const n = tth.length;
         if (n === 0) return [];
-        const corrected = new Array(n);
-        corrected[0] = intensity[0]; // first point has no parent below it
+        if (n === 1) return [intensity[0]];
 
-        // Linear interpolation against the already-corrected array
-        const interpCorrected = (target) => {
-            if (target <= tth[0]) return corrected[0];
-            if (target >= tth[n - 1]) {
-                // Shouldn't happen for legitimate parent positions (parent < current),
-                // but guard anyway. Walk back to find the highest defined index.
-                for (let k = n - 1; k >= 0; k--) {
-                    if (corrected[k] != null) return corrected[k];
-                }
-                return 0;
-            }
-            // Binary search for the bracketing pair
-            let lo = 0, hi = n - 1;
+        // Step 1: Coordinate mapping to q-space for both wavelengths
+        const q_a1 = new Float64Array(n);
+        const q_a2 = new Float64Array(n);
+        for (let i = 0; i < n; i++) {
+            const sin_th = Math.sin(tth[i] * Math.PI / 360);
+            q_a1[i] = (4 * Math.PI * sin_th) / ka1;
+            q_a2[i] = (4 * Math.PI * sin_th) / ka2;
+        }
+
+        // Define common uniform q-grid spanning the full mapped range
+        const q_min = Math.min(q_a2[0], q_a1[0]);
+        const q_max = Math.max(q_a2[n - 1], q_a1[n - 1]);
+        const M = Math.max(2000, n * 3); // Dense sampling to prevent interpolation error
+        const dq = (q_max - q_min) / (M - 1);
+
+        // Helper: fast binary-search linear interpolation
+        const interp = (target, x_src, y_src) => {
+            const len = x_src.length;
+            if (target <= x_src[0]) return y_src[0];
+            if (target >= x_src[len - 1]) return y_src[len - 1];
+            let lo = 0, hi = len - 1;
             while (hi - lo > 1) {
                 const mid = (lo + hi) >> 1;
-                if (tth[mid] <= target) lo = mid; else hi = mid;
+                if (x_src[mid] <= target) lo = mid;
+                else hi = mid;
             }
-            const t = (target - tth[lo]) / (tth[hi] - tth[lo]);
-            const yLo = corrected[lo] != null ? corrected[lo] : intensity[lo];
-            const yHi = corrected[hi] != null ? corrected[hi] : intensity[hi];
-            return yLo * (1 - t) + yHi * t;
+            const t = (target - x_src[lo]) / (x_src[hi] - x_src[lo]);
+            return y_src[lo] * (1 - t) + y_src[hi] * t;
         };
 
-        const lambdaInv = ka1 / ka2; // < 1
-        for (let i = 1; i < n; i++) {
-            const sin_th_obs = Math.sin(tth[i] * Math.PI / 360);
-            const sin_th_parent = sin_th_obs * lambdaInv;
-            if (sin_th_parent >= 1 || sin_th_parent <= 0) {
-                corrected[i] = intensity[i];
-                continue;
-            }
-            const tth_parent = 2 * Math.asin(sin_th_parent) * 180 / Math.PI;
-            const parent_corrected = interpCorrected(tth_parent);
-            let v = intensity[i] - ratio * parent_corrected;
-            if (v < 0) v = 0; // clip residual negatives
-            corrected[i] = v;
+        // Step 2, 3 & 4: Resample to uniform grid, compute difference, and clamp positive
+        const q_grid = new Float64Array(M);
+        const delta_y_pos = new Float64Array(M);
+        for (let m = 0; m < M; m++) {
+            const q = q_min + m * dq;
+            q_grid[m] = q;
+            const y1 = interp(q, q_a1, intensity);
+            const y2 = interp(q, q_a2, intensity);
+            const diff = y2 - ratio * y1;
+            delta_y_pos[m] = Math.max(diff, (1 - ratio) * Math.min(y1, y2));
         }
+
+        // Step 5: Inverse mapping T_α2^(-1) back to experimental 2θ grid
+        const corrected = new Array(n);
+        for (let i = 0; i < n; i++) {
+            // Under T_α2^(-1), angle tth[i] corresponds to reciprocal space coordinate q_a2[i]
+            corrected[i] = interp(q_a2[i], q_grid, delta_y_pos);
+        }
+
         return corrected;
     };
-
 
     const updateWorkingData = () => {
         if (fullExperimentalData.tth.length === 0) {
@@ -1945,8 +1947,8 @@ const setupWorker = () => {
             
             if (preset) {
                 const { tth, intensity } = fullExperimentalData;
-                // Apply Rachinger Kα2 correction (single-pass, robust)
-                const strippedIntensity = stripRachinger(tth, intensity, preset.ka1, preset.ka2, preset.ratio);
+                // Apply Zhang Kα2 elimination (non-iterative q-space differencing)
+                const strippedIntensity = stripZhang(tth, intensity, preset.ka1, preset.ka2, preset.ratio);
                 
                 // Save this as the working data for plotting AND peak search
                 workingExperimentalData = { tth: [...tth], intensity: strippedIntensity };
@@ -4445,9 +4447,26 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
                 },
                 plugins: {
                     zoom: {
-                        pan: { enabled: true, mode: 'xy', threshold: 5, onPanComplete: () => { updateAllMarkers(); } },
-                        zoom: { wheel: { enabled: false }, pinch: { enabled: true }, drag: { enabled: false }, onZoomComplete: () => { updateAllMarkers(); } }
+                        pan: { 
+                            enabled: true, 
+                            mode: 'xy', 
+                            modifierKey: 'alt',
+                            onPanComplete: () => { updateAllMarkers(); } 
+                        },
+                        zoom: { 
+                            wheel: { enabled: true }, 
+                            pinch: { enabled: true }, 
+                            drag: { 
+                                enabled: true,
+                                backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                                borderColor: 'rgba(59, 130, 246, 0.5)',
+                                borderWidth: 1
+                            }, 
+                            mode: 'xy',
+                            onZoomComplete: () => { updateAllMarkers(); } 
+                        }
                     },
+
                     legend: { position: 'top' },
                     tooltip: {
                         callbacks: {
@@ -4498,25 +4517,6 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
         });
     };
 
-    ui.chartCanvas.addEventListener('wheel', e => {
-        e.preventDefault();
-        if (!xrdChart || !xrdChart.chartArea) return;
-        const { left, right, top, bottom } = xrdChart.chartArea;
-        const zoomDirection = e.deltaY < 0 ? 1.1 : 0.9;
-        const zoomOptions = { x: 1, y: 1 };
-        if (e.offsetY > bottom && e.offsetX > left && e.offsetX < right) {
-            zoomOptions.x = zoomDirection;
-        } else if (e.offsetX < left && e.offsetY > top && e.offsetY < bottom) {
-            zoomOptions.y = zoomDirection;
-        } else if (e.offsetX >= left && e.offsetX <= right && e.offsetY >= top && e.offsetY <= bottom) {
-            zoomOptions.x = zoomDirection;
-            zoomOptions.y = zoomDirection;
-        } else {
-            return;
-        }
-        xrdChart.zoom(zoomOptions, 'none');
-        updateAllMarkers();
-    });
 
     const updateAllMarkers = () => {
         if (!xrdChart) return;
@@ -4731,23 +4731,23 @@ ui.chartCanvas.addEventListener('click', (e) => {
 
 //main report function, on peut optimiser...
 const generatePDFReport = async (singleSolution = null) => {
-    const solutionsToReport = singleSolution ? [singleSolution] : displayedSolutions;    
+    const solutionsToReport = singleSolution ? [singleSolution] : displayedSolutions;    
     
     if (displayedSolutions.length === 0) {
-            showStatus("No solutions found to generate a report.", 'info');
-            return;
-        }
+        showStatus("No solutions found to generate a report.", 'info');
+        return;
+    }
 
-        const tthMinVal = parseFloat(ui.tthMinSlider.value);
-        const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
-        const reportPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
+    const tthMinVal = parseFloat(ui.tthMinSlider.value);
+    const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
+    const reportPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
 
-        if (reportPeaks.length === 0) {
-             showStatus("No peaks selected in the current 2-theta range for the report.", 'info');
-             return;
-        }
+    if (reportPeaks.length === 0) {
+         showStatus("No peaks selected in the current 2-theta range for the report.", 'info');
+         return;
+    }
 
-        // Safeguard: Ensure every solution being reported has undergone space group analysis
+    // Safeguard: Ensure every solution being reported has undergone space group analysis
     if (spaceGroupData) {
         solutionsToReport.forEach(sol => {
             if (!sol.analysis) {
@@ -4764,878 +4764,754 @@ const generatePDFReport = async (singleSolution = null) => {
         });
     }
 
-        ui.reportButton.textContent = 'Generating...';
-        ui.reportButton.disabled = true;
-        document.body.style.cursor = 'wait';
-    
-        try {
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF({
-                orientation: 'p',
-                unit: 'mm',
-                format: 'a4'
-            });
-    
-            const margin = 15;
-            let yPos = 20;
-            const pdfWidth = doc.internal.pageSize.getWidth();
-            const lambda = parseFloat(ui.wavelength.value);
-            // Ka1 wavelength of the active preset, if any. Used to compute
-            // the "true" d-spacing of peaks whose Ka2 companion has been
-            // identified — for those peaks we KNOW we are seeing the Ka1 line,
-            // so its d should be computed with lambda_Ka1 even when the indexing
-            // wavelength is the doublet centroid.
-            const _activeKa2Preset = (typeof getActiveKa2Preset === 'function') ? getActiveKa2Preset() : null;
-            const lambdaKa1 = _activeKa2Preset ? _activeKa2Preset.ka1 : null;
-            const tthError = parseFloat(ui.tthError.value);
-            
-            //  fonts and sizes, see later, this is esthetics, osef
-            const FONT = {
-                TITLE: 'helvetica',
-                LABEL: 'helvetica',
-                DATA: 'courier'
-            };
-            const SIZE = {
-                TITLE: 18,
-                H1: 14,
-                H2: 12,
-                BODY: 9,
-                TABLE_HEADER: 8,
-                TABLE_BODY: 8,
-                SMALL: 7
-            };
-    
-            // header
-            const now = new Date();
-
-            const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-
-            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 22 april 2026';
-          	const programURL = window.location.href;
-            
-    
-          	doc.setFont(FONT.TITLE, 'bold').setFontSize(SIZE.TITLE).text('Brutus - Powder Indexing Report', pdfWidth / 2, yPos, { align: 'center' });
-          	yPos += 10;
-            
-          	doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
-          	doc.text(`Generated:`, margin, yPos);
-          	doc.setFont(FONT.DATA, 'normal').text(timestamp, margin + 25, yPos);
-          	yPos += 5;
-    
-          	// Add URL and Version lines
-          	doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
-          	doc.text(`URL:`, margin, yPos);
-          	doc.setFont(FONT.DATA, 'normal').text(programURL, margin + 25, yPos);
-  	yPos += 5;
-    
-  	doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
-  	doc.text(`Version:`, margin, yPos);
-  	doc.setFont(FONT.DATA, 'normal').text(versionInfo, margin + 25, yPos);
-  	yPos += 5;
-            
-  	doc.setFont(FONT.LABEL, 'normal').text(`Data File:`, margin, yPos);
-  	doc.setFont(FONT.DATA, 'normal').text(ui.fileName.textContent, margin + 25, yPos);
-  	yPos += 10;
-      
-const imgData = xrdChart.toBase64Image('image/png', 1.0);      
-
-
-  	
-const imgProps = doc.getImageProperties(imgData);
-  	// Fit the chart image within the remaining page area, preserving aspect ratio.
-  	// Previously only width was constrained, which clipped tall canvases at the bottom.
-  	const availableWidth = pdfWidth - 2 * margin;
-  	const pdfHeight = doc.internal.pageSize.getHeight();
-  	const availableHeight = pdfHeight - yPos - margin - 5; // 5 mm bottom breathing room
-  	const scale = Math.min(availableWidth / imgProps.width, availableHeight / imgProps.height);
-  	const drawWidth = imgProps.width * scale;
-  	const drawHeight = imgProps.height * scale;
-  	const drawX = margin + (availableWidth - drawWidth) / 2; // center horizontally
-  	doc.addImage(imgData, 'PNG', drawX, yPos, drawWidth, drawHeight);
-    
-  	// Parameters
-  	doc.addPage();
-  	yPos = 20;
-    
-  	// Indexing Parameters
-  	doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1).text('Indexing Parameters', margin, yPos);
-  	yPos += 8;
-    
-  	// modif le 21 oct 25 avec Ka2 strip
-    // changed on 17 janv 26 with a new logic
-  	const presetText = ui.wavelengthPreset.options[ui.wavelengthPreset.selectedIndex].text;
-  	const paramData = [
-      	{ label: 'Radiation:', value: presetText },
-//{ label: 'Time Elapsed:', value: lastDurationStr || '-' },      
-	{ label: 'Max Volume (A^3):', value: ui.maxVolume.value },
-      	{ label: 'Ka1 Wavelength (A):', value: parseFloat(ui.wavelength.value).toFixed(5) },
-      	{ label: 'Tolerance (2theta):', value: ui.tthError.value },
-      	{ label: 'Ka2 Stripped:',
-      	  // 'False' would be a lie for radiation that has no Ka2 to strip
-      	  // (Custom, or any Ka1-only preset). In those cases the checkbox is
-      	  // forced off AND disabled, so 'False' reads as a user decision not
-      	  // to strip rather than 'not applicable'. getActiveKa2Preset() is
-      	  // null exactly when the radiation has no doublet component, which
-      	  // is the same gate the Ka2 tagger uses - so the two stay consistent.
-      	  value: getActiveKa2Preset()
-      	             ? (ui.stripKa2Checkbox.checked ? 'True' : 'False')
-      	             : 'N/A' },
-      	// 'Ka2-suspect peaks' was listed here, but this block documents the USER'S
-      	// INPUT SETTINGS, so that a run can be reproduced from it. The suspect
-      	// count is a derived finding from the peak list, not a setting. It was
-      	// also actively misleading whenever Ka2 stripping is on: the tagger
-      	// early-returns in that case, so the value was structurally always 0 and
-      	// read as "no ghosts found" rather than "never looked for". The
-      	// information is surfaced where it is relevant instead - the hard/soft
-      	// note in the space-group section, printed only when Ka2-suspect peaks
-      	// actually affected scoring.
-      	{ label: 'Impurity Peaks:', value: ui.impurityPeaksInput.value },
-      	{ label: 'Min Peak (%):', value: ui.peakThresholdValue.textContent },
-      	{ label: 'Refine Zero:', value: ui.refineZeroCheckbox.checked ? 'True' : 'False' },
-      	{ label: '2theta Min (deg):', value: tthMinVal.toFixed(2) },
-      	{ label: '2theta Max (deg):', value: tthMaxVal.toFixed(2) },
-  	];
-    
-  	const col1X = margin;
-  	const col2X = margin + 85;
-  	const labelWidth = 35;
-    
-  	paramData.forEach((item, index) => {
-      	const isCol1 = index % 2 === 0;
-      	const x = isCol1 ? col1X : col2X;
-      	if (isCol1) yPos += 5;
-      	
-      	doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text(item.label, x, yPos);
-      	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(String(item.value), x + labelWidth, yPos);
-  	});
-  	yPos += 7;
-          	
-  	doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text('Systems Searched:', margin, yPos);
-  	const systems = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value.charAt(0).toUpperCase() + cb.value.slice(1));
-  	const systemsText = systems.join(', ');
-  	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(systemsText, margin + labelWidth, yPos);
-  	yPos += 8;
-    
-  	doc.setDrawColor(200); doc.line(margin, yPos, pdfWidth - margin, yPos); yPos += 8;
-    
-  	// Indexing Solutions Summary Section
-  	doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1).text('Indexing Solutions Summary', margin, yPos); yPos += 8;
-          	
-  	if (lastIndexingStats) {
-      	// "Translate" the string:
-      	// 1. Replace all non-breaking spaces (U+00A0) with regular spaces
-      	// 2. Replace multiple spaces with a single space
-      	const cleanedStats = lastIndexingStats
-          	.replace(/\u00A0/g, ' ')
-          	.replace(/\s+/g, ' ');
-
-      	// Now print the clean string using the data font and matching table size
-      	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
-      	doc.text(cleanedStats, margin, yPos);
-      	yPos += 7; // Add some space after
-  	}
-          	
-
-  	doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
-  	doc.text('Sys', margin, yPos);
-  	// Get N from the *first* solution, or fall back to peak count
-  	const first_sol_n_20 = (displayedSolutions.length > 0 && displayedSolutions[0].n_20) ? displayedSolutions[0].n_20 : Math.min(20, reportPeaks.length);
-  	doc.text(`M(${first_sol_n_20})`, margin + 15, yPos);
-  	doc.text(`F(${first_sol_n_20})`, margin + 30, yPos);
-  	doc.text('Volume(A^3)', margin + 45, yPos);
-  	doc.text('Parameters', margin + 75, yPos);
-  	yPos += 5;
-    
-  	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
-  	solutionsToReport.slice(0, 30).forEach(sol => {
-      	if (yPos > 280) { doc.addPage(); yPos = 20; }
-      	let paramStr = '';
-      	const p = sol.errors || {};
-      	switch (sol.system) {
-          	 case 'cubic': paramStr = `a=${formatWithError(sol.a, p.s_a)}`; break;
-          	 case 'tetragonal': paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`; break;
-          	 case 'hexagonal': paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`; break;
-          	 case 'orthorhombic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`; break;
-          	 case 'monoclinic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}, beta=${formatWithError(sol.beta, p.s_beta)}`; break;
-          	 //  TRICLINIC, oct/nov 2025
-          	 case 'triclinic': 
-            	 	paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`;
-            	 	doc.text(sol.system.substring(0,4), margin, yPos);
-            	 	doc.text(sol.m20.toFixed(2), margin + 15, yPos);
-            	 	doc.text((sol.fN_20 || 0).toFixed(2), margin + 30, yPos);
-            	 	doc.text(sol.volume.toFixed(2), margin + 45, yPos);
-            	 	doc.text(paramStr, margin + 75, yPos);
-            	 	yPos += 5; // Move to next line for angles
-            	 	paramStr = `al=${formatWithError(sol.alpha, p.s_alpha)}, be=${formatWithError(sol.beta, p.s_beta)}, ga=${formatWithError(sol.gamma, p.s_gamma)}`;
-            	 	doc.text(paramStr, margin + 75, yPos); // Angles on new line
-            	 	yPos += 5;
-            	 	return; // Skip the default doc.text
-      	}
-      	doc.text(sol.system.substring(0,4), margin, yPos);
-      	doc.text(sol.m20.toFixed(2), margin + 15, yPos);
-      	doc.text((sol.fN_20 || 0).toFixed(2), margin + 30, yPos);
-      	doc.text(sol.volume.toFixed(2), margin + 45, yPos);
-      	doc.text(paramStr, margin + 75, yPos);
-      	yPos += 5;
-  	});
-    
-  	//  Detailed Solution 
-  	solutionsToReport.forEach((sol, solIndex) => {
-      	doc.addPage(); yPos = 20;
-      	
-      	//  title, bold
-      	doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1); // Changed to SIZE.H1
-      	doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}`, margin, yPos); 
-      	yPos += 8; // Increased spacing after main title
-      	
-      	
-      	// params et volumes
-      	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); // Use Monospace for alignment
-      	const p = sol.errors || {};
-      	
-      	// Create a list of all parameters to print
-      	const paramLines = [];
-      	
-      	switch (sol.system) {
-          	case 'cubic':
-            	 	paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
-            	 	break;
-          	case 'tetragonal':
-            	 	paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
-            	 	paramLines.push({ label: 'c', value: `= ${formatWithError(sol.c, p.s_c)} A` });
-            	 	break;
-          	case 'hexagonal':
-            	 	paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
-            	 	paramLines.push({ label: 'c', value: `= ${formatWithError(sol.c, p.s_c)} A` });
-            	 	break;
-          	case 'orthorhombic':
-            	 	paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
-            	 	paramLines.push({ label: 'b', value: `= ${formatWithError(sol.b, p.s_b)} A` });
-            	 	paramLines.push({ label: 'c', value: `= ${formatWithError(sol.c, p.s_c)} A` });
-            	 	break;
-          	case 'monoclinic':
-            	 	paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
-            	 	paramLines.push({ label: 'b', value: `= ${formatWithError(sol.b, p.s_b)} A` });
-            	 	paramLines.push({ label: 'c', value: `= ${formatWithError(sol.c, p.s_c)} A` });
-            	 	paramLines.push({ label: 'beta', value: `= ${formatWithError(sol.beta, p.s_beta)} deg` });
-            	 	break;
-          	case 'triclinic':
-            	 	paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
-            	 	paramLines.push({ label: 'b', value: `= ${formatWithError(sol.b, p.s_b)} A` });
-            	 	paramLines.push({ label: 'c', value: `= ${formatWithError(sol.c, p.s_c)} A` });
-            	 	paramLines.push({ label: 'alpha', value: `= ${formatWithError(sol.alpha, p.s_alpha)} deg` });
-            	 	paramLines.push({ label: 'beta', value: `= ${formatWithError(sol.beta, p.s_beta)} deg` });
-            	 	paramLines.push({ label: 'gamma', value: `= ${formatWithError(sol.gamma, p.s_gamma)} deg` });
-            	 	break;
-      	}
-      	
-      	// Add Volume
-      	paramLines.push({ label: 'Volume', value: `= ${sol.volume.toFixed(2)} A^3` });
-    
-      	// Add Zero Error
-      	if (sol.zero_correction !== undefined) { 
-          	paramLines.push({ label: 'Zero Error (2theta)', value: `= ${formatWithError(sol.zero_correction, p.s_zero)} deg` });
-      	}
-      	
-      	// Add Figures of Merit
-      	const n_20_pdf = sol.n_20 || Math.min(20, reportPeaks.length);
-      	paramLines.push({ label: `M(${n_20_pdf})`, value: `= ${sol.m20.toFixed(2)}` });
-       	paramLines.push({ label: `F(${n_20_pdf})`, value: `= ${(sol.fN_20 || 0).toFixed(2)}` });
-
-      	const n_all_pdf = sol.n_all || reportPeaks.length;
-      	paramLines.push({ label: `M(${n_all_pdf})`, value: `= ${(sol.m_all || 0).toFixed(2)}` });
-      	paramLines.push({ label: `F(${n_all_pdf})`, value: `= ${(sol.fN_all || 0).toFixed(2)}` });
-      	     	
-      	// 1. Find the width of the longest label
-      	const longestLabelWidth = Math.max(...paramLines.map(line => doc.getTextWidth(line.label)));
-      	
-      	// 2. Define coordinates based on that width
-      	const labelEndX = margin + longestLabelWidth;
-  	const dataStartX = labelEndX + 2; // Start data 2mm after longest label
-    
-  	// 3. Loop and print
-  	paramLines.forEach(line => {
-    		// Right-align the label
-    		doc.text(line.label, labelEndX, yPos, { align: 'right' });
-    		// Left-align the data
-    		doc.text(line.value, dataStartX, yPos);
-    		yPos += 4;
-  	});
-    
-  	yPos += 3; // Add back spacing after the block
-  	
-
-
-    // Lattice centering is printed BEFORE the reduced cells, because the
-    // reduction headings and subtitles refer to it ("the detected A-centering
-    // is NOT applied"). Stating the centering first makes that readable in order.
-    if (sol.analysis && sol.analysis.centering) {
-        doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text(`Lattice Centering:`, margin, yPos);
-        doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(sol.analysis.centering, margin + 42, yPos);
-        yPos += 7;
-    }
-
-    // Cell reduction
-    // Show for ALL systems (including triclinic) to confirm standard setting.
-    // TWO cells are reported. Under the strict IUCr definition (Int. Tables A,
-    // sec. 9.2) a "reduced cell" is primitive, so the Niggli name is reserved
-    // for block (2) only.
-    //   (1) Standardised Conventional Cell - the Krivy-Gruber reduction of the
-    //       solved conventional basis, with the centering deliberately ignored.
-    //       This is the cell the pseudo-symmetry / symmetry-upgrade check
-    //       operates on, so showing it makes that step auditable. It is NOT the
-    //       reduced cell of a centered lattice.
-    //   (2) Reduced (Niggli) Cell - the conventional cell transformed to its
-    //       primitive basis using the centering inferred from systematic
-    //       absences, then reduced. Shown only for a genuine centering
-    //       (I, F, A, B, C, R); for P the two blocks would coincide.
-    // Two blocks need up to ~50 mm; break early rather than splitting a cell table.
-    if (yPos > 225) { doc.addPage(); yPos = 20; }
-
+    ui.reportButton.textContent = 'Generating...';
+    ui.reportButton.disabled = true;
+    document.body.style.cursor = 'wait';
+    
     try {
-        const r = Math.PI / 180.0;
-        const cellVolume = (cl) => {
-            const ca = Math.cos(cl.alpha * r), cb = Math.cos(cl.beta * r), cg = Math.cos(cl.gamma * r);
-            const term = Math.max(0, 1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
-            return (term > 0) ? (cl.a * cl.b * cl.c * Math.sqrt(term)) : 0;
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({
+            orientation: 'p',
+            unit: 'mm',
+            format: 'a4'
+        });
+    
+        const margin = 15;
+        let yPos = 20;
+        const pdfWidth = doc.internal.pageSize.getWidth();
+        const lambda = parseFloat(ui.wavelength.value);
+        const _activeKa2Preset = (typeof getActiveKa2Preset === 'function') ? getActiveKa2Preset() : null;
+        const lambdaKa1 = _activeKa2Preset ? _activeKa2Preset.ka1 : null;
+        const lambdaKa2 = _activeKa2Preset ? _activeKa2Preset.ka2 : null;
+        const tthError = parseFloat(ui.tthError.value);
+            
+        const FONT = {
+            TITLE: 'helvetica',
+            LABEL: 'helvetica',
+            DATA: 'courier'
         };
+        const SIZE = {
+            TITLE: 18,
+            H1: 14,
+            H2: 12,
+            BODY: 9,
+            TABLE_HEADER: 8,
+            TABLE_BODY: 8,
+            SMALL: 7
+        };
+    
+        // header
+        const now = new Date();
+        const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+        const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 22 april 2026';
+        const programURL = window.location.href;
+            
+        doc.setFont(FONT.TITLE, 'bold').setFontSize(SIZE.TITLE).text('Brutus - Powder Indexing Report', pdfWidth / 2, yPos, { align: 'center' });
+        yPos += 10;
+            
+        doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
+        doc.text(`Generated:`, margin, yPos);
+        doc.setFont(FONT.DATA, 'normal').text(timestamp, margin + 25, yPos);
+        yPos += 5;
+    
+        doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
+        doc.text(`URL:`, margin, yPos);
+        doc.setFont(FONT.DATA, 'normal').text(programURL, margin + 25, yPos);
+        yPos += 5;
+    
+        doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
+        doc.text(`Version:`, margin, yPos);
+        doc.setFont(FONT.DATA, 'normal').text(versionInfo, margin + 25, yPos);
+        yPos += 5;
+            
+        doc.setFont(FONT.LABEL, 'normal').text(`Data File:`, margin, yPos);
+        doc.setFont(FONT.DATA, 'normal').text(ui.fileName.textContent, margin + 25, yPos);
+        yPos += 10;
+          
+        const imgData = xrdChart.toBase64Image('image/png', 1.0);      
+        const imgProps = doc.getImageProperties(imgData);
+        const availableWidth = pdfWidth - 2 * margin;
+        const pdfHeight = doc.internal.pageSize.getHeight();
+        const availableHeight = pdfHeight - yPos - margin - 5; 
+        const scale = Math.min(availableWidth / imgProps.width, availableHeight / imgProps.height);
+        const drawWidth = imgProps.width * scale;
+        const drawHeight = imgProps.height * scale;
+        const drawX = margin + (availableWidth - drawWidth) / 2; 
+        doc.addImage(imgData, 'PNG', drawX, yPos, drawWidth, drawHeight);
+    
+        // Parameters
+        doc.addPage();
+        yPos = 20;
+    
+        doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1).text('Indexing Parameters', margin, yPos);
+        yPos += 8;
+    
+        const presetText = ui.wavelengthPreset.options[ui.wavelengthPreset.selectedIndex].text;
+        const paramData = [
+            { label: 'Radiation:', value: presetText },
+            { label: 'Max Volume (A^3):', value: ui.maxVolume.value },
+            { label: 'Wavelength (A):', value: parseFloat(ui.wavelength.value).toFixed(5) },
+            { label: 'Tolerance (2theta):', value: ui.tthError.value },
+            { label: 'Ka2 Identified:',
+              value: getActiveKa2Preset()
+                         ? (ui.stripKa2Checkbox.checked ? 'True' : 'False')
+                         : 'N/A' },
+            { label: 'Impurity Peaks:', value: ui.impurityPeaksInput.value },
+            { label: 'Min Peak (%):', value: ui.peakThresholdValue.textContent },
+            { label: 'Refine Zero:', value: ui.refineZeroCheckbox.checked ? 'True' : 'False' },
+            { label: '2theta Min (deg):', value: tthMinVal.toFixed(2) },
+            { label: '2theta Max (deg):', value: tthMaxVal.toFixed(2) },
+        ];
+    
+        const col1X = margin;
+        const col2X = margin + 85;
+        const labelWidth = 35;
+    
+        paramData.forEach((item, index) => {
+            const isCol1 = index % 2 === 0;
+            const x = isCol1 ? col1X : col2X;
+            if (isCol1) yPos += 5;
+            
+            doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text(item.label, x, yPos);
+            doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(String(item.value), x + labelWidth, yPos);
+        });
+        yPos += 7;
+              
+        doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text('Systems Searched:', margin, yPos);
+        const systems = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value.charAt(0).toUpperCase() + cb.value.slice(1));
+        const systemsText = systems.join(', ');
+        doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(systemsText, margin + labelWidth, yPos);
+        yPos += 8;
+    
+        doc.setDrawColor(200); doc.line(margin, yPos, pdfWidth - margin, yPos); yPos += 8;
+    
+        doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1).text('Indexing Solutions Summary', margin, yPos); yPos += 8;
+              
+        if (lastIndexingStats) {
+            const cleanedStats = lastIndexingStats
+                .replace(/\u00A0/g, ' ')
+                .replace(/\s+/g, ' ');
 
-        // Define column X positions
-        const col1LabelEndX = margin + 15;
-        const col1DataStartX = col1LabelEndX + 2;
-        const col2LabelEndX = margin + 78;
-        const col2DataStartX = col2LabelEndX + 2;
-
-        // Renders one titled a/b/c + angles + volume block, advancing yPos.
-        const drawCellBlock = (title, cl, subtitle) => {
-            doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text(title, margin, yPos);
+            doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+            doc.text(cleanedStats, margin, yPos);
+            yPos += 7; 
+        }
+              
+        doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
+        doc.text('Sys', margin, yPos);
+        const first_sol_n_20 = (displayedSolutions.length > 0 && displayedSolutions[0].n_20) ? displayedSolutions[0].n_20 : Math.min(20, reportPeaks.length);
+        doc.text(`M(${first_sol_n_20})`, margin + 15, yPos);
+        doc.text(`F(${first_sol_n_20})`, margin + 30, yPos);
+        doc.text('Volume(A^3)', margin + 45, yPos);
+        doc.text('Parameters', margin + 75, yPos);
+        yPos += 5;
+    
+        doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+        solutionsToReport.slice(0, 30).forEach(sol => {
+            if (yPos > 280) { doc.addPage(); yPos = 20; }
+            let paramStr = '';
+            const p = sol.errors || {};
+            switch (sol.system) {
+                 case 'cubic': paramStr = `a=${formatWithError(sol.a, p.s_a)}`; break;
+                 case 'tetragonal': paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`; break;
+                 case 'hexagonal': paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`; break;
+                 case 'orthorhombic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`; break;
+                 case 'monoclinic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}, beta=${formatWithError(sol.beta, p.s_beta)}`; break;
+                 case 'triclinic': 
+                    paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`;
+                    doc.text(sol.system.substring(0,4), margin, yPos);
+                    doc.text(sol.m20.toFixed(2), margin + 15, yPos);
+                    doc.text((sol.fN_20 || 0).toFixed(2), margin + 30, yPos);
+                    doc.text(sol.volume.toFixed(2), margin + 45, yPos);
+                    doc.text(paramStr, margin + 75, yPos);
+                    yPos += 5; 
+                    paramStr = `al=${formatWithError(sol.alpha, p.s_alpha)}, be=${formatWithError(sol.beta, p.s_beta)}, ga=${formatWithError(sol.gamma, p.s_gamma)}`;
+                    doc.text(paramStr, margin + 75, yPos); 
+                    yPos += 5;
+                    return; 
+            }
+            doc.text(sol.system.substring(0,4), margin, yPos);
+            doc.text(sol.m20.toFixed(2), margin + 15, yPos);
+            doc.text((sol.fN_20 || 0).toFixed(2), margin + 30, yPos);
+            doc.text(sol.volume.toFixed(2), margin + 45, yPos);
+            doc.text(paramStr, margin + 75, yPos);
             yPos += 5;
-            if (subtitle) {
-                doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.SMALL);
-                doc.setTextColor(90, 90, 90);
-                doc.text(subtitle, margin, yPos);
-                doc.setTextColor(0, 0, 0);
+        });
+    
+        // Detailed Solution 
+        solutionsToReport.forEach((sol, solIndex) => {
+            doc.addPage(); yPos = 20;
+            
+            doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1); 
+            doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}`, margin, yPos); 
+            yPos += 8; 
+            
+            doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); 
+            const p = sol.errors || {};
+            const paramLines = [];
+            
+            switch (sol.system) {
+                case 'cubic':
+                    paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
+                    break;
+                case 'tetragonal':
+                    paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
+                    paramLines.push({ label: 'c', value: `= ${formatWithError(sol.c, p.s_c)} A` });
+                    break;
+                case 'hexagonal':
+                    paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
+                    paramLines.push({ label: 'c', value: `= ${formatWithError(sol.c, p.s_c)} A` });
+                    break;
+                case 'orthorhombic':
+                    paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
+                    paramLines.push({ label: 'b', value: `= ${formatWithError(sol.b, p.s_b)} A` });
+                    paramLines.push({ label: 'c', value: `= ${formatWithError(sol.c, p.s_c)} A` });
+                    break;
+                case 'monoclinic':
+                    paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
+                    paramLines.push({ label: 'b', value: `= ${formatWithError(sol.b, p.s_b)} A` });
+                    paramLines.push({ label: 'c', value: `= ${formatWithError(sol.c, p.s_c)} A` });
+                    paramLines.push({ label: 'beta', value: `= ${formatWithError(sol.beta, p.s_beta)} deg` });
+                    break;
+                case 'triclinic':
+                    paramLines.push({ label: 'a', value: `= ${formatWithError(sol.a, p.s_a)} A` });
+                    paramLines.push({ label: 'b', value: `= ${formatWithError(sol.b, p.s_b)} A` });
+                    paramLines.push({ label: 'c', value: `= ${formatWithError(sol.c, p.s_c)} A` });
+                    paramLines.push({ label: 'alpha', value: `= ${formatWithError(sol.alpha, p.s_alpha)} deg` });
+                    paramLines.push({ label: 'beta', value: `= ${formatWithError(sol.beta, p.s_beta)} deg` });
+                    paramLines.push({ label: 'gamma', value: `= ${formatWithError(sol.gamma, p.s_gamma)} deg` });
+                    break;
+            }
+            
+            paramLines.push({ label: 'Volume', value: `= ${sol.volume.toFixed(2)} A^3` });
+        
+            if (sol.zero_correction !== undefined) { 
+                paramLines.push({ label: 'Zero Error (2theta)', value: `= ${formatWithError(sol.zero_correction, p.s_zero)} deg` });
+            }
+            
+            const n_20_pdf = sol.n_20 || Math.min(20, reportPeaks.length);
+            paramLines.push({ label: `M(${n_20_pdf})`, value: `= ${sol.m20.toFixed(2)}` });
+            paramLines.push({ label: `F(${n_20_pdf})`, value: `= ${(sol.fN_20 || 0).toFixed(2)}` });
+
+            const n_all_pdf = sol.n_all || reportPeaks.length;
+            paramLines.push({ label: `M(${n_all_pdf})`, value: `= ${(sol.m_all || 0).toFixed(2)}` });
+            paramLines.push({ label: `F(${n_all_pdf})`, value: `= ${(sol.fN_all || 0).toFixed(2)}` });
+                     
+            const longestLabelWidth = Math.max(...paramLines.map(line => doc.getTextWidth(line.label)));
+            const labelEndX = margin + longestLabelWidth;
+            const dataStartX = labelEndX + 2; 
+        
+            paramLines.forEach(line => {
+                doc.text(line.label, labelEndX, yPos, { align: 'right' });
+                doc.text(line.value, dataStartX, yPos);
+                yPos += 4;
+            });
+        
+            yPos += 3; 
+
+            if (sol.analysis && sol.analysis.centering) {
+                doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text(`Lattice Centering:`, margin, yPos);
+                doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(sol.analysis.centering, margin + 42, yPos);
+                yPos += 7;
+            }
+
+            if (yPos > 225) { doc.addPage(); yPos = 20; }
+
+            try {
+                const r = Math.PI / 180.0;
+                const cellVolume = (cl) => {
+                    const ca = Math.cos(cl.alpha * r), cb = Math.cos(cl.beta * r), cg = Math.cos(cl.gamma * r);
+                    const term = Math.max(0, 1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
+                    return (term > 0) ? (cl.a * cl.b * cl.c * Math.sqrt(term)) : 0;
+                };
+
+                const col1LabelEndX = margin + 15;
+                const col1DataStartX = col1LabelEndX + 2;
+                const col2LabelEndX = margin + 78;
+                const col2DataStartX = col2LabelEndX + 2;
+
+                const drawCellBlock = (title, cl, subtitle) => {
+                    doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text(title, margin, yPos);
+                    yPos += 5;
+                    if (subtitle) {
+                        doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.SMALL);
+                        doc.setTextColor(90, 90, 90);
+                        doc.text(subtitle, margin, yPos);
+                        doc.setTextColor(0, 0, 0);
+                        yPos += 5;
+                    }
+
+                    const d = [
+                        { label: 'a',     value: `= ${cl.a.toFixed(4)} A` },
+                        { label: 'b',     value: `= ${cl.b.toFixed(4)} A` },
+                        { label: 'c',     value: `= ${cl.c.toFixed(4)} A` },
+                        { label: 'alpha', value: `= ${cl.alpha.toFixed(3)} deg` },
+                        { label: 'beta',  value: `= ${cl.beta.toFixed(3)} deg` },
+                        { label: 'gamma', value: `= ${cl.gamma.toFixed(3)} deg` }
+                    ];
+
+                    doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+
+                    for (let i = 0; i < 3; i++) {
+                        doc.text(d[i].label, col1LabelEndX, yPos, { align: 'right' });
+                        doc.text(d[i].value, col1DataStartX, yPos);
+                        doc.text(d[i + 3].label, col2LabelEndX, yPos, { align: 'right' });
+                        doc.text(d[i + 3].value, col2DataStartX, yPos);
+                        yPos += 4;
+                    }
+
+                    doc.text("Volume", col1LabelEndX, yPos, { align: 'right' });
+                    doc.text(`= ${cellVolume(cl).toFixed(2)} A^3`, col1DataStartX, yPos);
+                    yPos += 6;
+                };
+
+                const niggliResult = reduceToNiggliCell(sol);
+                const nCell = niggliResult.cell;
+                const nVol = cellVolume(nCell);
+
+                const centeringStr = String((sol.analysis && sol.analysis.centering) || '').toUpperCase();
+                let centeringKey = null;   
+                for (const cType of ['F', 'I', 'R', 'A', 'B', 'C', 'P']) {
+                    if (centeringStr.includes(`(${cType})`)) { centeringKey = cType; break; }
+                }
+
+                let subtitle1, title1;
+                if (centeringKey === 'P') {
+                    title1 = 'Reduced (Niggli) Cell:';
+                    subtitle1 = 'Krivy-Gruber reduction of the solved lattice metric. Lattice is primitive, so this IS the reduced (Niggli) cell.';
+                } else if (centeringKey === null) {
+                    title1 = 'Standardised Conventional Cell:';
+                    subtitle1 = 'Krivy-Gruber reduction of the solved lattice metric. Centering undetermined, so no primitive cell is derived.';
+                } else {
+                    title1 = 'Standardised Conventional Cell (centering not applied):';
+                    subtitle1 = `Krivy-Gruber reduction of the conventional basis only; the detected ${centeringKey}-centering is NOT applied, so this is not the reduced cell of the lattice.`;
+                }
+
+                drawCellBlock(title1, nCell, subtitle1);
+
+                if (centeringKey && centeringKey !== 'P') {
+                    try {
+                        const primResult = reduceToNiggliCell(sol, { centering: centeringKey });
+                        const pCell = primResult.cell;
+                        const pVol = cellVolume(pCell);
+                        const ratio = (pVol > 0) ? (nVol / pVol) : 0;
+
+                        drawCellBlock(
+                            'Reduced (Niggli) Cell - primitive:',
+                            pCell,
+                            `Reduced cell of the ${centeringKey}-centered lattice, centering applied`
+                                + (ratio > 0 ? `; volume is 1/${ratio.toFixed(0)} of the cell above.` : '.')
+                        );
+
+                        if (primResult.converged === false) {
+                            doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.SMALL);
+                            doc.setTextColor(180, 0, 0);
+                            doc.text('Warning: reduction did not converge; cell above may not be fully reduced.', margin, yPos);
+                            doc.setTextColor(0, 0, 0);
+                            yPos += 5;
+                        }
+                    } catch (ePrim) {
+                        doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.SMALL);
+                        doc.setTextColor(180, 0, 0);
+                        doc.text(`Reduced (Niggli) cell could not be computed for ${centeringKey}-centering.`, margin, yPos);
+                        doc.setTextColor(0, 0, 0);
+                        yPos += 6;
+                    }
+                }
+
+                const symmetryOrder = { 'cubic': 6, 'hexagonal': 5, 'tetragonal': 4, 'orthorhombic': 3, 'monoclinic': 2, 'triclinic': 1 };
+                const currentOrder = symmetryOrder[sol.system] || 1;
+                const niggliSym = getSymmetry(nCell.a, nCell.b, nCell.c, nCell.alpha, nCell.beta, nCell.gamma, 0.25);
+                const detectedHigherSyms = [];
+                
+                if (symmetryOrder[niggliSym] > currentOrder) {
+                    detectedHigherSyms.push({
+                        system: niggliSym,
+                        note: `Metric: ${niggliSym}`,
+                        cell: nCell
+                    });
+                }
+                
+                const checkSystems = ['cubic', 'hexagonal', 'tetragonal', 'orthorhombic', 'monoclinic'];
+                checkSystems.forEach(sys => {
+                    if (symmetryOrder[sys] > currentOrder) {
+                        const equiv = generateEquivalentCells(nCell, 0, sys);
+                        if (equiv && equiv.centeredCells) {
+                            Object.values(equiv.centeredCells).forEach(cCell => {
+                                if (symmetryOrder[cCell.system] > currentOrder) {
+                                    detectedHigherSyms.push({
+                                        system: cCell.system,
+                                        note: `${cCell.centering}-centered ${cCell.system}`,
+                                        cell: cCell
+                                    });
+                                }
+                            });
+                        }
+                    }
+                });
+
+                if (detectedHigherSyms.length > 0) {
+                    const uniqSyms = Array.from(new Map(detectedHigherSyms.map(item => [item.note, item])).values());
+                    
+                    if (yPos > 255) { doc.addPage(); yPos = 20; }
+                    
+                    doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY);
+                    doc.setTextColor(220, 38, 38); 
+                    doc.text("HIGHER SYMMETRY DETECTED IN CONVENTIONAL CELL METRIC", margin, yPos);
+                    doc.setTextColor(0, 0, 0); 
+                    yPos += 4.5;
+                    
+                    doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.SMALL);
+                    doc.text(`This ${sol.system} cell reduces to a metric tensor consistent with higher symmetry:`, margin + 2, yPos);
+                    yPos += 4;
+                    
+                    uniqSyms.forEach(sym => {
+                        if (yPos > 275) { doc.addPage(); yPos = 20; }
+                        const c = sym.cell;
+                        let paramStr = `a=${c.a.toFixed(3)}, b=${c.b.toFixed(3)}, c=${c.c.toFixed(3)}`;
+                        if (sym.system !== 'cubic' && sym.system !== 'orthorhombic' && sym.system !== 'tetragonal') {
+                            paramStr += `, al=${c.alpha.toFixed(2)}, be=${c.beta.toFixed(2)}, ga=${c.gamma.toFixed(2)}`;
+                        }
+                        const labelStr = `* ${sym.note.toUpperCase()}:`;
+                        doc.setFont(FONT.DATA, 'bold');
+                        doc.text(labelStr, margin + 4, yPos);
+                        doc.setFont(FONT.DATA, 'normal');
+                        const labelW = doc.getTextWidth(labelStr);
+                        const paramX = Math.max(margin + 50, margin + 4 + labelW + 3);
+                        if (paramX + doc.getTextWidth(paramStr) > pdfWidth - margin) {
+                            yPos += 3.5;
+                            doc.text(paramStr, margin + 8, yPos);
+                        } else {
+                            doc.text(paramStr, paramX, yPos);
+                        }
+                        yPos += 4;
+                    });
+                    
+                    doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
+                    doc.text("Note: Consider refining in the higher symmetry system to reduce degrees of freedom.", margin + 2, yPos);
+                    doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+                    yPos += 4;
+                }
+
+            } catch (niggliError) {
+                console.error("Niggli reduction failed:", niggliError);
+                doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY);
+                doc.text('Reduction failed. See console for error.', margin + 5, yPos);
                 yPos += 5;
             }
 
-            const d = [
-                { label: 'a',     value: `= ${cl.a.toFixed(4)} A` },
-                { label: 'b',     value: `= ${cl.b.toFixed(4)} A` },
-                { label: 'c',     value: `= ${cl.c.toFixed(4)} A` },
-                { label: 'alpha', value: `= ${cl.alpha.toFixed(3)} deg` },
-                { label: 'beta',  value: `= ${cl.beta.toFixed(3)} deg` },
-                { label: 'gamma', value: `= ${cl.gamma.toFixed(3)} deg` }
-            ];
+            yPos += 4;
 
-            doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+            if (sol.analysis) {
+                 doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Possible Extinctions:', margin, yPos); 
+                 let extinctionList = sol.analysis.detectedExtinctions || [];
+                 let extinctionText = "";
 
-            for (let i = 0; i < 3; i++) {
-                doc.text(d[i].label, col1LabelEndX, yPos, { align: 'right' });
-                doc.text(d[i].value, col1DataStartX, yPos);
-                doc.text(d[i + 3].label, col2LabelEndX, yPos, { align: 'right' });
-                doc.text(d[i + 3].value, col2DataStartX, yPos);
-                yPos += 4;
-            }
-
-            doc.text("Volume", col1LabelEndX, yPos, { align: 'right' });
-            doc.text(`= ${cellVolume(cl).toFixed(2)} A^3`, col1DataStartX, yPos);
-            yPos += 6;
-        };
-
-        // --- (1) Metric-only reduction (centering NOT applied) ---
-        const niggliResult = reduceToNiggliCell(sol);
-        const nCell = niggliResult.cell;
-        const nVol = cellVolume(nCell);
-
-        // Resolve the centering letter from the absence analysis string,
-        // e.g. "Body-centered (I)" -> "I". Unknown/absent -> 'P'.
-        const centeringStr = String((sol.analysis && sol.analysis.centering) || '').toUpperCase();
-        let centeringKey = null;   // null = not determined
-        for (const cType of ['F', 'I', 'R', 'A', 'B', 'C', 'P']) {
-            if (centeringStr.includes(`(${cType})`)) { centeringKey = cType; break; }
-        }
-
-        let subtitle1, title1;
-        if (centeringKey === 'P') {
-            // Lattice is primitive: no centering transform exists to apply, so the
-            // qualifier would be meaningless. This cell IS the reduced cell.
-            title1 = 'Reduced (Niggli) Cell:';
-            subtitle1 = 'Krivy-Gruber reduction of the solved lattice metric. Lattice is primitive, so this IS the reduced (Niggli) cell.';
-        } else if (centeringKey === null) {
-            title1 = 'Standardised Conventional Cell:';
-            subtitle1 = 'Krivy-Gruber reduction of the solved lattice metric. Centering undetermined, so no primitive cell is derived.';
-        } else {
-            title1 = 'Standardised Conventional Cell (centering not applied):';
-            subtitle1 = `Krivy-Gruber reduction of the conventional basis only; the detected ${centeringKey}-centering is NOT applied, so this is not the reduced cell of the lattice.`;
-        }
-
-        drawCellBlock(title1, nCell, subtitle1);
-
-        // --- (2) True primitive Niggli cell (centering APPLIED) ---
-        if (centeringKey && centeringKey !== 'P') {
-            try {
-                const primResult = reduceToNiggliCell(sol, { centering: centeringKey });
-                const pCell = primResult.cell;
-                const pVol = cellVolume(pCell);
-                const ratio = (pVol > 0) ? (nVol / pVol) : 0;
-
-                drawCellBlock(
-                    'Reduced (Niggli) Cell - primitive:',
-                    pCell,
-                    `Reduced cell of the ${centeringKey}-centered lattice, centering applied`
-                        + (ratio > 0 ? `; volume is 1/${ratio.toFixed(0)} of the cell above.` : '.')
-                );
-
-                if (primResult.converged === false) {
-                    doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.SMALL);
-                    doc.setTextColor(180, 0, 0);
-                    doc.text('Warning: reduction did not converge; cell above may not be fully reduced.', margin, yPos);
-                    doc.setTextColor(0, 0, 0);
-                    yPos += 5;
-                }
-            } catch (ePrim) {
-                doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.SMALL);
-                doc.setTextColor(180, 0, 0);
-                doc.text(`Reduced (Niggli) cell could not be computed for ${centeringKey}-centering.`, margin, yPos);
-                doc.setTextColor(0, 0, 0);
-                yPos += 6;
-            }
-        }
-
-            // --- HIGHER SYMMETRY / PSEUDO-SYMMETRY CHECK ---
-            const symmetryOrder = { 'cubic': 6, 'hexagonal': 5, 'tetragonal': 4, 'orthorhombic': 3, 'monoclinic': 2, 'triclinic': 1 };
-            const currentOrder = symmetryOrder[sol.system] || 1;
-            
-            // Use a 0.25 tolerance to reliably catch pseudo-symmetries in experimental powder data
-            const niggliSym = getSymmetry(nCell.a, nCell.b, nCell.c, nCell.alpha, nCell.beta, nCell.gamma, 0.25);
-            const detectedHigherSyms = [];
-            
-            // 1. Check if the standardised conventional cell itself matches a higher symmetry
-            if (symmetryOrder[niggliSym] > currentOrder) {
-                detectedHigherSyms.push({
-                    system: niggliSym,
-                    note: `Metric: ${niggliSym}`,
-                    cell: nCell
-                });
-            }
-            
-            // 2. Check conventional centered lattices (I, F, A, B, C, R)
-            const checkSystems = ['cubic', 'hexagonal', 'tetragonal', 'orthorhombic', 'monoclinic'];
-            checkSystems.forEach(sys => {
-                if (symmetryOrder[sys] > currentOrder) {
-                    const equiv = generateEquivalentCells(nCell, 0, sys);
-                    if (equiv && equiv.centeredCells) {
-                        Object.values(equiv.centeredCells).forEach(cCell => {
-                            if (symmetryOrder[cCell.system] > currentOrder) {
-                                detectedHigherSyms.push({
-                                    system: cCell.system,
-                                    note: `${cCell.centering}-centered ${cCell.system}`,
-                                    cell: cCell
-                                });
-                            }
-                        });
-                    }
-                }
-            });
-
-            // 3. Print a prominent alert box in the PDF if higher symmetry is found
-            if (detectedHigherSyms.length > 0) {
-                // Dedup by note string to avoid redundant lines
-                const uniqSyms = Array.from(new Map(detectedHigherSyms.map(item => [item.note, item])).values());
-                
-                if (yPos > 255) { doc.addPage(); yPos = 20; }
-                
-                doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY);
-                doc.setTextColor(220, 38, 38); // Distinct red warning color
-                doc.text("HIGHER SYMMETRY DETECTED IN CONVENTIONAL CELL METRIC", margin, yPos);
-                doc.setTextColor(0, 0, 0); // Reset text color to black
-                yPos += 4.5;
-                
-                doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.SMALL);
-                doc.text(`This ${sol.system} cell reduces to a metric tensor consistent with higher symmetry:`, margin + 2, yPos);
-                yPos += 4;
-                
-                uniqSyms.forEach(sym => {
-                    if (yPos > 275) { doc.addPage(); yPos = 20; }
-                    const c = sym.cell;
-                    let paramStr = `a=${c.a.toFixed(3)}, b=${c.b.toFixed(3)}, c=${c.c.toFixed(3)}`;
-                    if (sym.system !== 'cubic' && sym.system !== 'orthorhombic' && sym.system !== 'tetragonal') {
-                        paramStr += `, al=${c.alpha.toFixed(2)}, be=${c.beta.toFixed(2)}, ga=${c.gamma.toFixed(2)}`;
-                    }
-                    const labelStr = `* ${sym.note.toUpperCase()}:`;
-                    doc.setFont(FONT.DATA, 'bold');
-                    doc.text(labelStr, margin + 4, yPos);
-                    doc.setFont(FONT.DATA, 'normal');
-                    // Measure the label rather than assuming it fits a fixed 50 mm
-                    // column: long notes ("A-CENTERED ORTHORHOMBIC:") previously
-                    // overprinted the parameters. Fall back to a new line if the
-                    // pair cannot fit the printable width.
-                    const labelW = doc.getTextWidth(labelStr);
-                    const paramX = Math.max(margin + 50, margin + 4 + labelW + 3);
-                    if (paramX + doc.getTextWidth(paramStr) > pdfWidth - margin) {
-                        yPos += 3.5;
-                        doc.text(paramStr, margin + 8, yPos);
-                    } else {
-                        doc.text(paramStr, paramX, yPos);
-                    }
-                    yPos += 4;
-                });
-                
-                doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
-                doc.text("Note: Consider refining in the higher symmetry system to reduce degrees of freedom.", margin + 2, yPos);
-                doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
-                yPos += 4;
-            }
-            // -----------------------------------------------
-
-
-
-    } catch (niggliError) {
-
-
-        console.error("Niggli reduction failed:", niggliError);
-        doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY);
-        doc.text('Reduction failed. See console for error.', margin + 5, yPos);
-        yPos += 5;
-    }
-
-    yPos += 4;
-
-
-      	// maille
-      	if (sol.analysis) {
-           	 // (Lattice Centering now printed above the cell-reduction block.)
-          	 
-          	 // possible groupes
-          	 doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Possible Extinctions:', margin, yPos); // Changed to H2, normal
-          	 let extinctionList = sol.analysis.detectedExtinctions || [];
-          	 let extinctionText = "";
-
-          	 if (extinctionList.length > 0 && extinctionList[0] !== "None detected") {
-            	  extinctionText = extinctionList.join(', '); // Join into a single string
-          	 } else {
-            	  extinctionText = "None clearly detected";
-            	  doc.setFont(FONT.DATA, 'italic'); // Use italic for "None"
-          	 }
-
-          	 const extinctionX = margin + 42;
-          	 const extinctionMaxWidth = pdfWidth - extinctionX - margin; // Max width available
-          	 const extinctionLines = doc.splitTextToSize(extinctionText, extinctionMaxWidth);
-
-          	 doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); // Ensure normal font
-          	 extinctionLines.forEach(line => {
-            	  if (yPos > 280) { // Check for page break before printing line
-              	   doc.addPage();
-              	   yPos = 20;
-            	  }
-            	  doc.text(line, extinctionX, yPos);
-            	  yPos += 4; // Move down for the next line (adjust line spacing if needed)
-          	 });
-          	 yPos += 3; // Total spacing after extinctions (was 7 before 16 nov update)
-
-         if (sol.analysis.rankedSpaceGroups && sol.analysis.rankedSpaceGroups.length > 0) {
-             if (yPos > 260) { doc.addPage(); yPos = 20; }
-             doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Possible Space Groups:', margin, yPos);
-             yPos += 6;
-
-             // Note about hard/soft scoring if Ka2-suspect peaks were involved
-             if (sol.analysis.usedKa2SoftScoring) {
-                 doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
-                 const note = '(Hard = real reflection violations, count toward ranking below. Soft = from Ka2-suspect/weak peaks only, shown for reference.)';
-                 doc.text(note, margin + 5, yPos);
-                 yPos += 4;
-                 doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
-             }
-
-             const sgList = sol.analysis.rankedSpaceGroups.slice(0, 20);
-
-             // Bucket settings by HARD violation count for the "[N hard
-             // violations]:" section headers. Every individual setting still
-             // gets its own full hard+soft violation listing below (the
-             // previous version only ever looked at settings[0] within a
-             // bucket, and read violatedReflectionsHard/violatedReflections
-             // off an object that never actually had those keys — it only
-             // stored a field named 'violations' — so no hkl was ever
-             // printed here in practice).
-             const groupsByViolation = {};
-             sgList.forEach(sg => {
-                 const v = sg.hardViolations || 0;
-                 if (!groupsByViolation[v]) groupsByViolation[v] = [];
-                 groupsByViolation[v].push(sg);
-             });
-
-             const violationBuckets = Object.keys(groupsByViolation).map(Number).sort((a, b) => a - b);
-
-             // Prints one labeled block of violating reflections (if any) for a setting.
-             const printViolationList = (list, header, italic) => {
-                 if (!list || list.length === 0) return;
-                 if (yPos > 280) { doc.addPage(); yPos = 20; }
-                 doc.setFont(FONT.DATA, italic ? 'italic' : 'normal').setFontSize(SIZE.SMALL);
-                 doc.text(header, margin + 10, yPos);
-                 yPos += 3.5;
-                 list.forEach(viol => {
-                     if (yPos > 280) { doc.addPage(); yPos = 20; }
-                     const violationLines = doc.splitTextToSize(`- ${viol}`, pdfWidth - margin - margin - 15);
-                     violationLines.forEach(vl => {
-                         if (yPos > 280) { doc.addPage(); yPos = 20; }
-                         doc.text(vl, margin + 12, yPos);
-                         yPos += 3.5;
-                     });
-                 });
-             };
-
-             violationBuckets.forEach(v => {
-                 if (yPos > 270) { doc.addPage(); yPos = 20; }
-                 doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY).text(`[${v} hard violation${v !== 1 ? 's' : ''}]:`, margin, yPos);
-                 yPos += 5;
-
-                 groupsByViolation[v].forEach(sg => {
-                     if (yPos > 280) { doc.addPage(); yPos = 20; }
-
-                     const softTag = sg.softViolations > 0 ? `  [+${sg.softViolations} soft]` : '';
-                     const extTag = (sg.extinctionsTotal > 0)
-                         ? `  [explains ${sg.extinctionsExplained}/${sg.extinctionsTotal} absences]` : '';
-                     // Systematic absences are blind to the presence of an
-                     // inversion centre: a centrosymmetric group and an acentric
-                     // subgroup with identical reflection conditions cannot be
-                     // told apart from a powder pattern alone. Mark the acentric
-                     // ones so an apparent "tie" is read as the real ambiguity it
-                     // is, resolvable only by |E| statistics or the structure.
-                     const acentricTag = (sg.centrosymmetric === false) ? '  [acentric]' : '';
-                     doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.TABLE_BODY);
-                     doc.text(`${sg.number}: ${sg.symbol}${softTag}${extTag}${acentricTag}`, margin + 5, yPos);
-                     yPos += 4;
-
-                     // Name the detected systematic absences this setting cannot
-                     // account for. These are the discriminating evidence: a
-                     // setting that leaves one unexplained is predicting that
-                     // reflections which were never observed should be present.
-                     const unexplained = sg.extinctionsUnexplained || [];
-                     if (unexplained.length > 0) {
-                         if (yPos > 280) { doc.addPage(); yPos = 20; }
-                         doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
-                         doc.setTextColor(150, 60, 0);
-                         doc.text(`Does not explain: ${unexplained.join('; ')}`, margin + 10, yPos);
-                         doc.setTextColor(0, 0, 0);
-                         yPos += 4;
-                     }
-
-                     const hardList = sg.violatedReflectionsHard || [];
-                     const softList = sg.violatedReflectionsSoft || [];
-
-                     // hardList is only ever empty inside the "[0 hard violations]"
-                     // bucket (hardCount === hardList.length always), whose header
-                     // already says as much — so if softList is empty too, there's
-                     // nothing worth adding here; just leave the symbol line alone.
-                     printViolationList(hardList, 'Hard violations (weigh against this space group):', false);
-                     printViolationList(softList, 'Soft violations (Ka2-suspect/weak; not counted against ranking):', true);
-
-                     doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
-                     yPos += 2;
-                 });
-                 yPos += 2;
-             });
-         }
-      	 	 yPos += 3; // Spacing after space groups if section exists
-
-      	 	 // violations
-      	 	 if (sol.analysis.centeringViolations && Object.keys(sol.analysis.centeringViolations).length > 0) {
-        	  if (yPos > 268) { doc.addPage(); yPos = 20; }
-        	  doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Centering test violations:', margin, yPos); // Changed to H2, normal
-        	  yPos += 5;
-        	  const ch = sol.analysis.centeringViolationsHard || {};
-        	  const cs = sol.analysis.centeringViolationsSoft || {};
-        	  const violText = Object.entries(sol.analysis.centeringViolations)
-        	      .sort(([,a], [,b]) => a - b)
-        	      .map(([key, val]) => {
-        	          const hardV = ch[key] != null ? ch[key] : val;
-        	          const softV = cs[key] != null ? cs[key] : 0;
-        	          return softV > 0 ? `${key}:${hardV}(+${softV} soft)` : `${key}:${hardV}`;
-        	      })
-        	      .join(', ');
-        	  doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(violText, margin, yPos);
-        	  yPos += 5;
-        	  if (sol.analysis.centeringViolations && sol.analysis.centeringViolationDetails) {
-          	   doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL); // Smaller, italic font for details
-          	   let detailsYOffset = 0; // Track y position adjustments
-
-          	   for (const type of ['I', 'F', 'A', 'B', 'C']) {
-          	 	   const count = sol.analysis.centeringViolations[type];
-          	 	   const details = sol.analysis.centeringViolationDetails[type];
-
-          	 	   if ((count === 1 || count === 2) && details && details.length > 0) {
-          	 	 	   let detailText = `${type} violation${count > 1 ? 's' : ''}: `;
-          	 	 	   detailText += details.map(d =>
-          	 	 	 	   `(${d.h},${d.k},${d.l}) at ${d.tth.toFixed(3)}°`
-          	 	 	   ).join('; ');
-
-          	 	 	   // Check for page break BEFORE printing the detail line
-          	 	 	   if (yPos + detailsYOffset > 285) { 
-          	 	 	 	   doc.addPage();
-          	 	 	 	   yPos = 20;
-          	 	 	 	   detailsYOffset = 0; // Reset offset for the new page
-          	 	 	   }
-          	 	 	   doc.text(detailText, margin + 5, yPos + detailsYOffset); // Indent slightly
-          	 	 	   detailsYOffset += 3.5; // Move down for the next potential detail line
-          	 	   }
-          	   }
-          	   yPos += detailsYOffset; // Apply the total offset used for details
-          	   doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); // Reset font
-        	  }
-        	  
-        	  
-        	  
-        	  yPos += 5;
-      	 	 }
-      	} 
-      	yPos += 4; 
-      	if (yPos > 255) { doc.addPage(); yPos = 20; }
-    
-    
-    	 	doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.TABLE_HEADER);
-            const tableHeader = ' h  k  l| 2th_exp 2th_cor 2th_cal diff(2t)|   d_corr   d_calc  diff(d)';
-    	 	doc.text(tableHeader, margin, yPos); yPos += 4;
-      	 
-    // Use the cached list from the analysis, or recalculate if it's missing
-// When an extinction-aware re-refinement succeeded, compute the table from THAT
-// cell. Otherwise the table would show re-assigned hkl labels while its d_calc
-// and diff columns still came from a cell fitted to the old pairing - which is
-// exactly the inconsistency the re-refinement exists to remove.
-const hklList = sol.analysis?.hklList || generateHKL_for_analysis(sol, lambda, tthMaxVal);
-      	 
-    	 	if (hklList.length === 0) {
-        	 	 doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY).text('Could not generate theoretical reflections for this cell.', margin, yPos);
-        	 	 yPos += 5;
-        	 	 return; 
-      	 	}
-    
-    	 	const ambiguousHkls = (sol.analysis ? sol.analysis.ambiguousHkls : new Set()) || new Set();
-  	 	const corrected_tth_obs = reportPeaks.map(p => ({ ...p, tth_corr: p.tth - (sol.zero_correction || 0) }));
-    	 	const reportLines = []; 
-    	 	const assignedHkls = new Set();
-    
-                 // Assignments the user set with "Swap hkl". The table is built by
-                 // nearest-line matching, which would otherwise quietly revert a manual
-                 // choice: the whole reason for swapping is that the nearest line is the
-                 // wrong one, so re-deriving it here reproduces the original mistake.
-                 const manualByTth = new Map();
-                 (sol.manualSwaps || []).forEach(sw => {
-                     if (sw && Number.isFinite(sw.h) && Number.isFinite(sw.k) && Number.isFinite(sw.l)) {
-                         manualByTth.set(Number(sw.tth).toFixed(4), sw);
-                     }
-                 });
-
-    	 	corrected_tth_obs.forEach((corr_peak) => {
-        	 	 let bestMatchHkl = null; let minDiff = Infinity;
-        	 	 hklList.forEach(hkl => { const diff = Math.abs(hkl.tth - corr_peak.tth_corr); if (diff < minDiff) { minDiff = diff; bestMatchHkl = hkl; } });
-
-                    // Match window must align exactly with the 1.5x tolerance used in the space-group analyzer
-                 const indexWindow = tthError * 1.5;
-
-                 // A manual assignment wins, and is kept even when it falls outside
-                 // the window - overruling the nearest-line rule is precisely what
-                 // the user asked for when they used Swap hkl.
-                 const _man = manualByTth.get(Number(corr_peak.tth).toFixed(4));
-                 let isManual = false;
-                 if (_man) {
-                     const forced = hklList.find(x => x.h === _man.h && x.k === _man.k && x.l === _man.l);
-                     if (forced) { bestMatchHkl = forced; minDiff = Math.abs(forced.tth - corr_peak.tth_corr); isManual = true; }
+                 if (extinctionList.length > 0 && extinctionList[0] !== "None detected") {
+                      extinctionText = extinctionList.join(', '); 
+                 } else {
+                      extinctionText = "None clearly detected";
+                      doc.setFont(FONT.DATA, 'italic'); 
                  }
 
-        	 	 if (bestMatchHkl && (isManual || minDiff < indexWindow) && corr_peak.tth_corr >= tthMinVal && corr_peak.tth_corr <= tthMaxVal) {
-          	 	 	 reportLines.push({
+                 const extinctionX = margin + 42;
+                 const extinctionMaxWidth = pdfWidth - extinctionX - margin; 
+                 const extinctionLines = doc.splitTextToSize(extinctionText, extinctionMaxWidth);
 
-          	 	 	    h: bestMatchHkl.h, k: bestMatchHkl.k, l: bestMatchHkl.l,
-          	 	 	    tth_meas: corr_peak.tth, tth_corr: corr_peak.tth_corr,
-          	 	 	    tth_calc: bestMatchHkl.tth, d_calc: bestMatchHkl.d,
-          	 	 	    ka2Suspect: !!corr_peak.ka2Suspect,
-          	 	 	    hasKa2Child: !!corr_peak.hasKa2Child,
-          	 	 	    manual: isManual
-          	 	 	 });
-          	 	 	 assignedHkls.add(`${bestMatchHkl.h},${bestMatchHkl.k},${bestMatchHkl.l}`);
-        	 	 }
-      	 	});
-    
-    	 	hklList.forEach(hkl => {
-        	 	 if (!assignedHkls.has(`${hkl.h},${hkl.k},${hkl.l}`) && hkl.tth >= tthMinVal && hkl.tth <= tthMaxVal) {
-          	 	 	 reportLines.push({ h: hkl.h, k: hkl.k, l: hkl.l, tth_meas: null, tth_corr: null, tth_calc: hkl.tth, d_calc: hkl.d });
-        	 	 }
-      	 	});
-      	 	
-      	 	reportLines.sort((a, b) => a.tth_calc - b.tth_calc);
-      	 	
-      	 	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
-      	 
+                 doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); 
+                 extinctionLines.forEach(line => {
+                      if (yPos > 280) { 
+                           doc.addPage();
+                           yPos = 20;
+                      }
+                      doc.text(line, extinctionX, yPos);
+                      yPos += 4; 
+                 });
+                 yPos += 3; 
 
+                 if (sol.analysis.rankedSpaceGroups && sol.analysis.rankedSpaceGroups.length > 0) {
+                     if (yPos > 260) { doc.addPage(); yPos = 20; }
+                     doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Possible Space Groups:', margin, yPos);
+                     yPos += 6;
 
-    reportLines.forEach(line => {
-    if (yPos > 285) { doc.addPage(); yPos = 20; doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.TABLE_HEADER); doc.text(tableHeader, margin, yPos); yPos += 4; doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); }
+                     if (sol.analysis.usedKa2SoftScoring) {
+                         doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
+                         const note = '(Hard = real reflection violations, count toward ranking below. Soft = from Ka2-suspect/weak peaks only, shown for reference.)';
+                         doc.text(note, margin + 5, yPos);
+                         yPos += 4;
+                         doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
+                     }
+
+                     const sgList = sol.analysis.rankedSpaceGroups.slice(0, 20);
+                     const groupsByViolation = {};
+                     sgList.forEach(sg => {
+                         const v = sg.hardViolations || 0;
+                         if (!groupsByViolation[v]) groupsByViolation[v] = [];
+                         groupsByViolation[v].push(sg);
+                     });
+
+                     const violationBuckets = Object.keys(groupsByViolation).map(Number).sort((a, b) => a - b);
+
+                     const printViolationList = (list, header, italic) => {
+                         if (!list || list.length === 0) return;
+                         if (yPos > 280) { doc.addPage(); yPos = 20; }
+                         doc.setFont(FONT.DATA, italic ? 'italic' : 'normal').setFontSize(SIZE.SMALL);
+                         doc.text(header, margin + 10, yPos);
+                         yPos += 3.5;
+                         list.forEach(viol => {
+                             if (yPos > 280) { doc.addPage(); yPos = 20; }
+                             const violationLines = doc.splitTextToSize(`- ${viol}`, pdfWidth - margin - margin - 15);
+                             violationLines.forEach(vl => {
+                                 if (yPos > 280) { doc.addPage(); yPos = 20; }
+                                 doc.text(vl, margin + 12, yPos);
+                                 yPos += 3.5;
+                             });
+                         });
+                     };
+
+                     violationBuckets.forEach(v => {
+                         if (yPos > 270) { doc.addPage(); yPos = 20; }
+                         doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY).text(`[${v} hard violation${v !== 1 ? 's' : ''}]:`, margin, yPos);
+                         yPos += 5;
+
+                         groupsByViolation[v].forEach(sg => {
+                             if (yPos > 280) { doc.addPage(); yPos = 20; }
+
+                             const softTag = sg.softViolations > 0 ? `  [+${sg.softViolations} soft]` : '';
+                             const extTag = (sg.extinctionsTotal > 0)
+                                 ? `  [explains ${sg.extinctionsExplained}/${sg.extinctionsTotal} absences]` : '';
+                             const acentricTag = (sg.centrosymmetric === false) ? '  [acentric]' : '';
+                             doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.TABLE_BODY);
+                             doc.text(`${sg.number}: ${sg.symbol}${softTag}${extTag}${acentricTag}`, margin + 5, yPos);
+                             yPos += 4;
+
+                             const unexplained = sg.extinctionsUnexplained || [];
+                             if (unexplained.length > 0) {
+                                 if (yPos > 280) { doc.addPage(); yPos = 20; }
+                                 doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
+                                 doc.setTextColor(150, 60, 0);
+                                 doc.text(`Does not explain: ${unexplained.join('; ')}`, margin + 10, yPos);
+                                 doc.setTextColor(0, 0, 0);
+                                 yPos += 4;
+                             }
+
+                             const hardList = sg.violatedReflectionsHard || [];
+                             const softList = sg.violatedReflectionsSoft || [];
+
+                             printViolationList(hardList, 'Hard violations (weigh against this space group):', false);
+                             printViolationList(softList, 'Soft violations (Ka2-suspect/weak; not counted against ranking):', true);
+
+                             doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
+                             yPos += 2;
+                         });
+                         yPos += 2;
+                     });
+                 }
+                 yPos += 3; 
+
+                 if (sol.analysis.centeringViolations && Object.keys(sol.analysis.centeringViolations).length > 0) {
+                      if (yPos > 268) { doc.addPage(); yPos = 20; }
+                      doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Centering test violations:', margin, yPos); 
+                      yPos += 5;
+                      const ch = sol.analysis.centeringViolationsHard || {};
+                      const cs = sol.analysis.centeringViolationsSoft || {};
+                      const violText = Object.entries(sol.analysis.centeringViolations)
+                          .sort(([,a], [,b]) => a - b)
+                          .map(([key, val]) => {
+                              const hardV = ch[key] != null ? ch[key] : val;
+                              const softV = cs[key] != null ? cs[key] : 0;
+                              return softV > 0 ? `${key}:${hardV}(+${softV} soft)` : `${key}:${hardV}`;
+                          })
+                          .join(', ');
+                      doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(violText, margin, yPos);
+                      yPos += 5;
+                      if (sol.analysis.centeringViolations && sol.analysis.centeringViolationDetails) {
+                           doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL); 
+                           let detailsYOffset = 0; 
+
+                           for (const type of ['I', 'F', 'A', 'B', 'C']) {
+                               const count = sol.analysis.centeringViolations[type];
+                               const details = sol.analysis.centeringViolationDetails[type];
+
+                               if ((count === 1 || count === 2) && details && details.length > 0) {
+                                   let detailText = `${type} violation${count > 1 ? 's' : ''}: `;
+                                   detailText += details.map(d =>
+                                       `(${d.h},${d.k},${d.l}) at ${d.tth.toFixed(3)}°`
+                                   ).join('; ');
+
+                                   if (yPos + detailsYOffset > 285) { 
+                                       doc.addPage();
+                                       yPos = 20;
+                                       detailsYOffset = 0; 
+                                   }
+                                   doc.text(detailText, margin + 5, yPos + detailsYOffset); 
+                                   detailsYOffset += 3.5; 
+                               }
+                           }
+                           yPos += detailsYOffset; 
+                           doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); 
+                      }
+                      yPos += 5;
+                 }
+            } 
+            yPos += 4; 
+            if (yPos > 255) { doc.addPage(); yPos = 20; }
     
-    const hkl_key = `${line.h},${line.k},${line.l}`;
-    const isAmbiguous = ambiguousHkls.has(hkl_key);
-    if (isAmbiguous) {
-        doc.setFont(FONT.DATA, 'italic');
-    }
+            doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.TABLE_HEADER);
+            const tableHeader = ' h  k  l  | 2th_exp 2th_cor 2th_cal diff(2t)|   d_corr   d_calc  diff(d)';
+            doc.text(tableHeader, margin, yPos); yPos += 4;
+            
+            const hklList = sol.analysis?.hklList || generateHKL_for_analysis(sol, lambda, tthMaxVal);
+            if (hklList.length === 0) {
+                 doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY).text('Could not generate theoretical reflections for this cell.', margin, yPos);
+                 yPos += 5;
+                 return; 
+            }
+        
+            const ambiguousHkls = (sol.analysis ? sol.analysis.ambiguousHkls : new Set()) || new Set();
+            const corrected_tth_obs = reportPeaks.map(p => ({ ...p, tth_corr: p.tth - (sol.zero_correction || 0) }));
+            const reportLines = []; 
+            const assignedHkls = new Set();
+        
+            const manualByTth = new Map();
+            (sol.manualSwaps || []).forEach(sw => {
+                 if (sw && Number.isFinite(sw.h) && Number.isFinite(sw.k) && Number.isFinite(sw.l)) {
+                     manualByTth.set(Number(sw.tth).toFixed(4), sw);
+                 }
+            });
 
-    const lambdaForD = (line.hasKa2Child && lambdaKa1) ? lambdaKa1 : lambda;
-    const d_corr = line.tth_corr ? lambdaForD / (2 * Math.sin(line.tth_corr * Math.PI / 360)) : null;
+            corrected_tth_obs.forEach((corr_peak) => {
+                 let bestMatchHkl = null; let minDiff = Infinity;
+                 let isManual = false;
 
-    const tth_m = line.tth_meas ? line.tth_meas.toFixed(3) : '-'; 
-    const tth_c = line.tth_corr ? line.tth_corr.toFixed(3) : '-'; 
-    const diff_2t = line.tth_corr ? (line.tth_corr - line.tth_calc).toFixed(3) : '-'; 
+                 if (corr_peak.ka2Suspect && corr_peak.ka2ParentIdx != null && pickedPeaks[corr_peak.ka2ParentIdx]) {
+                     const parentPeak = pickedPeaks[corr_peak.ka2ParentIdx];
+                     const parentTthCorr = parentPeak.tth - (sol.zero_correction || 0);
+                     
+                     let parentHkl = null; let minParentDiff = Infinity;
+                     hklList.forEach(hkl => {
+                         const diff = Math.abs(hkl.tth - parentTthCorr);
+                         if (diff < minParentDiff) { minParentDiff = diff; parentHkl = hkl; }
+                     });
 
-    const d_c_str = d_corr ? d_corr.toFixed(5) : '-'; 
-    const diff_d = d_corr ? (d_corr - line.d_calc).toFixed(5) : '-';
+                     const manParent = manualByTth.get(Number(parentPeak.tth).toFixed(4));
+                     if (manParent) {
+                         const forced = hklList.find(x => x.h === manParent.h && x.k === manParent.k && x.l === manParent.l);
+                         if (forced) parentHkl = forced;
+                     }
 
-    const _marker = line.hasKa2Child ? '*' : ' '; 
-    const hkl_str = `${String(line.h).padStart(2)} ${String(line.k).padStart(2)} ${String(line.l).padStart(2)}${_marker}`.padEnd(8);
-    
-    // Build the line (using let so we can append to it)
-    let pdfLine = `${hkl_str}| ${tth_m.padStart(7)} ${tth_c.padStart(7)} ${line.tth_calc.toFixed(3).padStart(7)} ${diff_2t.padStart(8)}| ${d_c_str.padStart(8)} ${line.d_calc.toFixed(5).padStart(8)} ${diff_d.padStart(8)}`;
-    
-    // Append star at the end if uncertain
-    if (isAmbiguous) {
-        pdfLine += ' *';
-    }
-    // Flag assignments the user set by hand, so the table never looks like an
-    // unexplained departure from nearest-line indexing.
-    if (line.manual) {
-        pdfLine += '  (manual)';
-    }
+                     if (parentHkl && lambdaKa2 && parentHkl.d > 0) {
+                         const sinTheta2 = lambdaKa2 / (2 * parentHkl.d);
+                         if (sinTheta2 < 1.0) {
+                             const tthCalcKa2 = 2 * Math.asin(sinTheta2) * (180 / Math.PI);
+                             bestMatchHkl = {
+                                 h: parentHkl.h, k: parentHkl.k, l: parentHkl.l,
+                                 tth: tthCalcKa2,
+                                 d: parentHkl.d
+                             };
+                             minDiff = Math.abs(bestMatchHkl.tth - corr_peak.tth_corr);
+                         }
+                     }
+                 } else {
+                     hklList.forEach(hkl => { const diff = Math.abs(hkl.tth - corr_peak.tth_corr); if (diff < minDiff) { minDiff = diff; bestMatchHkl = hkl; } });
 
-    doc.text(pdfLine, margin, yPos);
-    
-    doc.setFont(FONT.DATA, 'normal'); // Reset font to normal for the next line
-    yPos += 3.5;
-});
+                     const _man = manualByTth.get(Number(corr_peak.tth).toFixed(4));
+                     if (_man) {
+                         const forced = hklList.find(x => x.h === _man.h && x.k === _man.k && x.l === _man.l);
+                         if (forced) { bestMatchHkl = forced; minDiff = Math.abs(forced.tth - corr_peak.tth_corr); isManual = true; }
+                     }
+                 }
 
+                 const indexWindow = tthError * 1.5;
 
+                 if (bestMatchHkl && (isManual || minDiff < indexWindow) && corr_peak.tth_corr >= tthMinVal && corr_peak.tth_corr <= tthMaxVal) {
+                      reportLines.push({
+                         h: bestMatchHkl.h, k: bestMatchHkl.k, l: bestMatchHkl.l,
+                         tth_meas: corr_peak.tth, tth_corr: corr_peak.tth_corr,
+                         tth_calc: bestMatchHkl.tth, d_calc: bestMatchHkl.d,
+                         ka2Suspect: !!corr_peak.ka2Suspect,
+                         hasKa2Child: !!corr_peak.hasKa2Child,
+                         manual: isManual
+                      });
+                      assignedHkls.add(`${bestMatchHkl.h},${bestMatchHkl.k},${bestMatchHkl.l}`);
+                 }
+            });
+        
+            hklList.forEach(hkl => {
+                 if (!assignedHkls.has(`${hkl.h},${hkl.k},${hkl.l}`) && hkl.tth >= tthMinVal && hkl.tth <= tthMaxVal) {
+                      reportLines.push({ h: hkl.h, k: hkl.k, l: hkl.l, tth_meas: null, tth_corr: null, tth_calc: hkl.tth, d_calc: hkl.d });
+                 }
+            });
+            
+            reportLines.sort((a, b) => a.tth_calc - b.tth_calc);
+            
+            doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+            
+            reportLines.forEach(line => {
+                 if (yPos > 285) { doc.addPage(); yPos = 20; doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.TABLE_HEADER); doc.text(tableHeader, margin, yPos); yPos += 4; doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); }
+                
+                 const hkl_key = `${line.h},${line.k},${line.l}`;
+                 const isAmbiguous = ambiguousHkls.has(hkl_key);
+                 if (isAmbiguous) {
+                     doc.setFont(FONT.DATA, 'italic');
+                 }
 
+                 let lambdaForD = lambda;
+                 if (line.hasKa2Child && lambdaKa1) lambdaForD = lambdaKa1;
+                 else if (line.ka2Suspect && lambdaKa2) lambdaForD = lambdaKa2;
 
-            // Footnote about Ka2-marked rows
-            if (reportLines.some(l => l.hasKa2Child)) {
-                if (yPos > 280) { doc.addPage(); yPos = 20; }
+                 const d_corr = line.tth_corr ? lambdaForD / (2 * Math.sin(line.tth_corr * Math.PI / 360)) : null;
+
+                 const tth_m = line.tth_meas ? line.tth_meas.toFixed(3) : '-'; 
+                 const tth_c = line.tth_corr ? line.tth_corr.toFixed(3) : '-'; 
+                 const diff_2t = line.tth_corr ? (line.tth_corr - line.tth_calc).toFixed(3) : '-'; 
+
+                 const d_c_str = d_corr ? d_corr.toFixed(5) : '-'; 
+                 const diff_d = d_corr ? (d_corr - line.d_calc).toFixed(5) : '-';
+
+                 const _marker = line.hasKa2Child ? '*1' : (line.ka2Suspect ? '*2' : ''); 
+                 const hkl_nums = `${String(line.h).padStart(2)} ${String(line.k).padStart(2)} ${String(line.l).padStart(2)}`;
+                 const hkl_str = `${hkl_nums}${_marker}`.padEnd(10);
+                
+                 let pdfLine = `${hkl_str}| ${tth_m.padStart(7)} ${tth_c.padStart(7)} ${line.tth_calc.toFixed(3).padStart(7)} ${diff_2t.padStart(8)}| ${d_c_str.padStart(8)} ${line.d_calc.toFixed(5).padStart(8)} ${diff_d.padStart(8)}`;
+                
+                 if (isAmbiguous) {
+                     pdfLine += ' *';
+                 }
+                 if (line.manual) {
+                     pdfLine += '  (manual)';
+                 }
+
+                 doc.text(pdfLine, margin, yPos);
+                
+                 doc.setFont(FONT.DATA, 'normal'); 
+                 yPos += 3.5;
+            });
+
+            if (reportLines.some(l => l.hasKa2Child || l.ka2Suspect)) {
+                if (yPos > 276) { doc.addPage(); yPos = 20; }
                 doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
-                const note = `(*) d_corr computed with lambda_Ka1 = ${lambdaKa1 ? lambdaKa1.toFixed(5) : '-'} A; this peak's Ka2 ghost was identified.`;
-                doc.text(note, margin, yPos);
-                yPos += 4;
+                const note1 = `(*1) Ka1 parent line: d_corr computed with Ka1 = ${lambdaKa1 ? lambdaKa1.toFixed(5) : '-'} A.`;
+                const note2 = `(*2) Ka2 companion line: d_corr computed with Ka2 = ${lambdaKa2 ? lambdaKa2.toFixed(5) : '-'} A (same d-spacing as parent).`;
+                if (reportLines.some(l => l.hasKa2Child)) { doc.text(note1, margin, yPos); yPos += 3.5; }
+                if (reportLines.some(l => l.ka2Suspect)) { doc.text(note2, margin, yPos); yPos += 3.5; }
                 doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
             }
-    	});
-    
-    	 	const filename = `Indexing-Report-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.pdf`;
-    	 	doc.save(filename);
-    	 	showStatus('PDF report generated and saved.', 'success');
-    
-  	} catch (error) {
-    	 	console.error("Failed to generate PDF:", error);
-    	 	showStatus("An error occurred during PDF generation.", 'error');
-  	} finally {
-    	 	ui.reportButton.textContent = 'Generate PDF Report';
-    	 	ui.reportButton.disabled = (solutions.length === 0);
-    	 	document.body.style.cursor = 'default';
-  	}
-    };
+        });
+    
+        const filename = `Indexing-Report-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.pdf`;
+        doc.save(filename);
+        showStatus('PDF report generated and saved.', 'success');
+    
+    } catch (error) {
+        console.error("Failed to generate PDF:", error);
+        showStatus("An error occurred during PDF generation.", 'error');
+    } finally {
+        ui.reportButton.textContent = 'Generate PDF Report';
+        ui.reportButton.disabled = (solutions.length === 0);
+        document.body.style.cursor = 'default';
+    }
+};
 
 handleWavelengthPresetChange({ onLoad: true });
 window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectURL(workerURL); });
@@ -5643,7 +5519,7 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 21 July 2026</div>
+<div id="app-footer">Brutus, 22 July 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-swap">Swap hkl</div>
