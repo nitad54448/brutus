@@ -1889,22 +1889,34 @@ function monteCarloPolish(sol, data, state, opts) {
 
         let finalCell = bestCell;
         const polished = mcLeastSquaresPolish(bestCell, data, state, ctx);
-        if (polished) {
+        if (polished && polished.errors && Object.keys(polished.errors).length) {
             const evP = mcEvaluateCell(polished, ctx);
-            if (evP && isFinite(evP.m20) && evP.m20 > startM20 + 1e-6) {
+            const m20Pol = (evP && isFinite(evP.m20)) ? evP.m20 : -Infinity;
+            // Accept the refined cell as long as it still beats the PARENT. It
+            // does not have to beat the raw sample: the sample is one draw from
+            // the walk with no covariance behind it, while the polish is a real
+            // fit at essentially the same point. Requiring the polish to win on
+            // M20 as well was the bug -- when the sample happened to score a
+            // fraction higher, the polished cell was thrown away and the result
+            // reached the report with no error bars at all.
+            if (m20Pol > startM20 + 1e-6) {
                 finalCell = polished;
             }
         }
 
-        // If we ended up on the raw sample, try once more to attach errors by
-        // refining at that point directly. Cheap, and it closes the gap where a
-        // result would otherwise reach the table with no standard deviations.
+        // If we are keeping the raw sampled point, it still needs standard
+        // deviations. They cannot come from mcLeastSquaresPolish, because that
+        // MOVES the cell to the least-squares minimum -- and the whole reason we
+        // are on the sample is that the minimum scores worse on M20. The sample
+        // often sits on a narrow M20 spike that the residual minimum is not on.
+        //
+        // So: build the design matrix at the sampled cell, solve, and take only
+        // the covariance matrix, discarding the shifted parameters. The result is
+        // the uncertainty of the reported cell rather than of some other cell
+        // nearby, which is exactly what should be quoted.
         if (!finalCell.errors) {
-            const retry = mcLeastSquaresPolish(finalCell, data, state, ctx);
-            if (retry && retry.errors) {
-                const evR = mcEvaluateCell(retry, ctx);
-                if (evR && isFinite(evR.m20) && evR.m20 > startM20 + 1e-6) finalCell = retry;
-            }
+            const cov = mcErrorsAtFixedCell(finalCell, data, state, ctx);
+            if (cov) finalCell.errors = cov;
         }
 
         const evF = mcEvaluateCell(finalCell, ctx);
@@ -1967,6 +1979,80 @@ function monteCarloRefineCell(sol, data, state, opts) {
     return best;
 }
 
+// Standard deviations for a cell we do NOT want to move.
+//
+// mcLeastSquaresPolish returns a refined cell -- new parameters plus their
+// errors. That is wrong when the cell being reported is a sampled point sitting
+// on an M20 spike: refining walks off the spike, so the errors would belong to a
+// different cell than the one quoted. This builds the same design matrix and
+// solves the same system, but keeps only the covariance, so the uncertainties
+// describe the reported cell.
+function mcErrorsAtFixedCell(cell, data, state, ctx) {
+    try {
+        const { wavelength, refineZero } = data;
+        const { peaks_sorted_by_q } = state;
+        const system = cell.system;
+        const minIndexed = { cubic: 4, tetragonal: 5, hexagonal: 5,
+                             orthorhombic: 6, monoclinic: 7, triclinic: 7 };
+
+        const refl = generateHKL_for_worker(cell, state.q_max, state.d_min, wavelength);
+        if (!refl || refl.length === 0) return null;
+        const z = cell.zero_correction || 0;
+
+        const rows = [], qv = [], qCorr = [], tthRads = [];
+        const used = new Set();
+        for (let i = 0; i < peaks_sorted_by_q.length; i++) {
+            const p = peaks_sorted_by_q[i];
+            const tc = p.tth - z;
+            if (!isFinite(tc) || tc <= 0 || tc >= 180) continue;
+            const st = Math.sin(tc * RAD / 2);
+            const q_to_match = (4 * st * st) / (wavelength * wavelength);
+            if (!isFinite(q_to_match)) continue;
+            const tol = ctx.tolFn(p.original_index);
+            let best = -1, bd = Infinity;
+            for (let j = 0; j < refl.length; j++) {
+                const dd = Math.abs(refl[j].q - q_to_match);
+                if (dd < bd) { bd = dd; best = j; }
+            }
+            if (best < 0 || !(bd < tol) || used.has(best)) continue;
+            used.add(best);
+            const R = refl[best];
+            const row = getLSDesignRow([R.h, R.k, R.l], system);
+            if (!row || row.some(x => !isFinite(x))) continue;
+            const stRaw = Math.sin(p.tth * RAD / 2);
+            const qRaw = (4 * stRaw * stRaw) / (wavelength * wavelength);
+            if (refineZero) row.push((2 / (wavelength * wavelength)) * Math.sin(p.tth * RAD));
+            rows.push(row);
+            qv.push(refineZero ? qRaw : q_to_match);
+            qCorr.push(q_to_match);
+            tthRads.push(p.tth * RAD);
+        }
+
+        const needCell = (minIndexed[system] || 6);
+        if (rows.length < needCell) return null;
+        const useZeroColumn = refineZero && rows.length >= needCell + 1;
+
+        let designRows = rows, targets = qv;
+        if (refineZero && !useZeroColumn) {
+            designRows = rows.map(r => r.slice(0, r.length - 1));
+            targets = qCorr;
+        }
+
+        const fit = solveLeastSquares(designRows, targets, ls_weights_for_2theta(tthRads));
+        if (!fit || !fit.covarianceMatrix) return null;
+
+        // Errors are propagated against the REPORTED cell, not the fitted one.
+        const errs = propagateErrors(system, fit, cell);
+        if (!errs || !Object.keys(errs).length) return null;
+        for (const k of Object.keys(errs)) {
+            if (!isFinite(errs[k]) || errs[k] < 0) return null;
+        }
+        return errs;
+    } catch (e) {
+        return null;
+    }
+}
+
 // Constrained least-squares refinement at a fixed assignment, used as the final
 // polish. Mirrors refineAndTestSolution's pairing so the result is consistent
 // with the rest of the program.
@@ -1982,7 +2068,10 @@ function mcLeastSquaresPolish(cell, data, state, ctx) {
         if (!refl || refl.length === 0) return null;
         const z = cell.zero_correction || 0;
 
-        const rows = [], qv = [], tthRads = [];
+        // qv holds the target for the zero-refining fit (uncorrected q, so the
+        // zero column has something to absorb); qCorr holds the zero-corrected q
+        // used by the fallback fit that holds the zero fixed.
+        const rows = [], qv = [], qCorr = [], tthRads = [];
         const used = new Set();
         for (let i = 0; i < peaks_sorted_by_q.length; i++) {
             const p = peaks_sorted_by_q[i];
@@ -2010,13 +2099,36 @@ function mcLeastSquaresPolish(cell, data, state, ctx) {
             if (refineZero) row.push((2 / (wavelength * wavelength)) * Math.sin(p.tth * RAD));
             rows.push(row);
             qv.push(refineZero ? qRaw : q_to_match);
+            qCorr.push(q_to_match);
             tthRads.push(p.tth * RAD);
         }
 
-        const need = (minIndexed[system] || 6) + (refineZero ? 1 : 0);
-        if (rows.length < need) return null;
+        // The zero column costs one degree of freedom. With a short peak list
+        // that extra column can be the difference between a fit and no fit at
+        // all -- and returning null here means the caller falls back to the raw
+        // sampled point, which has no covariance matrix and therefore reaches
+        // the report with no error bars. That is exactly the case a 7-peak
+        // orthorhombic pattern hits: 6 cell parameters + 1 zero = 7 rows needed,
+        // so a single unpaired peak sinks it.
+        //
+        // So: try with the zero column, and if there is not enough data for it,
+        // refit the cell alone holding the zero at its current value. A cell
+        // with standard deviations and a fixed zero is far more useful than a
+        // cell with neither.
+        const needCell = (minIndexed[system] || 6);
+        const needWithZero = needCell + 1;
+        let useZeroColumn = refineZero && rows.length >= needWithZero;
+        if (rows.length < needCell) return null;
 
-        const fit = solveLeastSquares(rows, qv, ls_weights_for_2theta(tthRads));
+        let designRows = rows, targets = qv;
+        if (refineZero && !useZeroColumn) {
+            // Drop the zero column and fit the zero-corrected q instead, so the
+            // current zero is applied but not refined.
+            designRows = rows.map(r => r.slice(0, r.length - 1));
+            targets = qCorr;
+        }
+
+        const fit = solveLeastSquares(designRows, targets, ls_weights_for_2theta(tthRads));
         if (!fit || !fit.solution) return null;
         if (fit.solution.some(x => !isFinite(x))) return null;
 
@@ -2025,9 +2137,14 @@ function mcLeastSquaresPolish(cell, data, state, ctx) {
         if (!out) return null;
         out.system = system;
         if (refineZero) {
-            const zNew = fit.solution[fit.solution.length - 1] * DEG;
-            if (!isFinite(zNew) || Math.abs(zNew) > 1.0) return null;
-            out.zero_correction = zNew;
+            if (useZeroColumn) {
+                const zNew = fit.solution[fit.solution.length - 1] * DEG;
+                if (!isFinite(zNew) || Math.abs(zNew) > 1.0) return null;
+                out.zero_correction = zNew;
+            } else {
+                // Zero was held, not refined; carry the value forward unchanged.
+                out.zero_correction = z;
+            }
         }
         out.volume = getVolume(out);
         if (!isFinite(out.volume) || out.volume <= 0) return null;
