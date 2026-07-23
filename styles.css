@@ -198,6 +198,14 @@
         .ka2-warning-banner b { color: #fcd34d; }
 
         .solutions-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+
+        /* Provenance badges in the solutions table. A derived cell must never be
+           mistaken for an independent hit, so both are colour-coded and carry a
+           tooltip. Colours are chosen for contrast against --medium-bg: the
+           obvious #2563eb blue only reaches 2.8:1 there and is unreadable. */
+        .sol-badge { font-size: 0.85em; cursor: help; }
+        .sol-badge.swap { color: #d97706; }
+        .sol-badge.mc { color: #60a5fa; }
         .solutions-table th, .solutions-table td { padding: 0.5rem; text-align: left; border-bottom: 1px solid var(--border-color); vertical-align: middle;}
         .solutions-table th { background-color: #2a3547; font-weight: 600; position: sticky; top: 0;}
         .solutions-table th[data-sort] { cursor: pointer; } 
@@ -423,6 +431,44 @@
         #swap-table tr.unindexed td { color: var(--text-dark); font-style: italic; }
         #swap-msg { min-height: 18px; margin-top: 10px; font-size: 0.8rem; color: #f87171; }
         #swap-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; }
+
+        /* Refine MC dialog. Mirrors the swap modal so the two right-click
+           dialogs read as the same object; narrower because it holds three
+           fields rather than a scrolling table. */
+        #mc-overlay {
+            display: none; position: fixed; inset: 0; z-index: 3000;
+            background: rgba(0,0,0,0.55); align-items: center; justify-content: center;
+        }
+        #mc-overlay.open { display: flex; }
+        #mc-modal {
+            background: var(--medium-bg); border: 1px solid var(--border-color);
+            border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            width: min(480px, 92vw); max-height: 86vh; display: flex; flex-direction: column;
+            padding: 18px 20px; color: var(--text-light);
+        }
+        #mc-title { margin: 0 0 4px 0; font-size: 1.05rem; }
+        #mc-sub { margin: 0 0 14px 0; font-size: 0.8rem; color: var(--text-dark); line-height: 1.45; }
+        #mc-params {
+            display: grid; grid-template-columns: 1fr 96px; gap: 12px 14px; align-items: center;
+        }
+        #mc-params label {
+            display: flex; flex-direction: column; gap: 2px;
+            font-size: 0.875rem; font-weight: 500; color: var(--text-medium);
+        }
+        #mc-params .mc-hint { font-weight: 400; font-size: 0.75rem; color: var(--text-dark); line-height: 1.35; }
+        #mc-params input {
+            width: 100%; box-sizing: border-box; background: var(--light-bg);
+            border: 1px solid var(--border-color); color: var(--text-light);
+            border-radius: 4px; padding: 5px 7px; text-align: center; font-size: 0.85rem;
+        }
+        #mc-params input:focus {
+            outline: none; border-color: var(--primary-accent);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+        }
+        #mc-params input.invalid { border-color: var(--error-red); background: rgba(220,38,38,0.12); }
+        #mc-msg { min-height: 18px; margin-top: 12px; font-size: 0.8rem; color: #f87171; }
+        #mc-msg.info { color: var(--text-dark); }
+        #mc-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; }
         #context-menu {
             display: none;
             position: absolute;

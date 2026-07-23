@@ -320,12 +320,38 @@
     <div id="status-box"></div>
 
     <script src="main_app.js"></script>
-<div id="app-footer">Brutus, 22 July 2026</div>
+<div id="app-footer">Brutus, 23 July 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-swap">Swap hkl</div>
+    <div id="ctx-mc">Refine MC</div>
     <div id="ctx-report">Generate Report</div>
 </div>
+<div id="mc-overlay">
+  <div id="mc-modal">
+    <h3 id="mc-title">Refine MC</h3>
+    <p id="mc-sub">Monte-Carlo search around the selected cell, constrained to its
+       crystal system. Zero is refined as an extra parameter when "Refine Zero" is on.
+       The result is added as a new solution only if it improves M20.</p>
+    <div id="mc-params">
+      <label for="mc-iterations">Iterations
+        <span class="mc-hint">annealing steps per run; below ~200 the walk has not cooled</span>
+      </label>
+      <input id="mc-iterations" type="number" min="50" max="20000" step="50" value="700">
+
+      <label for="mc-restarts">Restarts
+        <span class="mc-hint">independent runs; more restarts = less seed dependence</span>
+      </label>
+      <input id="mc-restarts" type="number" min="1" max="20" step="1" value="2">
+    </div>
+    <div id="mc-msg"></div>
+    <div id="mc-buttons">
+      <button id="mc-cancel" class="btn btn-secondary">Cancel</button>
+      <button id="mc-apply" class="btn btn-primary">Apply</button>
+    </div>
+  </div>
+</div>
+
 <div id="swap-overlay">
   <div id="swap-modal">
     <h3 id="swap-title">Swap hkl</h3>
