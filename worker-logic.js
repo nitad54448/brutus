@@ -629,7 +629,7 @@ const calculateFiguresOfMerit = (q_calc_sorted, peaks_for_merit, impurity_peaks,
     }
     if (N - N_indexed > impurity_peaks || N_indexed === 0) return { m20: 0, fN: 0 };
     const avg_delta_q = sum_delta_q / N_indexed;
-    const N_calc_M = countLE(q_calc_sorted, q_n * 1.05);
+    const N_calc_M = countLE(q_calc_sorted, q_n);
     const mN = (N_calc_M > 0 && avg_delta_q > 1e-12) ? (q_n / (2 * avg_delta_q * N_calc_M)) : 0;
     const avg_delta_tth = sum_delta_tth / N_indexed;
     const q_limit_fN = (4 * Math.sin(tth_n_deg * RAD / 2)**2) / (wavelength**2);

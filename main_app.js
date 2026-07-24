@@ -948,6 +948,7 @@ const setupWorker = () => {
             this._initialised = false;
         }
 
+
         _spawn() {
             if (this.workers.length > 0) return; // idempotent
             for (let i = 0; i < this.size; i++) {
@@ -965,10 +966,17 @@ const setupWorker = () => {
                         }
                     }
                     w.activeBatches.clear();
+
+                    // ADD THIS: Remove the dead worker from the pool
+                    const deadIndex = this.workers.indexOf(w);
+                    if (deadIndex !== -1) {
+                        this.workers.splice(deadIndex, 1);
+                    }
                 };
                 this.workers.push(w);
             }
         }
+
 
         _onMessage(e, w) {
             const msg = e.data;
