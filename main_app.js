@@ -1467,10 +1467,10 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
             return { tth, intensity };
         };
 
-        const parseXrdmlFile = (xmlString) => { const parser = new DOMParser(); const xmlDoc = parser.parseFromString(xmlString, "application/xml"); if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing XRDML file."); } let wavelength = null; const kAlpha1Node = xmlDoc.querySelector("kAlpha1"); if (kAlpha1Node?.textContent) wavelength = parseFloat(kAlpha1Node.textContent); const intensityNode = xmlDoc.querySelector("intensities") || xmlDoc.querySelector("counts"); if (!intensityNode) throw new Error("Could not find <intensities> or <counts> in XRDML file."); const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number); const positionsNode = xmlDoc.querySelector('positions[axis="2Theta"]'); if (!positionsNode) throw new Error("Could not find <positions> in XRDML file."); const startPosNode = positionsNode.querySelector("startPosition"); const endPosNode = positionsNode.querySelector("endPosition"); if (!startPosNode || !endPosNode) throw new Error("Could not find start/end positions in XRDML."); const startPos = parseFloat(startPosNode.textContent); const endPos = parseFloat(endPosNode.textContent); const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * (endPos - startPos) / (intensity.length - 1)); return { tth, intensity, wavelength }; };
+        const parseXrdmlFile = (xmlString) => { const parser = new DOMParser(); const xmlDoc = parser.parseFromString(xmlString, "application/xml"); if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing XRDML file."); } let wavelength = null; const kAlpha1Node = xmlDoc.querySelector("kAlpha1"); if (kAlpha1Node?.textContent) wavelength = parseFloat(kAlpha1Node.textContent); const intensityNode = xmlDoc.querySelector("intensities") || xmlDoc.querySelector("counts"); if (!intensityNode) throw new Error("Could not find <intensities> or <counts> in XRDML file."); const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number); const positionsNode = xmlDoc.querySelector('positions[axis="2Theta"]'); if (!positionsNode) throw new Error("Could not find <positions> in XRDML file."); const startPosNode = positionsNode.querySelector("startPosition"); const endPosNode = positionsNode.querySelector("endPosition"); if (!startPosNode || !endPosNode) throw new Error("Could not find start/end positions in XRDML."); const startPos = parseFloat(startPosNode.textContent); const endPos = parseFloat(endPosNode.textContent); if (!isFinite(startPos) || !isFinite(endPos)) throw new Error("XRDML start/end positions are not numeric."); if (intensity.length === 0) throw new Error("XRDML file contains no intensity points."); /* With a single point the old expression divided by zero and produced NaN/Infinity for every 2-theta; emit the single start position instead. */ const step = intensity.length > 1 ? (endPos - startPos) / (intensity.length - 1) : 0; const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * step); return { tth, intensity, wavelength }; };
         const parseBrukerBrmlFile = (xmlString) => { const parser = new DOMParser(); const xmlDoc = parser.parseFromString(xmlString, "application/xml"); if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing BRML file."); } let wavelength = null; const wlNode = xmlDoc.querySelector('usedWavelength'); if (wlNode) { const kAlpha1 = wlNode.getAttribute('kAlpha1'); if (kAlpha1) wavelength = parseFloat(kAlpha1); } const intensityNode = xmlDoc.querySelector("dataPoints > counts"); if (!intensityNode) throw new Error("No <counts> data found in BRML file."); const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number); const startPosNode = xmlDoc.querySelector('startPosition[axis="TwoTheta"]'); const stepSizeNode = xmlDoc.querySelector('increment[axis="TwoTheta"]'); if (!startPosNode || !stepSizeNode) throw new Error("Could not find scan parameters in BRML file."); const startPos = parseFloat(startPosNode.textContent); const stepSize = parseFloat(stepSizeNode.textContent); const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * stepSize); return { tth, intensity, wavelength }; };
         const parseRigakuRasFile = (text) => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; let inDataSection = false; let wavelength = null; for (const line of lines) { const upperLine = line.toUpperCase(); if (upperLine.startsWith('*WAVE_LENGTH') || upperLine.startsWith('*MEAS_COND_XG_WAVE_LENGTH')) { const parts = line.trim().split(/\s+/); if (parts.length > 1) { const wl = parseFloat(parts[1]); if (!isNaN(wl)) wavelength = wl; } } if (upperLine.startsWith('*RAS_INT_START')) { inDataSection = true; continue; } if (upperLine.startsWith('*RAS_INT_END')) break; if (inDataSection) { const parts = line.trim().split(/[\s,]+/); if (parts.length >= 2) { const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); } } } } if (tth.length === 0) throw new Error("No data found in RAS file data section."); return { tth, intensity, wavelength }; };
-        const parseGsasEsdFile = (text) => { const lines = text.trim().split(/\r?\n/); let wavelength = null; let startTth, stepSize; let dataStartIndex = -1; lines.forEach((line, index) => { const upperLine = line.toUpperCase(); if (upperLine.includes('WAVELENGTH')) { const match = line.match(/wavelength\s+([0-9.]+)/i); if (match && match[1]) wavelength = parseFloat(match[1]); } if (upperLine.startsWith('BANK')) { const parts = line.trim().split(/\s+/); if (parts.length >= 6 && parts[4].toUpperCase() === 'CONST') { startTth = parseFloat(parts[5]) / 100.0; stepSize = parseFloat(parts[6]) / 100.0; dataStartIndex = index + 1; } } }); if (startTth === undefined || stepSize === undefined) throw new Error("GSAS Parse Error: Could not find a valid 'BANK' line with CONST scan parameters."); if (dataStartIndex !== -1 && lines[dataStartIndex]?.toUpperCase().includes('STD')) dataStartIndex++; if (dataStartIndex === -1 || dataStartIndex >= lines.length) throw new Error("GSAS Parse Error: Found scan parameters but no subsequent data lines."); const intensity = []; for (let i = dataStartIndex; i < lines.length; i++) { const parts = lines[i].trim().split(/\s+/); for (let j = 1; j < parts.length; j += 2) { const val = parseFloat(parts[j]); if (!isNaN(val)) intensity.push(val); } } if (intensity.length === 0) throw new Error("GSAS Parse Error: No intensity data could be parsed."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
+        const parseGsasEsdFile = (text) => { const lines = text.trim().split(/\r?\n/); let wavelength = null; let startTth, stepSize; let dataStartIndex = -1; lines.forEach((line, index) => { const upperLine = line.toUpperCase(); if (upperLine.includes('WAVELENGTH')) { const match = line.match(/wavelength\s+([0-9.]+)/i); if (match && match[1]) wavelength = parseFloat(match[1]); } if (upperLine.startsWith('BANK')) { const parts = line.trim().split(/\s+/); /* parts[6] is the step size, so a CONST line needs 7 tokens, not 6. With >= 6 a 6-token line made stepSize = parseFloat(undefined) = NaN, and the "=== undefined" guard below let NaN through, turning every 2-theta into start + i*NaN. */ if (parts.length >= 7 && parts[4].toUpperCase() === 'CONST') { const s0 = parseFloat(parts[5]) / 100.0; const ds = parseFloat(parts[6]) / 100.0; /* Reject non-numeric or zero/negative steps here rather than emitting a NaN/constant 2-theta axis downstream. */ if (isFinite(s0) && isFinite(ds) && ds > 0) { startTth = s0; stepSize = ds; dataStartIndex = index + 1; } } } }); if (!isFinite(startTth) || !isFinite(stepSize)) throw new Error("GSAS Parse Error: Could not find a valid 'BANK' line with CONST scan parameters."); if (dataStartIndex !== -1 && lines[dataStartIndex]?.toUpperCase().includes('STD')) dataStartIndex++; if (dataStartIndex === -1 || dataStartIndex >= lines.length) throw new Error("GSAS Parse Error: Found scan parameters but no subsequent data lines."); const intensity = []; for (let i = dataStartIndex; i < lines.length; i++) { const parts = lines[i].trim().split(/\s+/); for (let j = 1; j < parts.length; j += 2) { const val = parseFloat(parts[j]); if (!isNaN(val)) intensity.push(val); } } if (intensity.length === 0) throw new Error("GSAS Parse Error: No intensity data could be parsed."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
         
         const parseGsasXraFile = (text) => {
     const lines = text.trim().split(/\r?\n/);
@@ -1486,14 +1486,20 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
         if (upperLine.startsWith('BANK')) {
             const parts = line.trim().split(/\s+/);
             if (parts.length >= 7 && parts[4].toUpperCase() === 'CONST') {
-                startTth = parseFloat(parts[5]) / 100.0;
-                stepSize = parseFloat(parts[6]) / 100.0;
-                dataStartIndex = index + 1;
+                const s0 = parseFloat(parts[5]) / 100.0;
+                const ds = parseFloat(parts[6]) / 100.0;
+                // A non-numeric token yields NaN, which the old "=== undefined"
+                // guard below did not catch. Validate here instead.
+                if (isFinite(s0) && isFinite(ds) && ds > 0) {
+                    startTth = s0;
+                    stepSize = ds;
+                    dataStartIndex = index + 1;
+                }
             }
         }
     });
 
-    if (startTth === undefined || stepSize === undefined) throw new Error("GSAS XRA Parse Error: Could not find a valid 'BANK' line with CONST scan parameters.");
+    if (!isFinite(startTth) || !isFinite(stepSize)) throw new Error("GSAS XRA Parse Error: Could not find a valid 'BANK' line with CONST scan parameters.");
     if (dataStartIndex === -1 || dataStartIndex >= lines.length) throw new Error("GSAS XRA Parse Error: Found scan parameters but no subsequent data lines.");
 
     const intensity = [];
@@ -1820,6 +1826,32 @@ ui.tthMinSlider.addEventListener('input', () => {
 
 
 
+    // In-place quickselect: returns the k-th smallest element of `arr` (0-based),
+    // reordering `arr` as a side effect. Average O(n) vs the O(n log n) of a full
+    // sort, which matters because findPeaks (and its median-of-absolute-deviations
+    // noise estimate) runs on every slider drag over the full-resolution scan.
+    // Result for a given k is identical to arr.slice().sort()[k].
+    const quickselect = (arr, k) => {
+        let lo = 0, hi = arr.length - 1;
+        while (lo < hi) {
+            // Median-of-three pivot to avoid O(n^2) on sorted/near-sorted input
+            // (background-corrected intensities are far from random).
+            const mid = (lo + hi) >> 1;
+            const a = arr[lo], b = arr[mid], c = arr[hi];
+            const pivot = a < b ? (b < c ? b : (a < c ? c : a)) : (a < c ? a : (b < c ? c : b));
+            let i = lo, j = hi;
+            while (i <= j) {
+                while (arr[i] < pivot) i++;
+                while (arr[j] > pivot) j--;
+                if (i <= j) { const t = arr[i]; arr[i] = arr[j]; arr[j] = t; i++; j--; }
+            }
+            if (k <= j) hi = j;
+            else if (k >= i) lo = i;
+            else break;
+        }
+        return arr[k];
+    };
+
     function findPeaks() {
         // Now uses workingExperimentalData
         if (!workingExperimentalData || !workingExperimentalData.intensity || workingExperimentalData.intensity.length < 5) return;
@@ -1847,14 +1879,18 @@ ui.tthMinSlider.addEventListener('input', () => {
         const maxCorrectedIntensity = (rangeView.length > 0 ? maxOfArray(rangeView) : maxOfArray(backgroundCorrected)) || 1;
         const minAbsoluteHeight = (minHeightPercent / 100) * maxCorrectedIntensity;
         
-        const calculateNoiseLevel = (data) => { 
-    const n_s = data.length; 
-    if (n_s < 10) return 0; 
-    // Sample every point instead of a sparse 100-point grid to prevent boundary-shift artifacts
-    const sample = data.slice().sort((a, b) => a - b); 
-    const median = sample[Math.floor(sample.length / 2)]; 
-    const deviations = sample.map(x => Math.abs(x - median)).sort((a, b) => a - b); 
-    return deviations[Math.floor(deviations.length / 2)] * 1.4826; 
+        const calculateNoiseLevel = (data) => {
+    const n_s = data.length;
+    if (n_s < 10) return 0;
+    // MAD-based robust noise estimate. Two O(n) quickselects on scratch copies
+    // replace the two full O(n log n) sorts the original did; the median index
+    // (floor(len/2)) is unchanged, so the result is bit-identical.
+    const work = Float64Array.from(data);
+    const midIdx = Math.floor(n_s / 2);
+    const median = quickselect(work, midIdx);
+    for (let i = 0; i < n_s; i++) work[i] = Math.abs(work[i] - median);
+    const mad = quickselect(work, midIdx);
+    return mad * 1.4826;
 };
 
         const noiseSrc = rangeView.length >= 10 ? rangeView : backgroundCorrected;

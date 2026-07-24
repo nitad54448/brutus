@@ -1,11 +1,21 @@
 // webgpu-engine.js
 class WebGPUEngine {
+    // Fetched WGSL source is plain text and does not depend on the GPUDevice, so
+    // it is cached at class level and survives across engine instances (i.e.
+    // across indexing runs). The compiled GPUShaderModule and GPUComputePipeline
+    // ARE bound to a specific device, so those live on the instance below.
+    static _shaderTextCache = new Map();   // url -> Promise<string>
+
     constructor() {
         this.device = null;
         this.adapter = null; 
         this.shaderModule = null;
         this.pipeline = null;
         this.bindGroupLayout = null; // Store explicit layout
+
+        this._moduleCache = new Map();   // url -> GPUShaderModule
+        this._pipelineCache = new Map(); // `${url}::${entryPoint}` -> GPUComputePipeline
+        this._currentShaderUrl = null;   // set by loadShader, read by createPipeline
     }
 
     // 1. Initialize WebGPU
@@ -28,14 +38,56 @@ class WebGPUEngine {
     }
 
     // 2. Load the WGSL Shader
+    //
+    // The WGSL never changes at runtime, so both the network fetch and the
+    // compile are cached. Previously every indexing run re-fetched and
+    // re-compiled the shader before dispatching any work.
     async loadShader(url) {
-        const response = await fetch(url);
-        const shaderCode = await response.text();
-        this.shaderModule = this.device.createShaderModule({ code: shaderCode });
+        this._currentShaderUrl = url;
+
+        // Already compiled on THIS device? Nothing to do.
+        const cachedModule = this._moduleCache.get(url);
+        if (cachedModule) {
+            this.shaderModule = cachedModule;
+            return;
+        }
+
+        // Cache the in-flight promise, not just the result, so two concurrent
+        // callers for the same url share one request instead of racing.
+        let textPromise = WebGPUEngine._shaderTextCache.get(url);
+        if (!textPromise) {
+            textPromise = fetch(url).then(response => {
+                // A 404 from a dev server returns an HTML error page with status
+                // 200-ish handling downstream; without this check that HTML was
+                // passed to createShaderModule and surfaced as a baffling WGSL
+                // syntax error instead of "file not found".
+                if (!response.ok) {
+                    throw new Error(`Failed to load shader ${url}: HTTP ${response.status}`);
+                }
+                return response.text();
+            });
+            WebGPUEngine._shaderTextCache.set(url, textPromise);
+        }
+
+        let shaderCode;
+        try {
+            shaderCode = await textPromise;
+        } catch (err) {
+            // Don't cache a failure permanently; let the next attempt retry.
+            WebGPUEngine._shaderTextCache.delete(url);
+            throw err;
+        }
+
+        const module = this.device.createShaderModule({ code: shaderCode });
+        this._moduleCache.set(url, module);
+        this.shaderModule = module;
     }
 
     // 3. Create Explicit Bind Group Layout (Fixes "Binding not present" error)
     createBindGroupLayout() {
+        // The layout is identical for every system/shader, so build it once per
+        // device rather than on every createPipeline call.
+        if (this.bindGroupLayout) return this.bindGroupLayout;
         // Define the layout manually to prevent compiler from stripping unused debug bindings
         this.bindGroupLayout = this.device.createBindGroupLayout({
             entries: [
@@ -51,10 +103,21 @@ class WebGPUEngine {
                 { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }  // q_tolerances
             ]
         });
+        return this.bindGroupLayout;
     }
 
     // 4. Create the compute pipeline with Explicit Layout
     createPipeline(entryPoint = "main") {
+        // Reuse a previously-built pipeline for this (shader, entryPoint) pair.
+        // Pipeline compilation is one of the most expensive WebGPU calls, and
+        // both the shader url and entry point are fixed per crystal system.
+        const cacheKey = `${this._currentShaderUrl}::${entryPoint}`;
+        const cachedPipeline = this._pipelineCache.get(cacheKey);
+        if (cachedPipeline) {
+            this.pipeline = cachedPipeline;
+            return this.pipeline;
+        }
+
         this.createBindGroupLayout(); // Ensure layout exists
 
         const pipelineLayout = this.device.createPipelineLayout({
@@ -68,6 +131,8 @@ class WebGPUEngine {
                 entryPoint: entryPoint,
             },
         });
+        this._pipelineCache.set(cacheKey, this.pipeline);
+        return this.pipeline;
     }
 
     // 5. Helper to create a buffer and write data to it
