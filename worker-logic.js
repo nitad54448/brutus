@@ -327,8 +327,12 @@ function generateHKL_for_analysis(params, lambda, maxTth, mode = 'full') {
                     const disc_t = B_l * B_l - 4 * S33 * (hk_term - q_max_limit);
                     if (!(disc_t >= 0)) continue; // no real l can satisfy q <= limit
                     const sq_t = Math.sqrt(disc_t);
-                    let l_lo = Math.max(-l_max, Math.ceil((-B_l - sq_t) / (2 * S33)) - 1);
-                    const l_hi = Math.min(l_max, Math.floor((-B_l + sq_t) / (2 * S33)) + 1);
+                    const S33_safe = Math.max(S33, 1e-14); // Prevent division by zero from MC drift
+                    let l_lo = Math.max(-l_max, Math.ceil((-B_l - sq_t) / (2 * S33_safe)) - 1);
+                    const l_hi = Math.min(l_max, Math.floor((-B_l + sq_t) / (2 * S33_safe)) + 1);
+                    
+                    
+                    
                     if (l_lo < 0) l_lo = 0; // Friedel half-space; l<0 is discarded below
 
                     for (let l = l_lo; l <= l_hi; l++) {
@@ -393,17 +397,19 @@ const generateHKL = (maxTth, params, system, defaultLambda = 1.54056) => {
     return generateHKL_for_analysis(params, lambda, maxTth);
 };
 
+
 const generateHKL_for_worker = (cell, q_max, d_min, lambda) => {
-    // We need lambda to correctly calculate the max 2-theta from q_max
-    const maxTth = Math.asin(Math.sqrt(q_max * lambda * lambda / 4.0)) * 360.0 / Math.PI;
+    const sineThetaSq = Math.min(1.0, Math.max(0.0, q_max * lambda * lambda / 4.0));
+    const maxTth = Math.asin(Math.sqrt(sineThetaSq)) * 360.0 / Math.PI;
     return generateHKL_for_analysis(cell, lambda, maxTth);
 };
 
-
 const generateQArray_for_worker = (cell, q_max, lambda) => {
-    const maxTth = Math.asin(Math.sqrt(q_max * lambda * lambda / 4.0)) * 360.0 / Math.PI;
+    const sineThetaSq = Math.min(1.0, Math.max(0.0, q_max * lambda * lambda / 4.0));
+    const maxTth = Math.asin(Math.sqrt(sineThetaSq)) * 360.0 / Math.PI;
     return generateHKL_for_analysis(cell, lambda, maxTth, 'q_only');
 };
+
 
 const getQcalc = (hkl, cell) => {
     const [h, k, l] = hkl;
@@ -756,11 +762,13 @@ const propagateErrors = (system, fitResult, cell) => {
                         
                         vals[j] = original; // Restore
 
-                        if (forward && backward) {
+                       if (forward && backward) {
                             for (let i = 0; i < 6; i++) { // Loop over cell params a...gamma
                                 // Central difference derivative
                                 J[i][j] = (forward[i] - backward[i]) / (2 * step);
                             }
+                        } else {
+                            return {};
                         }
                     }
 
