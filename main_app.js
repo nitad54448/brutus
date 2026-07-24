@@ -1391,7 +1391,25 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
                     }
                 }
 
-                const parts = line.trim().split(/[\s,;]+/);
+                // Decimal comma vs comma separator.
+                // "10,5 200" (European decimal) and "10.5,200.7" (CSV) are both
+                // valid and cannot be told apart by a blanket substitution, so
+                // decide per line. A comma is a DECIMAL MARK when either the
+                // line already has another delimiter doing the separating
+                // (whitespace or semicolon), or there is a single comma and no
+                // dot anywhere. Otherwise the comma is the field separator.
+                // Dots always win: if the line contains a dot, that is the
+                // decimal mark and any comma must be a separator.
+                const rawLine = line.trim();
+                const commaCount = (rawLine.match(/,/g) || []).length;
+                const hasOtherDelim = /[\s;]/.test(rawLine);
+                const hasDot = rawLine.includes('.');
+                const commaIsDecimal = commaCount > 0 && !hasDot &&
+                    (hasOtherDelim || commaCount === 1);
+                const sanitizedLine = commaIsDecimal
+                    ? rawLine.replace(/,(\d)/g, '.$1')
+                    : rawLine.replace(/,/g, ' ');
+                const parts = sanitizedLine.split(/[\s;]+/);
                 if (parts.length < 2) return;
 
                 const x = parseFloat(parts[0]);

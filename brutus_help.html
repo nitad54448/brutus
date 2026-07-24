@@ -505,6 +505,7 @@
                 <strong>Note:</strong> The status text at the bottom of the panel updates in real-time as you adjust these values, showing the total estimated number of cells to be tested. Ensure this number remains reasonable (e.g. under 500 Billion for a result within a few minutes). For a regular GPU card (e.g. Nvidia T1000, 8 GB) the effective search speed is typically in the range of tens of millions of cells per second.
             </div>
 
+ 
             <h4>3. Solutions Tab</h4>
             <ul>
                 <li>
@@ -521,9 +522,11 @@
                 </li>
                 <li>
                     <strong>Context Menu (Right-Click):</strong>
-                    Right-clicking a solution row opens a menu with two options:
+                    Right-clicking a solution row opens a menu with four options:
                     <ul>
                         <li><strong>Erase Solution:</strong> Permanently removes that solution from the ledger.</li>
+                        <li><strong>Swap hkl:</strong> Opens a dialog to manually correct peak assignments for the selected cell.</li>
+                        <li><strong>Refine MC:</strong> Runs a Monte Carlo stochastic search to polish the cell and escape local minima.</li>
                         <li><strong>Generate Report:</strong> Creates a PDF report for that solution only.</li>
                     </ul>
                 </li>
@@ -1945,7 +1948,35 @@
                 minimum could never run for triclinic cells at all.
             </p>
 
-            <h3>6. Final De-Duplication (Sieving)</h3>
+
+            <h3>6. Monte Carlo Cell Polish (Refine MC)</h3>
+            <p>
+                Least squares converges to the nearest minimum of the residual, but the M(20) score is not the residual: a cell a few tenths of a percent away can index more lines and score considerably higher. Brutus includes a <strong>Refine MC</strong> tool (accessible via the right-click context menu on the Solutions tab) to run a symmetry-constrained stochastic local hunt around a refined solution.
+            </p>
+            <p>
+                Instead of explicitly mutating or manually swapping HKL labels, this algorithm takes continuous random-walk steps in the reciprocal-space parameters (and the zero-error shift, if enabled). As the trial cell geometry shifts, the evaluation functions dynamically pair each observed peak to whichever theoretical line is now closest. 
+            </p>
+            <p>
+                If this dynamic re-pairing captures a better-fitting theoretical reflection and improves the overall M(20) score, the step is accepted. This allows the solution to smoothly escape local minima and naturally resolve its own HKL assignments without requiring manual intervention.
+            </p>
+
+            <h3>7. Final De-Duplication (Sieving)</h3>
+            <p>
+                After all transformations and re-refinements, Brutus applies a final de-duplication step.
+                If two solutions have volumes within 1% of each other:
+            </p>
+            <ul>
+                <li>The one with <strong>higher symmetry</strong> is preferred (e.g. orthorhombic beats monoclinic).</li>
+                <li>If their symmetry is identical, the one with <strong>higher M(20)</strong> is kept.</li>
+                <li>Solutions with M(20) values within a small tolerance (ΔM(20) &lt; 0.05) are considered
+                    equivalent in quality and the first one found is retained.</li>
+            </ul>
+            <p>
+                The final retained set contains at most 50 solutions, ranked by M(20).
+            </p>
+
+
+            <h3>7. Final De-Duplication (Sieving)</h3>
             <p>
                 After all transformations and re-refinements, Brutus applies a final de-duplication step.
                 If two solutions have volumes within 1% of each other:

@@ -194,7 +194,7 @@ const getVolumeTriclinic = (cell) => {
 
 
 // HKL generator... 
-function generateHKL_for_analysis(params, lambda, maxTth) {
+function generateHKL_for_analysis(params, lambda, maxTth, mode = 'full') {
     const { a, b: b_in, c: c_in, alpha: alpha_in, beta: beta_in, gamma: gamma_in, system } = params;
     const b = b_in ?? a; const c = c_in ?? a;
     const alpha = alpha_in ?? 90; const beta = beta_in ?? 90;
@@ -210,11 +210,20 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
     const processReflection = (h, k, l, inv_d_sq) => {
         // Inverted logic catches NaN, <= 0, and out-of-bounds strictly
         if (!(inv_d_sq > 0) || !(inv_d_sq <= q_max_limit) || !isFinite(inv_d_sq)) return;
+
+        // The physical diffractability check must gate BOTH modes, otherwise
+        // the q_only fast path returns reflections the full path rejects and
+        // the M20 figures of merit silently disagree between the two.
         const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
-        if (sinThetaSq <= 1) {
-            const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * DEG;
-            reflections.push({ tth, h, k, l, d: 1 / Math.sqrt(inv_d_sq), q: inv_d_sq });
+        if (sinThetaSq > 1) return;
+
+        if (mode === 'q_only') {
+            reflections.push(inv_d_sq);
+            return;
         }
+
+        const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * DEG;
+        reflections.push({ tth, h, k, l, d: 1 / Math.sqrt(inv_d_sq), q: inv_d_sq });
     };
 
 
@@ -336,12 +345,35 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
                         processReflection(h, k, l, inv_d_sq);
                     }
                 }
-            } 
+            }
             break;
-
-
     }
+
+    // Fast path: the MC/annealing loop only ever needs a sorted unique q list,
+    // so skip the object allocation and the tth dedupe entirely.
+    // The comparator is explicit on purpose -- a bare .sort() only happens to
+    // work because this is a Float64Array, and would silently become
+    // lexicographic if this were ever changed to a plain Array.
+    if (mode === 'q_only') {
+        // Sort first, then collapse near-duplicates. A bare Set is not enough:
+        // symmetry-equivalent reflections reach the same q by different orders
+        // of floating-point addition and differ in the last bit or two, so a
+        // Set keeps both while the full path's tth tolerance merges them.
+        // Deduping on a relative tolerance keeps the two paths in agreement.
+        reflections.sort((a, b) => a - b);
+        const uniqueQ = [];
+        for (let i = 0; i < reflections.length; i++) {
+            const q = reflections[i];
+            if (uniqueQ.length === 0 ||
+                Math.abs(q - uniqueQ[uniqueQ.length - 1]) > 1e-9 * q) {
+                uniqueQ.push(q);
+            }
+        }
+        return new Float64Array(uniqueQ);
+    }
+
     const uniqueReflections = []; const tolerance = 1e-4;
+
     if (reflections.length > 0) {
         reflections.sort((a, b) => a.tth - b.tth);
         uniqueReflections.push(reflections[0]);
@@ -367,6 +399,11 @@ const generateHKL_for_worker = (cell, q_max, d_min, lambda) => {
     return generateHKL_for_analysis(cell, lambda, maxTth);
 };
 
+
+const generateQArray_for_worker = (cell, q_max, lambda) => {
+    const maxTth = Math.asin(Math.sqrt(q_max * lambda * lambda / 4.0)) * 360.0 / Math.PI;
+    return generateHKL_for_analysis(cell, lambda, maxTth, 'q_only');
+};
 
 const getQcalc = (hkl, cell) => {
     const [h, k, l] = hkl;
@@ -1662,19 +1699,15 @@ function mcSmoothScore(q_calc_sorted, peaks, tolFn, zero_deg, wavelength) {
 function mcEvaluateCell(cell, ctx) {
     const { wavelength, q_max, d_min, impurity_peaks,
             peaks_sorted_by_q, n_20, n_all, tolFn } = ctx;
-    let refl;
+   
+   
+   let qsorted;
     try {
-        refl = generateHKL_for_worker(cell, q_max, d_min, wavelength);
+        qsorted = generateQArray_for_worker(cell, q_max, wavelength);
     } catch (e) { return null; }
-    if (!refl || refl.length === 0) return null;
+    if (!qsorted || qsorted.length === 0) return null;
 
-    const qset = new Set();
-    for (let i = 0; i < refl.length; i++) {
-        const q = refl[i].q;
-        if (isFinite(q) && q > 0) qset.add(q);
-    }
-    if (qset.size === 0) return null;
-    const qsorted = new Float64Array(Array.from(qset)).sort((a, b) => a - b);
+
 
     const z = cell.zero_correction || 0;
     const mk = (n) => {
@@ -1815,17 +1848,14 @@ function monteCarloPolish(sol, data, state, opts) {
             if (refineZero) trialCell.zero_correction = trialZ;
 
             // --- cheap smooth score -----------------------------------------
-            let refl;
-            try { refl = generateHKL_for_worker(trialCell, q_max, d_min, wavelength); }
+            let qsorted;
+            try { qsorted = generateQArray_for_worker(trialCell, q_max, wavelength); }
             catch (e) { continue; }
-            if (!refl || refl.length === 0) continue;
-            const qset = new Set();
-            for (let i = 0; i < refl.length; i++) {
-                const q = refl[i].q;
-                if (isFinite(q) && q > 0) qset.add(q);
-            }
-            if (qset.size === 0) continue;
-            const qsorted = new Float64Array(Array.from(qset)).sort((a, b) => a - b);
+            if (!qsorted || qsorted.length === 0) continue;
+            
+            
+            
+            
             const sm = mcSmoothScore(qsorted, peaks_sorted_by_q, tolFn, trialZ, wavelength);
             if (!isFinite(sm)) continue;
             evaluated++;
