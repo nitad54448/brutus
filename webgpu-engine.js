@@ -33,7 +33,23 @@ class WebGPUEngine {
                 maxStorageBufferBindingSize: this.adapter.limits.maxStorageBufferBindingSize,
                 maxStorageBuffersPerShaderStage: this.adapter.limits.maxStorageBuffersPerShaderStage
             }
-        }); 
+        });
+
+        // Without this a lost device (driver reset, TDR, tab suspended) surfaces
+        // as a wall of GPU validation errors from stale cached pipelines rather
+        // than one clear message. The cached modules/pipelines belong to THIS
+        // device, so they have to go with it.
+        this.deviceLost = false;
+        this.device.lost.then((info) => {
+            this.deviceLost = true;
+            this._moduleCache.clear();
+            this._pipelineCache.clear();
+            this.bindGroupLayout = null;
+            this.shaderModule = null;
+            this.pipeline = null;
+            console.error(`WebGPU device lost (${info.reason}): ${info.message}`);
+        });
+
         return true;
     }
 
@@ -184,9 +200,19 @@ class WebGPUEngine {
             }
         }
 
-        for(let i=0; i<table.length; i++) {
-            if (bigTable[i] > 4294967295n) table[i] = 4294967295; 
+        let overflow = false;
+        for (let i = 0; i < table.length; i++) {
+            if (bigTable[i] > 4294967295n) { overflow = true; table[i] = 4294967295; }
             else table[i] = Number(bigTable[i]);
+        }
+        if (overflow) {
+            // The shader is u32 end to end and UNRANKS combinations from this
+            // table. A single clamped entry silently corrupts every hkl triplet
+            // it decodes and truncates totalHklCombos, so the run returns wrong
+            // cells with no error anywhere. Fail loudly instead.
+            throw new Error(
+                `Binomial table overflows u32 for n=${n}, k=${k} (C(n,k) > 2^32-1). ` +
+                `Reduce the HKL basis size for this system.`);
         }
         return table;
     }
@@ -238,6 +264,7 @@ class WebGPUEngine {
 
     async _runSolver(cfg, qObsArray, hklBasisArray, peakCombos, hklCombos, qTolerancesArray,
                      progressCallback, stopSignal, baseParams, onIntermediateResults = null) {
+        if (this.deviceLost) throw new Error("WebGPU device was lost; reload the page to restart the GPU engine.");
         if (!this.pipeline) throw new Error("Pipeline not created.");
 
         const K_VALUE = cfg.K;
@@ -407,8 +434,10 @@ try {
                     if (onIntermediateResults && newBatch.length > 0) onIntermediateResults(newBatch);
                 }
 
-                if (numSolutions >= maxSolutions) { stoppedEarly = true; break; }
                 if (progressCallback) progressCallback((i + 1) / totalChunks, numSolutions);
+                // Report progress for this chunk BEFORE breaking, otherwise the
+                // bar freezes short of 100% on exactly the runs that hit the cap.
+                if (numSolutions >= maxSolutions) { stoppedEarly = true; break; }
             }
         } finally {
             // Guaranteed cleanup: prevents VRAM leaks even if an error or abort occurs above

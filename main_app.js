@@ -668,7 +668,13 @@ document.addEventListener('DOMContentLoaded', () => {
   //          const selectedSystems = Array.from(ui.systemCheckboxes)
   //                                       .filter(cb => cb.checked)
   //                                       .map(cb => cb.value);
-            displayedSolutions = solutions; //filtering removed, keep the list as a ledger
+            // A COPY, not an alias. handleNewSolution does
+            // `solutions = solutions.slice(...)` when pruning, which rebinds
+            // `solutions` to a new array and leaves an aliased
+            // displayedSolutions pointing at the stale one -- after which the
+            // rendered table and the array the context menu indexes into are
+            // two different lists.
+            displayedSolutions = [...solutions];
             updateSolutionsTable();
         });
     });
@@ -871,7 +877,11 @@ const handleNewSolution = (newSolution) => {
         // Max Limit Pruning
         if (solutions.length > MAX_SOLUTIONS_BEFORE_PRUNING) {
             // Always sort by quality (M20) before cutting
-            solutions.sort((a, b) => b.m20 - a.m20);
+            // A missing or non-finite m20 makes this comparator return NaN,
+            // which leaves the array in an arbitrary order -- and this sort
+            // decides which solutions survive the prune.
+            const rank = (x) => (x && isFinite(x.m20)) ? x.m20 : -Infinity;
+            solutions.sort((a, b) => rank(b) - rank(a));
             solutions = solutions.slice(0, PRUNE_TO_COUNT);
         }
     }
@@ -946,12 +956,23 @@ const setupWorker = () => {
             this.pendingResolvers = new Map(); // batchId -> resolver
             this.rrIndex = 0;
             this._initialised = false;
+            this._lastActivity = 0;   // timestamp of the last worker message
+            this._drainWake = null;   // resolver woken when the last batch acks
+        }
+
+        _now() {
+            return (typeof performance !== 'undefined' && performance.now)
+                ? performance.now() : Date.now();
         }
 
 
         _spawn() {
-            if (this.workers.length > 0) return; // idempotent
-            for (let i = 0; i < this.size; i++) {
+            // Top the pool back up rather than bailing out whenever it is
+            // non-empty. onerror removes crashed workers from this.workers, and
+            // the old `length > 0` guard meant a pool that lost a worker never
+            // got it back for the rest of the session.
+            if (this.workers.length >= this.size) return; // idempotent
+            for (let i = this.workers.length; i < this.size; i++) {
                 const w = new Worker('refinement-worker.js');
                 w.activeBatches = new Set(); // Track pending batches on this worker
                 w.onmessage = (e) => this._onMessage(e, w);
@@ -981,6 +1002,7 @@ const setupWorker = () => {
         _onMessage(e, w) {
             const msg = e.data;
             if (!msg || !msg.type) return;
+            this._lastActivity = this._now();
             if (msg.type === 'solution') {
                 handleNewSolution(msg.payload);
             } else if (msg.type === 'cellError' || msg.type === 'batchError') {
@@ -993,6 +1015,13 @@ const setupWorker = () => {
                 if (resolve) {
                     this.pendingResolvers.delete(id);
                     resolve();
+                }
+                // Wake drain() the instant the last batch acks instead of
+                // making it wait out another poll interval.
+                if (this.pendingResolvers.size === 0 && this._drainWake) {
+                    const wake = this._drainWake;
+                    this._drainWake = null;
+                    wake();
                 }
             }
         }
@@ -1055,9 +1084,14 @@ const setupWorker = () => {
                 const p = new Promise((resolve) => {
                     this.pendingResolvers.set(batchId, resolve);
                 });
+                // rrIndex can be left past the end of the array when onerror
+                // splices a dead worker out of the pool, in which case this used
+                // to hand back `undefined` and throw on .activeBatches below.
+                this.rrIndex %= numWorkers;
                 const worker = this.workers[this.rrIndex];
                 this.rrIndex = (this.rrIndex + 1) % numWorkers;
                 worker.activeBatches.add(batchId);
+                this._lastActivity = this._now();
                 worker.postMessage({ type: 'refineBatch', cells: slice, batchId });
                 promises.push(p);
             }
@@ -1070,9 +1104,29 @@ const setupWorker = () => {
         }
 
         // Resolve once all currently-outstanding batches have settled.
-        async drain() {
+        //
+        // Event-driven (woken by the last 'done') with a slow watchdog tick, and
+        // BOUNDED: a worker can die without ever firing onerror -- an OOM kill, a
+        // frozen tab, a browser reclaiming a background process -- and the old
+        // unbounded poll then spun forever, hanging the whole run with the UI
+        // stuck mid-progress. If nothing is heard from any worker for stallMs the
+        // outstanding batches are force-resolved and the run continues with
+        // whatever was found.
+        async drain(stallMs = 30000) {
             while (this.pendingResolvers.size > 0) {
-                await new Promise(r => setTimeout(r, 10));
+                await new Promise(resolve => {
+                    this._drainWake = resolve;
+                    setTimeout(resolve, 250);   // watchdog tick
+                });
+                this._drainWake = null;
+                if (this.pendingResolvers.size > 0 && (this._now() - this._lastActivity) > stallMs) {
+                    console.warn(`[RefinementWorkerPool] ${this.pendingResolvers.size} batch(es) ` +
+                                 `silent for >${stallMs} ms; force-resolving so the run can finish.`);
+                    for (const resolve of this.pendingResolvers.values()) resolve();
+                    this.pendingResolvers.clear();
+                    for (const w of this.workers) if (w.activeBatches) w.activeBatches.clear();
+                    break;
+                }
             }
         }
 
@@ -1083,6 +1137,7 @@ const setupWorker = () => {
             this.workers = [];
             for (const resolve of this.pendingResolvers.values()) resolve();
             this.pendingResolvers.clear();
+            if (this._drainWake) { const wake = this._drainWake; this._drainWake = null; wake(); }
             this._initialised = false;
         }
     }
@@ -2471,8 +2526,11 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
     let filteredSolutions = validSolutions.filter((_, index) => toKeep[index]);
     const numDiscarded = validSolutions.length - filteredSolutions.length;
     
-    // Sort final list by quality (M20) instead of volume
-    filteredSolutions.sort((a, b) => b.m20 - a.m20);
+    // Sort final list by quality (M20) instead of volume.
+    // Guarded: a non-finite m20 would make the comparator return NaN and leave
+    // the order arbitrary right before the slice(0, 50) below.
+    const rankM20 = (x) => (x && isFinite(x.m20)) ? x.m20 : -Infinity;
+    filteredSolutions.sort((a, b) => rankM20(b) - rankM20(a));
 
     if (numDiscarded > 0) showStatus(`Sieve discarded ${numDiscarded} redundant solution(s).`, 'success');
     return filteredSolutions.slice(0, 50);
@@ -3074,20 +3132,66 @@ systemsToSearch.forEach(system => {
     // --- NEW: Send GPU solutions through the post-processing worker ---
     if (webgpuSystems.length > 0 && solutions.length > 0 && !gpuStopSignal.stop) {
         if (statusTextElement) statusTextElement.textContent = 'Post-processing GPU cells...';
+        const bestOfSolutionsBefore = solutions.reduce((m, s) => (s && isFinite(s.m20) && s.m20 > m) ? s.m20 : m, 0);
+
+        // De-duplicate BEFORE post-processing, not only after it. The candidate
+        // list arriving here is overwhelmingly redundant -- a real PbSO4 run
+        // produced 49 solutions that the sieve collapsed to 2, i.e. ~24 copies
+        // of each distinct lattice -- and relabelling all 49 does the same work
+        // two dozen times over to reach the same two answers. Measured on that
+        // run: 2291 ms over 40 parents versus 132 ms over the sieved set, same
+        // final cell. `solutions` itself is left intact; this only decides which
+        // cells are worth handing to the search.
+        const postParents = applyFinalSieve(solutions);
+
+        // Spend the saving on a deeper search instead of pocketing it. With a
+        // handful of genuinely distinct parents the per-parent budget can be
+        // several times the default and still cost a fraction of the old pass.
+        const nP = postParents.length;
+        const swapCfg = nP <= 8
+            ? { MAX_FITS: 600, MAX_FREE: 16, MAX_EVALS: 32, MAX_POST: 5, ROUNDS: 6 }
+            : nP <= 20
+                ? { MAX_FITS: 300, MAX_FREE: 12, MAX_EVALS: 24, ROUNDS: 5 }
+                : {};   // many distinct lattices: fall back to the defaults
+        console.log(`[post-process] ${solutions.length} solutions -> ${nP} distinct parents ` +
+                    `(budget: ${swapCfg.MAX_FITS || 'default'} fits/round)`);
         await new Promise(resolve => {
             const worker = new Worker(workerURL);
+            const bestOf = (arr) => arr.reduce((m, s) => (s && isFinite(s.m20) && s.m20 > m) ? s.m20 : m, 0);
+            const m20Before = bestOf(solutions);
             worker.onmessage = (e) => {
                 if (e.data.type === 'solution') handleNewSolution(e.data.payload);
+                else if (e.data.type === 'postProcessSummary') {
+                    const st = e.data.payload || {};
+                    if (st.fatal) console.error('[post-process] ABORTED:', st.fatal, st.stack);
+                    else console.log(`[post-process] ${st.parents} parents | swap search ran on ` +
+                        `${st.swapRan}/${st.swapEligible} | ${st.swapPosted} swap solutions posted | ` +
+                        `${st.solutionErrors} solution errors, ${st.swapErrors} swap errors | ` +
+                        `best M20 ${(+st.bestBefore).toFixed(2)} -> ${(+st.bestAfter).toFixed(2)}`);
+                }
                 else if (e.data.type === 'done') { worker.terminate(); resolve(); }
             };
-            worker.onerror = () => resolve(); // Safely continue on error
+            // Never swallow this. A throw inside the post-process worker used to
+            // resolve the promise in complete silence, so a run that lost every
+            // transformed and swapped solution looked exactly like a run that
+            // simply found nothing better.
+            worker.onerror = (err) => {
+                console.error('[post-process] worker crashed:',
+                              err && err.message, err && err.filename, err && err.lineno);
+                showStatus('Post-processing failed: ' + ((err && err.message) || 'worker error') +
+                           ' - results are pre-post-processing only.', 'error', 10000);
+                resolve();
+            };
             worker.postMessage({ 
                 ...baseParams, 
                 systemToSearch: 'post_process', 
-                gpuSolutions: solutions, 
-                allowedSystems: systemsToSearch 
+                gpuSolutions: postParents, 
+                allowedSystems: systemsToSearch,
+                swapCfg
             });
         });
+        console.log(`[post-process] main thread: best M20 ${bestOfSolutionsBefore.toFixed(2)} -> ` +
+                    `${solutions.reduce((m, s) => (s && isFinite(s.m20) && s.m20 > m) ? s.m20 : m, 0).toFixed(2)}`);
     }
     // ------------------------------------------------------------------
 
@@ -3347,6 +3451,11 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
     // Context Menu Logic
     const contextMenu = document.getElementById('context-menu');
     let ctxMenuTargetIndex = -1;
+    // Row indices index into displayedSolutions (what is rendered). Resolving
+    // the object here and then looking it up by identity in `solutions` keeps
+    // erase / swap / MC / report acting on the row the user actually clicked.
+    const ctxTargetSolution = () =>
+        (ctxMenuTargetIndex > -1 ? (displayedSolutions[ctxMenuTargetIndex] || null) : null);
 
     // 1. Show Menu on Right Click
     ui.solutionsTableBody.addEventListener('contextmenu', (e) => {
@@ -3359,7 +3468,9 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
         document.querySelectorAll('#solutions-table-body tr').forEach(r => r.classList.remove('selected'));
         row.classList.add('selected');
         
-        // Store the index
+        // Store the index. Row indices address displayedSolutions; every action
+        // below resolves through ctxTargetSolution() so it can never act on a
+        // different element of `solutions` if the two lists drift apart.
         ctxMenuTargetIndex = parseInt(row.dataset.index);
         // Right-clicking a row selects it too, so it must refresh the calculated
         // lines exactly like a left click. It used to assign selectedSolution on
@@ -3380,11 +3491,13 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
 
     // 3. Action: Erase Solution
     document.getElementById('ctx-erase').addEventListener('click', () => {
-        if (ctxMenuTargetIndex > -1) {
-            // Remove from main list
-            solutions.splice(ctxMenuTargetIndex, 1);
-            
-            // Re-sync displayed list (since displayedSolutions = solutions now)
+        const target = ctxTargetSolution();
+        if (target) {
+            // Remove from main list by identity, not by rendered row index.
+            const k = solutions.indexOf(target);
+            if (k > -1) solutions.splice(k, 1);
+
+            // Re-sync displayed list
             displayedSolutions = [...solutions]; 
             
             foundSolutionMap.clear(); //= vérifier.. une fois une solution effacée...?
@@ -3412,8 +3525,7 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
     };
 
     document.getElementById('ctx-swap').addEventListener('click', () => {
-        if (ctxMenuTargetIndex < 0) return;
-        const parent = solutions[ctxMenuTargetIndex];
+        const parent = ctxTargetSolution();
         if (!parent) return;
         const wl = parseFloat(ui.wavelength.value);
         const te = parseFloat(ui.tthError.value);
@@ -3495,9 +3607,19 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
 
         // Two peaks cannot be the same reflection. Catch it here rather than let
         // the least-squares fit quietly average them into a distorted cell.
+        //
+        // The assignment list has to cover EVERY peak the refit will touch, not
+        // just the SWAP_ROWS rows on screen: refineWithManualHkl is called with
+        // the full `pk` list, so an override colliding with the hkl held by
+        // peak 13 or beyond used to sail past this check unreported.
+        const allRows = getPeakAssignments(swapParent, pk, wl, te, tMax);
+        const beingReassigned = new Set(overrides.map(o => o.tth.toFixed(4)));
         const seen = new Map();
-        swapRows.forEach(r => { if (r.indexed) seen.set(`${r.h},${r.k},${r.l}`, r.tth); });
-        overrides.forEach(o => { const r = swapRows.find(x => x.tth === o.tth); if (r && r.indexed) seen.delete(`${r.h},${r.k},${r.l}`); });
+        allRows.forEach(r => {
+            if (!r.indexed) return;
+            if (beingReassigned.has(r.tth.toFixed(4))) return;  // this peak is moving
+            seen.set(`${r.h},${r.k},${r.l}`, r.tth);
+        });
         for (const o of overrides) {
             const key = `${o.h},${o.k},${o.l}`;
             if (seen.has(key)) {
@@ -3546,8 +3668,7 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
     };
 
     document.getElementById('ctx-mc').addEventListener('click', () => {
-        if (ctxMenuTargetIndex < 0) return;
-        const parent = solutions[ctxMenuTargetIndex];
+        const parent = ctxTargetSolution();
         if (!parent) return;
         if (typeof monteCarloRefineCell !== 'function') {
             showStatus('Monte-Carlo refinement is unavailable (worker-logic.js not loaded).', 'error', 5000);
@@ -3586,7 +3707,7 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
 
     mcApplyBtn.addEventListener('click', () => {
         if (mcRunning) return;
-        const parent = solutions[ctxMenuTargetIndex];
+        const parent = ctxTargetSolution();
         if (!parent) { closeMcModal(); return; }
 
         // --- read and validate the three parameters -------------------------
@@ -3724,9 +3845,10 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
 
     // 4. Action: Single Report
     document.getElementById('ctx-report').addEventListener('click', () => {
-        if (ctxMenuTargetIndex > -1) {
+        const target = ctxTargetSolution();
+        if (target) {
             // Call report function with the specific solution
-            generatePDFReport(solutions[ctxMenuTargetIndex]);
+            generatePDFReport(target);
         }
     });
 

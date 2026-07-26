@@ -1632,7 +1632,10 @@
         only ever sees assignments that some space group forbids. The decision is therefore yours.
     </p>
     <p>
-        Right-click a solution and choose <strong>Swap hkl</strong>. The dialog lists the first twelve peaks
+        Right-click a solution and choose <strong>Swap hkl</strong>. The dialog shows the assignment the
+        refit will actually use, including the one-line-per-peak rule: where two peaks compete for the same
+        calculated line the closer one keeps it and the other is shown unindexed, rather than both being
+        fitted to the same reflection. The dialog lists the first twelve peaks
         with their current indices, observed <em>d</em>, calculated 2&theta; and the residual &mdash; the
         low-angle end, where a mis-assignment does most damage to the refined cell. Edit any indices you
         disagree with; edited fields are highlighted. <strong>Apply</strong> re-fits the cell (and the zero
@@ -1655,11 +1658,14 @@
         was the wrong one.
     </p>
     <p>
-        Two mistakes are caught before refinement: an incomplete row (<em>h</em>, <em>k</em> and <em>l</em>
-        must all be given) and assigning a reflection that another peak already holds, which would otherwise be
-        quietly averaged into a distorted cell. A manual assignment is honoured even when it is not the nearest
-        line and even when it falls outside the indexing window &mdash; overruling the nearest-line rule is
-        exactly what the command is for.
+        Several mistakes are caught before refinement: an incomplete row (<em>h</em>, <em>k</em> and
+        <em>l</em> must all be given); assigning a reflection that another peak already holds, which would
+        otherwise be quietly averaged into a distorted cell; two edits aimed at the same peak; and an edit
+        whose peak is no longer inside the 2&theta; range. The duplicate check is made against
+        <strong>every</strong> peak the refit will use, not only the twelve rows on screen &mdash; a collision
+        with a reflection held by peak thirteen or beyond counts just the same. A manual assignment is
+        honoured even when it is not the nearest line and even when it falls outside the indexing window
+        &mdash; overruling the nearest-line rule is exactly what the command is for.
     </p>
     <p>
         <strong>Worked example.</strong> In PbSO<sub>4</sub> (anglesite) the peak at 16.423&deg; indexes as
@@ -1689,6 +1695,14 @@
         The report therefore shows exactly what the indexer decided, with no silent edits. Where a decision
         looks wrong, correct it deliberately with <strong>Swap hkl</strong>, which leaves the original solution
         untouched and adds the corrected one alongside it for comparison.
+    </p>
+    <p>
+        This is not in tension with the automatic <a href="#advanced-topics">combinatorial swap search</a>,
+        which does relabel peaks without being asked. The distinction is what happens to <em>your</em>
+        solution: the automatic search never edits an existing entry, it refits the alternative labelling into
+        a separate cell and offers it alongside as a new candidate to be judged on its own figures. What
+        Brutus declines to do is silently rewrite the assignments of a solution already in your table, or
+        re-derive them from absence rules the assignments themselves were used to establish.
     </p>
     <p>
         One consequence is worth knowing when reading figures of merit. The de Wolff figure is
@@ -1911,43 +1925,127 @@
                 condition (within 3% tolerance), and potential hexagonal equivalents are generated and evaluated.
             </p>
 
-            <h3>5. Swap Fishing for Ambiguity</h3>
+            <h3>5. Combinatorial Swap Search (Swap Fishing)</h3>
             <p>
-                Mis-assignment at the low-angle end is the commonest way a <em>correct</em> cell ends up with a
-                poor M(20): two calculated lines straddle one observed peak and the nearest-line rule picks the
-                wrong one by a few thousandths of a degree. For each high-ranking solution Brutus reconsiders
-                the first twelve indexed peaks and tries two kinds of alternative hypothesis.
+                Mis-assignment is the commonest way a <em>correct</em> cell ends up with a poor M(20): two
+                calculated lines straddle one observed peak and the nearest-line rule picks the wrong one by a
+                few thousandths of a degree. Nothing flags it &mdash; in a permissive space group both labels
+                are allowed &mdash; and, crucially, the wrong labelling always has the <em>smaller</em>
+                residual at the cell you already have, because that is how it was chosen. The only way to tell
+                is to relabel, refit the cell, and rescore.
             </p>
+            <p>
+                A manual swap is available: move one peak to a neighbouring reflection,
+                or exchange the hkl of the two closest peaks. An automatic swap fishing is implemented on all cells that are retained in the final list.
+            </p>
+
+            <h4>What is enumerated</h4>
+            <p>
+                For <strong>every</strong> observed peak, every calculated line inside the search window is a
+                candidate label. The search then walks the <strong>Cartesian product</strong> of those per-peak
+                candidate sets, so any number of peaks may be relabelled simultaneously.
+            </p>
+            <p>
+                That product is astronomically large, so it is visited <strong>cheapest-first</strong>: each
+                assignment carries a penalty $\sum_i (\Delta q_i / \mathrm{tol}_i)^2$ measuring how far it
+                departs from the nearest-line labelling, and a priority queue expands states in order of
+                increasing penalty starting from all-nearest. Truncating at any budget therefore leaves the
+                plausible region exhaustively covered rather than sampled. Because cost is set by the fit
+                budget and not by the size of the space, candidate <em>generation</em> is deliberately
+                unrestricted &mdash; capping it would only delete reachable answers without saving time.
+            </p>
+
+            <h4>Two-stage evaluation</h4>
+            <p>
+                A full rescore means regenerating the whole calculated line list, which is too expensive to
+                do hundreds of times per solution. Each candidate labelling is therefore first fitted
+                <em>cheaply</em>: the least-squares design rows are built straight from the labels against a
+                line list generated once for the parent cell, and the normal equations solved. No line
+                regeneration, no nearest-line rescan. These are ranked by
+                weighted RMS residual, and only the best few distinct cells go on to a full M and F
+                recomputation.
+            </p>
+            <div class="callout-note">
+                <strong>Note:</strong> the residual <em>ranks</em> candidates; it never <em>accepts</em> one.
+                At a fixed cell a swapped labelling always shows a larger $|\Delta q|$ by construction, so no
+                residual comparison can detect a crossing. It is only after the cell has been refitted to the
+                new labels that the comparison becomes meaningful, and the accepted figure of merit is what
+                decides.
+            </div>
+
+            <h4>Rounds &mdash; why one pass is not enough</h4>
+            <p>
+                Fixing a crossing <strong>moves the cell</strong>, and moving the cell changes which calculated
+                lines sit near which observed peaks. The second round therefore enumerates a genuinely
+                different candidate set &mdash; one the first round could not see at any budget, because those
+                candidates did not exist at the starting geometry. The search runs up to four rounds,
+                re-centring on the improved cell each time and stopping as soon as a round stops gaining.
+            </p>
+            <p>
+                On the PbSO<sub>4</sub> test pattern available in this repository: a
+                single round lifts the best cell from M(20) 43.7 to 49.4 and stops there; four rounds reach
+                93.6, with the number of indexed lines rising from 44/47 to 46/47. 
+            </p>
+
+            <h4>What counts as better</h4>
+            <p>
+                M(20) is computed on the first twenty peaks and is <strong>blind to everything beyond them</strong>.
+                A relabelling can inflate it while quietly wrecking the fit to the rest of the pattern, and the
+                combinatorial search is very good at finding exactly such labellings. Candidates are therefore
+                ranked on <strong>how many of all N observed lines they index</strong> first, and on M(20) only
+                as a tie-break..
+            </p>
+
+            <h4>Pruning and constraints</h4>
             <ul>
-                <li><strong>Reassignment.</strong> Give one peak a <em>different theoretical reflection</em>
-                    that also lies near it. This is the case that matters in practice: in PbSO<sub>4</sub> the
-                    16.42&deg; peak takes (1,0,0) over (0,1,1) by 0.005&deg;, and no exchange between two
-                    observed peaks can express that correction.</li>
-                <li><strong>Transposition.</strong> Exchange the HKL labels of the two closest peaks &mdash; the
-                    original behaviour, kept because it repairs a genuine ordering error in a single move
-                    without creating a duplicate assignment.</li>
+                <li><strong>Equivalent labels are collapsed.</strong> Two reflections that produce the same
+                    least-squares design row are the same equation; trying both is pure waste. This is a large
+                    factor in the higher-symmetry systems.</li>
+                <li><strong>One calculated line per observed peak</strong>, the same rule the main refinement
+                    enforces. A transposition &mdash; two peaks exchanging <em>different</em> labels &mdash; is
+                    the whole point of the search and is unaffected; two peaks landing on the <em>same</em>
+                    line would be fitted as duplicate equations and averaged, so the closer peak keeps it.</li>
+                <li><strong>Candidates are fitted against all indexed peaks</strong>, not the bare minimum for
+                    the crystal system, so a wrong swap shows up as a bad fit instead of being absorbed by a
+                    handful of rows.</li>
             </ul>
-            <p>
-                Each candidate is refined and rescored, and retained only if M(20) improves, so fishing can
-                only ever widen the search &mdash; it never overwrites a solution you already have. Candidates
-                are fitted against <em>all</em> indexed peaks rather than the bare minimum for the crystal
-                system, so a wrong swap shows up as a bad fit instead of being absorbed by a handful of rows.
-                Work is bounded at two alternatives per peak and twelve candidate cells per solution.
-            </p>
+
+            <h4>Window, budget and what is kept</h4>
             <p>
                 Alternatives are collected in a window <strong>wider</strong> than the indexing tolerance
                 (2.5&times;). A competing reflection just outside tolerance is precisely the interesting case:
-                if it is the right assignment the cell will shift to meet it. At the strict tolerance the
+                if it is the right assignment, the cell will shift to meet it. At the strict tolerance the
                 PbSO<sub>4</sub> example is invisible &mdash; (1,0,0) and (0,1,1) sit 0.048&deg; apart against a
                 0.040&deg; window, so no alternative would ever be found.
             </p>
             <p>
-                The scan covers enough peaks to satisfy every crystal system, which means at least six for
-                triclinic. This is a requirement rather than a tuning choice: swap fishing needs as many
-                indexed peaks as the system has parameters to refine, so a scan shorter than the triclinic
-                minimum could never run for triclinic cells at all.
+                The search runs on the <strong>de-duplicated</strong> solution list, not the raw one. The
+                candidates arriving from refinement are overwhelmingly redundant &mdash; a real PbSO<sub>4</sub>
+                run produced 49 solutions that the sieve collapsed to 2, roughly two dozen copies of each
+                distinct lattice &mdash; so relabelling all of them repeats the same work over and over to
+                reach the same answers. Sieving first cut that pass from 2.3&nbsp;s to 0.13&nbsp;s on the same
+                data, and the saving is spent on a deeper search per surviving parent rather than pocketed:
+                with only a handful of genuinely distinct lattices the budget can be several times the default
+                and still cost a fraction of the old pass. Per round it is bounded by a fixed number of cheap fits and a smaller
+                number of full rescores, and at most a few children are posted per parent so that one solution
+                cannot swamp the table. A child is only posted if its M(20) is at least its parent's, so the
+                search can only ever <strong>widen</strong> the solution set &mdash; it never modifies or
+                replaces a solution you already have.
             </p>
-
+            <p>
+                The scan needs at least as many indexed peaks as the crystal system has parameters to refine,
+                which means six for triclinic and one more again when the zero error is being refined. This is
+                a requirement rather than a tuning choice: below it there is nothing to fit and the search
+                declines to run.
+            </p>
+            <div class="callout-note">
+                <strong>Tuning.</strong> All limits live in the <code>SWAP_CFG</code> object in
+                <code>worker-logic.js</code>: window width, alternatives kept per peak, peaks allowed to vary
+                at once, fits per round, number of rounds, and how many parent solutions are searched. Setting
+                <code>DEBUG: true</code> prints one line per parent to the worker console &mdash; rounds run,
+                fits spent, lines indexed before and after, and M(20) before and after &mdash; which is the
+                quickest way to see whether the search is reaching a given solution at all.
+            </div>
 
             <h3>6. Monte Carlo Cell Polish (Refine MC)</h3>
             <p>
@@ -1967,25 +2065,15 @@
             </p>
             <ul>
                 <li>The one with <strong>higher symmetry</strong> is preferred (e.g. orthorhombic beats monoclinic).</li>
-                <li>If their symmetry is identical, the one with <strong>higher M(20)</strong> is kept.</li>
-                <li>Solutions with M(20) values within a small tolerance (ΔM(20) &lt; 0.05) are considered
-                    equivalent in quality and the first one found is retained.</li>
-            </ul>
-            <p>
-                The final retained set contains at most 50 solutions, ranked by M(20).
-            </p>
-
-
-            <h3>7. Final De-Duplication (Sieving)</h3>
-            <p>
-                After all transformations and re-refinements, Brutus applies a final de-duplication step.
-                If two solutions have volumes within 1% of each other:
-            </p>
-            <ul>
-                <li>The one with <strong>higher symmetry</strong> is preferred (e.g. orthorhombic beats monoclinic).</li>
-                <li>If their symmetry is identical, the one with <strong>higher M(20)</strong> is kept.</li>
-                <li>Solutions with M(20) values within a small tolerance (ΔM(20) &lt; 0.05) are considered
-                    equivalent in quality and the first one found is retained.</li>
+                <li>If their symmetry is identical, the one with <strong>higher M(20)</strong> is kept &mdash;
+                    &ldquo;higher&rdquo; meaning better by more than <strong>2%</strong>, a relative margin
+                    rather than an absolute one, so the comparison behaves the same for a pair scoring 8 and a
+                    pair scoring 80.</li>
+                <li>Within that 2% the two are treated as equal in quality; for monoclinic cells the more
+                    conventional setting (β closer to 90&deg;) is kept, otherwise the first one found.</li>
+                <li>A solution with a <strong>refined zero error</strong> is never de-duplicated against one
+                    without: they are different models (one extra degree of freedom), not two versions of the
+                    same answer, and both are kept for comparison.</li>
             </ul>
             <p>
                 The final retained set contains at most 50 solutions, ranked by M(20).

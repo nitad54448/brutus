@@ -365,13 +365,24 @@ function generateHKL_for_analysis(params, lambda, maxTth, mode = 'full') {
         // Set keeps both while the full path's tth tolerance merges them.
         // Deduping on a relative tolerance keeps the two paths in agreement.
         reflections.sort((a, b) => a - b);
+        // The relative-1e-9 window this used to apply is far TIGHTER than the
+        // full path's 1e-4 deg tth window, so the two paths disagreed on the
+        // line count (measured: 307 vs 305 monoclinic, 418 vs 417 triclinic)
+        // and therefore on N_calc inside calculateFiguresOfMerit -- i.e. the
+        // Monte-Carlo score and the headline M20 were computed against
+        // different line lists. Reproduce the tth window exactly instead:
+        //   dq/d(2th) = 2 sin(2th)/lambda^2,
+        //   sin(2th)  = lambda*sqrt(q)*sqrt(1 - lambda^2 q/4),
+        // which needs no asin per reflection.
+        const DTTH_RAD = 1e-4 * Math.PI / 180;
+        const lam2 = lambda * lambda;
         const uniqueQ = [];
         for (let i = 0; i < reflections.length; i++) {
             const q = reflections[i];
-            if (uniqueQ.length === 0 ||
-                Math.abs(q - uniqueQ[uniqueQ.length - 1]) > 1e-9 * q) {
-                uniqueQ.push(q);
-            }
+            if (uniqueQ.length === 0) { uniqueQ.push(q); continue; }
+            const last = uniqueQ[uniqueQ.length - 1];
+            const sin2th = lambda * Math.sqrt(last) * Math.sqrt(Math.max(0, 1 - lam2 * last / 4));
+            if (q - last > (2 * sin2th / lam2) * DTTH_RAD) uniqueQ.push(q);
         }
         return new Float64Array(uniqueQ);
     }
@@ -679,21 +690,26 @@ const solveLeastSquares = (M, q_vec, weights) => {
     const x = choleskySolve(L, MTWq); 
     if (!x) return null;
     
-    const df = num_eq - num_params; 
-    if (df <= 0) return { solution: x, covarianceMatrix: null };
-    
-    // Calculate Sum of Squared Residuals (SSR)
+    // Weighted sum of squared residuals. Computed unconditionally now (it used
+    // to be skipped on the df <= 0 early return) and returned to the caller:
+    // the combinatorial swap search ranks candidate labellings by it, and
+    // recomputing it outside would duplicate this exact loop on every trial.
     const q_calc = M.map(row => row.reduce((s, v, j) => s + v * x[j], 0));
-    const SSR = q_vec.reduce((sum, q_obs, i) => sum + w[i] * (q_obs - q_calc[i])**2, 0);
-    
+    const SSR = q_vec.reduce((sum, q_o, i) => sum + w[i] * (q_o - q_calc[i]) ** 2, 0);
+    let sumW = 0; for (let k = 0; k < num_eq; k++) sumW += w[k];
+    const wrms = Math.sqrt(SSR / Math.max(sumW, 1e-30));
+
+    const df = num_eq - num_params;
+    if (df <= 0) return { solution: x, covarianceMatrix: null, ssr: SSR, df, wrms };
+
     // Invert the matrix to get covariance
-    const MTWM_inv = choleskyInvert(L); 
-    if (!MTWM_inv) return { solution: x, covarianceMatrix: null };
-    
+    const MTWM_inv = choleskyInvert(L);
+    if (!MTWM_inv) return { solution: x, covarianceMatrix: null, ssr: SSR, df, wrms };
+
     // Scale inverted matrix by standard error of the estimate
     const V = MTWM_inv.map(row => row.map(el => el * (SSR / df)));
-    
-    return { solution: x, covarianceMatrix: V };
+
+    return { solution: x, covarianceMatrix: V, ssr: SSR, df, wrms };
 };
 
 
@@ -1016,8 +1032,13 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
                 }
                 refined_cell.volume = getVolume(refined_cell);
                 
-                const q_calc_set_refined = new Set(generateHKL_for_worker(refined_cell, q_max, d_min, wavelength).map(r => r.q));
-                const q_calc_sorted_refined = new Float64Array(Array.from(q_calc_set_refined)).sort((a,b)=>a-b);
+                // q_only fast path: a sorted, deduped Float64Array straight out of
+                // the generator. The old line built a full reflection object
+                // (tth, d, h, k, l) for every line, then a Set, then sorted again,
+                // purely to obtain the q list -- on the hot path of every accepted
+                // refinement. The two dedup rules are now provably identical (see
+                // generateHKL_for_analysis), so the result is unchanged.
+                const q_calc_sorted_refined = generateQArray_for_worker(refined_cell, q_max, wavelength);
                 
                 const peaks_for_merit_20_refined = [];
                 for (let i = 0; i < n_20; i++) {
@@ -1168,13 +1189,39 @@ function indexTetragonalOrHexagonal(data, state, postMessage_func, system) {
 
 function findTransformedSolutions(initialSolutions, data, state, postMessage_func) {
     const { allowedSystems } = data;
-    const { refineAndTestSolution, q_obs, original_indices, N_FOR_M20, q_max, d_min, tth_obs_rad } = state;
+    const { refineAndTestSolution, q_obs, original_indices, N_FOR_M20, q_max, d_min, tth_obs_rad, peaks_sorted_by_q } = state;
     const { wavelength, tth_error } = data;
     const cellTransforms = [ { P: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]] }, { P: [[-0.5, 0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5]] }, { P: [[0.5, 0.5, 0], [-0.5, 0.5, 0], [0, 0, 1]] }, { P: [[0.5, 0, 0], [0, 1, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 0.5, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 1, 0], [0, 0, 0.5]] }, { P: [[0.5, -0.5, 0], [0.5, 0.5, 0], [0, 0, 1]] } ];
-    const totalSolutions = initialSolutions.length; if (totalSolutions === 0) return;
+    // refineAndTestSolution and the swap search both write back into
+    // state.foundSolutions -- which IS this array. Appends are invisible to
+    // forEach (it caches length up front), but a REPLACEMENT at an index the
+    // loop has not reached yet silently substitutes a different cell for `sol`
+    // mid-pass. Iterate a snapshot so the input set is fixed for the whole run.
+    const parents = initialSolutions.slice();
+    const totalSolutions = parents.length; if (totalSolutions === 0) return;
     const local_get_q_tolerance = (idx) => get_q_tolerance(idx, tth_obs_rad, wavelength, tth_error);
-    initialSolutions.forEach((sol, index) => {
-        
+
+    // Relabelling costs ~3-30 ms per parent. Running it on every one of several
+    // thousand GPU candidates is what made the old pass a serial bottleneck in
+    // the post_process step, and a cell scoring M20 = 2.1 is not worth it
+    // anyway. Only the best TOP_N parents get a swap search.
+    const swapAllowed = new Set(
+        parents
+            .map((s, i) => ({ i, m: (s && isFinite(s.m20)) ? s.m20 : 0 }))
+            .sort((x, y) => y.m - x.m)
+            .slice(0, (typeof SWAP_CFG !== 'undefined' ? SWAP_CFG.TOP_N : 40))
+            .map(x => x.i)
+    );
+
+    const stats = {
+        parents: totalSolutions, swapEligible: swapAllowed.size,
+        swapRan: 0, swapPosted: 0, swapErrors: 0, solutionErrors: 0,
+        bestBefore: parents.reduce((m, x) => (x && isFinite(x.m20) && x.m20 > m) ? x.m20 : m, 0),
+        bestAfter: 0,
+    };
+
+    parents.forEach((sol, index) => {
+      try {
         // === NIGGLI REDUCTION & SYMMETRY SQUEEZE
 
         try {
@@ -1262,9 +1309,16 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
         const theoretical_hkls = generateHKL_for_worker(sol, q_max, d_min, wavelength);
         const theoretical_q_array = theoretical_hkls.map(h => h.q); //map once, not every time, mod 13 07 2026
 
+        // Zero-correct BEFORE matching. This loop used to pair the raw q_obs
+        // against the calculated lines while every other consumer of
+        // zero_correction subtracts it first, so on a zero-refined solution the
+        // gcd sub-cell test below ran on a partly wrong assignment list.
+        const z_gcd_deg = sol.zero_correction || 0;
+        const nGcd = Math.min(N_FOR_M20, peaks_sorted_by_q.length);
         const indexedPeaks = [];
-        for(let i=0; i<N_FOR_M20; i++){
-             const q_o = q_obs[i];
+        for (let i = 0; i < nGcd; i++) {
+             const tc_deg = peaks_sorted_by_q[i].tth - z_gcd_deg;
+             const q_o = (4 * Math.sin(tc_deg * RAD / 2) ** 2) / (wavelength ** 2);
              const best_match_idx = binarySearchClosest(theoretical_q_array, q_o); // <--- AND REUSE IT HERE
              if (best_match_idx >= 0 && best_match_idx < theoretical_hkls.length && Math.abs(q_o - theoretical_hkls[best_match_idx].q) < local_get_q_tolerance(original_indices[i])){
                  indexedPeaks.push(theoretical_hkls[best_match_idx]);
@@ -1291,191 +1345,51 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
         
 
 
-        // --- SWAP FISHING (restored) --------------------------------------
-        // Enumerates a few alternative hkl labels at a FIXED cell. Kept as an
-        // automatic pass; the Monte-Carlo search is now user-driven via the
-        // "Refine MC" context-menu entry instead of running on every solution.
-        //
-        // BUG FIX: the two early exits below were bare `return`s. Because this
-        // whole body runs inside initialSolutions.forEach(...), a `return` left
-        // the ENTIRE iteration, skipping the progress postMessage at the end --
-        // so the progress bar silently stalled below 95% whenever a solution
-        // indexed too few peaks. They now break out of the labelled block only.
-        try {
-        swapFishing: {
-            // --- SWAP FISHING ---
-            const system = sol.system;
-            const min_peaks_needed = {cubic: 1, tetragonal: 2, hexagonal: 2, orthorhombic: 3, monoclinic: 4, triclinic: 6}[system];
-            if (!min_peaks_needed || data.peaks.length < min_peaks_needed) break swapFishing;
-
-            console.log(`\n[SWAP DEBUG] === Starting for ${system}, M20=${sol.m20.toFixed(2)}, Z=${(sol.zero_correction||0).toFixed(4)} ===`);
-
-            const SWAP_FISH_MAX_PEAKS  = 12;
-            const SWAP_FISH_MAX_ALTS   = 2;
-            const SWAP_FISH_MAX_TRIALS = 12;
-            const SWAP_FISH_ALT_WINDOW = 2.5;
-            const SWAP_FISH_MAX_PAIRS  = 3;   // transposition pairs to try (see (b))
-
-            const nScan = Math.min(SWAP_FISH_MAX_PEAKS, q_obs.length);
-            const indexed = [];
-            const wl = wavelength;
-            const z_deg = sol.zero_correction || 0;
-
-            for (let i = 0; i < nScan; i++) {
-                const orig = state.peaks_sorted_by_q[i];
-                
-                // CRITICAL FIX: The old code used raw q_obs. We must subtract zero error
-                // before searching theoretical lines, or the peaks won't mathematically align!
-                const tc_deg = orig.tth - z_deg;
-                const corr_q_o = (4 * Math.sin(tc_deg * Math.PI / 360)**2) / (wl**2);
-                
-                const tol = local_get_q_tolerance(original_indices[i]);
-                const bi = binarySearchClosest(theoretical_q_array, corr_q_o);
-                
-                if (bi < 0 || bi >= theoretical_hkls.length) {
-                    console.log(`[SWAP DEBUG] Peak ${orig.tth.toFixed(3)} skipped. Closest index out of bounds.`);
-                    continue;
-                }
-                
-                const diff = Math.abs(corr_q_o - theoretical_hkls[bi].q);
-                if (diff >= tol) {
-                    console.log(`[SWAP DEBUG] Peak ${orig.tth.toFixed(3)} skipped. Diff ${diff.toFixed(5)} >= Tol ${tol.toFixed(5)}`);
-                    continue;
-                }
-                
-                const t = theoretical_hkls[bi];
-                indexed.push({ q_obs: corr_q_o, tol: tol, bi: bi, hkl: [t.h, t.k, t.l], tth: orig.tth });
-                console.log(`[SWAP DEBUG] Peak ${orig.tth.toFixed(3)} -> indexed to (${t.h},${t.k},${t.l})`);
-            }
-            
-            if (indexed.length < min_peaks_needed) {
-                console.log(`[SWAP DEBUG] Not enough indexed peaks (${indexed.length}). Aborting.`);
-                break swapFishing;
-            }
-
-            let trials = 0;
-            const maxTth = Math.max(...data.peaks.map(p => p.tth));
-
-            const applyAndTestSwap = (overrides) => {
-                const ovStr = overrides.map(o => `${o.tth.toFixed(3)}->(${o.h},${o.k},${o.l})`).join(', ');
-                console.log(`[SWAP DEBUG] Trying override: ${ovStr}`);
-                
-const res = refineWithManualHkl(sol, data.peaks, overrides, wavelength, tth_error, maxTth, data.refineZero, data.impurity_peaks, true);                
-                if (!res) { console.log(`[SWAP DEBUG] -> Failed: refineWithManualHkl returned null.`); return; }
-                if (res.error) { console.log(`[SWAP DEBUG] -> Failed: ${res.error}`); return; }
-                
-                if (res.cell) {
-                    const newCell = res.cell;
-                    console.log(`[SWAP DEBUG] -> Success! New M20=${newCell.m20.toFixed(2)} (Old=${sol.m20.toFixed(2)})`);
-                    
-                    const key = getSolutionKey(newCell);
-                    const existing = state.foundSolutionMap.get(key);
-                    
-                    if (!existing || newCell.m20 > existing.m20) {
-                        console.log(`[SWAP DEBUG] -> Posting new solution to UI! (Key: ${key})`);
-                        if (existing) state.foundSolutions[existing.index] = newCell;
-                        else state.foundSolutions.push(newCell);
-                        state.foundSolutionMap.set(key, { m20: newCell.m20, index: existing ? existing.index : state.foundSolutions.length - 1 });
-                        postMessage_func({ type: 'solution', payload: newCell });
-                    } else {
-                        console.log(`[SWAP DEBUG] -> Rejected: Existing solution with key ${key} has better/equal M20 (${existing.m20.toFixed(2)})`);
-                    }
-                }
-            };
-
-            // (a) Reassignment: alternatives within tolerance of the SAME peak.
-            // Capped below SWAP_FISH_MAX_TRIALS so the transposition pass in (b)
-            // always gets its slots. Previously (a) could consume the entire
-            // budget and (b) would never run at all -- which mattered little
-            // when (b) tried a single pair, but does now that transpositions are
-            // known to catch a class of error (a) cannot reach.
-            const reassignBudget = SWAP_FISH_MAX_TRIALS - SWAP_FISH_MAX_PAIRS;
-            for (let n = 0; n < indexed.length && trials < reassignBudget; n++) {
-                const pk = indexed[n];
-                const searchTol = pk.tol * SWAP_FISH_ALT_WINDOW;
-                const alts = [];
-                
-                for (let j = pk.bi - 1; j >= 0; j--) {
-                    if (Math.abs(pk.q_obs - theoretical_hkls[j].q) > searchTol) break;
-                    alts.push(theoretical_hkls[j]);
-                }
-                for (let j = pk.bi + 1; j < theoretical_hkls.length; j++) {
-                    if (Math.abs(pk.q_obs - theoretical_hkls[j].q) > searchTol) break;
-                    alts.push(theoretical_hkls[j]);
-                }
-                
-                alts.sort((x, y) => Math.abs(x.q - pk.q_obs) - Math.abs(y.q - pk.q_obs));
-                if (alts.length > 0) {
-                    console.log(`[SWAP DEBUG] Peak ${pk.tth.toFixed(3)} alts found: ` + alts.map(a => `(${a.h},${a.k},${a.l})`).join(', '));
-                }
-
-                let used = 0;
-                for (const alt of alts) {
-                    if (used >= SWAP_FISH_MAX_ALTS || trials >= reassignBudget) break;
-                    if (alt.h === pk.hkl[0] && alt.k === pk.hkl[1] && alt.l === pk.hkl[2]) continue;
-                    
-                    applyAndTestSwap([{ tth: pk.tth, h: alt.h, k: alt.k, l: alt.l }]);
-                    trials++;
-                    used++;
-                }
-            }
-
-            // (b) Transposition: exchange the labels of close-lying peaks.
-            //
-            // Nearest-line assignment can hand each of two neighbouring peaks
-            // the other one's line. Nothing flags it: in a permissive space
-            // group both labels are allowed, and -- crucially -- the swapped
-            // labelling ALWAYS has a larger |q_obs - q_calc| than the nearest-
-            // line one, by construction. So no local residual comparison can
-            // ever detect a crossing; the only discriminator is to refit the
-            // cell with the labels exchanged and see whether M20 improves,
-            // which is what applyAndTestSwap already does.
-            //
-            // The job here is therefore candidate GENERATION, not detection.
-            // Measured on planted crossings across orthorhombic, monoclinic and
-            // tetragonal patterns (189 cases): ranking pairs by |q_i - q_j| and
-            // taking the closest one catches 77%, the closest TWO catch 100%
-            // (max rank observed was 1). The original code tried only the single
-            // closest pair, so it missed roughly a quarter of real crossings.
-            // Three are tried here for margin, budget permitting.
-            const pairs = [];
-            for (let i = 0; i < indexed.length; i++) {
-                for (let j = i + 1; j < indexed.length; j++) {
-                    const diff = Math.abs(indexed[i].q_obs - indexed[j].q_obs);
-                    if (isFinite(diff)) pairs.push({ i, j, diff });
-                }
-            }
-            pairs.sort((x, y) => x.diff - y.diff);
-
-            let pairsTried = 0;
-            for (const pr of pairs) {
-                if (pairsTried >= SWAP_FISH_MAX_PAIRS) break;
-                if (trials >= SWAP_FISH_MAX_TRIALS) break;
-                const pk1 = indexed[pr.i];
-                const pk2 = indexed[pr.j];
-                // Exchanging identical labels is a no-op; skip so a degenerate
-                // pair does not consume one of the three slots.
-                if (pk1.hkl[0] === pk2.hkl[0] && pk1.hkl[1] === pk2.hkl[1] &&
-                    pk1.hkl[2] === pk2.hkl[2]) continue;
-                console.log(`[SWAP DEBUG] Trying transposition between ${pk1.tth.toFixed(3)} and ${pk2.tth.toFixed(3)} (|dq|=${pr.diff.toExponential(2)})`);
-                applyAndTestSwap([
-                    { tth: pk1.tth, h: pk2.hkl[0], k: pk2.hkl[1], l: pk2.hkl[2] },
-                    { tth: pk2.tth, h: pk1.hkl[0], k: pk1.hkl[1], l: pk1.hkl[2] }
-                ]);
-                trials++;
-                pairsTried++;
+        // --- COMBINATORIAL SWAP SEARCH ------------------------------------
+        // Replaces the old "swap fishing" pass, which was not combinatorial: it
+        // tried one peak relabelled at a time (max 2 alternatives each) plus a
+        // transposition of the 3 closest peak pairs, 12 refits in total. Two
+        // independent mislabels, or a crossing that drags a third line with it,
+        // were structurally unreachable. combinatorialSwapSearch enumerates
+        // EVERY calculated line inside each peak's error window and searches the
+        // full product of those per-peak candidate sets, best-first.
+        if (swapAllowed.has(index)) {
+            try {
+                stats.swapRan++;
+                // data.swapCfg lets the caller widen the search when it knows it
+                // is handing over few, already-deduplicated parents.
+                stats.swapPosted += (combinatorialSwapSearch(sol, data, state, postMessage_func, data.swapCfg) || 0);
+            } catch (e) {
+                stats.swapErrors++;
+                console.warn("Swap search failed:", e && e.message, e && e.stack);
             }
         }
-        } catch (e) { console.warn("Swap-fishing attempt failed:", e); }
 
         // The Monte-Carlo cell polish is no longer run automatically here.
         // It is invoked on demand from the solutions context menu ("Refine MC"),
         // which lets the user choose how many solutions / iterations / restarts
         // to spend rather than paying ~0.3 s on every candidate.
 
+      } catch (err) {
+        // One bad solution must not abort the whole pass. Until now a throw
+        // anywhere in the unguarded middle of this body -- the sub-cell gcd
+        // test, the orthorhombic->hexagonal test, generateHKL_for_worker on a
+        // degenerate cell -- propagated out of forEach, out of the worker's
+        // onmessage, and killed the post-process worker outright. main_app's
+        // onerror handler simply resolved the promise, so the run finished with
+        // NO transformed and NO swapped solutions and printed nothing anywhere.
+        stats.solutionErrors++;
+        console.warn(`[post-process] solution ${index} (${sol && sol.system}) failed:`,
+                     err && err.message, err && err.stack);
+      }
+
         const progress = 80 + ((index + 1) / totalSolutions) * 15;
         postMessage_func({ type: 'progress', payload: progress });
     });
+
+    stats.bestAfter = (state.foundSolutions || [])
+        .reduce((m, x) => (x && isFinite(x.m20) && x.m20 > m) ? x.m20 : m, stats.bestBefore);
+    return stats;
 };
 
 // ============================================================================
@@ -2683,30 +2597,71 @@ const AMBIGUITY_MARGIN = 2.0;
 // Figures of merit are computed the ordinary way against the FULL line list, so
 // the resulting solution is directly comparable with every other in the table.
 
+// Nearest-line assignment with a one-peak-per-line constraint, resolved
+// best-first. Shared by getPeakAssignments() and refineWithManualHkl() so the
+// table the user is shown is exactly the assignment the refit will use -- they
+// used to run separate copies of this logic and could disagree.
+//
+// `lines` must be sorted ascending by tth (generateHKL_for_analysis guarantees
+// it), so the nearest line is a binary search rather than a linear scan.
+// Returns an array, one entry per peak: { line, d } or null.
+function assignNearestLines(peaks, lines, zero, window) {
+    const n = peaks.length;
+    const out = new Array(n).fill(null);
+    if (!lines.length || !n) return out;
+
+    const lineTth = new Float64Array(lines.length);
+    for (let i = 0; i < lines.length; i++) lineTth[i] = lines[i].tth;
+
+    const cand = new Array(n).fill(null);
+    for (let i = 0; i < n; i++) {
+        const tc = peaks[i].tth - zero;
+        const j = binarySearchClosest(lineTth, tc);
+        if (j < 0 || j >= lines.length) continue;
+        const d = Math.abs(lineTth[j] - tc);
+        if (d <= window) cand[i] = { j, d };
+    }
+
+    // A calculated line may only be claimed by ONE observed peak -- the rule
+    // pair_and_fit() has always enforced. Closest peak wins; the loser is
+    // reported unindexed rather than fitted to the same reflection.
+    const claimed = new Set();
+    for (const { i } of cand.map((c, i) => ({ i, d: c ? c.d : Infinity }))
+                            .sort((x, y) => x.d - y.d)) {
+        const c = cand[i];
+        if (!c || claimed.has(c.j)) continue;
+        claimed.add(c.j);
+        out[i] = { line: lines[c.j], d: c.d };
+    }
+    return out;
+}
+
 // What is each observed peak currently indexed as?
 function getPeakAssignments(solution, obs_peaks, wavelength, tthError, tthMax, limit) {
     const lines = generateHKL_for_analysis(solution, wavelength, tthMax);
     if (!lines.length) return [];
     const zero = solution.zero_correction || 0;
     const window = tthError * 1.5;
-    const out = [];
     const peaks = (obs_peaks || [])
         .filter(p => typeof p.tth === 'number' && isFinite(p.tth))
         .slice().sort((x, y) => x.tth - y.tth);
-    for (const p of peaks) {
+
+    const assigned = assignNearestLines(peaks, lines, zero, window);
+    const out = [];
+    for (let i = 0; i < peaks.length; i++) {
+        const p = peaks[i];
         const tc = p.tth - zero;
-        let best = null, bd = Infinity;
-        for (const L of lines) { const d = Math.abs(L.tth - tc); if (d < bd) { bd = d; best = L; } }
-        const inRange = best && bd <= window;
+        const a = assigned[i];
+        const best = a ? a.line : null;
         const dObs = wavelength / (2 * Math.sin(tc * RAD / 2));
         out.push({
             tth: p.tth, tth_corr: tc,
-            h: inRange ? best.h : null, k: inRange ? best.k : null, l: inRange ? best.l : null,
-            calc_tth: inRange ? best.tth : null,
-            diff: inRange ? (tc - best.tth) : null,
+            h: best ? best.h : null, k: best ? best.k : null, l: best ? best.l : null,
+            calc_tth: best ? best.tth : null,
+            diff: best ? (tc - best.tth) : null,
             d_obs: isFinite(dObs) ? dObs : null,
-            d_calc: inRange ? best.d : null,
-            indexed: !!inRange
+            d_calc: best ? best.d : null,
+            indexed: !!best
         });
         if (limit && out.length >= limit) break;
     }
@@ -2731,20 +2686,46 @@ const system = solution.system;
         const h = Math.round(Number(o.h)), k = Math.round(Number(o.k)), l = Math.round(Number(o.l));
         if (![h, k, l].every(Number.isFinite)) continue;
         if (h === 0 && k === 0 && l === 0) return { error: '(0,0,0) is not a reflection' };
-        ovr.set(Number(o.tth).toFixed(4), { h, k, l });
+        const k4 = Number(o.tth).toFixed(4);
+        // Overrides are matched to peaks by 2-theta printed to 4 dp. Two
+        // overrides on the same key used to silently overwrite each other.
+        if (ovr.has(k4)) return { error: `two overrides target the same peak position (${k4} deg)` };
+        ovr.set(k4, { h, k, l });
     }
     if (ovr.size === 0) return { error: 'no changes to apply' };
 
     const toQ = (t) => (4 * Math.sin(t * RAD / 2) ** 2) / (wavelength ** 2);
     const peaks = (obs_peaks || []).filter(p => typeof p.tth === 'number' && isFinite(p.tth))
                                    .slice().sort((x, y) => x.tth - y.tth);
-    const rows = [], qv = [], tthRads = [], swaps = [];
+
+    // Every override must name exactly one peak. An override whose 2-theta
+    // matches no peak (the caller changed the range between opening the dialog
+    // and applying it) used to be dropped in silence; one that matches two
+    // peaks would have been applied to both.
+    const keyCount = new Map();
     for (const p of peaks) {
+        const k4 = p.tth.toFixed(4);
+        keyCount.set(k4, (keyCount.get(k4) || 0) + 1);
+    }
+    for (const k4 of ovr.keys()) {
+        const c = keyCount.get(k4) || 0;
+        if (c === 0) return { error: `no peak at ${k4} deg in the current range` };
+        if (c > 1) return { error: `two peaks share the position ${k4} deg; cannot target one unambiguously` };
+    }
+
+    // Shared with getPeakAssignments: binary search (this used to be an
+    // O(peaks x lines) linear scan per peak, on every call) plus the
+    // one-peak-per-line rule pair_and_fit() enforces. Manual overrides below
+    // still win unconditionally.
+    const assigned = assignNearestLines(peaks, lines, zero, window);
+    const autoHkl = assigned.map(a => a ? { h: a.line.h, k: a.line.k, l: a.line.l } : null);
+
+    const rows = [], qv = [], tthRads = [], swaps = [];
+    for (let i = 0; i < peaks.length; i++) {
+        const p = peaks[i];
         const key = p.tth.toFixed(4);
         const tc = p.tth - zero;
-        let best = null, bd = Infinity;
-        for (const L of lines) { const d = Math.abs(L.tth - tc); if (d < bd) { bd = d; best = L; } }
-        let hkl = (best && bd <= window) ? { h: best.h, k: best.k, l: best.l } : null;
+        let hkl = autoHkl[i];
         if (ovr.has(key)) {
             const man = ovr.get(key);
             // A manual assignment is honoured even when it is not the nearest
@@ -2762,7 +2743,14 @@ const system = solution.system;
         const row = getLSDesignRow([hkl.h, hkl.k, hkl.l], system);
         if (!row) continue;
         if (refineZero) row.push((2 / (wavelength ** 2)) * Math.sin(p.tth * RAD));
-        rows.push(row); qv.push(toQ(p.tth)); tthRads.push(p.tth * RAD);
+        rows.push(row);
+        // With a zero column in the design matrix the RAW q is the correct
+        // right-hand side and the fit recovers the zero itself. With NO zero
+        // column the parent's zero has to be applied here instead -- the old
+        // code used raw q unconditionally, so every fixed-zero refit was
+        // offset by the whole zero shift while its ASSIGNMENTS used tc.
+        qv.push(refineZero ? toQ(p.tth) : toQ(tc));
+        tthRads.push(p.tth * RAD);
     }
     const minIndexed = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7, triclinic: 7 };
     const need = (minIndexed[system] || 6) + (refineZero ? 1 : 0);
@@ -2774,6 +2762,7 @@ const system = solution.system;
     if (!cell) return { error: 'fit did not yield a valid cell' };
     cell.system = system;
     if (refineZero) cell.zero_correction = fit.solution[fit.solution.length - 1] * DEG;
+    else if (zero) cell.zero_correction = zero;   // carry the parent's fixed zero
     cell.volume = getVolume(cell);
     if (!isFinite(cell.volume) || cell.volume <= 0) return { error: 'refined cell has non-physical volume' };
     try { cell.errors = propagateErrors(system, fit, cell); } catch (e) { cell.errors = null; }
@@ -2781,8 +2770,10 @@ const system = solution.system;
     // Figures of merit exactly as for any other solution: full line list, so the
     // number is directly comparable with the parent and with independent hits.
     try {
+        // r.q is the inv_d_sq the generator already computed; toQ(r.tth) just
+        // round-tripped it through asin and back.
         const refLines = generateHKL_for_analysis(cell, wavelength, tthMax);
-        const qSorted = new Float64Array(Array.from(new Set(refLines.map(r => toQ(r.tth))))).sort((a, b) => a - b);
+        const qSorted = new Float64Array(Array.from(new Set(refLines.map(r => r.q)))).sort((a, b) => a - b);
         const mk = (n) => peaks.slice(0, n).map((p, i) => {
             const tc2 = p.tth - (cell.zero_correction || 0);
             return { ...p, original_index: i, q: toQ(tc2), tth: tc2 };
@@ -3559,6 +3550,453 @@ function applicableRules(rules, h, k, l) {
 //20 nov, worker
 // Check if we are running in a Worker environment to avoid conflicts with the main thread
 // ============================================================================
+// COMBINATORIAL SWAP SEARCH
+// ----------------------------------------------------------------------------
+// Replaces the old "swap fishing" block in findTransformedSolutions().
+//
+// What changed and why
+// --------------------
+// The old pass was NOT combinatorial. It did two things:
+//   (a) for each of the first 12 peaks, try up to 2 alternative labels, ONE
+//       peak at a time (single-peak overrides only);
+//   (b) transpose the labels of the 3 closest-lying peak pairs.
+// So the reachable set was {single relabel} U {one pairwise transposition}.
+// A real crossing usually drags a third line with it, and two independent
+// mislabels are completely unreachable. Total budget: 12 refits.
+//
+// This version enumerates, for every peak, EVERY calculated line inside the
+// user's q tolerance window, and searches the full CARTESIAN PRODUCT of those
+// per-peak candidate sets -- i.e. arbitrarily many peaks relabelled at once.
+// The product is walked best-first (cheapest total mislabel penalty first) so
+// it can be truncated at any budget and still have covered the most plausible
+// region exhaustively. Cost is bounded by MAX_FITS, not by the product size.
+//
+// Three things make that affordable:
+//   1. The parent's line list is generated ONCE, not once per trial.
+//      (refineWithManualHkl regenerates it TWICE per call and does an O(P*L)
+//      linear nearest-line scan per peak -- that is what made the old pass
+//      unaffordable above ~12 trials.)
+//   2. Candidate labels that produce the same least-squares design row are
+//      collapsed: they are indistinguishable to the fit, so trying both is
+//      pure waste. This is a large pruning factor in high-symmetry systems.
+//   3. Two-stage evaluation. Stage 1 is a bare weighted LS solve on cached
+//      design rows (~microseconds, no HKL generation) scored by weighted RMS
+//      residual. Only the best MAX_EVALS distinct cells reach stage 2, which
+//      regenerates lines and computes M20/F(N).
+//
+// Residual is used for RANKING only, never for acceptance -- as the original
+// comment correctly noted, a swapped labelling always has a larger residual at
+// FIXED cell. After refitting that is no longer true, which is exactly why the
+// refit is the discriminator. Acceptance is still M20.
+// ============================================================================
+
+const SWAP_CFG = {
+    // Candidate GENERATION is deliberately unrestricted: every peak, every line
+    // inside the window. Cost is bounded by MAX_FITS (the best-first walk visits
+    // the cheapest assignments first), so capping generation only removes
+    // reachable answers without saving time. An earlier build capped this at the
+    // 16 lowest-angle peaks and lost relabellings at peaks 23 and 27 on a real
+    // orthorhombic pattern.
+    MAX_PEAKS:  1e9,   // how many low-angle peaks may be relabelled (no cap)
+    ALT_WINDOW: 2.5,   // candidate window, in units of the user's q tolerance
+    MAX_ALT:    4,     // distinct labels kept per peak (after row dedup)
+    MAX_FREE:   8,     // peaks allowed to vary simultaneously (product dims)
+    MAX_FITS:   150,   // stage-1 cheap LS fits per ROUND (rounds do the depth)
+    MAX_EVALS:  16,    // stage-2 full M20 evaluations per parent solution
+    MAX_POST:   3,     // best N of those actually posted to the UI
+    KEEP_RATIO: 1.0,   // post only if m20 >= KEEP_RATIO * parent m20
+    LOSE_SLACK: 1,     // a child may index at most this many fewer lines overall
+    ROUNDS:     4,     // re-centre and search again on the improved cell
+    ROUND_GAIN: 1.02,  // M20 gain needed to justify another round
+    TOP_N:      40,    // only the best N parents get a swap search at all
+    DEBUG:      false,
+};
+
+class _SwapHeap {
+    constructor() { this.a = []; }
+    get size() { return this.a.length; }
+    push(x) {
+        const a = this.a; a.push(x);
+        let i = a.length - 1;
+        while (i > 0) {
+            const p = (i - 1) >> 1;
+            if (a[p].cost <= a[i].cost) break;
+            const t = a[p]; a[p] = a[i]; a[i] = t; i = p;
+        }
+    }
+    pop() {
+        const a = this.a, top = a[0], last = a.pop();
+        if (a.length) {
+            a[0] = last;
+            for (let i = 0; ;) {
+                const l = 2 * i + 1, r = l + 1;
+                let m = i;
+                if (l < a.length && a[l].cost < a[m].cost) m = l;
+                if (r < a.length && a[r].cost < a[m].cost) m = r;
+                if (m === i) break;
+                const t = a[m]; a[m] = a[i]; a[i] = t; i = m;
+            }
+        }
+        return top;
+    }
+}
+
+// Stage 1: weighted LS on a fixed labelling. No HKL generation, no nearest-line
+// scan -- the design rows come straight from the cached line list.
+function _swapCheapFit(labels, ctx) {
+    const { lines, system, refineZero, rhs, wts, zcol, nAll, need, maxVolume, qc, qL } = ctx;
+
+    // One calculated line per observed peak, same rule as pair_and_fit() and
+    // assignNearestLines(): a transposition (two peaks exchanging DIFFERENT
+    // labels) is the whole point of this search, but two peaks landing on the
+    // SAME line would be fitted as duplicate equations and averaged. Closest
+    // peak keeps the line, the other is dropped from this trial.
+    const order = [];
+    for (let i = 0; i < nAll; i++) {
+        const j = labels[i];
+        if (j >= 0) order.push({ i, j, d: Math.abs(qL[j] - qc[i]) });
+    }
+    order.sort((x, y) => x.d - y.d);
+
+    const claimed = new Set();
+    const M = [], q = [], w = [];
+    for (const { i, j } of order) {
+        if (claimed.has(j)) continue;
+        const L = lines[j];
+        const row = getLSDesignRow([L.h, L.k, L.l], system);
+        if (!row) continue;
+        claimed.add(j);
+        if (refineZero) row.push(zcol[i]);
+        M.push(row); q.push(rhs[i]); w.push(wts[i]);
+    }
+    if (M.length < need) return null;
+
+    const fit = solveLeastSquares(M, q, w);
+    if (!fit || !fit.solution) return null;
+    const cell = extractCellFromFit(fit.solution, system);
+    if (!cell) return null;
+    cell.system = system;
+    if (refineZero) cell.zero_correction = fit.solution[fit.solution.length - 1] * DEG;
+    else if (ctx.z) cell.zero_correction = ctx.z;
+
+    const V = getVolume(cell);
+    if (!(V >= 20) || !(V <= maxVolume) || !isFinite(V)) return null;
+    cell.volume = V;
+    cell.nPaired = M.length;
+
+    // solveLeastSquares now returns the weighted RMS residual it already
+    // computed internally, so there is nothing to recompute here.
+    cell._resid = isFinite(fit.wrms) ? fit.wrms : Infinity;
+    cell._fit = fit;
+    return cell;
+}
+
+// Stage 2: figures of merit, computed exactly the way refineAndTestSolution
+// computes them so the numbers are directly comparable with every other
+// solution in the table. Uses the q_only fast path (no reflection objects).
+function _swapEvalFoM(cell, ctx) {
+    const { wavelength, qMax, peaks, N20, impurityPeaks, tolFn } = ctx;
+    const qCalc = generateQArray_for_worker(cell, qMax, wavelength);
+    if (!qCalc || qCalc.length === 0) return null;
+
+    const z = cell.zero_correction || 0;
+    const nAll = peaks.length;
+    const mk = (n) => {
+        const out = new Array(n);
+        for (let i = 0; i < n; i++) {
+            const p = peaks[i];
+            const tc = p.tth - z;
+            out[i] = { ...p, tth: tc, q: (4 * Math.sin(tc * RAD / 2) ** 2) / (wavelength ** 2) };
+        }
+        return out;
+    };
+
+    const n20 = Math.min(N20, nAll);
+    const f20 = calculateFiguresOfMerit(qCalc, mk(n20), impurityPeaks, tolFn, wavelength);
+    if (!(f20.m20 > 0)) return null;
+    const allPeaks = mk(nAll);
+    const fAll = calculateFiguresOfMerit(qCalc, allPeaks, impurityPeaks, tolFn, wavelength);
+
+    // How many of ALL N observed peaks fall within tolerance of a calculated
+    // line. M(N) cannot serve this purpose: calculateFiguresOfMerit returns a
+    // hard 0 as soon as more than `impurity_peaks` lines go unindexed, so with
+    // the usual setting of 1 impurity on a 47-peak pattern essentially every
+    // candidate scores 0 and the figure carries no information. The raw count
+    // is smooth and is the thing that actually distinguishes a cell that
+    // explains the pattern from one that has been tuned to fit 20 lines.
+    let nIdxAll = 0;
+    for (let i = 0; i < nAll; i++) {
+        const p = allPeaks[i];
+        const j = binarySearchClosest(qCalc, p.q);
+        if (j >= 0 && j < qCalc.length && Math.abs(p.q - qCalc[j]) < tolFn(p.original_index)) nIdxAll++;
+    }
+
+    return {
+        m20: f20.m20, fN_20: f20.fN, n_20: n20,
+        m_all: fAll.m20, fN_all: fAll.fN, n_all: nAll,
+        n_idx_all: nIdxAll,
+    };
+}
+
+// One round of the search: enumerate candidate labellings around `sol`, refit,
+// and return the surviving children ranked best-first. Posts nothing.
+function _swapRound(sol, data, state, cfg) {
+    const { wavelength, tth_error, refineZero, impurity_peaks, max_volume } = data;
+    const {
+        peaks_sorted_by_q, original_indices, tth_obs_rad,
+        N_FOR_M20, min_m20, q_max, d_min,
+    } = state;
+
+    const system = sol && sol.system;
+    const MIN_INDEXED = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7, triclinic: 7 }[system];
+    if (!MIN_INDEXED) return [];
+
+    const nAll = peaks_sorted_by_q.length;
+    const need = MIN_INDEXED + (refineZero ? 1 : 0);
+    if (nAll < need) return [];
+
+    // ---- 1. parent line list: generated ONCE for the whole search ----------
+    const lines = generateHKL_for_worker(sol, q_max, d_min, wavelength);
+    if (lines.length < 2) return [];
+    const qL = new Float64Array(lines.length);
+    for (let i = 0; i < lines.length; i++) qL[i] = lines[i].q;
+
+    // ---- 2. per-peak observables, precomputed once -------------------------
+    const z = sol.zero_correction || 0;
+    const qc = new Float64Array(nAll);      // zero-corrected observed q (for matching)
+    const rhs = new Float64Array(nAll);     // LS right-hand side
+    const tol = new Float64Array(nAll);
+    const zcol = new Float64Array(nAll);    // zero-shift design column
+    const tthRad = new Array(nAll);
+    for (let i = 0; i < nAll; i++) {
+        const t = peaks_sorted_by_q[i].tth;
+        const tr = t * RAD;
+        tthRad[i] = tr;
+        qc[i] = (4 * Math.sin((t - z) * RAD / 2) ** 2) / (wavelength ** 2);
+        // Mirrors refineAndTestSolution: raw q when the zero is a fitted column,
+        // zero-corrected q when the zero is held fixed. (refineWithManualHkl
+        // uses raw q unconditionally, which silently drops the parent's zero
+        // whenever refineZero is off.)
+        rhs[i] = refineZero ? (4 * Math.sin(tr / 2) ** 2) / (wavelength ** 2) : qc[i];
+        tol[i] = get_q_tolerance(original_indices[i], tth_obs_rad, wavelength, tth_error);
+        zcol[i] = (2 / (wavelength ** 2)) * Math.sin(tr);
+    }
+    const wts = ls_weights_for_2theta(tthRad);
+    const tolFn = (idx) => get_q_tolerance(idx, tth_obs_rad, wavelength, tth_error);
+
+    // ---- 3. baseline nearest-line labelling --------------------------------
+    const base = new Int32Array(nAll).fill(-1);
+    let nIndexed = 0;
+    for (let i = 0; i < nAll; i++) {
+        const j = binarySearchClosest(qL, qc[i]);
+        if (j >= 0 && j < lines.length && Math.abs(qc[i] - qL[j]) < tol[i]) { base[i] = j; nIndexed++; }
+    }
+    if (nIndexed < need) return [];
+
+    // ---- 4. candidate labels: EVERY line inside the error window -----------
+    const nScan = Math.min(cfg.MAX_PEAKS, nAll);
+    const free = [];
+    for (let i = 0; i < nScan; i++) {
+        if (base[i] < 0) continue;
+        const win = tol[i] * cfg.ALT_WINDOW;
+        const raw = [];
+        for (let j = base[i]; j >= 0; j--) { if (qc[i] - qL[j] > win) break; raw.push(j); }
+        for (let j = base[i] + 1; j < lines.length; j++) { if (qL[j] - qc[i] > win) break; raw.push(j); }
+        if (raw.length < 2) continue;
+
+        raw.sort((x, y) => Math.abs(qL[x] - qc[i]) - Math.abs(qL[y] - qc[i]));
+
+        // Two labels with the same design row are the same equation. Keep one.
+        const seen = new Set(), keep = [];
+        for (const j of raw) {
+            const r = getLSDesignRow([lines[j].h, lines[j].k, lines[j].l], system);
+            if (!r) continue;
+            const sig = r.join('|');
+            if (seen.has(sig)) continue;
+            seen.add(sig); keep.push(j);
+            if (keep.length >= cfg.MAX_ALT) break;
+        }
+        if (keep.length < 2) continue;
+
+        free.push({ i, cands: keep, pen: keep.map(j => ((qL[j] - qc[i]) / tol[i]) ** 2) });
+    }
+    if (!free.length) return [];
+
+    // Most ambiguous peaks first: smallest penalty gap between best and runner-up.
+    free.sort((A, B) => (A.pen[1] - A.pen[0]) - (B.pen[1] - B.pen[0]));
+    const dims = free.slice(0, cfg.MAX_FREE);
+    const D = dims.length;
+
+    // ---- 5. best-first walk of the full product space ----------------------
+    // Node = vector of per-peak candidate ranks. Start = all-nearest. Expanding
+    // by incrementing one coordinate generates every assignment exactly once,
+    // in non-decreasing total-penalty order.
+    const heap = new _SwapHeap();
+    const visited = new Set();
+    const start = new Uint8Array(D);
+    heap.push({ cost: dims.reduce((s, d) => s + d.pen[0], 0), r: start });
+    visited.add(start.join(','));
+
+    const labels = new Int32Array(nAll);
+    const cellSeen = new Set();
+    const results = [];
+    let fits = 0;
+
+    while (heap.size && fits < cfg.MAX_FITS) {
+        const node = heap.pop();
+        const r = node.r;
+
+        for (let d = 0; d < D; d++) {
+            if (r[d] + 1 >= dims[d].cands.length) continue;
+            const nr = Uint8Array.from(r);
+            nr[d]++;
+            const key = nr.join(',');
+            if (visited.has(key)) continue;
+            visited.add(key);
+            heap.push({ cost: node.cost - dims[d].pen[r[d]] + dims[d].pen[nr[d]], r: nr });
+        }
+
+        let changed = false;
+        labels.set(base);
+        for (let d = 0; d < D; d++) {
+            if (r[d] !== 0) changed = true;
+            labels[dims[d].i] = dims[d].cands[r[d]];
+        }
+        if (!changed) continue;   // the all-nearest labelling is the parent
+
+        fits++;
+        const cell = _swapCheapFit(labels, {
+            lines, system, refineZero, rhs, wts, zcol, nAll, need,
+            maxVolume: max_volume, z, qc, qL,
+        });
+        if (!cell) continue;
+
+        const key = getSolutionKey(cell);
+        if (!key || cellSeen.has(key)) continue;
+        cellSeen.add(key);
+        cell._swaps = dims
+            .map((d, k) => (r[k] === 0 ? null : {
+                tth: peaks_sorted_by_q[d.i].tth,
+                from: `(${lines[base[d.i]].h},${lines[base[d.i]].k},${lines[base[d.i]].l})`,
+                to: `(${lines[d.cands[r[k]]].h},${lines[d.cands[r[k]]].k},${lines[d.cands[r[k]]].l})`,
+            }))
+            .filter(Boolean);
+        results.push(cell);
+    }
+
+    // ---- 6. stage 2: full M20 for the best cheap fits only -----------------
+    results.sort((A, B) => A._resid - B._resid);
+    const parentM20 = isFinite(sol.m20) ? sol.m20 : 0;
+    const parentFoM = _swapEvalFoM(sol, {
+        wavelength, qMax: q_max, peaks: peaks_sorted_by_q,
+        N20: N_FOR_M20, impurityPeaks: impurity_peaks, tolFn,
+    });
+    const parentNIdx = parentFoM ? parentFoM.n_idx_all : 0;
+    const keepers = [];
+
+    for (let i = 0; i < results.length && i < cfg.MAX_EVALS; i++) {
+        const cell = results[i];
+        const fom = _swapEvalFoM(cell, {
+            wavelength, qMax: q_max, peaks: peaks_sorted_by_q,
+            N20: N_FOR_M20, impurityPeaks: impurity_peaks, tolFn,
+        });
+        if (!fom) continue;
+        Object.assign(cell, fom);
+        if (!(cell.m20 > min_m20) || !(cell.m20 >= parentM20 * cfg.KEEP_RATIO)) continue;
+        // M20 is computed on 20 peaks and is BLIND to peaks 21..N. A relabelling
+        // can inflate M20 while wrecking the rest of the pattern -- measured on a
+        // real orthorhombic pattern: M20 49 -> 95 while the number of indexed
+        // lines fell. Never accept a child that explains materially LESS of the
+        // observed pattern than its parent did.
+        if (cell.n_idx_all < parentNIdx - cfg.LOSE_SLACK) continue;
+        keepers.push(cell);
+    }
+
+    // Rank by how much of the pattern is explained FIRST, M20 second. Ranking on
+    // M20 alone is what let a 20-line-tuned cell outrank the cell that indexes
+    // the whole pattern.
+    keepers.sort((A, B) => (B.n_idx_all - A.n_idx_all) || (B.m20 - A.m20));
+    keepers._diag = { D, fits, distinct: results.length, parentNIdx, parentM20 };
+    return keepers;
+}
+
+/**
+ * Combinatorial relabelling search around one refined solution.
+ *
+ * Runs in ROUNDS. This matters more than any single-round budget: fixing one
+ * crossing MOVES the cell, which changes which calculated lines sit near which
+ * observed peaks -- so the second round enumerates a genuinely different
+ * candidate set that the first round could not see at any budget. Measured on a
+ * real PbSO4 pattern: round 1 lifts the best cell from M20 43.7 to 49.4, and a
+ * second round from there reaches 92.4. A single round stops at 49.4, which is
+ * exactly the plateau the one-shot version produced.
+ *
+ * @returns {number} how many new/improved solutions were posted
+ */
+function combinatorialSwapSearch(sol, data, state, postMessage_func, cfgIn) {
+    const cfg = Object.assign({}, SWAP_CFG, cfgIn || {});
+    const { foundSolutions, foundSolutionMap } = state;
+    const system = sol && sol.system;
+
+    let current = sol;
+    let best = null;
+    const chain = [];
+    const diags = [];
+
+    for (let round = 0; round < Math.max(1, cfg.ROUNDS); round++) {
+        const cands = _swapRound(current, data, state, cfg);
+        if (cands._diag) diags.push(cands._diag);
+        if (!cands.length) break;
+
+        const top = cands[0];
+        chain.push(...cands.slice(0, cfg.MAX_POST));
+        best = top;
+
+        // Re-centre only on a real gain, otherwise every parent pays for four
+        // rounds of nothing.
+        const gained = (top.n_idx_all > (current.n_idx_all || 0)) ||
+                       (top.m20 > (current.m20 || 0) * cfg.ROUND_GAIN);
+        if (!gained) break;
+        current = top;
+    }
+    if (!chain.length) return 0;
+
+    // Post the best few across all rounds.
+    chain.sort((A, B) => (B.n_idx_all - A.n_idx_all) || (B.m20 - A.m20));
+    let posted = 0;
+    for (const cell of chain) {
+        if (posted >= cfg.MAX_POST) break;
+        const key = getSolutionKey(cell);
+        const existing = foundSolutionMap.get(key);
+        if (existing && !(cell.m20 > existing.m20)) continue;
+
+        try { cell.errors = propagateErrors(system, cell._fit, cell); } catch (e) { cell.errors = null; }
+        cell.autoSwaps = cell._swaps;
+        cell.manualSwaps = sol.manualSwaps || [];
+        // _fit holds the covariance matrix; it must not survive the structured
+        // clone to the main thread.
+        delete cell._fit; delete cell._resid; delete cell._swaps;
+
+        if (existing) foundSolutions[existing.index] = cell;
+        else foundSolutions.push(cell);
+        foundSolutionMap.set(key, { m20: cell.m20, index: existing ? existing.index : foundSolutions.length - 1 });
+
+        postMessage_func({ type: 'solution', payload: cell });
+        posted++;
+    }
+
+    if (cfg.DEBUG && diags.length) {
+        const d0 = diags[0];
+        console.log(`[swap] ${system} parent M20=${d0.parentM20.toFixed(2)}: ` +
+            `${diags.length} round(s), ${diags.reduce((a, x) => a + x.fits, 0)} fits | ` +
+            `lines indexed ${d0.parentNIdx}/${state.peaks_sorted_by_q.length} -> ` +
+            `${best ? best.n_idx_all : d0.parentNIdx} | ` +
+            `M20 ${d0.parentM20.toFixed(2)} -> ${best ? best.m20.toFixed(2) : '-'} | ${posted} posted`);
+    }
+    return posted;
+}
+
+// ============================================================================
 // CRITICAL IMPORT ORDER WARNING:
 // When imported into refinement-worker.js via importScripts(), this top-level
 // self.onmessage handler is executed FIRST, and then safely CLOBBERED by 
@@ -3623,7 +4061,13 @@ if (systemToSearch === 'cubic') {
         self.postMessage({ type: 'progress', payload: 80 });
         
         // Run transformation/symmetry checks on found solutions
-        findTransformedSolutions(foundSolutions, data, workerState, self.postMessage.bind(self));
+        let ftStats = null;
+        try {
+            ftStats = findTransformedSolutions(foundSolutions, data, workerState, self.postMessage.bind(self));
+        } catch (err) {
+            ftStats = { fatal: String((err && err.message) || err), stack: String(err && err.stack || '') };
+        }
+        self.postMessage({ type: 'postProcessSummary', payload: ftStats });
         
         self.postMessage({ type: 'progress', payload: 100 });
         self.postMessage({ type: 'done' });
