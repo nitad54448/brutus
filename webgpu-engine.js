@@ -16,6 +16,18 @@ class WebGPUEngine {
         this._moduleCache = new Map();   // url -> GPUShaderModule
         this._pipelineCache = new Map(); // `${url}::${entryPoint}` -> GPUComputePipeline
         this._currentShaderUrl = null;   // set by loadShader, read by createPipeline
+
+        // Initialised HERE, not in init(). _runSolver gates on this flag, and an
+        // engine whose init() threw (or was never called) used to leave it
+        // `undefined` -- falsy -- so the guard passed and the run failed later
+        // with an opaque validation error instead of the clear message below.
+        this.deviceLost = false;
+        this.destroyed = false;
+
+        // Optional callback, assigned by the host app, invoked once if the GPU
+        // device is lost. Without it a driver reset / TDR / tab suspension is
+        // only visible in the console: the UI just watches the run quietly fail.
+        this.onDeviceLost = null;
     }
 
     // 1. Initialize WebGPU
@@ -48,9 +60,42 @@ class WebGPUEngine {
             this.shaderModule = null;
             this.pipeline = null;
             console.error(`WebGPU device lost (${info.reason}): ${info.message}`);
+            // 'destroyed' is the reason reported when WE called device.destroy(),
+            // which is a normal teardown, not a fault. Only escalate real losses.
+            if (info.reason !== 'destroyed' && typeof this.onDeviceLost === 'function') {
+                try { this.onDeviceLost(info); } catch (_) {}
+            }
         });
 
         return true;
+    }
+
+    // Explicit teardown. The host app previously constructed a fresh
+    // WebGPUEngine (and therefore a fresh GPUDevice) on every indexing run and
+    // never released the old one, so devices and their buffers accumulated for
+    // the lifetime of the page. Callers should either reuse one engine or call
+    // this before dropping the reference.
+    destroy() {
+        if (this.destroyed) return;
+        this.destroyed = true;
+        this._moduleCache.clear();
+        this._pipelineCache.clear();
+        this.bindGroupLayout = null;
+        this.shaderModule = null;
+        this.pipeline = null;
+        this.onDeviceLost = null;
+        if (this.device) {
+            try { this.device.destroy(); } catch (err) {
+                console.warn('GPUDevice.destroy() failed:', err && err.message);
+            }
+        }
+        this.device = null;
+        this.adapter = null;
+    }
+
+    // True when this engine can still be used for a run.
+    isUsable() {
+        return !!this.device && !this.deviceLost && !this.destroyed;
     }
 
     // 2. Load the WGSL Shader
@@ -217,6 +262,43 @@ class WebGPUEngine {
         return table;
     }
 
+    // --- Cooperative yield -------------------------------------------------
+    //
+    // The chunk loop has to hand control back to the event loop so the progress
+    // bar repaints and the Stop button stays responsive. It used to do that with
+    // `await new Promise(r => setTimeout(r, 0))`.
+    //
+    // That is a trap: browsers clamp setTimeout to ~4 ms once the nesting level
+    // exceeds 5, and an async loop that re-arms a timer from inside a timer
+    // callback hits that immediately. A 2000-chunk run therefore spent ~8
+    // seconds asleep doing nothing, and a run with many chunks spent most of its
+    // wall time in the clamp rather than on the GPU.
+    //
+    // A MessageChannel post is a macrotask like setTimeout but is NOT clamped,
+    // so it yields to rendering and input at a fraction of the cost.
+    static _yieldChannel = null;
+
+    static yieldToEventLoop() {
+        if (typeof MessageChannel === 'undefined') {
+            return new Promise(r => setTimeout(r, 0));
+        }
+        if (!WebGPUEngine._yieldChannel) {
+            WebGPUEngine._yieldChannel = new MessageChannel();
+            WebGPUEngine._yieldChannel.port1.start();
+        }
+        const ch = WebGPUEngine._yieldChannel;
+        return new Promise(resolve => {
+            const onMsg = () => { ch.port1.removeEventListener('message', onMsg); resolve(); };
+            ch.port1.addEventListener('message', onMsg);
+            ch.port2.postMessage(0);
+        });
+    }
+
+    // How often to yield. Yielding on every chunk is wasteful when chunks are
+    // short; ~16 ms is one display frame, which is as often as a repaint can
+    // possibly matter.
+    static YIELD_INTERVAL_MS = 16;
+
     // === Unified Solver (replaces runOrthoSolver / runMonoclinicSolver / runTriclinicSolver) ===
     //
     // Per-system configuration table. Each entry describes the differences between the three
@@ -358,8 +440,31 @@ class WebGPUEngine {
         const workgroupsX = Math.ceil(numPeakCombos / cfg.workgroupX);
         const totalChunks = Math.ceil(totalHklCombos / hklsPerChunk);
 
+        // Chunk-count blow-up guard. hklsPerChunk shrinks as numPeakCombos grows
+        // (maxThreadsPerDispatch is a fixed budget), so raising "Peaks to
+        // Combine" quietly multiplies the number of dispatches. Triclinic at 20
+        // peaks gives C(20,6)=38760 combos -> maxHklPerDispatch=1 -> 4 hkls per
+        // chunk -> ~1e9 chunks for C(123,6): a run that never ends, with no
+        // error and a progress bar that looks merely slow. Report the geometry
+        // so the caller can warn before committing.
+        if (typeof progressCallback === 'function' && progressCallback.reportPlan) {
+            try {
+                progressCallback.reportPlan({
+                    totalChunks, hklsPerChunk, numPeakCombos, totalHklCombos,
+                    system: cfg.systemName,
+                });
+            } catch (_) {}
+        }
+        if (totalChunks > 200000) {
+            console.warn(
+                `[WebGPUEngine] ${cfg.systemName}: ${totalChunks.toLocaleString()} dispatches ` +
+                `(${hklsPerChunk} hkl/chunk x ${numPeakCombos} peak combos). This will be very slow. ` +
+                `Reduce "Peaks to Combine" or "HKL Basis Size".`);
+        }
+
         let solutionsReadCount = 0;
         let stoppedEarly = false;
+        let lastYield = performance.now();
 
         // Byte alignment for copyBufferToBuffer: WebGPU requires size to be a multiple of 4.
         // One cell is already a multiple of 4 bytes (4 or 8 f32s), so any count*structSize is safe.
@@ -367,7 +472,14 @@ class WebGPUEngine {
 try {
             for (let i = 0; i < totalChunks; i++) {
                 if (stopSignal.stop) break;
-                await new Promise(r => setTimeout(r, 0));
+                // Yield at most once per frame instead of once per chunk, via an
+                // unclamped MessageChannel task (see yieldToEventLoop above).
+                const nowMs = performance.now();
+                if (nowMs - lastYield >= WebGPUEngine.YIELD_INTERVAL_MS) {
+                    lastYield = nowMs;
+                    await WebGPUEngine.yieldToEventLoop();
+                    if (stopSignal.stop) break;
+                }
 
                 configViewU32[0] = i * hklsPerChunk;
                 this.device.queue.writeBuffer(configBuffer, 0, configData);
@@ -403,25 +515,45 @@ try {
                 // a handful of new cells landed. Now we copy ceil to (countToRead * structSize).
                 if (numSolutions > solutionsReadCount) {
                     const countToRead = Math.min(numSolutions, maxSolutions);
-                    const bytesToCopy = countToRead * solutionStructSize;
+
+                    // DELTA COPY. The previous version copied and mapped
+                    // [0, countToRead) every single chunk, so cell #1 was
+                    // re-copied and re-mapped once per chunk for the rest of the
+                    // run -- O(n^2) PCIe traffic, up to 1.6 MB per chunk at the
+                    // default 50k-cell cap. Only the cells written since the last
+                    // read are new, so copy only those.
+                    //
+                    // Alignment: copyBufferToBuffer needs 4-byte-aligned offsets
+                    // and size; mapAsync needs an 8-byte-aligned offset and
+                    // 4-byte-aligned size. solutionStructSize is 16 or 32 bytes,
+                    // so every offset here is a multiple of 16 and both hold.
+                    const byteOffset = solutionsReadCount * solutionStructSize;
+                    const bytesToCopy = (countToRead - solutionsReadCount) * solutionStructSize;
 
                     const copyEncoder = this.device.createCommandEncoder();
-                    copyEncoder.copyBufferToBuffer(resultsBuffer, 0, resultsReadBuffer, 0, bytesToCopy);
+                    copyEncoder.copyBufferToBuffer(
+                        resultsBuffer, byteOffset,
+                        resultsReadBuffer, byteOffset,
+                        bytesToCopy);
                     this.device.queue.submit([copyEncoder.finish()]);
                     await this.device.queue.onSubmittedWorkDone();
 
                     try {
-                        await resultsReadBuffer.mapAsync(GPUMapMode.READ, 0, bytesToCopy);
+                        await resultsReadBuffer.mapAsync(GPUMapMode.READ, byteOffset, bytesToCopy);
                     } catch (err) {
                         console.warn("GPU mapAsync aborted (results):", err.message);
                         stoppedEarly = true;
                         break;
                     }
 
-                    const rawResults = new Float32Array(resultsReadBuffer.getMappedRange(0, bytesToCopy));
+                    // getMappedRange is relative to the buffer, and the returned
+                    // ArrayBuffer starts at byteOffset -- so index from 0 here,
+                    // not from solutionsReadCount.
+                    const rawResults = new Float32Array(resultsReadBuffer.getMappedRange(byteOffset, bytesToCopy));
                     const newBatch = [];
+                    const newCount = countToRead - solutionsReadCount;
 
-                    for (let k = solutionsReadCount; k < countToRead; k++) {
+                    for (let k = 0; k < newCount; k++) {
                         const cellObj = cfg.parseCell(rawResults, k * cfg.structFloats);
                         // Fast pre-filter: only keep cells with physically reasonable unit cell dimensions (2.0 Å to 50.0 Å)
                         if (cellObj && cellObj.a >= 2.0 && cellObj.a <= 50.0) {
@@ -446,7 +578,11 @@ try {
             configBuffer.destroy(); debugCounterBuffer.destroy(); debugLogBuffer.destroy(); qTolerancesBuffer.destroy();
         }
 
-        return { potentialCells: [], stoppedEarly };
+        // Cells are delivered incrementally through onIntermediateResults; there
+        // is no accumulated list to hand back. The old `potentialCells: []` was
+        // permanently empty and every caller ignored it, which is exactly the
+        // kind of return value someone eventually trusts. Report counts instead.
+        return { cellsEmitted: solutionsReadCount, stoppedEarly };
     }
 
     // Backward-compatible entry points. brutus.html's makeGpuTask references these by name
@@ -460,4 +596,4 @@ try {
     runTriclinicSolver(...args) {
         return this._runSolver(WebGPUEngine.SYSTEM_CONFIGS.triclinic, ...args);
     }
-}
+}

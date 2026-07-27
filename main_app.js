@@ -430,8 +430,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             if ('gpu' in navigator) {
-                const engine = new WebGPUEngine();
-                await engine.init(); //  critical test
+                // Reuse the shared engine. This probe used to construct its own
+                // and abandon it, so the page held a spare GPUDevice from load
+                // onwards that no run ever touched.
+                await getWebGPUEngine(); //  critical test
                 // If this line is reached, GPU is fine.
                 webGPUSupportsCompute = true;
                 console.log("WebGPU compute capabilities verified.");
@@ -484,6 +486,53 @@ document.addEventListener('DOMContentLoaded', () => {
     //v2 depuis le 14 juillet 2026
     let spaceGroupData = null;
     let webGPUSupportsCompute = true; 
+
+    // ------------------------------------------------------------------
+    // Shared WebGPU engine.
+    //
+    // Previously checkWebGPUCapabilities() built one engine (and one GPUDevice)
+    // at startup and startIndexing() built a fresh one on EVERY run, and
+    // device.destroy() was never called anywhere. Devices, their pipelines and
+    // their buffers therefore accumulated for the lifetime of the page; a long
+    // session would eventually exhaust the driver.
+    //
+    // One engine is created lazily, reused by every run, and rebuilt only if the
+    // device is genuinely lost. getWebGPUEngine() is the single entry point.
+    // ------------------------------------------------------------------
+    let sharedWebGPUEngine = null;
+
+    const releaseWebGPUEngine = () => {
+        if (sharedWebGPUEngine) {
+            try { sharedWebGPUEngine.destroy(); } catch (_) {}
+            sharedWebGPUEngine = null;
+        }
+    };
+
+    async function getWebGPUEngine() {
+        // A lost device cannot be revived: its pipelines and buffers are gone.
+        // Drop it and build a replacement.
+        if (sharedWebGPUEngine && !sharedWebGPUEngine.isUsable()) {
+            releaseWebGPUEngine();
+        }
+        if (sharedWebGPUEngine) return sharedWebGPUEngine;
+
+        const engine = new WebGPUEngine();
+        await engine.init();
+        engine.onDeviceLost = (info) => {
+            // Device loss used to be console-only, so a driver reset mid-run
+            // just looked like an indexing run that quietly produced nothing.
+            webGPUSupportsCompute = false;
+            showStatus(
+                `GPU device lost (${info && info.reason ? info.reason : 'unknown'}). ` +
+                `Reload the page to re-enable GPU searches.`, 'error', 12000);
+            gpuStopSignal.stop = true;
+        };
+        sharedWebGPUEngine = engine;
+        return engine;
+    }
+
+    // Release the device on navigation rather than relying on GC.
+    window.addEventListener('pagehide', releaseWebGPUEngine);
   
    // Function to load space group JSON data, error if not found, ..
     async function loadSpaceGroupData() {
@@ -833,8 +882,21 @@ const getOrthogonalityScore = (cell) => {
     let indexingRunToken = 0;
     let sortState = { column: 'm20', direction: 'desc' };
     let workerURL = null;    
-    const MAX_SOLUTIONS_BEFORE_PRUNING = 50;
-    const PRUNE_TO_COUNT = 40; // Prune down to this many
+    // In-run reservoir size. This used to be 50/40, which meant any cell outside
+    // the top 40 by M20 *at the moment it arrived* was destroyed before
+    // applyFinalSieve, the post-process worker, or space-group analysis ever saw
+    // it. On a GPU run producing tens of thousands of candidates that is a very
+    // early, very lossy cut: a strong cell arriving late could be dropped simply
+    // because the list was momentarily full of near-duplicates of each other.
+    // The list is deduped by _solKey on insert and sieved at the end anyway, so
+    // a larger reservoir costs a few hundred small objects and nothing else.
+    const MAX_SOLUTIONS_BEFORE_PRUNING = 500;
+    const PRUNE_TO_COUNT = 400; // Prune down to this many
+
+    // The table is rebuilt from scratch on every animation frame during a run,
+    // so the number of RENDERED rows is what actually costs time -- not the
+    // number retained. Keep the display at the old order of magnitude.
+    const MAX_DISPLAYED_SOLUTIONS = 50;
 
 
 
@@ -844,6 +906,13 @@ let isTableUpdateScheduled = false;
 // New function to centralize updates (Throttled with requestAnimationFrame)
 const handleNewSolution = (newSolution) => {
     if (!newSolution || !newSolution.system) return;
+
+    // Stamp the producing run. `solutions` is deliberately NOT cleared between
+    // runs, so the array mixes cells found under the current peak set /
+    // wavelength with cells found under whatever was configured previously.
+    // finalizeIndexing() uses this to avoid re-running space-group analysis on
+    // an old solution against a peak list it was never derived from.
+    newSolution._runToken = indexingRunToken;
 
     // --- CROSS-WORKER DEDUP ---
     // Each refinement worker dedups only against its OWN foundSolutionMap, so
@@ -898,8 +967,10 @@ const handleNewSolution = (newSolution) => {
             // Sort solutions based on current UI state
             sortSolutions();
 
-            // Re-Sync the ledger
-            displayedSolutions = [...solutions];
+            // Re-Sync the ledger. Only the leading slice is rendered; row
+            // click-handlers index into displayedSolutions, and the slice
+            // preserves order, so indices stay aligned.
+            displayedSolutions = solutions.slice(0, MAX_DISPLAYED_SOLUTIONS);
 
             // Rebuild the DOM table (now capped at browser refresh rate, ~60Hz)
             updateSolutionsTable();
@@ -958,6 +1029,10 @@ const setupWorker = () => {
             this._initialised = false;
             this._lastActivity = 0;   // timestamp of the last worker message
             this._drainWake = null;   // resolver woken when the last batch acks
+            // Retained so a worker respawned mid-run can be brought up to the
+            // same state as its peers. Without it a replacement worker would sit
+            // in the pool uninitialised and reject every batch it was handed.
+            this._initPayload = null;
         }
 
         _now() {
@@ -977,7 +1052,7 @@ const setupWorker = () => {
                 w.activeBatches = new Set(); // Track pending batches on this worker
                 w.onmessage = (e) => this._onMessage(e, w);
                 w.onerror = (err) => {
-                    console.error(`Refinement worker ${i} hard crash:`, err.message);
+                    console.error(`Refinement worker hard crash:`, err.message);
                     // Prevent infinite hangs by resolving all batches assigned to this crashed worker
                     for (const id of w.activeBatches) {
                         const resolve = this.pendingResolvers.get(id);
@@ -994,6 +1069,10 @@ const setupWorker = () => {
                         this.workers.splice(deadIndex, 1);
                     }
                 };
+                // A worker created after init() has already run starts blank and
+                // would reject every batch with 'Worker not initialized'. Replay
+                // the init payload so a replacement is immediately usable.
+                if (this._initPayload) w.postMessage(this._initPayload);
                 this.workers.push(w);
             }
         }
@@ -1016,9 +1095,13 @@ const setupWorker = () => {
                     this.pendingResolvers.delete(id);
                     resolve();
                 }
-                // Wake drain() the instant the last batch acks instead of
-                // making it wait out another poll interval.
-                if (this.pendingResolvers.size === 0 && this._drainWake) {
+                // Wake drain() on every ack, not just when the map empties. A
+                // scoped drain (drain(stallMs, sinceId)) can be satisfied while
+                // other callers' batches are still outstanding, and the old
+                // size===0 condition would have made it sit out the 250 ms tick.
+                // drain() re-checks its own predicate on wake, so an early
+                // wake-up is free.
+                if (this._drainWake) {
                     const wake = this._drainWake;
                     this._drainWake = null;
                     wake();
@@ -1042,6 +1125,7 @@ const setupWorker = () => {
                 q_max: shared.q_max,
                 d_min: shared.d_min,
             };
+            this._initPayload = payload;
             for (const w of this.workers) {
                 // postMessage structured-clones the payload. For the modest sizes
                 // here (<100 KB total) this is fine.
@@ -1060,9 +1144,17 @@ const setupWorker = () => {
         // message per worker. Returns a Promise that resolves when every worker
         // has acknowledged its slice.
         refineBatch(cells) {
-            if (!this._initialised || this.workers.length === 0 || !cells || cells.length === 0) {
+            if (!this._initialised || !cells || cells.length === 0) {
                 return Promise.resolve();
             }
+            // Self-heal. _spawn() used to be reachable only from init(), so a
+            // worker lost to a crash stayed lost for the rest of the run and the
+            // pool silently shrank towards zero -- at which point every batch
+            // was dropped on the floor by the guard above. Topping up here costs
+            // nothing when the pool is full (_spawn is idempotent).
+            this._spawn();
+            if (this.workers.length === 0) return Promise.resolve();
+
             const n = cells.length;
             const numWorkers = this.workers.length;
             // Target chunk size: one chunk per worker if there are enough cells,
@@ -1080,22 +1172,35 @@ const setupWorker = () => {
                 if (size === 0) continue;
                 const slice = cells.slice(offset, offset + size);
                 offset += size;
+                // Re-read the live count every iteration. `numWorkers` was
+                // sampled before the loop, but onerror can splice a dead worker
+                // out while we are still dispatching, which left rrIndex past the
+                // end of the array -- `worker` came back undefined and
+                // .activeBatches threw, aborting the whole batch.
+                const live = this.workers.length;
+                if (live === 0) break;
+                this.rrIndex %= live;
+                const worker = this.workers[this.rrIndex];
+                this.rrIndex = (this.rrIndex + 1) % live;
+                if (!worker) break;
+
                 const batchId = this.nextBatchId++;
                 const p = new Promise((resolve) => {
                     this.pendingResolvers.set(batchId, resolve);
                 });
-                // rrIndex can be left past the end of the array when onerror
-                // splices a dead worker out of the pool, in which case this used
-                // to hand back `undefined` and throw on .activeBatches below.
-                this.rrIndex %= numWorkers;
-                const worker = this.workers[this.rrIndex];
-                this.rrIndex = (this.rrIndex + 1) % numWorkers;
                 worker.activeBatches.add(batchId);
                 this._lastActivity = this._now();
                 worker.postMessage({ type: 'refineBatch', cells: slice, batchId });
                 promises.push(p);
             }
             return Promise.all(promises);
+        }
+
+        // Id of the next batch that will be created. Callers snapshot this
+        // before dispatching work so they can drain only their own batches
+        // (see drain(stallMs, sinceId)).
+        mark() {
+            return this.nextBatchId;
         }
 
         // Convenience wrapper for single-cell callers.
@@ -1112,19 +1217,40 @@ const setupWorker = () => {
         // stuck mid-progress. If nothing is heard from any worker for stallMs the
         // outstanding batches are force-resolved and the run continues with
         // whatever was found.
-        async drain(stallMs = 30000) {
-            while (this.pendingResolvers.size > 0) {
+        // `sinceId` (from mark()) scopes the wait to batches this caller
+        // dispatched. Draining the whole pool made one task block on unrelated
+        // work and made the stall watchdog measure pool-wide rather than
+        // caller-relevant activity. Omit it to drain everything, as before.
+        async drain(stallMs = 30000, sinceId = 0) {
+            const outstanding = () => {
+                if (!sinceId) return this.pendingResolvers.size;
+                let n = 0;
+                for (const id of this.pendingResolvers.keys()) if (id >= sinceId) n++;
+                return n;
+            };
+
+            while (outstanding() > 0) {
                 await new Promise(resolve => {
                     this._drainWake = resolve;
                     setTimeout(resolve, 250);   // watchdog tick
                 });
                 this._drainWake = null;
-                if (this.pendingResolvers.size > 0 && (this._now() - this._lastActivity) > stallMs) {
-                    console.warn(`[RefinementWorkerPool] ${this.pendingResolvers.size} batch(es) ` +
+                const stillOut = outstanding();
+                if (stillOut > 0 && (this._now() - this._lastActivity) > stallMs) {
+                    console.warn(`[RefinementWorkerPool] ${stillOut} batch(es) ` +
                                  `silent for >${stallMs} ms; force-resolving so the run can finish.`);
-                    for (const resolve of this.pendingResolvers.values()) resolve();
-                    this.pendingResolvers.clear();
-                    for (const w of this.workers) if (w.activeBatches) w.activeBatches.clear();
+                    for (const [id, resolve] of Array.from(this.pendingResolvers.entries())) {
+                        if (!sinceId || id >= sinceId) {
+                            resolve();
+                            this.pendingResolvers.delete(id);
+                        }
+                    }
+                    for (const w of this.workers) {
+                        if (!w.activeBatches) continue;
+                        for (const id of Array.from(w.activeBatches)) {
+                            if (!sinceId || id >= sinceId) w.activeBatches.delete(id);
+                        }
+                    }
                     break;
                 }
             }
@@ -1139,6 +1265,10 @@ const setupWorker = () => {
             this.pendingResolvers.clear();
             if (this._drainWake) { const wake = this._drainWake; this._drainWake = null; wake(); }
             this._initialised = false;
+            // Drop the retained payload too: it describes the run we just
+            // killed, and replaying it into a worker spawned for the next run
+            // would seed that run with the previous run's peaks and tolerances.
+            this._initPayload = null;
         }
     }
 
@@ -2165,6 +2295,12 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
         return res;
     };
 
+    // Dispatch-count thresholds for checkGpuLimits(). A dispatch costs roughly a
+    // GPU submit plus a fence wait, so ~1e5 of them is already a slow run and
+    // ~2e6 is not going to finish in any session a person will sit through.
+    const CHUNK_COUNT_WARN_LIMIT = 100000;
+    const CHUNK_COUNT_HARD_LIMIT = 2000000;
+
     const checkGpuLimits = () => {
         // If WebGPU isn't even available, don't block (CPU fallback logic handles it)
         if (!webGPUSupportsCompute) return true;
@@ -2192,6 +2328,44 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
 
         // 2. Calculate Shader Loop Size (The dangerous number)
         const totalHklCombos = bigCombinations(n_hkl, k_val);
+
+        // 2b. Dispatch-count estimate.
+        //
+        // hklsPerChunk in the engine is derived from a FIXED thread budget
+        // divided by the number of peak combinations, so raising "Peaks to
+        // Combine" shrinks the chunk and multiplies the number of dispatches.
+        // Triclinic at the UI-allowed maximum of 20 peaks gives C(20,6)=38760
+        // combos, which collapses the chunk to 4 hkls and demands ~1e9
+        // dispatches for C(123,6): a run that never finishes, with no error and
+        // a progress bar that merely looks slow. Warn while it is still cheap.
+        const n_peaks_ui = parseInt(ui.gpuPeaksCount.value, 10) || 0;
+        const numPeakCombos = combinations(Math.max(n_peaks_ui, k_val), k_val);
+        // Must mirror WebGPUEngine.SYSTEM_CONFIGS.
+        const threadBudget = (k_val === 6) ? 50000 : 500000;
+        const wgY = (k_val === 6) ? 4 : 8;
+        const maxHklPerDispatch = Math.floor(threadBudget / Math.max(1, numPeakCombos));
+        const wgCount = Math.max(1, Math.min(Math.ceil(maxHklPerDispatch / wgY), 16383));
+        const hklsPerChunk = wgCount * wgY;
+        const estChunks = Number(totalHklCombos) / hklsPerChunk;
+
+        if (estChunks > CHUNK_COUNT_HARD_LIMIT) {
+            ui.startIndexingButton.disabled = true;
+            ui.startIndexingButton.textContent = "Start (**** Too Slow)";
+            ui.startIndexingButton.style.backgroundColor = "var(--error-red)";
+            ui.startIndexingButton.style.borderColor = "var(--error-red)";
+            if (statusTextElement) {
+                statusTextElement.textContent =
+                    `Error: ${activeSystem} needs ~${Math.round(estChunks).toLocaleString('en-US')} GPU dispatches ` +
+                    `(only ${hklsPerChunk} HKL per dispatch at ${numPeakCombos} peak combinations). ` +
+                    `Reduce "Peaks to Combine" or "HKL Basis Size".`;
+            }
+            return false;
+        }
+        if (estChunks > CHUNK_COUNT_WARN_LIMIT && statusTextElement) {
+            statusTextElement.textContent =
+                `Warning: ${activeSystem} will issue ~${Math.round(estChunks).toLocaleString('en-US')} GPU dispatches. ` +
+                `Lowering "Peaks to Combine" would speed this up substantially.`;
+        }
 
         // 3. Check against Hardware Limit (u32)
         if (totalHklCombos > UINT32_MAX) {
@@ -2236,9 +2410,13 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
                 ui.startIndexingButton.style.backgroundColor = ""; 
                 ui.startIndexingButton.style.borderColor = "";
                 
-                // Clear error message if it was set previously
+                // Clear any previously-set pre-flight message. checkGpuLimits
+                // can now emit a dispatch-count warning as well as the u32 one,
+                // and a warning left on screen after the parameter was fixed
+                // reads as a live error.
                 const statusEl = document.getElementById('status-text');
-                if (statusEl && statusEl.textContent.includes("exceeds GPU limit")) {
+                if (statusEl && (statusEl.textContent.includes("exceeds GPU limit") ||
+                                 statusEl.textContent.includes("GPU dispatches"))) {
                     statusEl.textContent = "";
                 }
             }
@@ -2658,13 +2836,13 @@ const startIndexing = async () => {
 
     if (needsWebGPU) {
         try {
-            const engine = new WebGPUEngine();
-            await engine.init();
-            webgpuEngine = engine;
+            // Shared, page-lifetime engine -- not a new GPUDevice per run.
+            webgpuEngine = await getWebGPUEngine();
         } catch (err) {
             console.warn("WebGPU initialization failed:", err.message);
             showStatus("WebGPU failed unexpectedly. GPU searches are disabled.", "error", 8000);
             webGPUSupportsCompute = false; 
+            releaseWebGPUEngine();
             // Disable all GPU checkboxes
             [orthoCheckbox, monoCheckbox, triCheckbox].forEach(cb => {
                 if (cb) {
@@ -2673,7 +2851,12 @@ const startIndexing = async () => {
                     if (cb.parentElement) cb.parentElement.style.opacity = '0.5';
                 }
             });
-            setUIState(false); // Re-enable UI
+            // NOT setUIState(false): setUIState(true) has not run yet at this
+            // point, so the old call was undoing state that was never applied --
+            // it hid the progress bar, relabelled the Stop button back to
+            // "Generate PDF Report" and re-enabled controls for a run that never
+            // began. Just refresh the start button and bail.
+            updateStartIndexingButtonState();
             return; // Stop indexing
         }
     }
@@ -2777,13 +2960,28 @@ systemsToSearch.forEach(system => {
     if (statusTextElement) statusTextElement.textContent = '[0%] Starting...';
 
     const getGpuProgressCallback = (systemName, absoluteTaskIndex) => {
-        return (chunkProgress, numFound) => { 
+        const cb = (chunkProgress, numFound) => { 
             taskProgress[absoluteTaskIndex] = chunkProgress * 100;
             updateProgressBar();
             const totalPercentage = taskProgress.reduce((a, b) => a + b, 0) / totalTasks;
             const message = `[${totalPercentage.toFixed(0)}%] GPU (${systemName}): ${numFound} candidates`;
             throttledSetStatusText(message);
         };
+        // The engine calls this once, before the chunk loop, with the dispatch
+        // geometry it actually resolved. checkGpuLimits() estimates the same
+        // numbers ahead of time, but this is the ground truth and covers the
+        // case where the basis was capped by the u32 guard after the pre-flight
+        // check ran.
+        cb.reportPlan = (plan) => {
+            console.log(`[perf] GPU plan (${plan.system}): ${plan.totalChunks.toLocaleString()} dispatches, ` +
+                        `${plan.hklsPerChunk} hkl/chunk, ${plan.numPeakCombos} peak combos`);
+            if (plan.totalChunks > CHUNK_COUNT_WARN_LIMIT) {
+                showStatus(
+                    `${systemName}: ~${plan.totalChunks.toLocaleString()} GPU dispatches queued — this run will be slow. ` +
+                    `Press Stop and lower "Peaks to Combine" to speed it up.`, 'error', 10000);
+            }
+        };
+        return cb;
     };
 
     const taskPromises = [];
@@ -3065,6 +3263,10 @@ systemsToSearch.forEach(system => {
                 // The main metric is `drainMs` below (how long after GPU finishes
                 // that workers are still chewing through the backlog).
                 let dispatchMs = 0;
+                // Everything this task dispatches gets a batch id >= poolMark,
+                // so the drain below waits on this task's work only rather than
+                // on whatever else happens to be in flight pool-wide.
+                const poolMark = refinementPool.mark();
                 const handleIntermediateResults = (newCells) => {
                     cellsDispatchedToRefine += newCells.length;
                     const t0 = performance.now();
@@ -3088,7 +3290,7 @@ systemsToSearch.forEach(system => {
                     peakCombos,
                     null,
                     qTolerancesArray,
-                    (p, n) => progressCallback(p, n),
+                    progressCallback,   // pass directly: an arrow wrapper would drop .reportPlan
                     gpuStopSignal,
                     baseParams,
                     handleIntermediateResults
@@ -3098,7 +3300,7 @@ systemsToSearch.forEach(system => {
                 // cells dispatched during the GPU run. If GPU produced cells faster
                 // than workers could refine, drainMs > 0. If workers kept up, it's ~0.
                 const tDrainStart = performance.now();
-                await refinementPool.drain();
+                await refinementPool.drain(30000, poolMark);
                 const drainMs = performance.now() - tDrainStart;
                 console.log(`[perf]   engineFn('${cfg.label}') wall time: ${engineMs.toFixed(0)} ms`);
                 console.log(`[perf]   dispatch: ${dispatchMs.toFixed(0)} ms  |  pool-drain: ${drainMs.toFixed(0)} ms  |  cells: ${cellsDispatchedToRefine}  |  workers: ${REFINE_POOL_SIZE}`);
@@ -3201,7 +3403,13 @@ systemsToSearch.forEach(system => {
 
 
 
-const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
+// `runToken` identifies which solutions were produced BY this run (see
+// handleNewSolution). It is normally the same as sessionToken, but the abort
+// path bumps indexingRunToken before finalizing, so it passes the pre-bump
+// value explicitly. Solutions carrying any other token came from an earlier
+// run, possibly under a different wavelength or peak selection.
+const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken = undefined) => {
+    if (runToken === undefined) runToken = sessionToken;
     // A manual Stop or a new file load bumps indexingRunToken via
     // abortActiveIndexing(), which already re-enabled the UI. If that
     // happened after this run started, this is a stale tail from an
@@ -3279,9 +3487,23 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
     // hard (real) and soft (Ka2-suspect) violations separately. A space
     // group disqualified only by Ka2-suspect peaks ends up with
     // hardViolations === 0 and is shown alongside the truly viable groups.
+    // Only (re)analyse cells belonging to this run. `solutions` intentionally
+    // survives across runs, and re-running the absence analysis on a solution
+    // found under a previous wavelength / 2-theta window / peak list would
+    // silently re-label it against data it was never fitted to -- and pay for
+    // the analysis again every subsequent run. A solution keeps whatever
+    // analysis it was given when it was found.
+    const needsAnalysis = (sol) =>
+        !sol.analysis || runToken === null || sol._runToken === runToken;
+    const _nStale = solutions.filter(s => !needsAnalysis(s)).length;
+    if (_nStale > 0) {
+        console.log(`[perf] spaceGroupAnalysis: keeping ${_nStale} analysis result(s) from earlier run(s).`);
+    }
+
     const _perfSgEnd = perfStart('spaceGroupAnalysis');
     if (spaceGroupData) {
         solutions.forEach(sol => {
+            if (!needsAnalysis(sol)) return;
             sol.analysis = analyzeSystematicAbsences(
                 sol,
                 filteredPeaks,
@@ -3297,6 +3519,7 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
         const lambda = parseFloat(ui.wavelength.value);
         
         solutions.forEach(sol => {
+            if (!needsAnalysis(sol)) return;
             const basicHklList = generateHKL_for_analysis(sol, lambda, tthMaxVal);
             sol.analysis = {
                 centering: 'Unknown (data not loaded)',
@@ -3351,11 +3574,17 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null) => {
             resolveWorkerTask = null;
         }
 
+        // Token of the run we are stopping. Its solutions carry this value, so
+        // finalizeIndexing needs it to recognise them as belonging to the
+        // current run -- comparing against the post-bump token would classify
+        // every cell this run just found as stale and skip its analysis.
+        const abortedRunToken = indexingRunToken;
+
         indexingRunToken++; // invalidate any background startIndexing() loop
 
         if (shouldFinalize) {
             // Immediately run final sieve and space group check on solutions found so far
-            finalizeIndexing(true, indexingRunToken);
+            finalizeIndexing(true, indexingRunToken, abortedRunToken);
         } else {
             setUIState(false);
         }

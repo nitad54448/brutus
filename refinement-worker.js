@@ -26,6 +26,51 @@ let baseParams = null;
 let foundSolutions = [];
 let foundSolutionMap = new Map();
 
+// Bound on the per-worker ledgers.
+//
+// foundSolutions and foundSolutionMap only exist so refineAndTestSolution can
+// recognise a cell it has already accepted; nothing reads them back at the end
+// of the run (every accepted cell is posted to the main thread immediately, and
+// the main thread keeps the authoritative list). On a long GPU run a worker can
+// accept tens of thousands of cells, so both structures grew without limit for
+// the whole run and were only ever released by 'init' or 'reset'.
+//
+// Trimming is safe: losing an old entry can at worst let one duplicate through
+// to the main thread, which dedups by _solKey anyway.
+const MAX_WORKER_LEDGER = 20000;
+const TRIM_LEDGER_TO   = 15000;
+
+function trimLedgerIfNeeded() {
+    if (foundSolutions.length <= MAX_WORKER_LEDGER) return;
+
+    // CAREFUL: foundSolutionMap values are { m20, index } where `index` is a
+    // POSITION in foundSolutions (see refineAndTestSolution, which does
+    // `foundSolutions[existing.index] = ...`). Dropping elements shifts every
+    // later position, so the map has to be rebuilt from the survivors rather
+    // than patched entry by entry -- otherwise a subsequent better-M20 hit
+    // overwrites an unrelated cell.
+    //
+    // Both structures are mutated IN PLACE. refineAndTestSolution destructures
+    // them out of `state` on entry, so replacing them with fresh objects here
+    // would leave that code writing into an orphaned array.
+    const keep = foundSolutions.slice(foundSolutions.length - TRIM_LEDGER_TO);
+    foundSolutions.length = 0;
+    for (let i = 0; i < keep.length; i++) foundSolutions.push(keep[i]);
+
+    foundSolutionMap.clear();
+    for (let i = 0; i < foundSolutions.length; i++) {
+        const sol = foundSolutions[i];
+        let key;
+        try { key = getSolutionKey(sol); } catch (_) { key = undefined; }
+        if (key === undefined || key === null) continue;
+        const prev = foundSolutionMap.get(key);
+        // slice() can only have kept one entry per key, but rebuild defensively.
+        if (!prev || sol.m20 > prev.m20) {
+            foundSolutionMap.set(key, { m20: sol.m20, index: i });
+        }
+    }
+}
+
 // 13 jul 2026: restored the legacy 'refine' case below (see point 3 in the
 // header) — it had been dropped from the switch statement so it fell
 // through to default and was silently ignored, contradicting this file's
@@ -101,6 +146,9 @@ self.onmessage = (e) => {
                 for (let i = 0; i < cells.length; i++) {
                     runOneCell(cells[i], 'batchId', batchId);
                 }
+                // Once per batch, not per cell: the check is O(1) but the
+                // occasional rebuild is O(n).
+                trimLedgerIfNeeded();
                 self.postMessage({ type: 'done', batchId });
                 break;
             }

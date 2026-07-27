@@ -4,16 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Brutus-Powder Indexing</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!--
+     27 july 2026, removed the  CDN dependencies.
+    -->
+<script src="chart.umd.js"></script>
+    <script src="hammer.min.js"></script>
+    <script src="chartjs-plugin-zoom.min.js"></script>
+    <script src="jspdf.umd.min.js"></script>
     <script src="worker-logic.js"></script>
     <script src="webgpu-engine.js"></script>
-
+    <link href="inter-font.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body class="app-shell">
@@ -320,7 +320,7 @@
     <div id="status-box"></div>
 
     <script src="main_app.js"></script>
-<div id="app-footer">Brutus, 26 July 2026</div>
+<div id="app-footer">Brutus, 27 July 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-swap">Swap hkl</div>

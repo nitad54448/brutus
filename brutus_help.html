@@ -1,13 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
+     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Brutus Indexing - Technical Guide</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Code+Pro:wght@400;600&display=swap" rel="stylesheet">
-    <script>
+    <link href="inter-font.css" rel="stylesheet">
+     <script>
         MathJax = {
           tex: {
             inlineMath: [['$', '$'], ['\\(', '\\)']]
@@ -17,9 +15,7 @@
           }
         };
     </script>
-    <script type="text/javascript" id="MathJax-script" async
-      src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js">
-    </script>
+    <script type="text/javascript" id="MathJax-script" async src="tex-svg.js"></script>
     <style>
         :root {
             --dark-bg: #111827;
@@ -187,12 +183,12 @@
             <p>
                 The aim of <em>ab initio</em> powder indexing is to determine the unit-cell parameters
                 ($a, b, c, \alpha, \beta, \gamma$) from a list of observed diffraction peak positions ($2\theta$).
-                Brutus performs this task using a symmetry-specific, exhaustive search algorithm.
+                Brutus performs this task using a symmetry-specific, (almost) exhaustive search algorithm.
             </p>
             <p>
                 The central assumption is that a small subset of the most intense, low-angle reflections corresponds
                 to simple crystal planes with low-integer Miller indices $(hkl)$. For a given crystal system,
-                the program chooses exactly as many observed peaks as there are unknown lattice parameters, and solves
+                the program chooses some observed peaks and solves
                 the resulting system of linear equations.
             </p>
 
@@ -282,7 +278,7 @@
                         <li>Set a chemically reasonable <code>Max Volume (Å³)</code> to limit the search space.</li>
                         <li>Set <code>2θ Error (°)</code> according to your data quality (e.g. ≈0.02° for synchrotron, ≈0.05° for a typical lab diffractometer).</li>
                         <li>Leave <strong>Refine Zero-Point Error</strong> enabled unless you have a specific reason to turn it off.</li>
-                        <li>Select the crystal systems to search. Enabling Orthorhombic, Monoclinic, or Triclinic activates GPU-accelerated searches.</li>
+                        <li>Select the crystal systems to search. Enabling Orthorhombic, Monoclinic, or Triclinic activates GPU-accelerated searches. If these systems are disabled, it is likely that the GPU acceleration is not activated in the browser. See the Troubleshooting section.</li>
                     </ul>
                 </li>
                 <li>
@@ -296,7 +292,7 @@
                 </li>
                 <li>
                     <strong>Start indexing.</strong>
-                    Click <code>Start Indexing</code>. Progress is shown on the main progress bar.
+                    Click <code>Start Indexing</code>. Progress is shown on the main progress bar. If the number of GPU buffers is too large, a warning will appear. 
                 </li>
                 <li>
                     <strong>Inspect solutions.</strong>
@@ -409,11 +405,11 @@
                     <strong>Max Volume (Å³):</strong>
                     Upper bound on the allowed unit-cell volume. This is one of the most powerful constraints on the search.
                     Setting it appropriately (e.g. based on the number of formula units and estimated molecular volume)
-                    dramatically reduces spurious solutions and speeds up the search.
+                    dramatically reduces spurious solutions and speeds up the search. The maximum volume at this moment is 12500 A3, it can be edited in the source file if you wish to do so.
                 </li>
                 <li>
                     <strong>Impurity Peaks:</strong>
-                    The number of unindexed peaks tolerated when scoring a candidate. If your sample
+                    The number of unindexed peaks tolerated when scoring a candidate, default=1, max 4. If your sample
                     contains a known minor impurity phase, set this to 1 or 2 to avoid penalising the correct solution.
                     It is applied at two separate stages, over different peak sets:
                     <ul>
@@ -511,7 +507,7 @@
                 <li>
                     <strong>Solutions table (The Ledger):</strong>
                     Shows valid solutions found during your session, including crystal system, unit-cell parameters (a, b, c, α, β, γ), volume, and M(20).
-                    Solutions are ranked by M(20) in descending order.
+                    Solutions are ranked by M(20) in descending order, can be ranked by Volume or System by clicking on the top label.
                 </li>
                 <li>
                     <strong>Cumulative Search Behaviour:</strong>
@@ -872,7 +868,11 @@
                     each thread far heavier). The engine computes
                     <code>hklsPerChunk = safeWorkgroupsY × workgroupSizeY</code>, iterates the full search as
                     <code>ceil(totalHklCombos / hklsPerChunk)</code> sequential dispatches, and yields to the event loop
-                    (<code>setTimeout(0)</code>) between chunks so the browser tab stays responsive.
+                    between chunks so the browser tab stays responsive. The yield is a <code>MessageChannel</code> post
+                    rather than <code>setTimeout(0)</code>: browsers clamp nested timers to a ~4&nbsp;ms floor, so a
+                    per-chunk <code>setTimeout(0)</code> in a long run would waste several seconds sleeping in the clamp.
+                    The <code>MessageChannel</code> task is unclamped, and the engine only yields when the last yield was
+                    more than one display frame (~16&nbsp;ms) ago, so keeping the tab responsive costs almost nothing.
                 </li>
                 <li>
                     <strong>WebGPU dimension ceiling:</strong>
@@ -891,8 +891,19 @@
                     At device-request time Brutus asks the adapter for its maximum <code>maxBufferSize</code> and
                     <code>maxStorageBufferBindingSize</code>. The results buffer is then sized to
                     <code>Buffer/Candidate (kCells) × cell-struct-size</code> (32 bytes/cell for Triclinic, 16 for the others).
-                    All GPU buffers are explicitly destroyed after each run (in a <code>finally</code> block) to avoid VRAM
-                    leaks across repeated searches.
+                    All per-run GPU buffers are explicitly destroyed after each run (in a <code>finally</code> block) to
+                    avoid VRAM leaks across repeated searches. The GPU <em>device</em> itself is created once and reused by
+                    every search for the lifetime of the page, rather than re-created per run, and is released on page
+                    unload. If the browser or driver loses the device mid-search (a driver reset or TDR, or the tab being
+                    suspended), Brutus reports it and disables GPU searches until the page is reloaded, since a lost device
+                    cannot be revived.
+                </li>
+                <li>
+                    <strong>Incremental read-back:</strong>
+                    After each dispatch Brutus copies back only the candidate cells written <em>since the previous
+                    dispatch</em>, not the whole results buffer. Reading the full buffer every chunk would re-copy every
+                    earlier cell over and over, turning read-back into an $O(n^2)$ cost that on a full buffer dominates the
+                    run; the incremental copy keeps it linear.
                 </li>
             </ol>
             <blockquote>
@@ -1140,6 +1151,18 @@
                 the button block first — the clamp only guards against a stale or programmatically-set value slipping
                 through.
             </p>
+            <p>
+                The u32 ceiling is not the only pre-flight limit. A search can stay well under it and still be
+                impractically slow, because the number of GPU <em>dispatches</em> grows as you raise
+                <strong>Peaks to Combine</strong>: the per-dispatch thread budget is fixed, so more peak combinations
+                mean fewer HKL combinations per dispatch and therefore more dispatches to cover the same space. At the
+                extreme — triclinic with the maximum peak count — the chunk collapses to a handful of HKLs and the run
+                would need on the order of a billion dispatches: it never errors, it just never finishes. The pre-flight
+                check therefore also estimates the dispatch count and treats it like the u32 ceiling: a warning in the
+                status line above a soft threshold, and a red <em>Start Indexing</em> button above a hard one. If you see
+                a &ldquo;too slow&rdquo; block, lower <strong>Peaks to Combine</strong> first — it has a much larger effect on
+                dispatch count than <strong>HKL Basis Size</strong>.
+            </p>
 
             <h3>System-Specific Breakdown</h3>
 
@@ -1255,7 +1278,11 @@
             <h2>Evaluating Solutions</h2>
             <p>
                 The indexing search usually produces several candidate cells. To keep the live ledger bounded, whenever
-                the in-memory list grows past 50 entries it is sorted by M(20) and pruned back to the best 40. At the end
+                the in-memory list grows past 500 entries it is sorted by M(20) and pruned back to the best 400. This
+                reservoir is deliberately large: it exists only to cap memory, not to select results, and pruning too
+                early can discard a strong cell that happens to arrive after the list has briefly filled with
+                near-duplicates. Only the leading few dozen rows are rendered in the Solutions table at any moment, so
+                the larger reservoir costs memory but not redraw time. At the end
                 of the run a final de-duplication pass (<code>applyFinalSieve</code>) removes symmetry-equivalent and
                 transformed duplicates, so the displayed set is typically a few tens of distinct cells ranked by M(20).
                 Selecting the correct one requires interpreting figures of merit and checking the refined fit visually.
@@ -2168,6 +2195,12 @@
             <h3>The progress bar is stuck / search seems frozen</h3>
             <ul>
                 <li>
+                    A high <strong>Peaks to Combine</strong> value can make the GPU issue an enormous number of tiny
+                    dispatches, so the bar advances in barely-visible steps even though nothing is wrong. If you were
+                    warned about a large dispatch count before starting, this is expected — press Stop, lower
+                    <strong>Peaks to Combine</strong>, and run again.
+                </li>
+                <li>
                     For Tetragonal and Hexagonal searches with dense patterns, a large fraction of trial cells
                     pass the initial filter and require full refinement. The search is still running. Watch the
                     trials-per-second counter in the status bar.
@@ -2178,8 +2211,15 @@
                     if the GPU buffer is large (e.g. 200 kCells).
                 </li>
                 <li>
-                    If the browser becomes unresponsive for more than ~30 seconds with no progress counter movement,
-                    the GPU driver may have reset. Close and reopen the tab and try with a smaller HKL Basis Size.
+                    Refinement of GPU candidates runs in a pool of background workers. If one of them dies silently
+                    (an out-of-memory kill, a suspended tab), the run does not wait for it forever: after ~30&nbsp;seconds
+                    of no activity from any worker the pool force-completes the outstanding work and the run finishes
+                    with whatever was found, rather than hanging.
+                </li>
+                <li>
+                    If the browser reports that the GPU device was lost, the driver has reset (a TDR) or the tab was
+                    suspended. GPU searches are disabled until you reload the page; reload and try again with a smaller
+                    HKL Basis Size or fewer peaks to combine.
                 </li>
             </ul>
 
@@ -2306,8 +2346,7 @@
             </ol>
 
             <div class="footer">
-                <p>Help guide generated with the help of an AI, based on source code analysis, 13 July 2026.
-                Revised 22 July 2026: parameter-free Zhang (2026) Kα<sub>2</sub> q-space elimination, standard Chart.js zoom (wheel/rectangle) and Alt+drag pan controls, and explicit *1/*2 doublet companion notation in PDF reports.</p>
+                <p>Help guide generated with the help of an AI, based on source code analysis. Last revised 27 July 2026.</p>
             </div>
         </section>
 
