@@ -2365,7 +2365,10 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
 }
 
 // --- groups; utilise cctbx
-function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, wavelength, tthError, tthMax, impurity_peaks) {
+// `tthMin` is optional: when omitted the measured window is inferred from the
+// observed peaks, which is conservative (it can only shrink the range in which
+// the extinction test counts verified absences).
+function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, wavelength, tthError, tthMax, impurity_peaks, tthMin) {
     const MAX_VIOLATIONS = 2;
     const fallbackResult = {
         centering: 'Unknown',
@@ -2543,7 +2546,31 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
     const anyKa2Suspects = hkls_for_analysis.some(r => r.ka2Suspect);
 
     const centeringResult = determineCentering(hkls_for_analysis, solution.system);
-    const detectedExtinctions = detectExtinctions(hkls_for_analysis, solution.system, spaceGroupData);
+    // Evidence bundle for the extinction test: the extinction-blind line list,
+    // the measured window, and the observed peak positions expressed in the
+    // SAME zero-corrected frame the calculated lines use. Ka2 ghosts are left
+    // out - an artefact must not be allowed to refute an absence rule.
+    const obsTthCorrected = obs_peaks
+        .filter(p => p && !p.ka2Suspect && Number.isFinite(p.tth))
+        .map(p => p.tth - zero_correction);
+    const measuredLo = Number.isFinite(tthMin)
+        ? tthMin - zero_correction
+        : (obsTthCorrected.length ? Math.min(...obsTthCorrected) : -Infinity);
+    const measuredHi = Number.isFinite(tthMax) ? tthMax - zero_correction : Infinity;
+    const detectedExtinctions = detectExtinctions(
+        hkls_for_analysis,
+        solution.system,
+        spaceGroupData,
+        centeringResult.plausibleCenterings,
+        {
+            calcLines: all_calc_hkls,
+            obsTth: obsTthCorrected,
+            indexWindow,
+            overlapWindow,
+            tthMin: measuredLo,
+            tthMax: measuredHi
+        }
+    );
     // NOTHING is re-assigned here. The analysis reports what it finds and leaves
     // the indexing alone: silently rewriting an hkl behind the user's back is
     // exactly the behaviour this was changed to avoid. Correcting an assignment
@@ -2986,13 +3013,156 @@ function determineCentering(indexed_hkls, system) {
         minViolations: minHardViolations
     };
 }
-function detectExtinctions(indexed_hkls, system, spaceGroupData) {
+function detectExtinctions(indexed_hkls, system, spaceGroupData, allowedCenterings, evidence) {
     const confirmedRules = new Set();
     if (!spaceGroupData?.space_groups || indexed_hkls.length === 0) { return ["None detected (no data or rules)"]; }
+    // --- CANDIDATE POOL: CRYSTAL SYSTEM *AND* CENTERING ---
+    // Only conditions that a still-viable space group could actually own are
+    // testable. Admitting rules from centerings the lattice test has already
+    // eliminated lets an accidental agreement in a thinly-sampled zone
+    // masquerade as a detected absence. See settingCenteringAllowed().
     const potentialRules = new Set();
-    Object.values(spaceGroupData.space_groups).forEach(sg => { if (sg.crystal_system === system) { sg.settings.forEach(setting => { const conditions = setting.reflection_conditions || {}; Object.entries(conditions).forEach(([zone, condList]) => { condList.forEach(condStr => { potentialRules.add(`${zone}: ${condStr}`); }); }); }); } });
+    Object.values(spaceGroupData.space_groups).forEach(sg => {
+        if (sg.crystal_system !== system) return;
+        sg.settings.forEach(setting => {
+            if (!settingCenteringAllowed(setting.symbol, allowedCenterings)) return;
+            const conditions = setting.reflection_conditions || {};
+            Object.entries(conditions).forEach(([zone, condList]) => {
+                condList.forEach(condStr => { potentialRules.add(`${zone}: ${condStr}`); });
+            });
+        });
+    });
     if (potentialRules.size === 0) { return ["None detected (no rules for system)"]; }
     const parseRuleString = (ruleStr) => { const parts = ruleStr.split(': '); if (parts.length === 2) { return { zone: parts[0].trim(), condition: parts[1].trim() }; } return null; };
+
+    // ================= EVIDENTIAL FLOOR =================
+    // "Nothing contradicts it" is not evidence. The loop below only ever looks
+    // at reflections that ARE present, so a rule survives by default in any
+    // zone too thinly sampled to break it. A condition is only reported if the
+    // measurement could have refuted it and did not.
+    //
+    // (1) ABSENCE TEST. Every calculated line the rule forbids that lies in the
+    //     measured range and is RESOLVABLE - no line the rule permits sits
+    //     close enough to lend it intensity - must actually be absent. A
+    //     resolvable forbidden line carrying an observed peak refutes the rule
+    //     outright, and a minimum number of clean absences must remain to
+    //     support it.
+    //
+    //     This stage deliberately does NOT forgive weak peaks, unlike the
+    //     contradiction test below. The lowIntensity demotion exists to stop a
+    //     weak peak ELIMINATING a space group; letting it also help ASSERT an
+    //     absence rule inverts its purpose. Both stages then err the same way:
+    //     they refuse to over-constrain the answer.
+    //
+    // (2) SAMPLE TEST, for rules stronger than "=2n". If a zone permits a
+    //     fraction p of its reflections, n observed reflections agree with the
+    //     rule by chance with probability p^n. Two observed 0kl reflections
+    //     that both happen to have k+l divisible by 4 (p = 1/4, p^n = 6%) are
+    //     a coincidence, not a d glide. Plain =2n rules are exempt: they would
+    //     need n >= 5 to clear the same bar, which a sparsely populated powder
+    //     zone rarely supplies, and they are carried by the absence test.
+    //
+    // Zektzerite drove both. Its 0kl zone holds five observed reflections, of
+    // which 012, 014 and 002 are demoted as weak, leaving 022 and 004 - both
+    // with k+l = 4. Nothing contradicted 0kl: k+l=4n, so it was reported; the
+    // subsumption pass then deleted the real 0kl: k=2n and 0kl: l=2n because
+    // both follow from it; and every candidate group was marked down for
+    // failing to explain a condition none of them can have.
+    const MIN_VERIFIED_ABSENCES = 1;        // rules forbidding <= half a zone
+    const MIN_VERIFIED_ABSENCES_STRONG = 2; // 4n, 3n, compound "h, l=2n", ...
+    const CHANCE_LEVEL = 0.05;
+
+    const obsTth = Array.isArray(evidence?.obsTth) ? evidence.obsTth.filter(Number.isFinite) : [];
+    const indexWindow = Number.isFinite(evidence?.indexWindow) ? evidence.indexWindow : 0;
+    const overlapWindow = Number.isFinite(evidence?.overlapWindow) ? evidence.overlapWindow : indexWindow;
+    // A forbidden line is shadowed if an allowed line lies within one overlap
+    // window of it, OR close enough that a peak within indexWindow of the
+    // forbidden line could equally be that allowed line. Summing the two
+    // windows closes the gap between "overlapping lines" and "the peak was
+    // indexed to the neighbour", so a real reflection can never be mistaken
+    // for a broken absence.
+    const shadowWindow = overlapWindow + indexWindow;
+    const tthLo = Number.isFinite(evidence?.tthMin) ? evidence.tthMin : -Infinity;
+    const tthHi = Number.isFinite(evidence?.tthMax) ? evidence.tthMax : Infinity;
+    // NOTE: generateHKL_for_analysis() collapses lines that coincide to within
+    // 1e-4 deg, so in high-symmetry systems one of a set of exactly overlapping
+    // reflections represents the rest. Such a line is untestable anyway (its
+    // partners shadow it), so the only effect is a slightly conservative
+    // absence count - hence the deliberately low minimums above.
+    const rangeLines = Array.isArray(evidence?.calcLines)
+        ? evidence.calcLines
+            .filter(x => x && Number.isFinite(x.tth) && x.tth >= tthLo - 1e-9 && x.tth <= tthHi + 1e-9)
+            .slice()
+            .sort((a, b) => a.tth - b.tth)
+        : null;
+
+    const allowedFractionCache = {};
+    const allowedFraction = (zone, cond) => {
+        const key = zone + '|' + cond;
+        if (allowedFractionCache[key] !== undefined) return allowedFractionCache[key];
+        const R = 8;
+        let total = 0, allowed = 0;
+        for (let h = -R; h <= R; h++) for (let k = -R; k <= R; k++) for (let l = -R; l <= R; l++) {
+            if (h === 0 && k === 0 && l === 0) continue;
+            if (!zoneApplies(zone, h, k, l)) continue;
+            total++;
+            if (satisfiesCondition(h, k, l, cond)) allowed++;
+        }
+        const f = total > 0 ? allowed / total : 1;
+        allowedFractionCache[key] = f;
+        return f;
+    };
+
+    // Per-line lookups that do not depend on the rule, computed once.
+    const nLines = rangeLines ? rangeLines.length : 0;
+    const peakOnLine = rangeLines
+        ? Uint8Array.from(rangeLines, L => obsTth.some(o => Math.abs(o - L.tth) <= indexWindow) ? 1 : 0)
+        : null;
+    const zoneMaskCache = {};
+    const zoneMask = (zone) => {
+        if (zoneMaskCache[zone]) return zoneMaskCache[zone];
+        const mask = Uint8Array.from(rangeLines, L => zoneApplies(zone, L.h, L.k, L.l) ? 1 : 0);
+        zoneMaskCache[zone] = mask;
+        return mask;
+    };
+
+    // Absences the data can vouch for, and absences the data breaks.
+    const absenceEvidence = (zone, cond) => {
+        if (!rangeLines || nLines === 0) {
+            return { verified: Infinity, broken: 0, tested: false }; // no line list -> test disabled
+        }
+        const inZone = zoneMask(zone);
+        const permits = new Uint8Array(nLines);
+        let anyForbidden = false;
+        for (let i = 0; i < nLines; i++) {
+            const L = rangeLines[i];
+            permits[i] = (!inZone[i] || satisfiesCondition(L.h, L.k, L.l, cond)) ? 1 : 0;
+            if (!permits[i]) anyForbidden = true;
+        }
+        if (!anyForbidden) return { verified: 0, broken: 0, tested: true };
+        let verified = 0, broken = 0;
+        for (let i = 0; i < nLines; i++) {
+            if (permits[i]) continue; // the rule allows it; it says nothing
+            const t = rangeLines[i].tth;
+            let shadowed = false;
+            for (let j = i - 1; j >= 0 && t - rangeLines[j].tth <= shadowWindow; j--) {
+                if (permits[j]) { shadowed = true; break; }
+            }
+            for (let j = i + 1; !shadowed && j < nLines && rangeLines[j].tth - t <= shadowWindow; j++) {
+                if (permits[j]) { shadowed = true; break; }
+            }
+            if (shadowed) continue;
+            if (peakOnLine[i]) broken++; else verified++;
+        }
+        return { verified, broken, tested: true };
+    };
+
+    // Could n reflections agree with this rule purely by chance?
+    const sampleSufficient = (zone, cond, nObs) => {
+        const p = allowedFraction(zone, cond);
+        if (!(p > 0) || p >= 0.5 - 1e-9) return true; // =2n class and degenerate cases exempt
+        return nObs >= Math.ceil(Math.log(CHANCE_LEVEL) / Math.log(p));
+    };
     potentialRules.forEach(ruleStr => {
         const parsedRule = parseRuleString(ruleStr); if (!parsedRule) return;
         const { zone, condition } = parsedRule;
@@ -3036,7 +3206,25 @@ function detectExtinctions(indexed_hkls, system, spaceGroupData) {
         const consensusBroken = forgiven >= EXT_CONSENSUS_MIN_COUNT &&
                                 forgiven >= EXT_CONSENSUS_MIN_FRACTION * refSetForRule.length;
         const allSatisfy = (hardFails === 0) && !consensusBroken;
-        if (allSatisfy) { confirmedRules.add(ruleStr); }
+        if (!allSatisfy) return;
+
+        // --- EVIDENTIAL FLOOR (see the block above the loop) ---
+        const strong = allowedFraction(zone, condition) < 0.5 - 1e-9;
+        const minAbsences = strong ? MIN_VERIFIED_ABSENCES_STRONG : MIN_VERIFIED_ABSENCES;
+        const { verified, broken, tested } = absenceEvidence(zone, condition);
+        if (broken > 0) {
+            console.debug(`[detectExtinctions] rejected "${ruleStr}": ${broken} resolvable forbidden line(s) carry an observed peak.`);
+            return;
+        }
+        if (tested && verified < minAbsences) {
+            console.debug(`[detectExtinctions] rejected "${ruleStr}": only ${verified} verified absence(s) in range, need ${minAbsences}.`);
+            return;
+        }
+        if (!sampleSufficient(zone, condition, refSetForRule.length)) {
+            console.debug(`[detectExtinctions] rejected "${ruleStr}": ${refSetForRule.length} reliable reflection(s) in ${zone} cannot distinguish it from chance.`);
+            return;
+        }
+        confirmedRules.add(ruleStr);
     });
     if (confirmedRules.size === 0) { return ["None detected"]; }
 
@@ -3181,7 +3369,8 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
         const sgNumber = sg.number;
         for (const setting of sg.settings) {
             const centering = setting.symbol.charAt(0);
-            if (!allowedCenterings.includes(centering) && !(allowedCenterings.includes('P') && !['I','F','A','B','C','R'].includes(centering))) { continue; }
+            // Same filter detectExtinctions() applies to its candidate pool.
+            if (!settingCenteringAllowed(setting.symbol, allowedCenterings)) { continue; }
             
             const rules = setting.reflection_conditions || {};
             const violations = countViolations(indexed_hkls, rules);
@@ -3526,6 +3715,29 @@ function zoneApplies(zoneLabel, h, k, l) {
     const pred = ZONE_PREDICATES[zoneLabel];
     if (pred) return pred(H, K, L);
     return getReflectionZone(H, K, L) === zoneLabel;
+}
+
+// Is a space-group setting compatible with the centering(s) the lattice
+// analysis left standing?
+//
+// Shared by rankSpaceGroups() and detectExtinctions() so both stages consider
+// exactly the same settings. They used to disagree: the ranking filtered by
+// centering, the extinction detector did not, so the detector could "confirm"
+// a condition that no surviving space group is even able to possess, and then
+// the ranking penalised every candidate for failing to explain it. Zektzerite
+// is the worked example - 0kl: k+l=4n exists only in Fdd2 (43) and Fddd (70),
+// both F-centred, on a lattice the centering test had already fixed as B with
+// zero violations.
+//
+// An empty/absent allow-list means "no filtering" so older callers behave as
+// before.
+function settingCenteringAllowed(symbol, allowedCenterings) {
+    if (!Array.isArray(allowedCenterings) || allowedCenterings.length === 0) return true;
+    const centering = String(symbol || '').charAt(0);
+    if (allowedCenterings.includes(centering)) return true;
+    // A leading letter that is not a centering type at all is admitted whenever
+    // P survived.
+    return allowedCenterings.includes('P') && !['I', 'F', 'A', 'B', 'C', 'R'].includes(centering);
 }
 
 // All rule conditions that apply to a reflection, gathered across every zone

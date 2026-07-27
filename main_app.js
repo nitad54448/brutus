@@ -3511,7 +3511,8 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
                 parseFloat(ui.wavelength.value),
                 parseFloat(ui.tthError.value),
                 tthMaxVal,
-                getImpurityPeaks()
+                getImpurityPeaks(),
+                tthMinVal
             );
         });
     } else {
@@ -3863,7 +3864,7 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
 
         const child = res.cell;
         try {
-            child.analysis = analyzeSystematicAbsences(child, pk, spaceGroupData, wl, te, tMax, imp);
+            child.analysis = analyzeSystematicAbsences(child, pk, spaceGroupData, wl, te, tMax, imp, tMin);
         } catch (err) { child.analysis = null; }
         // Same placement rule as Refine MC: a derived solution sits directly
         // above the cell it came from, so the pair can be read together.
@@ -4050,7 +4051,7 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
             }
 
             try {
-                res.analysis = analyzeSystematicAbsences(res, pk, spaceGroupData, wl, te, tMax, imp);
+                res.analysis = analyzeSystematicAbsences(res, pk, spaceGroupData, wl, te, tMax, imp, tMin);
             } catch (err) { res.analysis = null; }
 
             // Place the refined cell immediately above its parent rather than at
@@ -4620,7 +4621,8 @@ const generatePDFReport = async (singleSolution = null) => {
                     parseFloat(ui.wavelength.value),
                     parseFloat(ui.tthError.value),
                     tthMaxVal,
-                    getImpurityPeaks()
+                    getImpurityPeaks(),
+                    tthMinVal
                 );
             }
         });
