@@ -1055,7 +1055,7 @@ const setupWorker = () => {
             // got it back for the rest of the session.
             if (this.workers.length >= this.size) return; // idempotent
             for (let i = this.workers.length; i < this.size; i++) {
-                const w = new Worker('refinement-worker.js');
+                const w = new Worker('refinement-worker.js?v=20260728');
                 w.activeBatches = new Set(); // Track pending batches on this worker
                 w.onmessage = (e) => this._onMessage(e, w);
                 w.onerror = (err) => {
