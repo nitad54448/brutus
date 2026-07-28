@@ -384,18 +384,11 @@
                 <button type="button" id="help-icon-btn" class="help-icon" aria-label="Help and usage information" aria-expanded="false">?</button>
                 <div class="tooltip-content" id="help-tooltip">
     <h4>Brutus - Powder XRD Indexing</h4>
-    <p>This program uses a system-specific, exhaustive search to find potential unit cells based on the first 20 peaks.</p>
-    <ul>
-        <li class="mb-5"><b>Cubic:</b> Tests single peaks.</li>
-        <li class="mb-5"><b>Tetra/Hexa:</b> Solves using peak pairs.</li>
-        <li class="mb-5"><b>Ortho:</b> Solves using peak triplets (GPU).</li>
-        <li class="mb-5"><b>Monoclinic:</b> Solves using peak quadruplets (GPU).</li>
-        <li class="mb-5"><b>Triclinic:</b> Solves using peak sextuplets (GPU).</li>
-    </ul>
+    <p>This program uses a system-specific, exhaustive search to find potential unit cells based on the first 20 peaks. For Ortho, Monoclinic and Triclinic searches, a GPU is required and activate in the browser.</p>
     <p>All trial cells are refined, scored (M(20)), and analyzed for space groups. For a full breakdown, <a href="brutus_help.html" target="_blank" style="color: #6495ED;">read the technical guide.</a></p>
     <hr>
     <h4>Supported File Formats:</h4>
-    <p>Generic 2-column (2&theta; intensity), .xrdml, .xml, .ras, .uxd, .udf, GSAS .esd</p>
+    <p>Generic 2-column (2&theta; intensity), .xrdml, .xml, .ras, .uxd, .udf, GSAS .esd. Data, either raw or K& stripped, can be saved in various formats.</p>
     <hr>
     <h4>Chart Interaction:</h4>
     <p><b>Zoom:</b> Use the mouse wheel, or select an area. Right-click to reset zoom.</p>
@@ -448,7 +441,7 @@
     <div id="status-box"></div>
 
     <script src="main_app.js?v=20260728"></script>
-<div id="app-footer">Brutus, 28 July 2026</div>
+<div id="app-footer">Brutus, 29 July 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-swap">Swap hkl</div>
