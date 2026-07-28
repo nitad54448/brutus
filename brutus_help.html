@@ -175,7 +175,7 @@
             <p>
                 This document is a technical reference for the <strong>Brutus</strong> powder indexing software.
                 It explains the main algorithms, search parameters, and methodology, and is intended for users
-                familiar with powder X-ray diffraction. As the name suggests, this is a brute-force method, 
+                familiar with powder X-ray diffraction and crystallography. As the name suggests, this is a brute-force method, 
                 the search is exhaustive rather than heuristic, and is not necessarily fast.
             </p>
 
@@ -229,16 +229,18 @@
                 </tbody>
             </table>
             <p>
-                The solved parameters relate to reciprocal lattice constants. For example, in orthorhombic, the three fitted parameters are $A=1/a^2$, $B=1/b^2$, $C=1/c^2$, giving $a=1/\sqrt{A}$ etc. For monoclinic, the four parameters are $A=1/(a^2\sin^2\beta)$, $B=1/b^2$, $C=1/(c^2\sin^2\beta)$, $D=-2\cos\beta/(ac\sin^2\beta)$, from which $\beta$ is extracted as $\cos\beta = -D/(2\sqrt{AC})$.
+                The solved parameters relate to reciprocal lattice constants. For example, in orthorhombic, the three fitted parameters are $A=1/a^2$, $B=1/b^2$, $C=1/c^2$, giving $a=1/\sqrt{A}$ etc. For monoclinic, the four parameters are $A=1/(a^2\sin^2\beta)$, $B=1/b^2$, $C=1/(c^2\sin^2\beta)$, $D=-2\cos\beta/(ac\sin^2\beta)$, from which $\beta$ is extracted as $\cos\beta = -D/(2\sqrt{AC})$. 
+                For the CPU indexing, more than one system can be selected at a time, the work will be sequantially done for each system. In the case of the GPU, only one system can be selected at a time, this is mainly because each system has specific parameters to set (hkl pools, etc).
             </p>
 
             <h3>Architecture</h3>
             <p>
-                Brutus runs entirely in the browser, requiring no installation. The program is split across several files:
+                Brutus runs entirely in the browser, requiring no installation, and it can be completely run locally in a server. The program is split across several files:
             </p>
             <ul>
                 <li><code>brutus.html</code> — the main application: UI, chart rendering (Chart.js), data file parsing, peak detection, space-group analysis, and PDF report generation.</li>
-                <li><code>worker-logic.js</code> — shared logic loaded three ways: directly on the main thread (for post-processing and helper maths), as a standalone Web Worker (for the background CPU indexing of cubic/tetragonal/hexagonal), and via <code>importScripts()</code> inside each refinement worker. Contains all crystallographic mathematics: HKL generation, Q-calculation, least-squares solvers, figure-of-merit calculations, error propagation, and the Niggli reduction. A guard (<code>self.IS_REFINEMENT_WORKER</code>) suppresses its standalone message handler when it is imported by a refinement worker.</li>
+                <li><code>main-app.js</code> — the main application JS code</li>
+                <li><code>worker-logic.js</code> — shared logic loaded three ways: directly on the main thread (for post-processing and helper maths), as a standalone Web Worker (for the background CPU indexing of cubic/tetragonal/hexagonal), and via <code>importScripts()</code> inside each refinement worker. Contains all crystallographic mathematics: HKL generation, Q-calculation, least-squares solvers, figure-of-merit calculations, error propagation, and the Niggli reduction.</li>
                 <li><code>refinement-worker.js</code> — a thin batch-refinement worker. GPU-found candidate cells are refined (full weighted least-squares, M(20), error propagation) not on the main thread but across a <strong>pool of these workers</strong>, sized to <code>hardwareConcurrency − 2</code> (minimum 1) to leave cores free for the UI and the GPU driver. Candidate cells are streamed to the pool in round-robin batches while the GPU search is still running, so refinement overlaps GPU execution.</li>
                 <li><code>webgpu-engine.js</code> — the GPU-accelerated brute-force search for orthorhombic, monoclinic, and triclinic systems. Manages the WebGPU device, buffers, dispatch chunking, and combinadic bookkeeping; loads the WGSL compute shaders below.</li>
                 <li><code>ortho_solver.wgsl</code>, <code>monoclinic_solver.wgsl</code>, <code>triclinic_solver.wgsl</code> — the WGSL compute kernels. Each unranks HKL combinations on the fly from a u32 combinadic (combinatorial-number-system) index, solves the per-trial linear system (3×3, 4×4, or 6×6), applies the geometric and figure-of-merit filters, and atomically appends surviving cells to the results buffer. In the triclinic kernel the 6×6 coefficient matrix depends only on the chosen HKL combination, not on the peak-to-HKL assignment, so it is Gauss-eliminated <strong>once</strong> per combination and the stored multipliers are then re-applied to each of the $6! = 720$ permuted right-hand sides. This is arithmetically identical to re-solving the system from scratch each time (the elimination multipliers are a function of the matrix alone), and a singular matrix now abandons the whole combination immediately rather than being re-detected 720 times.</li>
@@ -267,14 +269,14 @@
                         <li>Delete spurious peaks (noise, impurities, Kα<sub>2</sub> if stripping is off).</li>
                         <li>Add important missing peaks, e.g. low-angle reflections, using <code>Ctrl + Click</code> on the chart.</li>
                     </ul>
-                    A clean list of about 15–20 peaks, free of impurities at low angle, is ideal.
+                    A clean list of about 15–20 peaks, free of impurities at low angle, is ideal. The result of the indexing will depend only on the quality of the data.
                 </li>
                 <li>
                     <strong>Set parameters.</strong>
                     On the <strong>Parameters</strong> tab:
                     <ul>
                         <li>Select the correct X-ray <code>Radiation Preset</code> (e.g. Cu Kα).</li>
-                        <li>Choose whether to enable <code>Strip K-alpha2</code>. When enabled, the Ka1 wavelength is used; when disabled, the average Kα wavelength is used. The default is ON (average Kα wavelength).</li>
+                        <li>Choose whether to enable <code>Strip K-alpha2</code>. When enabled, the Ka1 wavelength is used; when disabled, the average Kα wavelength is used. The default is OFF (average Kα wavelength).</li>
                         <li>Set a chemically reasonable <code>Max Volume (Å³)</code> to limit the search space.</li>
                         <li>Set <code>2θ Error (°)</code> according to your data quality (e.g. ≈0.02° for synchrotron, ≈0.05° for a typical lab diffractometer).</li>
                         <li>Leave <strong>Refine Zero-Point Error</strong> enabled unless you have a specific reason to turn it off.</li>
@@ -283,7 +285,7 @@
                 </li>
                 <li>
                     <strong>(Optional) Tune GPU Parameters.</strong>
-                    If searching Orthorhombic, Monoclinic, or Triclinic, a new box appears.
+                    If searching Orthorhombic, Monoclinic, or Triclinic, a new field <strong>GPU Search Parameters</strong> appears.
                     <ul>
                         <li><code>HKL Basis Size</code>: Number of simple HKLs to use for the search (Defaults: Ortho 300, Mono 100, Tri 40).</li>
                         <li><code>Peaks to Combine</code>: Number of observed peaks used to form combinations (Defaults: Ortho 7, Mono 7, Tri 9).</li>
@@ -301,6 +303,7 @@
                         <li>Sort solutions by M(20).</li>
                         <li>Click a row to display calculated (blue) and observed (red) tick marks on the chart.</li>
                         <li>A plausible solution will show excellent alignment and reasonable space-group suggestions.</li>
+                        <li>A right click on a solution will open a menu with several additional functions, see below.</li>
                     </ul>
                 </li>
             </ol>
@@ -333,7 +336,7 @@
                 </li>
                 <li>
                     <strong>Peak table:</strong>
-                    Lists all detected peaks. The <code>2θ Obs (°)</code> column is directly editable for fine corrections.
+                    Lists all detected peaks. The <code>2θ Obs (°)</code> column is directly editable for fine corrections. Seelcting a peak position will mark the peak in the chart.
                     Suspected Kα<sub>2</sub> peaks (when stripping is off) are flagged with a yellow background and a ⚠ symbol.
                     Right-clicking a yellow row lets you manually confirm it as a genuine peak.
                 </li>
@@ -370,8 +373,8 @@
                     </p>
                     <ul>
                         <li><strong>Long wavelengths (Cr, Fe)</strong> access very few reflections. M(20) needs 20 indexed
-                            lines, and with a large cell you may simply not reach them. Excellent for stress analysis;
-                            a weak choice for indexing.</li>
+                            lines, and with a large wavelength you may simply not reach them. Excellent for stress analysis;
+                            a weak choice for indexing except for the case of very large unit cells.</li>
                         <li><strong>Short wavelengths (Mo, Ag)</strong> give 10–20× more reflections, but compress them into
                             low 2θ where angular dispersion is poor, so they overlap heavily. For one real monoclinic cell,
                             the mean number of calculated reflections falling within &plusmn;0.06° 2θ is about 4 for Cr,
@@ -486,7 +489,7 @@
                     the user's 2θ Error), the cell is discarded before being sent to the CPU. A value of 1.0 means the trial
                     must match on average to within your stated error; a larger value (e.g. 3) is more permissive and will
                     pass more candidates (including valid ones with large zero-shifts) to CPU refinement.
-                    <br><em>Default: 3.</em>
+                    <br><em>Default: 1.5</em>
                 </li>
                 <li>
                     <strong>Buffer / Candidate (kCells):</strong>
@@ -518,11 +521,12 @@
                 </li>
                 <li>
                     <strong>Context Menu (Right-Click):</strong>
-                    Right-clicking a solution row opens a menu with four options:
+                    Right-clicking a solution row opens a menu with five options:
                     <ul>
                         <li><strong>Erase Solution:</strong> Permanently removes that solution from the ledger.</li>
                         <li><strong>Swap hkl:</strong> Opens a dialog to manually correct peak assignments for the selected cell.</li>
                         <li><strong>Refine MC:</strong> Runs a Monte Carlo stochastic search to polish the cell and escape local minima.</li>
+                        <li><strong>Space Group MC:</strong> Re-refines the cell once per space group of its crystal system, each time with that group forbidden reflections removed from the calculated line list, and ranks the results. See <a href="#space-group-mc">Space Group MC</a>.</li>
                         <li><strong>Generate Report:</strong> Creates a PDF report for that solution only.</li>
                     </ul>
                 </li>
@@ -664,11 +668,7 @@
                     and partial overlap.
                     <br><br>
                     The upper bound is the important one: a peak as tall as, or taller than, its supposed parent
-                    <em>cannot</em> be that parent's ghost. Position alone is not sufficient evidence, and earlier
-                    versions tested position only — so any genuine reflection that happened to fall near a
-                    predicted ghost position was silently demoted to soft evidence and stopped constraining the
-                    space group. If peak heights are unavailable, Brutus falls back to the position-only test
-                    rather than rejecting every candidate.
+                    <em>cannot</em> be that parent's ghost. Position alone is not sufficient evidence for a Kα<sub>2</sub> suspect peak.
                 </li>
             </ul>
             <p>Flagged peaks are then treated as follows:</p>
@@ -878,7 +878,7 @@
                     <strong>WebGPU dimension ceiling:</strong>
                     A compute dispatch may request at most 65,535 workgroups per dimension; Brutus additionally clamps the
                     Y (HKL) dimension to <code>16,383</code> workgroups per dispatch as a conservative cross-driver limit.
-                    This bound, combined with the thread budget above, is what fixes the chunk size — not a memory heuristic.
+                    This bound, combined with the thread budget above, is what fixes the chunk size and it allows indexing on old GPU cards.
                 </li>
                 <li>
                     <strong>Time Limit (TDR Prevention):</strong>
@@ -896,7 +896,7 @@
                     every search for the lifetime of the page, rather than re-created per run, and is released on page
                     unload. If the browser or driver loses the device mid-search (a driver reset or TDR, or the tab being
                     suspended), Brutus reports it and disables GPU searches until the page is reloaded, since a lost device
-                    cannot be revived.
+                    cannot be revived. Note that an inactive panel may be throttled by the OS, so for full speed you may need to keep the panel active.
                 </li>
                 <li>
                     <strong>Incremental read-back:</strong>
@@ -1212,8 +1212,8 @@
             <blockquote>
                 <strong>Practical Limit:</strong> For a search to finish in a "coffee break" time frame (5–10 minutes),
                 keep the Total Trials count under 100–500 Billion. For modern desktop GPUs (e.g. Nvidia RTX series),
-                speeds of 500 M – 2 B cells/sec are typical for Orthorhombic; Triclinic is slower due to the
-                larger $k$ and the more complex 6×6 linear solve.
+                speeds of 100 Mcells/sec are typical for Orthorhombic; Triclinic is slower due to the
+                larger $k$ and the more complex 6×6 linear solve. The size of the GPU buffer, or the accepted solutions, will greatly affect the indexing time because each cell will pass a CPU Least Square fit.
             </blockquote>
 
             <h3 id="tuning-the-search">Tuning the Search</h3>
@@ -1245,14 +1245,14 @@
                 <li>
                     <strong>Increase FoM Tolerance.</strong>
                     If there is a significant zero-shift, valid trial cells may have large pre-refinement errors
-                    and be discarded. Raise FoM Tolerance to 5–10 and increase the Buffer size accordingly.
+                    and be discarded. Raise FoM Tolerance to 3-5 and increase the Buffer size accordingly.
                 </li>
             </ul>
 
             <h4>If you get too many solutions (GPU buffer fills)</h4>
             <p>
                 The GPU buffer is limited (default 50,000). If it fills up, the search stops early ("Buffer Full").
-                In that case:
+                In that case, if there is no solution:
             </p>
             <ol>
                 <li>
@@ -1809,6 +1809,650 @@
                     same rule, the centering is probably wrong.
                 </li>
             </ul>
+
+            <h3 id="space-group-mc">Space Group MC &mdash; refining under each hypothesis</h3>
+            <p>
+                The analysis above scores every candidate against a <em>single</em> cell, and that cell was
+                refined without knowing about any of them: its calculated line list contains every reflection
+                the lattice allows, forbidden ones included. On real data the two weaknesses compound. The
+                least-squares fit is pulled toward reflections that should not be there; peaks near them are
+                then paired with the wrong line; and those mispairings are precisely the violations that
+                condemn the correct group. The scoring is asymmetric as well &mdash; a candidate can be
+                punished for predicting an absence that did not happen, but never rewarded for predicting one
+                that did &mdash; so a rule set that is a strict subset of another can never lose on violations
+                alone, and the least constrained candidate tends to win by default.
+            </p>
+            <p>
+                <strong>Space Group MC</strong> (right-click a solution) asks the opposite question:
+                <em>if this space group were true, how well would the pattern index?</em> For each candidate
+                the forbidden reflections are deleted from the calculated line list, the cell is re-refined
+                against what remains, and the evidence is recounted. Every number in the resulting row (the
+                peak-to-line pairing, the cell, the zero error, $M(20)$, the line count) then belongs to one
+                and the same hypothesis, so the rows compare hypotheses against each other rather than
+                bookkeeping tallies against a cell fitted to forbidden lines.
+            </p>
+
+            <h4>What a row is: extinction classes</h4>
+            <p>
+                Candidates are grouped before anything is refined. Powder absences reveal only <em>which
+                reflections are missing</em>, so two space groups that forbid exactly the same reflections are
+                indistinguishable in principle &mdash; no amount of computation separates them. Brutus
+                therefore collects the settings of the crystal system into <strong>extinction classes</strong>
+                and refines once per class, listing every group that shares the row.
+            </p>
+            <p>
+                The grouping happens at two levels, and the difference between them matters:
+            </p>
+            <ul>
+                <li>
+                    <strong>Arithmetic.</strong> Two rule sets are first compared by what they forbid over a
+                    box of <em>hkl</em>, not by comparing their condition strings, so two settings whose stored
+                    conditions differ only in wording do not produce two identical rows.
+                </li>
+                <li>
+                    <strong>Observable.</strong> The surviving classes are then compared by the pattern they
+                    actually produce <em>for this cell, at this wavelength, over this 2&theta; range, at this
+                    tolerance</em>. Rule sets that differ only at reflections beyond your measured range, or
+                    only at lines that coincide with an allowed line inside the matching window, cannot be
+                    told apart by your data and are merged into one row. Its label then names every class it
+                    absorbed, joined by &ldquo;&equiv;&rdquo;.
+                </li>
+            </ul>
+            <p>
+                The second step exists because presenting such rule sets separately &mdash; each with its own
+                $M(20)$, as though the numbers meant something &mdash; invents a discrimination the experiment
+                cannot support. That is the single most common way a space-group table misleads. Merging on
+                <em>observable</em> behaviour rather than arithmetic is what makes the row count honest: a
+                short scan on a small cell may collapse a dozen candidates into two or three rows, and that
+                collapse <em>is</em> the result.
+            </p>
+            <p>
+                Calculated lines too close together to be told apart are merged the same way, into what the
+                code calls <strong>resolution groups</strong>. Two reflections that no observed peak could
+                separate count as one position, so a rule set gets no credit for forbidding a line buried
+                under an allowed neighbour. A group is capped at one matching tolerance wide: it is not
+                enough for each line to sit within tolerance of the one before it, because in a crowded
+                high-angle region a chain of such lines would otherwise merge into a single group many
+                tolerances across, whose two ends are perfectly resolvable from each other. That kind of
+                over-merging costs evidence twice, once by counting several distinct forbidden positions as
+                one and again by letting a peak anywhere in the chain excuse an absence at the far end.
+            </p>
+
+            <h4>Row labels are extinction symbols</h4>
+            <p>
+                Each row is named by its <strong>extinction symbol</strong> (<code>Pbca</code>,
+                <code>Pn-a</code>, <code>P2&#8321;/c</code>, <code>Fd-</code>, <code>I4&#8321;/a--</code>),
+                derived by probing what the class forbids along each symmetry direction of the crystal system
+                rather than being read from a table. A dash means no condition in that position; a
+                &ldquo;?&rdquo; means the probe found absences it could not name, which is reported rather
+                than guessed at.
+            </p>
+            <p>
+                Labelling a row with the lowest-numbered group it contains &mdash; the obvious alternative
+                &mdash; reads like a determination. A user who sees <code>P2&#8321;2&#8321;2&#8321;</code> at
+                the head of the table takes it for the answer, when what the absences establish is only the
+                extinction symbol and the row may hold half a dozen groups. The <em>Space groups</em> column
+                beside it always carries the full membership.
+            </p>
+
+            <h4 id="sg-mc-ranking">How the ranking is made</h4>
+            <p>
+                This is the part worth reading carefully, because the criterion is not the one most powder
+                software uses, and the reason it is not is worth stating plainly.
+            </p>
+
+            <h5>Why $M(20)$ cannot do this job</h5>
+            <p>
+                The de Wolff figure of merit is
+                $M(20) = Q_{20} / (2\langle|\Delta Q|\rangle N_{20})$, where $N_{20}$ counts the
+                <em>possible</em> lines below the twentieth observed one. Deleting <em>any</em> line from the
+                calculated list lowers $N_{20}$ and therefore raises $M(20)$. A more restrictive rule set is
+                rewarded automatically, whether or not the lines it deleted had anything to do with the data.
+            </p>
+            <p>
+                The usual defence is that an over-restrictive rule set pays for its extra restrictions in
+                violations &mdash; it deletes lines that were observed, and gets caught. That defence only
+                holds if every allowed line is actually observed. Real patterns are full of reflections that
+                are simply too weak to see, lost in an overlap, or below the noise. A rule set that happens to
+                delete a handful of <em>unobserved</em> lines gains $M(20)$ for free and incurs no violation
+                at all. Rank on $M(20)$ and you systematically favour the most restrictive class the data
+                failed to contradict, which is not the same thing as the class the data support.
+            </p>
+            <p>
+                $M(20)$ remains in the table because it is a good figure of merit for a <em>cell</em>, most
+                readers have a feel for its scale, and it can be sorted on like any other column. It is simply
+                not a criterion for choosing between <em>line lists</em>, and so it is not what the table is
+                ordered by. The <strong>Score</strong> column is, and the table leads with it.
+            </p>
+            <p>
+                Sorting by $M(20)$ is still occasionally useful &mdash; it answers &ldquo;which of these cells
+                refined best?&rdquo; &mdash; but read it knowing that it puts the most restrictive surviving
+                class on top, because deleting lines is what raises it. That is a different question from
+                &ldquo;which hypothesis do the absences support?&rdquo;, and only the second one has an answer
+                the data can defend.
+            </p>
+
+            <h5>What a nat is</h5>
+            <p>
+                The Score column is a <strong>log-odds</strong>, measured in <strong>nats</strong>. A nat is
+                the natural-logarithm unit of evidence: if one hypothesis is $R$ times more probable than
+                another given the data, that is $\ln R$ nats of evidence in its favour. It is the same
+                quantity as a &ldquo;bit&rdquo; of evidence, only using base $e$ instead of base 2
+                (1 nat = 1.443 bits).
+            </p>
+            <p>
+                The useful property is that nats <em>add</em>. Two independent pieces of evidence worth 1.2
+                and 0.8 nats together give 2.0 nats, which is why every term below can simply be summed.
+                Convert back to odds by exponentiating:
+            </p>
+            <div class="formula-box">
+                $$ \text{odds} = e^{\Delta} \qquad\text{so}\qquad
+                   \Delta = 1 \Rightarrow 2.7\!:\!1,\quad
+                   \Delta = 2.3 \Rightarrow 10\!:\!1,\quad
+                   \Delta = 4.6 \Rightarrow 100\!:\!1 $$
+            </div>
+            <p>
+                Only <em>differences</em> between rows are meaningful; the absolute value of a score carries no
+                information on its own. The Score column therefore shows each row's difference from the best
+                row <em>of its own tier</em> (see <a href="#sg-mc-falsification">falsification</a> below), so
+                the leader reads <code>0.00</code> and everything else in that tier is negative. A row at
+                $-0.4$ is barely distinguishable from the leader; a row at $-15$ is out of the running.
+            </p>
+            <div class="callout-note">
+                <strong>The 2.3-nat rule of thumb.</strong> Brutus treats a lead of less than about 2.3 nats
+                (10:1 odds) as no lead at all, and says so in words beneath the table: <em>&ldquo;No decisive
+                winner: N classes lie within 2.3 nats of each other.&rdquo;</em> If you see that message, the
+                absences in your pattern genuinely do not choose between those classes, and no amount of
+                staring at the $M(20)$ column will change that.
+            </div>
+
+            <h5>The model</h5>
+            <p>
+                Let $p$ be the probability that a symmetry-<em>allowed</em> line inside the measured range
+                actually produces a detectable peak &mdash; at its simplest, the fraction of allowed line
+                positions at which a peak was in fact observed. A clean, strongly diffracting sample measured
+                over a wide range gives $p$ near 1; a sparse or noisy pattern gives $p$ near 0.3. The value is
+                shown in the status line.
+            </p>
+            <p>
+                $p$ is estimated <em>once</em> and shared by every row, so that no class can inflate the value
+                of its own evidence by discarding lines. Estimating it needs a reference class, and the choice
+                is not innocent: measured on the most permissive class it comes out too low whenever the true
+                lattice is centred, because every systematically absent position then sits in the denominator
+                and can never be observed. Brutus therefore makes <strong>two passes</strong> &mdash; a first
+                estimate from the most permissive class, and a second from whichever class that pass favoured,
+                with every row rescored against the final value. One iteration is enough in practice, and the
+                estimate is clamped at both ends either way.
+            </p>
+            <p>
+                When peak heights are available $p$ stops being a single number and becomes a
+                <em>per-position</em> quantity, described under <a href="#sg-mc-intensity">intensity
+                weighting</a> below. The formulae that follow are unchanged; only the value of $p$ at each
+                position differs, and the same two-pass calibration then applies to the intensity scale as
+                well.
+            </p>
+            <p>
+                For a candidate rule set $H$ the score adds up four contributions:
+            </p>
+            <div class="formula-box">
+                $$ \Delta \;=\;
+                   \underbrace{S\!\left(\sum_{j\,\in\,\text{clean}} \ln\frac{1-\varepsilon_0}{1-p_j}\right)}_{\text{absences that held}}
+                   \;+\; \underbrace{\sum_{i\,\in\,\text{viol}} \min\!\left(0,\; \ln\frac{\varepsilon_i}{p_i}\right)}_{\text{absences that failed}}
+                   \;+\; \underbrace{n_u \ln \varepsilon_u}_{\text{peaks nothing explains}}
+                   \;-\; \underbrace{\left[\tfrac{1}{2} k \ln n_{\text{obs}} \;+\; \frac{k(k+1)}{n_{\text{con}}-k-1}\right]}_{\text{parameter charge}} $$
+            </div>
+            <ol>
+                <li>
+                    <strong>Absences that held.</strong> Every forbidden position that is
+                    <em>informative</em> &mdash; meaning no allowed line shares it, so its emptiness is
+                    attributable &mdash; and that is in fact empty contributes
+                    $\ln[(1-\varepsilon_0)/(1-p_j)]$. Read it as: under $H$ that position should be empty
+                    (bar a small spurious-peak rate $\varepsilon_0$); under &ldquo;no extinction&rdquo; it
+                    would have been empty only with probability $1-p_j$. This is the term that makes the
+                    criterion self-limiting. When $p$ is small &mdash; most allowed lines unobserved anyway
+                    &mdash; each clean absence is worth almost nothing, which is correct: in a sparse pattern
+                    a missing line proves very little. When $p$ approaches 1, each clean absence is worth a
+                    couple of nats. Adding a restriction that deletes an unobserved line therefore buys
+                    $\ln[1/(1-p)]$ and no more, instead of the free $M(20)$ increase it used to buy.
+                    <br><br>
+                    Where no per-position weight is available the contribution is
+                    $\bar{p}\,\ln[(1-\varepsilon_0)/(1-p)]$ &mdash; the same term scaled by the mean
+                    detectability $\bar{p}$. The reason is that conditioning on &ldquo;this position is
+                    empty&rdquo; preferentially selects the positions where nothing would have shown up
+                    anyway, whose true worth is near zero; paying every empty position the population average
+                    over-credits the restrictive class systematically. The factor is the same for every row,
+                    so it rescales the term without disturbing the order it induces.
+                </li>
+                <li>
+                    <strong>Absences that failed.</strong> Every violation &mdash; an observed peak that only
+                    a forbidden line can explain &mdash; contributes $\ln(\varepsilon_i/p_i)$, a penalty. The
+                    rate $\varepsilon_i$ is set per peak by how believable that particular peak is as real
+                    evidence, which is where intensity enters:
+                    <table>
+                        <thead><tr><th>Peak</th><th>$\varepsilon_i$</th><th>Rationale</th></tr></thead>
+                        <tbody>
+                            <tr><td>Strong, clean, unambiguous</td><td>$\approx N_{stray}/N_{pos}$</td><td>Near-fatal. Derived from the pattern, not fixed &mdash; see below.</td></tr>
+                            <tr><td>Weak (&lt;5% of the local maximum)</td><td>0.25</td><td>More likely a tail, a wing, an overlap or noise than a genuine reflection.</td></tr>
+                            <tr><td>K&alpha;<sub>2</sub> ghost</td><td>0.50</td><td>An artefact of the source, not the structure.</td></tr>
+                            <tr><td>Ambiguous (an allowed line within 1.5&times; tolerance)</td><td>0.50</td><td>The assignment is a judgement call, not a fact.</td></tr>
+                        </tbody>
+                    </table>
+                    Between the weak threshold and full strength the rate is interpolated, so a 6%-of-local
+                    peak is not treated as identical to a 100% one. Intensity is measured against a
+                    <em>local</em> baseline &mdash; the strongest peak within 15&deg; &mdash; because
+                    diffracted intensity falls off with angle, and a fixed fraction of the global maximum
+                    would quietly strip the whole back-reflection region of any power to falsify a rule.
+                    <br><br>
+                    The three soft rates are genuine probabilities <em>for that peak</em>: each names an
+                    identified alternative explanation (a K&alpha;<sub>1</sub> parent at the right offset, an
+                    allowed line inside the window), so they do not depend on how large the pattern is. The
+                    rate for a strong, clean, unexplained peak is different in kind &mdash; it is a rate
+                    <em>per forbidden position</em> &mdash; and is therefore derived as roughly one stray peak
+                    across the whole pattern, $N_{stray}/N_{pos}$. It used to be pinned at 0.02, which on a
+                    pattern with 700 resolvable positions asserts that fourteen spurious peaks are expected;
+                    the derived value there is 0.0014, making each hard violation cost 5.3 nats instead of
+                    2.6. On a small pattern of about 50 positions it returns 0.02 and reproduces the old
+                    behaviour exactly. $N_{pos}$ is counted once on the parent lattice and shared, so
+                    $\varepsilon_0$ is a property of the pattern and identical for every row.
+                    <br><br>
+                    The $\min(0,\cdot)$ is not decoration. The ratio $\varepsilon_i/p_i$ exceeds one whenever
+                    the detectability model says a reflection at that position would have been invisible, and
+                    the peak that <em>contradicts</em> the hypothesis then scores in its favour &mdash; up to
+                    +6 nats apiece, in a measured case where a deliberately mis-set cell collected seventeen
+                    of them and beat the cell that indexed the pattern exactly. When $p_i &lt; \varepsilon_i$
+                    the honest reading is not &ldquo;this peak supports $H$&rdquo; but &ldquo;the intensity
+                    model is wrong about this position&rdquo;: a peak is sitting where the model says nothing
+                    could be seen, so it is the model the observation bears on, not the hypothesis. Clamping
+                    at zero says exactly that. A violation is at best uninformative, and never support.
+                </li>
+                <li>
+                    <strong>Peaks nothing explains.</strong> Each unindexed peak contributes
+                    $\ln \varepsilon_u$ with $\varepsilon_u = 0.15$. These used to be excluded from the
+                    ranking on the grounds that every class carries them equally &mdash; true of the old
+                    fixed-cell scoring, but false as soon as each class gets its own refined cell.
+                </li>
+                <li>
+                    <strong>Parameter charge.</strong> $k$ is the number of refined parameters (cell
+                    parameters, plus the zero error if you are refining it), $n_{\text{obs}}$ the number of
+                    observed peaks, and $n_{\text{con}}$ the number of lines actually constraining the fit.
+                    The BIC part, $-\tfrac{1}{2}k\ln n_{\text{obs}}$, is the same for every row and cancels
+                    out of every comparison, which is as it should be &mdash; charging it on the
+                    <em>indexed</em> count instead, as an earlier version did, handed a discount to exactly
+                    the restrictive classes that match fewest peaks. What does not cancel is the small-sample
+                    correction $k(k+1)/(n_{\text{con}}-k-1)$, which blows up as the number of constraining
+                    lines approaches the number of free parameters. That is the &ldquo;absorb the error into
+                    my own zero-point&rdquo; case: a class with very few allowed lines can fit almost anything,
+                    and this is what it pays for the privilege.
+                </li>
+            </ol>
+            <p>
+                The <em>impurity peaks</em> setting is spent here too, on the <em>least</em> believable
+                unexplained peaks first &mdash; weakest relative intensity before anything else, and
+                violations before unindexed peaks, since a foreign phase that merely adds an unindexable line
+                falsifies nothing and needs no forgiving. The previous behaviour subtracted the allowance from
+                the raw violation count, which let a class buy forgiveness for the strongest peak in the
+                pattern.
+            </p>
+
+            <div class="callout-note">
+                <strong>Why the absence term saturates.</strong> $S$ in the formula above is a ceiling:
+                $S(x) = C\tanh(x/C) + 10^{-3}x$ with $C = 46$ nats, twenty times the decisive threshold.
+                Absences are the one term that grows with how much a hypothesis <em>forbids</em> rather than
+                with what the pattern actually shows, so a class that deletes half of reciprocal space can
+                accumulate hundreds of nats from positions that were never going to show a peak. A hard cap
+                would flatten every row above it into a tie; $\tanh$ instead squeezes smoothly, staying within
+                a percent of $x$ while $x$ is small compared with $C$ and never exceeding $C$ however much a
+                class forbids. The tiny linear term is there only to keep the ordering strict, since $\tanh$
+                reaches 1.0 exactly in floating-point arithmetic and would otherwise make the largest rows
+                indistinguishable.
+                <br><br>
+                $C$ has to sit above the largest separation absences can legitimately produce, or the ceiling
+                eats real evidence instead of runaway evidence. Two clean classes differing by thirteen
+                informative absences at $p = 0.9$ are 26.9 nats apart; at $C = 23$ that reads as 0.95 nats
+                &mdash; an overwhelming result reported as a tie. At $C = 46$ it reads 8.0, while the
+                PbSO<sub>4</sub> failure below still cannot buy its way out.
+            </div>
+
+            <h5 id="sg-mc-intensity">Intensity weighting &mdash; a limited borrowing from ExtSym</h5>
+            <p>
+                Everything above uses peak <em>positions</em>. Peak <em>heights</em> carry more, and the
+                statistical method of Markvardsen, David, Johnston &amp; Shankland (ExtSym) shows what can be
+                done with intensities. Brutus borrows part of it. It is worth being exact about which part,
+                because the difference matters.
+            </p>
+            <p>
+                <strong>What ExtSym does that Brutus cannot.</strong> ExtSym works from integrated
+                intensities extracted by Pawley refinement, <em>together with their full covariance matrix</em>.
+                That is what lets it ask the sharp question: given all the overlaps, what is the intensity
+                <em>at</em> this forbidden position? Brutus has a peak list, not a profile. Where no peak was
+                picked there is no measurement at all &mdash; only absence. The sharp question is therefore
+                out of reach here, and any claim to answer it from a peak list would be pretending.
+            </p>
+            <p>
+                <strong>What is reachable, and why it is worth having.</strong> The weakest part of the
+                scoring is that single global $p$. It says a strong low-angle reflection of multiplicity 24
+                and a weak high-angle one of multiplicity 2 were equally likely to be seen, which is plainly
+                false. Wilson statistics turn that one number into a per-reflection probability, using
+                exactly the information a peak list does carry:
+            </p>
+            <ol>
+                <li>
+                    Each observed height is corrected to a quantity proportional to $|F|^2$ by dividing out
+                    the Lorentz-polarisation factor and the symmetry multiplicity that the lattice implies.
+                </li>
+                <li>
+                    The corrected intensities are averaged in shells of $s^2 = (\sin\theta/\lambda)^2$.
+                    Binning is not a refinement but the definition: the Wilson relation
+                    $\langle I \rangle = K \exp(-2Bs^2)$ holds for the shell <em>mean</em>, while individual
+                    reflections scatter enormously about it &mdash; for an acentric structure $|F|^2$ is
+                    exponentially distributed, so its standard deviation equals its mean.
+                </li>
+                <li>
+                    The shell means are corrected for <strong>truncation</strong>. A peak list contains only
+                    what rose above the detection limit, and that limit bites hardest where intensities are
+                    weakest, so the surviving means are biased upward more and more with angle. Since
+                    $E[y \mid y > t] = t + \mu$ for an exponential variate, subtracting each reflection's own
+                    threshold before averaging recovers the true mean without needing to know how many
+                    reflections were lost &mdash; which is fortunate, because that is unknowable from a peak
+                    list.
+                </li>
+                <li>
+                    The weakest peak actually picked sets the detection limit. At each position it converts
+                    into the $|E|^2$ a reflection there would have needed in order to be seen, and $p$ at
+                    that position is the Wilson tail probability of exceeding it.
+                </li>
+            </ol>
+            <div class="callout-note">
+                <strong>Wilson supplies the shape; your data supply the level.</strong> The tail probability
+                computed as above turned out to be systematically too generous &mdash; measured against
+                synthetic patterns in which 62% of lines were detectable, it averaged about 80%, inflating
+                every absence from 0.94 nats to 1.59. Multiplied over a hundred forbidden positions that was
+                enough for a class with 28 hard violations to outscore one with none: the over-restriction
+                failure this scoring exists to prevent, arriving by a different route. So the shape of
+                $p$ across the pattern is taken from Wilson, while its overall level is pinned to the
+                observed detection rate by a single calibration factor. What the weighting contributes is
+                the <em>relative</em> judgement &mdash; this absence is worth more than that one &mdash; which
+                is exactly what a global $p$ cannot express.
+                <br><br>
+                That calibration follows the <em>same two passes</em> as $p$ itself, and against the same
+                reference class each time. The two are the same physical quantity measured two ways, and
+                pinning them to different hypotheses makes the clean and violation terms disagree about how
+                detectable the pattern is: absences weighted against a no-extinction lattice, compared with a
+                $p$ measured on the winner's own allowed positions. On a synthetic test the level moved by
+                more than a factor of two between the two passes, so this is not a refinement of a detail.
+            </div>
+            <p>
+                The same scale gives every violating peak an $|E|^2$: its intensity in units of the mean at
+                that angle, corrected for Lp and multiplicity. This is a better variable than raw height for
+                deciding how damning a violation is, because it already accounts for angle and multiplicity,
+                and it appears in the <em>Viol</em> tooltip. A value near or above 1 is unmistakably a real
+                reflection; well below 0.1 is the sort of thing a tail or a little noise produces.
+            </p>
+            <p>
+                <strong>Honest limitations.</strong> Peak heights are not integrated intensities: the ratio
+                between them is the peak width, which varies with angle. That matters less than it first
+                appears, because a smooth monotonic error is absorbed almost entirely into the fitted $B$ &mdash;
+                which is consequently <em>not</em> a physically meaningful temperature factor and is not
+                reported as one. Overlapped reflections remain a genuine error, since their shared height
+                cannot be divided between them without a profile. And the whole mechanism is switched off,
+                with a note in the status line, whenever the pattern has no heights, too few peaks or too few
+                usable shells &mdash; in which case the scoring falls back to the single global $p$ and behaves
+                exactly as described above.
+            </p>
+            <p>
+                <strong>What it buys, measured.</strong> On synthetic patterns built with Wilson-distributed
+                intensities, a real Debye&ndash;Waller falloff and a detection cut-off, the weighting sharpened
+                a correct Pbca identification from a 3.5-nat margin to 12.1. More importantly, in the
+                degraded regimes where neither method can identify the class, the weighting recognises that
+                the surviving absences are the ones that prove least and reports a tie &mdash; where the
+                unweighted score confidently announced the wrong class at 5.9 nats. Refusing to answer is the
+                more valuable half of the improvement.
+            </p>
+
+            <h5 id="sg-mc-falsification">Falsification comes before the score</h5>
+            <p>
+                A systematic absence is not a statistical tendency. If a space group has an <em>a</em>-glide
+                then $|F|$ is <em>exactly</em> zero for $h0l$ with $h$ odd, and a single genuine reflection
+                there rules the group out however many other absences hold. The likelihood score cannot
+                express that on its own, because it multiplies evidence across reflections: a class that
+                forbids a great deal of reciprocal space accrues absence credit in proportion to how much it
+                forbids, and with enough of it any number of violations can be outweighed.
+            </p>
+            <div class="callout-warning">
+                <strong>This was a real failure, not a hypothetical.</strong> On a PbSO<sub>4</sub> pattern
+                &mdash; 192 peaks, about 700 resolvable positions, so only 27% of the possible lines observed
+                &mdash; the I-centred class collected 219 empty forbidden positions worth $+65.8$ nats while
+                its <em>nineteen</em> hard violations cost only $-46.6$. It therefore outscored the correct
+                $P2_1/a$, which explained all 48 of its absences and violated nothing.
+            </div>
+            <p>
+                Rows are therefore ranked in <strong>two tiers</strong>. A row carrying hard violations that
+                the impurity allowance does not cover is <em>falsified</em> and cannot outrank an unfalsified
+                one, whatever its score. Within each tier the score decides, so the ordering among survivors
+                is still the full likelihood comparison, and the falsified rows are still ordered least-bad
+                first &mdash; knowing <em>which</em> groups the data exclude, and by how much, is half the
+                answer. Only <strong>hard</strong> violations falsify: K&alpha;<sub>2</sub> ghosts, peaks
+                below the local weak threshold, and peaks with an allowed line inside the matching window are
+                graded soft, because none of them is a reliable reflection.
+            </p>
+            <p>
+                Tiering and the saturation ceiling attack the same failure from opposite ends. Tiering stops
+                a pile of absences from burying a reflection that is <em>demonstrably there</em>; the ceiling
+                stops it from burying everything else &mdash; soft violations, unindexed peaks, the parameter
+                charge &mdash; which no tier protects. Neither alone is enough.
+            </p>
+            <p>
+                The margin quoted beneath the table is measured <em>within the surviving tier</em>, and among
+                rows refined to the <em>same depth</em>. Comparing an unfalsified row against a falsified one
+                would report a lead that means nothing, since the two are not competing on the same question;
+                comparing a Monte-Carlo row against a stage-1 row measures partly who got more compute, which
+                is not a fact about the crystal. When the restriction bites, the status line says how many
+                rows the comparison covered. And if <em>every</em> class is contradicted, it says so rather
+                than crowning the least bad one &mdash; that verdict usually means the cell is wrong, the
+                range too short, or the pattern genuinely contains foreign lines and the impurity allowance
+                needs raising.
+            </p>
+
+            <h5>A worked reading</h5>
+            <p>
+                Suppose a scan reports $p = 90\%$ on a pattern of about 300 resolvable positions
+                ($\varepsilon_0 \approx 0.0033$), the leading row shows <code>Clean 34/34</code> with no
+                violations, and the runner-up shows <code>Clean 21/21</code>, also with none. Each clean
+                absence is worth $0.9 \times \ln(0.997/0.10) = 2.07$ nats, so the leader's absences come to
+                70.4 nats raw against the runner-up's 43.5 &mdash; but both are well into the ceiling, which
+                brings them to 41.9 and 34.0. The lead is therefore about <strong>8 nats</strong>: decisive,
+                roughly 3000:1, and the extra restrictions are all supported. The raw difference of 27 nats
+                would have claimed $10^{11}\!:\!1$ from thirteen missing lines, which no powder pattern has
+                ever earned.
+            </p>
+            <p>
+                Now suppose the same pattern gives $p = 35\%$. Each absence drops to
+                $0.35 \times \ln(0.997/0.65) = 0.15$ nats, nothing comes near the ceiling, and the same
+                thirteen-absence difference is worth <strong>1.9 nats</strong> &mdash; below the threshold,
+                reported as a tie. A single strong violation
+                ($\ln(0.0033/0.35) = -4.7$) would more than wipe it out. Same absences, very different
+                confidence, and that is the whole point: what an absence proves depends entirely on whether a
+                line would have been visible had it been there.
+            </p>
+
+            <h4>Using the dialog</h4>
+            <p>
+                The scan runs in two stages. <strong>Stage 1</strong> gives every class one constrained
+                least-squares refit against its own restricted line list, and keeps the result. That cell
+                <em>is</em> the hypothesis &mdash; the cell fitted to the lines the hypothesis allows &mdash;
+                so it is accepted whether or not $M(20)$ happened to rise; judging a hypothesis on a cell
+                fitted to reflections it forbids is the exact bias this tool exists to remove. (Earlier
+                versions scored every class on the parent cell as it stood, which re-imported that bias
+                wholesale: the correct class could be demoted at stage 1 and never reach the Monte Carlo pass
+                at all.)
+            </p>
+            <p>
+                <strong>Stage 2</strong> spends the annealing budget on the shortlist. It offers three
+                candidates per class &mdash; the parent cell, the least-squares cell, and the annealed one
+                &mdash; and keeps whichever scores best, so stage 2 can never leave a class worse off than
+                stage 1 did. Where the score cannot separate two candidates, and it often cannot, $M(20)$
+                breaks the tie: within a single class the line list is fixed, which makes $M(20)$ a legitimate
+                comparison there and the only one of the two that can see the difference between a good cell
+                and a mediocre one. Three fields control the stage:
+            </p>
+            <table>
+                <thead>
+                    <tr><th>Field</th><th>Meaning</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><strong>Iterations</strong></td><td>Annealing steps per run, as in <em>Refine MC</em>. Default 600. Below ~200 the walk has not cooled.</td></tr>
+                    <tr><td><strong>Restarts</strong></td><td>Independent runs per class. Default 4. Every class walks the same pseudo-random sequence, so a difference between two rows is a difference between hypotheses and not between two draws.</td></tr>
+                    <tr><td><strong>Refine top</strong></td><td>How many classes reach stage 2 on score. Up to four more are added for coverage: the most permissive class (the null hypothesis the score is measured against), the class with the most clean absences, and one representative per centering type. The rest keep their stage-1 result, marked with a small dot beside the score.</td></tr>
+                </tbody>
+            </table>
+            <p>
+                Progress is reported per class and the run can be stopped at any point with the same button
+                (rows already scored are kept). K&alpha;<sub>2</sub>-suspect peaks are excluded from the scan
+                exactly as they are from indexing &mdash; a ghost sitting a few hundredths of a degree off its
+                parent is precisely the sort of peak that lands on a forbidden line and manufactures a
+                violation against the correct rule set.
+            </p>
+            <p>
+                The results table has one row per distinguishable class, sorted by <strong>Score</strong> so
+                that it leads with the hypothesis the evidence favours. Click any header to sort by that
+                column instead, and click it again to reverse; errored rows always sink to the bottom. The
+                row leading on <em>Score</em> stays bold wherever the sort places it, so re-sorting never
+                hides which row actually won.
+            </p>
+            <table>
+                <thead>
+                    <tr><th>Column</th><th>Meaning</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><strong>Class</strong></td><td>The extinction symbol. Rows merged because your data cannot separate them show every symbol they cover, joined by &ldquo;&equiv;&rdquo;.</td></tr>
+                    <tr><td><strong>Space groups</strong></td><td>Every group and setting sharing these absences. Hover for the full list; hover the row for the reflection conditions.</td></tr>
+                    <tr><td><strong>Lines</strong></td><td>Distinct line positions the restricted list produces <em>within the measured range</em>. Lines the scan never reached are not counted, so this agrees with every other tally in the row.</td></tr>
+                    <tr><td><strong>M20</strong></td><td>de Wolff figure of merit of the refined cell <em>under this class</em>. Describes the cell, not the hypothesis &mdash; see above.</td></tr>
+                    <tr><td><strong>Score</strong></td><td>Log-odds against the best row of the same tier, in nats. <code>0.00</code> marks the leader; more negative is worse. Within about 2.3 nats of the leader means &ldquo;not distinguishable&rdquo;. Falsified rows are measured against the least-bad falsified row, not against the winner, since they are answering a different question.</td></tr>
+                    <tr><td><strong>Clean</strong></td><td>Informative forbidden positions that are empty, out of the number that are informative at all. <code>34/34</code> means every absence this class predicts is borne out; <code>3/19</code> means most are not.</td></tr>
+                    <tr><td><strong>Viol</strong></td><td>Hard violations, with soft ones (K&alpha;<sub>2</sub>, weak, ambiguous) in brackets. Hover for the offending 2&theta;, its relative intensity and how far it sits into the tolerance window.</td></tr>
+                    <tr><td><strong>Unidx</strong></td><td>Observed peaks no line explains at all.</td></tr>
+                    <tr><td><strong>Zero</strong></td><td>The zero-point error this class refined to. A row whose zero is far from its neighbours&rsquo; is fitting the shift rather than the structure.</td></tr>
+                </tbody>
+            </table>
+            <p>
+                Selecting a row and pressing <strong>Add as solution</strong> inserts its refined cell into the
+                solutions list immediately above its parent, tagged with an <em>SG</em> badge. The badge is
+                green when that row led decisively and amber (<em>SG?</em>) when it did not; its tooltip
+                carries the class, the groups it covers, the reflection conditions, the evidence tally, the
+                estimated $p$ and the margin over the runner-up. That cell was fitted against a restricted
+                line list, so it only means anything alongside the hypothesis it assumes &mdash; which is what
+                the badge is for.
+            </p>
+
+            <h4>Interpreting the table</h4>
+            <ul>
+                <li>
+                    <strong>Read the margin, not the order.</strong> Some row is always at the top, and by
+                    default it is the highest-scoring row the data have not falsified. Whether that lead means
+                    anything is decided by the gap to the second row, which the status line states in nats and
+                    in odds &mdash; a row can sit first and still be in a four-way tie. Re-sorting by any other
+                    column changes the view only; it never changes the verdict.
+                </li>
+                <li>
+                    <strong>Clean is the positive evidence.</strong> The old table could only ever punish a
+                    class for an absence that failed; it had no way to reward one for an absence that held.
+                    The <em>Clean</em> column is that missing half. A class with <code>0/0</code> is making no
+                    testable claim at all within your measured range.
+                </li>
+                <li>
+                    <strong>The unconstrained class is the null hypothesis.</strong> The class with no
+                    conditions is always present and always has zero violations and zero clean absences, so
+                    its score is near zero by construction. Any class that cannot beat it has not been
+                    supported by your data &mdash; usually too few peaks, or a range too short to sample the
+                    zones the conditions act on.
+                </li>
+                <li>
+                    <strong>Stage-1 rows are not fully comparable.</strong> Rows marked with a dot beside the
+                    score have had one least-squares solve and no annealing. They are shown because leaving
+                    them out would hide candidates, but a stage-1 row sitting just below the leader may be
+                    there for want of compute rather than want of evidence. Raise <em>Refine top</em> if one
+                    of them looks interesting.
+                </li>
+                <li>
+                    <strong>M20 = 0.00 is a rejection, not a failure.</strong> When the unindexed count
+                    exceeds the impurity allowance the figure of merit is zero by construction, the same rule
+                    that applies everywhere else in Brutus. Such rows are dimmed rather than hidden: knowing
+                    <em>which</em> groups the data exclude is half the answer.
+                </li>
+                <li>
+                    <strong>It is an independent second opinion.</strong> The scan deliberately does not
+                    pre-filter candidates using the centering test described above, so its verdict is reached
+                    without importing that test&rsquo;s assumptions. Where the two methods agree the case is
+                    strong precisely because they fail in different ways; where they disagree, the reflections
+                    responsible are worth inspecting individually.
+                </li>
+                <li>
+                    <strong>Cost.</strong> A low-symmetry system has many extinction classes and each stage-2
+                    class pays a full annealing budget. Enumeration takes well under a second; stage 1 runs in
+                    a second or two; stage 2 costs roughly 0.1&ndash;3 s per class depending on the system.
+                    Reduce <em>Refine top</em> or <em>Restarts</em> for a faster first look.
+                </li>
+            </ul>
+
+            <h4 id="sg-mc-limits">Limits worth knowing</h4>
+            <p>
+                <strong>Trigonal and rhombohedral groups are only ever tested in their hexagonal setting.</strong>
+                Brutus classifies cells by their <em>metric</em>, and a trigonal or rhombohedral lattice
+                described in hexagonal axes has $a = b$, $\gamma = 120^\circ$ &mdash; which the program calls
+                hexagonal, correctly. There is no separate trigonal system to search and none is needed: every
+                rhombohedral lattice can be indexed on the hexagonal triple cell, and that is what you will
+                get. The consequences are worth stating explicitly:
+            </p>
+            <ul>
+                <li>
+                    Space groups 143&ndash;167 are included among the candidates for a hexagonal cell, in
+                    their hexagonal-axes description. The R-centred groups (146, 148, 155, 160, 161, 166, 167)
+                    are tested through the obverse condition $-h+k+l = 3n$.
+                </li>
+                <li>
+                    The <strong>rhombohedral-axes settings are not searched.</strong> The database stores each
+                    R group twice, once in hexagonal axes and once in rhombohedral axes ($a = b = c$ with
+                    equal non-90&deg; angles), and the two carry completely different condition lists because
+                    in rhombohedral axes the lattice is primitive and has no centering condition at all.
+                    Those settings describe indices this program never produces, so they are excluded. If you
+                    want the rhombohedral cell you must convert it yourself; the transformation is standard
+                    and the hexagonal cell Brutus reports is the conventional description in any case.
+                </li>
+                <li>
+                    <strong>Obverse and reverse are not distinguished, and hkl labels reflect that.</strong>
+                    A powder pattern cannot tell the two settings apart &mdash; they differ by a relabelling
+                    of the indices, not by anything measurable. The line <em>positions</em> Brutus reports for
+                    an R lattice are correct, but the hkl attached to some of them are the generator&rsquo;s
+                    own $h \ge k$ representative rather than the conventional obverse label: you may see
+                    <code>102</code> where tables print <code>012</code>, or <code>204</code> for
+                    <code>024</code>. Cell refinement, $M(20)$ and the whole of the scoring depend only on
+                    $d$-spacings and are unaffected; only the printed index differs. Relabel by hand if you
+                    are transcribing indices into a report.
+                </li>
+                <li>
+                    A trigonal group whose Laue class is $\bar{3}m$ is treated using $\bar{3}$, because the
+                    stored point group does not record whether the two-folds run along $\langle 100 \rangle$
+                    or $\langle 210 \rangle$. This was checked exhaustively against the database and changes
+                    no line list for any of the 25 trigonal groups, so it costs nothing in practice.
+                </li>
+            </ul>
+            <p>
+                <strong>Monoclinic cells are b-unique throughout.</strong> The refinement solves for
+                $\beta$ with $\alpha = \gamma = 90^\circ$, so only the b-unique settings of the monoclinic
+                groups are considered; the a-unique and c-unique descriptions of the same groups carry
+                conditions written for indices Brutus does not produce and are excluded. If your reference
+                data uses one of those settings, transform it before comparing.
+            </p>
+            <div class="callout-note">
+                <strong>What the answer actually is.</strong> Systematic absences determine an
+                <em>extinction symbol</em>, not a space group. A class containing five groups means the
+                pattern cannot choose between those five, and the table says so rather than picking one.
+                Going further requires intensities &mdash; the statistical test of Markvardsen <em>et al.</em>
+                (ExtSym) works from integrated intensities and can separate candidates this scan must leave
+                tied &mdash; or structure solution itself. The scoring above is in the same spirit as that
+                work, reduced to what peak <em>positions</em> alone can support.
+            </div>
         </section>
 
         <!-- ============================================================ -->
@@ -2084,6 +2728,11 @@
             <p>
                 If this dynamic re-pairing captures a better-fitting theoretical reflection and improves the overall M(20) score, the step is accepted. This allows the solution to smoothly escape local minima and naturally resolve its own HKL assignments without requiring manual intervention.
             </p>
+            <p>
+                The same walk is reused, under a restricted line list, by
+                <a href="#space-group-mc">Space Group MC</a>, which refines the cell once per space group of
+                its crystal system and ranks the results.
+            </p>
 
             <h3>7. Final De-Duplication (Sieving)</h3>
             <p>
@@ -2336,6 +2985,12 @@
                     Boultif, A. &amp; Louër, D. (2004).
                     "Powder Pattern Indexing with the Dichotomy Method."
                     <em>Journal of Applied Crystallography</em> <strong>37</strong>, 724–731.
+                </li>
+                <li>
+                    <strong>Space-group determination from powder absences</strong><br>
+                    Markvardsen, A. J., David, W. I. F., Johnson, J. C. &amp; Shankland, K. (2001).
+                    &ldquo;A Probabilistic Approach to Space-Group Determination from Powder Diffraction Data.&rdquo;
+                    <em>Acta Crystallographica</em> <strong>A57</strong>, 47&ndash;54.
                 </li>
                 <li>
                     <strong>Previous software</strong><br>

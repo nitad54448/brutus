@@ -7,14 +7,64 @@
     <!--
      27 july 2026, removed the  CDN dependencies.
     -->
-<script src="chart.umd.js"></script>
-    <script src="hammer.min.js"></script>
-    <script src="chartjs-plugin-zoom.min.js"></script>
-    <script src="jspdf.umd.min.js"></script>
+<script src="scripts/chart.umd.js"></script>
+    <script src="scripts/hammer.min.js"></script>
+    <script src="scripts/chartjs-plugin-zoom.min.js"></script>
+    <script src="scripts/jspdf.umd.min.js"></script>
     <script src="worker-logic.js"></script>
     <script src="webgpu-engine.js"></script>
     <link href="inter-font.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <style>
+    /* ------------------------------------------------------------------
+       Space Group MC: resizable window.
+       Selectors are #sg-overlay #sg-modal so they win over the plain
+       #sg-modal rules in styles.css without needing !important. Move this
+       block into styles.css if you prefer to keep the head clean.
+
+       The modal becomes a column flexbox: the intro paragraph and the
+       status line get their own scroll areas with capped heights, the
+       table takes whatever is left, and the native resize grip in the
+       bottom-right corner sizes the whole thing. The browser writes the
+       new size as an inline style, so it persists while the page is open.
+       ------------------------------------------------------------------ */
+    #sg-overlay #sg-modal {
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        resize: both;                 /* the grip */
+        overflow: hidden;             /* required for resize to take effect */
+        width: min(1100px, 96vw);
+        height: min(760px, 90vh);
+        max-width: 98vw;
+        max-height: 96vh;
+        min-width: 560px;
+        min-height: 300px;
+    }
+    /* Long explanatory text must not squeeze the table out of existence. */
+    #sg-overlay #sg-sub {
+        flex: 0 1 auto;
+        max-height: 30%;
+        overflow-y: auto;
+        margin-bottom: 0.5rem;
+    }
+    #sg-overlay #sg-title,
+    #sg-overlay #sg-params,
+    #sg-overlay #sg-buttons { flex: 0 0 auto; }
+    /* The table is the elastic part. */
+    #sg-overlay #sg-table-wrap {
+        flex: 1 1 auto;
+        min-height: 90px;
+        overflow: auto;
+    }
+    /* The Wilson / tie / progress line - the one that grows. */
+    #sg-overlay #sg-msg {
+        flex: 0 1 auto;
+        max-height: 30%;
+        overflow-y: auto;
+        overflow-wrap: anywhere;
+    }
+    </style>
 </head>
 <body class="app-shell">
 
@@ -221,7 +271,7 @@
         <div class="parameter-grid" style="margin-top: 0.75rem;">
             <div>
                 <label for="gpu-fom-threshold" class="control-label">FoM Tolerance</label>
-                <input type="number" id="gpu-fom-threshold" value="0.8" min="0.10" max="5.0" step="0.1" class="control-input">
+                <input type="number" id="gpu-fom-threshold" value="1.5" min="0.10" max="5.0" step="0.1" class="control-input">
             </div>
             <div>
                 <label for="gpu-buffer-size" class="control-label">Candidates (kCells)</label>
@@ -320,11 +370,12 @@
     <div id="status-box"></div>
 
     <script src="main_app.js"></script>
-<div id="app-footer">Brutus, 27 July 2026</div>
+<div id="app-footer">Brutus, 28 July 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-swap">Swap hkl</div>
     <div id="ctx-mc">Refine MC</div>
+    <div id="ctx-sg">Space Group MC</div>
     <div id="ctx-report">Generate Report</div>
 </div>
 <div id="mc-overlay">
@@ -337,17 +388,72 @@
       <label for="mc-iterations">Iterations
         <span class="mc-hint">annealing steps per run; below ~200 the walk has not cooled</span>
       </label>
-      <input id="mc-iterations" type="number" min="50" max="20000" step="50" value="700">
+      <input id="mc-iterations" type="number" min="50" max="20000" step="50" value="1000">
 
       <label for="mc-restarts">Restarts
         <span class="mc-hint">independent runs; more restarts = less seed dependence</span>
       </label>
-      <input id="mc-restarts" type="number" min="1" max="20" step="1" value="2">
+      <input id="mc-restarts" type="number" min="1" max="20" step="1" value="8">
     </div>
     <div id="mc-msg"></div>
     <div id="mc-buttons">
       <button id="mc-cancel" class="btn btn-secondary">Cancel</button>
       <button id="mc-apply" class="btn btn-primary">Apply</button>
+    </div>
+  </div>
+</div>
+
+<div id="sg-overlay">
+  <div id="sg-modal">
+    <h3 id="sg-title">Space Group MC</h3>
+    <p id="sg-sub">Every space group of this crystal system is tried as a hypothesis: its forbidden
+       reflections are removed from the calculated line list, the cell is re-refined against what is
+       left, and the evidence is recomputed. Rule sets that produce the <i>same</i> calculated pattern
+       for this cell, wavelength, range and tolerance cannot be separated by the data, so they share
+       one row and are labelled by extinction symbol rather than by a representative group.
+       Ranking is in two tiers. A row with a hard violation the impurity allowance does not cover is
+       <i>falsified</i> - a single genuine reflection on a forbidden line rules a group out - and can
+       never outrank a row with none, whatever its score. Falsified rows are shown below, ordered
+       least-bad first. <b>Score</b> is the log-odds in nats against the leading row <i>of its own
+       tier</i>: it rewards forbidden lines that are cleanly empty (<b>Clean</b>) and penalises
+       observed peaks that only a forbidden line explains (<b>Viol</b>, hard count with soft
+       Ka2/weak/ambiguous ones in brackets) and peaks the refined cell cannot explain at all
+       (<b>Unidx</b>). Rows within about 2.3 nats of each other are a tie.
+       <b>M20</b> describes the refined cell only - it rises whenever lines are deleted, so it is not
+       what ranks the hypotheses, so the table is sorted by Score by default. Click any header to sort
+       by that column instead, and click it again to reverse. The row leading on Score stays bold
+       wherever the sort puts it. Select a row to keep its refined cell.</p>
+    <div id="sg-params">
+      <label for="sg-iterations">Iterations
+        <span class="sg-hint">annealing steps per run</span>
+        <input id="sg-iterations" type="number" min="50" max="20000" step="50" value="600">
+      </label>
+      <label for="sg-restarts">Restarts
+        <span class="sg-hint">independent runs per class</span>
+        <input id="sg-restarts" type="number" min="1" max="20" step="1" value="4">
+      </label>
+      <label for="sg-top">Refine top classes
+        <span class="sg-hint">centering, unrestricted and the cleanest class are included</span>
+        <input id="sg-top" type="number" min="1" max="50" step="1" value="8">
+      </label>
+    </div>
+    <div id="sg-table-wrap">
+      <table id="sg-table">
+        <thead><tr>
+          <th data-sort="label">Class</th><th data-sort="groups">Space groups</th>
+          <th data-sort="lines">Lines</th><th data-sort="m20">M20</th>
+          <th data-sort="score">Score</th><th data-sort="clean">Clean</th>
+          <th data-sort="viol">Viol</th><th data-sort="unidx">Unidx</th>
+          <th data-sort="zero">Zero</th>
+        </tr></thead>
+        <tbody id="sg-tbody"></tbody>
+      </table>
+    </div>
+    <div id="sg-msg"></div>
+    <div id="sg-buttons">
+      <button id="sg-cancel" class="btn btn-secondary">Close</button>
+      <button id="sg-add" class="btn btn-secondary" disabled>Add as solution</button>
+      <button id="sg-run" class="btn btn-primary">Run scan</button>
     </div>
   </div>
 </div>

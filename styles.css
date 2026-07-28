@@ -206,6 +206,11 @@
         .sol-badge { font-size: 0.85em; cursor: help; }
         .sol-badge.swap { color: #d97706; }
         .sol-badge.mc { color: #60a5fa; }
+        .sol-badge.sg { color: #34d399; }
+        /* Adopted from a row that did not lead its table decisively. Same badge,
+           deliberately drained of the confident green: the cell is fine, but the
+           class it assumes was not established by the absences. */
+        .sol-badge.sg.sg-tied { color: #fbbf24; }
         .solutions-table th, .solutions-table td { padding: 0.5rem; text-align: left; border-bottom: 1px solid var(--border-color); vertical-align: middle;}
         .solutions-table th { background-color: #2a3547; font-weight: 600; position: sticky; top: 0;}
         .solutions-table th[data-sort] { cursor: pointer; } 
@@ -418,10 +423,23 @@
         }
         #swap-title { margin: 0 0 4px 0; font-size: 1.05rem; }
         #swap-sub { margin: 0 0 12px 0; font-size: 0.8rem; color: var(--text-dark); }
-        #swap-table-wrap { overflow-y: auto; flex: 1 1 auto; border: 1px solid var(--border-color); border-radius: 6px; }
+        /* min-height:0 is stated rather than relied on. A flex item defaults to
+           min-height:auto, which refuses to shrink below its content -- but that
+           automatic minimum does not apply to scroll containers, so overflow-y
+           below already implies it and the table scrolled correctly even when
+           the row list was capped at twelve. Writing it out means the scroll
+           survives someone later changing the overflow. */
+        #swap-table-wrap {
+            overflow-y: auto; flex: 1 1 auto; min-height: 0;
+            border: 1px solid var(--border-color); border-radius: 6px;
+        }
+        #swap-table-wrap::-webkit-scrollbar { width: 6px; }
+        #swap-table-wrap::-webkit-scrollbar-track { background: var(--dark-bg); }
+        #swap-table-wrap::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+        #swap-table-wrap::-webkit-scrollbar-thumb:hover { background: var(--light-bg); }
         #swap-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
         #swap-table th, #swap-table td { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--border-color); }
-        #swap-table th { position: sticky; top: 0; background: var(--light-bg); color: var(--text-dark); font-weight: 500; }
+        #swap-table th { position: sticky; top: 0; z-index: 1; background: var(--light-bg); color: var(--text-dark); font-weight: 500; }
         #swap-table tr:last-child td { border-bottom: none; }
         #swap-table input {
             width: 46px; background: var(--light-bg); border: 1px solid var(--border-color);
@@ -469,6 +487,81 @@
         #mc-msg { min-height: 18px; margin-top: 12px; font-size: 0.8rem; color: #f87171; }
         #mc-msg.info { color: var(--text-dark); }
         #mc-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; }
+
+        /* Space Group MC dialog. Same object as the two dialogs above -- same
+           overlay, same panel, same button row -- but wide, because it holds a
+           results table whose rows are selectable rather than editable. */
+        #sg-overlay {
+            display: none; position: fixed; inset: 0; z-index: 3000;
+            background: rgba(0,0,0,0.55); align-items: center; justify-content: center;
+        }
+        #sg-overlay.open { display: flex; }
+        #sg-modal {
+            background: var(--medium-bg); border: 1px solid var(--border-color);
+            border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            width: min(980px, 94vw); max-height: 88vh; display: flex; flex-direction: column;
+            padding: 18px 20px; color: var(--text-light);
+        }
+        #sg-title { margin: 0 0 4px 0; font-size: 1.05rem; }
+        #sg-sub { margin: 0 0 14px 0; font-size: 0.8rem; color: var(--text-dark); line-height: 1.45; }
+        #sg-sub b { color: var(--text-medium); font-weight: 500; }
+        /* Three fields on one row: the dialog is wide enough that the mc-params
+           two-column stack would leave most of it empty. */
+        #sg-params {
+            display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: flex-start;
+            margin-bottom: 12px;
+        }
+        #sg-params label {
+            display: flex; flex-direction: column; gap: 2px;
+            font-size: 0.875rem; font-weight: 500; color: var(--text-medium);
+        }
+        #sg-params .sg-hint { font-weight: 400; font-size: 0.75rem; color: var(--text-dark); line-height: 1.35; }
+        #sg-params input {
+            width: 96px; box-sizing: border-box; background: var(--light-bg);
+            border: 1px solid var(--border-color); color: var(--text-light);
+            border-radius: 4px; padding: 5px 7px; text-align: center; font-size: 0.85rem;
+            margin-top: 2px;
+        }
+        #sg-params input:focus {
+            outline: none; border-color: var(--primary-accent);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+        }
+        #sg-table-wrap { overflow-y: auto; flex: 1 1 auto; min-height: 140px; border: 1px solid var(--border-color); border-radius: 6px; }
+        #sg-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+        #sg-table th, #sg-table td { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+        #sg-table th { position: sticky; top: 0; z-index: 1; background: var(--light-bg); color: var(--text-dark); font-weight: 500; }
+        #sg-table tr:last-child td { border-bottom: none; }
+        /* Class symbol and member list read as text, not as numbers. */
+        #sg-table th:first-child, #sg-table td:first-child,
+        #sg-table th:nth-child(2), #sg-table td.sg-groups { text-align: left; }
+        #sg-table td.sg-groups { max-width: 300px; overflow: hidden; text-overflow: ellipsis; color: var(--text-medium); }
+        #sg-table tbody tr { cursor: pointer; }
+        #sg-table tbody tr:hover td { background: var(--light-bg); }
+        #sg-table tbody tr.sg-sel td { background: rgba(26,115,232,0.28); color: var(--text-light); }
+        /* Ruled out by a violation the impurity allowance does not cover: kept
+           visible on purpose -- knowing WHICH group the data excludes is half the
+           answer -- but pushed back so the surviving rows read first. */
+        #sg-table tbody tr.sg-ruled-out td { color: var(--text-dark); }
+        #sg-table tbody tr.sg-bad td { color: var(--text-dark); font-style: italic; }
+        /* Leading row on the log-odds score. Only a hint of emphasis: whether it
+           is actually the answer depends on the margin, which #sg-msg states in
+           words rather than leaving the highlight to imply. */
+        #sg-table tbody tr.sg-best td { font-weight: 600; }
+        /* Still a stage-1 (least-squares only) result -- not yet given the full
+           Monte-Carlo pass, so its score can still move. */
+        #sg-table tbody tr.sg-stage1 td.sg-score::after { content: ' \00b7'; opacity: 0.55; }
+        #sg-table td.sg-score { font-variant-numeric: tabular-nums; }
+        /* Sortable headers. The arrow marks the active column and its direction.
+           The table defaults to Score, which is what ranks the hypotheses; every
+           other column is one click away. */
+        #sg-table th[data-sort] { cursor: pointer; user-select: none; }
+        #sg-table th[data-sort]:hover { color: var(--text-medium); }
+        #sg-table th.sg-sorted { color: var(--text-light); }
+        #sg-table th.sg-sorted::after { content: ' \25BC'; font-size: 0.7em; opacity: 0.8; }
+        #sg-table th.sg-sorted.sg-asc::after { content: ' \25B2'; }
+        #sg-msg { min-height: 18px; margin-top: 12px; font-size: 0.8rem; color: var(--text-dark); }
+        #sg-msg.error { color: #f87171; }
+        #sg-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; }
         #context-menu {
             display: none;
             position: absolute;
