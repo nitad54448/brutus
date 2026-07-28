@@ -64,6 +64,62 @@
         overflow-y: auto;
         overflow-wrap: anywhere;
     }
+
+    /* Save-as dialog. Same object as the Refine MC / Swap dialogs: same
+       overlay, same panel, same button row. */
+    #save-menu-overlay {
+        display: none; position: fixed; inset: 0; z-index: 3000;
+        background: rgba(0,0,0,0.55); align-items: center; justify-content: center;
+    }
+    #save-menu-overlay.open { display: flex; }
+    #save-menu-modal {
+        background: var(--medium-bg); border: 1px solid var(--border-color);
+        border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        width: min(420px, 92vw); max-height: 86vh; display: flex; flex-direction: column;
+        padding: 18px 20px; color: var(--text-light);
+    }
+    #save-menu-modal h3 { margin: 0 0 4px 0; font-size: 1.05rem; }
+    #save-menu-modal .save-sub { margin: 0 0 14px 0; font-size: 0.8rem; color: var(--text-dark); line-height: 1.45; }
+    #save-menu-modal .save-field { display: flex; flex-direction: column; gap: 4px; font-size: 0.875rem; font-weight: 500; color: var(--text-medium); margin-bottom: 14px; }
+    #save-menu-modal .save-field select {
+        width: 100%; box-sizing: border-box; background: var(--light-bg);
+        border: 1px solid var(--border-color); color: var(--text-light);
+        border-radius: 4px; padding: 5px 7px; font-size: 0.85rem;
+    }
+    #save-menu-modal .save-field select:focus {
+        outline: none; border-color: var(--primary-accent);
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+    }
+    #save-menu-msg { min-height: 18px; margin-top: 10px; font-size: 0.8rem; color: var(--text-dark); line-height: 1.4; }
+    #save-menu-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; }
+
+    /* Chart help: a real button (click to toggle), tooltip opens to the LEFT
+       of the icon and sits on top of everything so it stays on-screen. These
+       #id rules override the generic .help-icon / .tooltip-content in styles.css. */
+    button.help-icon {
+        border: none; cursor: pointer; padding: 0; line-height: 1;
+    }
+    #help-tooltip {
+        /* Cancel the styles.css right-side placement. */
+        left: auto; right: 115%; margin-left: 0; margin-right: 10px;
+        top: -6px;
+        z-index: 4000;
+        max-width: min(400px, 60vw);
+        /* Never open on hover / no delayed reveal. */
+        transition: opacity 0.15s; transition-delay: 0s;
+    }
+    /* The connector arrow points right (toward the icon), anchored on the
+       bubble's right edge. */
+    #help-tooltip::after {
+        content: ""; position: absolute;
+        left: 100%; right: auto;
+        top: 20px; margin-top: -5px;
+        border-width: 5px; border-style: solid;
+        border-color: transparent transparent transparent var(--light-bg);
+    }
+    /* Show only when toggled open via JS; disable the hover-reveal entirely. */
+    .help-tooltip-container:hover #help-tooltip { visibility: hidden; opacity: 0; }
+    .help-tooltip-container #help-tooltip.open { visibility: visible; opacity: 1; }
     </style>
 </head>
 <body class="app-shell">
@@ -72,39 +128,39 @@
         <div id="controls-panel">
 
             <div class="control-group">
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <label for="file-input" class="file-input-label btn-like" style="flex-grow: 1;">
-                        <span id="file-name">Select Data File</span>
+                <div style="display: flex; gap: 0.5rem;">
+                    <label for="file-input" class="file-input-label btn btn-secondary btn-like flex-1" style="text-align:center; cursor:pointer;">
+                        <span>Load File</span>
                     </label>
-                     <div class="help-tooltip-container">
-                        <span class="help-icon" aria-label="Help and usage information">?</span>
+                    <button id="save-as-button" class="btn btn-secondary btn-like flex-1" disabled>Save as</button>
+                </div>
+                <p id="file-name-box" style="width:100%; box-sizing:border-box; margin:0.4rem 0 0 0; font-size:0.8rem; color:var(--text-dark); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-height:1.1em;"></p>
+                <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.xrdml,.xml,.ras,.esd,.std,.udf,.uxd,.xra,.gsa">
+            </div>
 
-                        
-
-                        <div class="tooltip-content">
-    <h4>Brutus - Powder XRD Indexing</h4>
-    <p>This program uses a system-specific, exhaustive search to find potential unit cells based on the first 20 peaks.</p>
-    <ul>
-        <li class="mb-5"><b>Cubic:</b> Tests single peaks.</li>
-        <li class="mb-5"><b>Tetra/Hexa:</b> Solves using peak pairs.</li>
-        <li class="mb-5"><b>Ortho:</b> Solves using peak triplets (GPU).</li>
-        <li class="mb-5"><b>Monoclinic:</b> Solves using peak quadruplets (GPU).</li>
-        <li class="mb-5"><b>Triclinic:</b> Solves using peak sextuplets (GPU).</li>
-    </ul>
-    <p>All trial cells are refined, scored (M(20)), and analyzed for space groups. For a full breakdown, <a href="brutus_help.html" target="_blank" style="color: #6495ED;">read the technical guide.</a></p>
-    <hr>
-    <h4>Supported File Formats:</h4>
-    <p>Generic 2-column (2&theta; intensity), .xrdml, .brml, .ras, .uxd, .udf, GSAS .esd</p>
-    <hr>
-    <h4>Chart Interaction:</h4>
-    <p><b>Zoom:</b> Use the mouse wheel, or select an area. Right-click to reset zoom.</p>
-    <p><b>Pan:</b> Alt + drag the chart to pan.</p>
-    <p><b>Add Peak:</b> Hold <b>Ctrl</b> and click on the chart to manually add a peak at that position.</p>
-</div>
-
+            <!-- Save-as format menu (mirrors the Refine MC / Swap dialogs) -->
+            <div id="save-menu-overlay">
+                <div id="save-menu-modal">
+                    <h3>Save data as</h3>
+                    <p class="save-sub">Choose a format, then pick the folder and file name in the save dialog.</p>
+                    <label class="save-field">
+                        Format
+                        <select id="save-format-select">
+                            <option value="xy">XY — 2&theta; intensity (.xy)</option>
+                            <option value="csv">CSV — 2&theta;,intensity (.csv)</option>
+                            <option value="dat">DAT — whitespace 2 columns (.dat)</option>
+                            <option value="xrdml">Panalytical XRDML (.xrdml)</option>
+                            <option value="brukerxml">Bruker RawDataFile XML (.xml)</option>
+                            <option value="uxd">Bruker UXD (.uxd)</option>
+                            <option value="gsas">GSAS ESD (.esd)</option>
+                        </select>
+                    </label>
+                    <div id="save-menu-msg"></div>
+                    <div id="save-menu-buttons">
+                        <button id="save-menu-cancel" class="btn btn-secondary">Cancel</button>
+                        <button id="save-menu-confirm" class="btn btn-primary">Save</button>
                     </div>
                 </div>
-                <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.xrdml,.brml,.ras,.esd,.std,.udf,.uxd,.xra,.gsa">
             </div>
 
             <div class="tab-buttons">
@@ -324,6 +380,29 @@
         <div id="drag-handle"></div>
 
         <div id="results-area">
+            <div class="help-tooltip-container" style="position:absolute; top:0.75rem; right:0.75rem; z-index:30;">
+                <button type="button" id="help-icon-btn" class="help-icon" aria-label="Help and usage information" aria-expanded="false">?</button>
+                <div class="tooltip-content" id="help-tooltip">
+    <h4>Brutus - Powder XRD Indexing</h4>
+    <p>This program uses a system-specific, exhaustive search to find potential unit cells based on the first 20 peaks.</p>
+    <ul>
+        <li class="mb-5"><b>Cubic:</b> Tests single peaks.</li>
+        <li class="mb-5"><b>Tetra/Hexa:</b> Solves using peak pairs.</li>
+        <li class="mb-5"><b>Ortho:</b> Solves using peak triplets (GPU).</li>
+        <li class="mb-5"><b>Monoclinic:</b> Solves using peak quadruplets (GPU).</li>
+        <li class="mb-5"><b>Triclinic:</b> Solves using peak sextuplets (GPU).</li>
+    </ul>
+    <p>All trial cells are refined, scored (M(20)), and analyzed for space groups. For a full breakdown, <a href="brutus_help.html" target="_blank" style="color: #6495ED;">read the technical guide.</a></p>
+    <hr>
+    <h4>Supported File Formats:</h4>
+    <p>Generic 2-column (2&theta; intensity), .xrdml, .xml, .ras, .uxd, .udf, GSAS .esd</p>
+    <hr>
+    <h4>Chart Interaction:</h4>
+    <p><b>Zoom:</b> Use the mouse wheel, or select an area. Right-click to reset zoom.</p>
+    <p><b>Pan:</b> Alt + drag the chart to pan.</p>
+    <p><b>Add Peak:</b> Hold <b>Ctrl</b> and click on the chart to manually add a peak at that position.</p>
+</div>
+            </div>
              <div id="placeholder" style="width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #6b7280;">
                 <svg xmlns="http://www.w3.org/2000/svg" style="width: 4rem; height: 4rem; margin-bottom: 1rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                 <h2 style="font-size: 1.5rem; font-weight: 600;">Awaiting Data</h2>
@@ -351,10 +430,9 @@
                     <label class="axis-toggle" title="Where Ctrl+click puts a new peak. Hold Shift while clicking to bypass snapping.">
                         <span class="axis-toggle-key">Snap</span>
                         <select id="snap-mode" class="axis-select">
-                            <option value="auto" selected>Auto</option>
-                            <option value="data">Data max</option>
-                            <option value="hkl">hkl line</option>
-                            <option value="off">Off</option>
+                            <option value="off" selected>Off</option>
+                            <option value="data">Obs</option>
+                            <option value="hkl">Calc</option>
                         </select>
                     </label>
                     <span id="snap-readout" style="color:#6b7280; font-variant-numeric:tabular-nums;"></span>
@@ -370,7 +448,7 @@
     <div id="status-box"></div>
 
     <script src="main_app.js"></script>
-<div id="app-footer">Brutus, 28 July 2026</div>
+<div id="app-footer">Brutus, 29 July 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-swap">Swap hkl</div>

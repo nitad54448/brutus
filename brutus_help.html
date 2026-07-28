@@ -154,6 +154,7 @@
                 <li><a href="#introduction">Technical Overview</a></li>
                 <li><a href="#quick-start">Quick Start Guide</a></li>
                 <li><a href="#ui">The User Interface</a></li>
+                <li><a href="#saving-data">Saving &amp; Converting Data</a></li>
                 <li><a href="#peak-finding">Peak Finding</a></li>
                 <li><a href="#indexing-method">Indexing Algorithm</a></li>
                 <li><a href="#refinement">Least-Squares Refinement</a></li>
@@ -254,7 +255,7 @@
             <ol>
                 <li>
                     <strong>Load the data file.</strong>
-                    Click <code>Select Data File</code>. Supported formats include <code>.xy</code>, <code>.xrdml</code>, <code>.ras</code>, <code>.xra</code>, and plain text two-column data.
+                    Click <code>Load File</code>. Supported formats include <code>.xy</code>, <code>.xrdml</code>, <code>.xml</code> (Panalytical XRDML or Bruker <code>RawDataFile</code>), <code>.ras</code>, <code>.xra</code>, <code>.uxd</code>, <code>.udf</code>, GSAS <code>.esd</code>, and plain text two-column data.
                 </li>
                 <li>
                     <strong>Detect peaks.</strong>
@@ -582,24 +583,92 @@
                     limited by the pointer, not by the data. The <code>Snap</code> selector controls where a
                     <code>Ctrl + Click</code> actually lands:
                     <ul>
-                        <li><strong>Auto</strong> (default): whichever is nearer, the local maximum of the measured trace or a calculated hkl line of the selected solution.</li>
-                        <li><strong>Data max</strong>: the highest measured point within the snap window.</li>
-                        <li><strong>hkl line</strong>: the nearest calculated reflection of the selected solution.</li>
-                        <li><strong>Off</strong>: exactly where you clicked.</li>
+                        <li><strong>Off</strong> (default): exactly where you clicked. The readout reports the cursor's 2θ, d and Q with no snapping.</li>
+                        <li><strong>Obs</strong>: the observed peak position — the highest measured point within the snap window.</li>
+                        <li><strong>Calc</strong>: the nearest calculated reflection of the selected solution; the readout additionally shows its Miller indices.</li>
                     </ul>
                     A dashed guide shows the target as you move the pointer, and the readout beside the
                     selectors reports its 2θ, d and Q, plus the Miller indices when the target is a calculated
-                    line. Snapping to a data maximum also gives the new peak a real height, which the
+                    (Calc) line. Snapping to an observed peak also gives the new peak a real height, which the
                     space-group analysis needs in order to tell a weak reflection from a strong one. Hold
                     <code>Shift</code> while clicking to bypass snapping for a single peak.
                     <br><br>
-                    Snapping to an hkl line is deliberately a separate choice from snapping to data. It places
-                    a peak where the <em>model</em> says a reflection should be, which is what you want when
-                    adding a reflection that is visible but too weak or too broad for the detector to have
-                    produced a clean maximum. It is not evidence that the reflection is there: a peak added
-                    that way agrees with the solution by construction, so it cannot be used to confirm it.
+                    Snapping to a calculated (Calc) line is deliberately a separate choice from snapping to
+                    observed data. It places a peak where the <em>model</em> says a reflection should be, which
+                    is what you want when adding a reflection that is visible but too weak or too broad for the
+                    detector to have produced a clean maximum. It is not evidence that the reflection is there:
+                    a peak added that way agrees with the solution by construction, so it cannot be used to
+                    confirm it.
                 </li>
             </ul>
+        </section>
+
+        <!-- ============================================================ -->
+        <section id="saving-data">
+            <h2>Saving &amp; Converting Data</h2>
+            <p>
+                Brutus can export the pattern it is displaying, which makes it a convenient
+                format converter as well as an indexer. The <code>Save as</code> button sits next to
+                <code>Load File</code> and becomes active once a data file has been loaded. Clicking it
+                opens a small dialog where you choose an output format; pressing <code>Save</code> then hands
+                off to the browser's own save dialog, so you pick the folder and file name in the normal way.
+            </p>
+
+            <h3>What is exported</h3>
+            <p>
+                The exported pattern is exactly what is plotted on the chart, so two view choices carry
+                through to the file:
+            </p>
+            <ul>
+                <li>
+                    <strong>Kα<sub>2</sub> state.</strong> If Kα<sub>2</sub> stripping is on, the stripped
+                    trace is written; if it is off, the raw counts are written. The dialog states which of the
+                    two will be saved so there is no ambiguity.
+                </li>
+                <li>
+                    <strong>Range.</strong> The current 2θ zoom acts as a range selection. If you have zoomed
+                    in, only the visible interval is exported and the dialog reports the span and how many
+                    points that is; reset the zoom (right-click on the chart) first to write the whole pattern.
+                </li>
+            </ul>
+            <p>
+                The abscissa is always written in 2θ regardless of whether the chart is currently showing θ,
+                d or Q — those are display transforms only, and the underlying pattern is stored in 2θ.
+            </p>
+
+            <h3>Formats</h3>
+            <p>
+                The plain-text column formats store an explicit 2θ value for every point, so they preserve a
+                non-uniform scan faithfully. The instrument formats store a single start position, a step and
+                a list of intensities, so they assume a constant step; if the loaded scan is not evenly
+                spaced the dialog warns that positions may shift slightly when written to one of these.
+            </p>
+            <table style="margin-top:0.75rem; border-collapse:collapse; font-size:0.92em;">
+                <tr style="border-bottom:1px solid #bbb;">
+                    <th style="text-align:left;padding:0.2rem 0.9rem 0.2rem 0;">Format</th>
+                    <th style="text-align:left;padding:0.2rem 0.9rem;">Extension</th>
+                    <th style="text-align:left;padding:0.2rem 0.9rem;">Stores λ</th>
+                    <th style="text-align:left;padding:0.2rem 0;">Grid</th>
+                </tr>
+                <tr><td>XY (2θ&nbsp;intensity)</td><td><code>.xy</code></td><td>no</td><td>per-point 2θ</td></tr>
+                <tr><td>CSV (2θ,intensity)</td><td><code>.csv</code></td><td>no</td><td>per-point 2θ</td></tr>
+                <tr><td>Two-column whitespace</td><td><code>.dat</code></td><td>no</td><td>per-point 2θ</td></tr>
+                <tr><td>Panalytical XRDML</td><td><code>.xrdml</code></td><td>yes</td><td>constant step</td></tr>
+                <tr><td>Bruker <code>RawDataFile</code> XML</td><td><code>.xml</code></td><td>yes</td><td>constant step</td></tr>
+                <tr><td>Bruker UXD</td><td><code>.uxd</code></td><td>yes</td><td>constant step</td></tr>
+                <tr><td>GSAS ESD</td><td><code>.esd</code></td><td>no</td><td>constant step</td></tr>
+            </table>
+            <p style="margin-top:0.6rem;">
+                For the formats that record a wavelength, the value written is the one in the
+                <code>Ka1 Wavelength</code> box, and the dialog shows it before you save. The default file name
+                is taken from the loaded file; change it in the browser's save dialog if you want.
+            </p>
+            <p style="margin-top:0.6rem;">
+                <strong>A note on the informational messages.</strong> The lines in the dialog are labelled
+                <em>Info</em>, not warnings — they describe what is being written (Kα<sub>2</sub> state,
+                visible range, wavelength, constant-step assumption) so you can confirm the output matches your
+                intent. None of them blocks the save.
+            </p>
         </section>
 
         <!-- ============================================================ -->

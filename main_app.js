@@ -294,7 +294,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const ui = {
         fileInput: document.getElementById('file-input'),
         fileInputLabel: document.querySelector('.file-input-label'),
-        fileName: document.getElementById('file-name'),
+        fileName: document.getElementById('file-name-box'),
+        saveAsButton: document.getElementById('save-as-button'),
+        saveMenuOverlay: document.getElementById('save-menu-overlay'),
+        saveFormatSelect: document.getElementById('save-format-select'),
+        saveMenuCancel: document.getElementById('save-menu-cancel'),
+        saveMenuConfirm: document.getElementById('save-menu-confirm'),
+        saveMenuMsg: document.getElementById('save-menu-msg'),
         peakControls: document.getElementById('peak-controls'),
         peakThresholdSlider: document.getElementById('peak-threshold-slider'),
         peakThresholdValue: document.getElementById('peak-threshold-value'),
@@ -845,6 +851,7 @@ const getOrthogonalityScore = (cell) => {
 
     // data, si Ka stripped ou pas, on copie les données
     let fullExperimentalData = { tth: [], intensity: [] }; // The original, unmodified data
+    let loadedFileName = ''; // basename of the currently loaded file, for Save-as naming
     let workingExperimentalData = { tth: [], intensity: [] }; // The data to be plotted and analyzed (raw or stripped)
 
     let pickedPeaks = [];
@@ -1389,6 +1396,327 @@ const setupWorker = () => {
         }
     };
 
+    /* ------------------------------------------------------------------
+       Save-as / file-converter export
+       ------------------------------------------------------------------
+       The exported pattern is exactly what is currently plotted:
+       workingExperimentalData already holds the raw-or-Kα2-stripped trace
+       (whichever the strip checkbox selects), and we clip it to the 2θ
+       interval currently visible on the chart, so zooming acts as a range
+       selection for the export. */
+
+    const getExportPattern = () => {
+        const src = workingExperimentalData;
+        if (!src || !src.tth || src.tth.length === 0) return null;
+
+        // visibleTthRange() returns the on-screen 2θ window (full span when
+        // the chart is not zoomed). It is defined later in the file but only
+        // called here at click-time, so hoisting is not a concern.
+        let lo = -Infinity, hi = Infinity;
+        try {
+            const r = visibleTthRange();
+            if (r && isFinite(r[0]) && isFinite(r[1])) { lo = r[0]; hi = r[1]; }
+        } catch (_) { /* chart not ready → export full pattern */ }
+
+        const tth = [], intensity = [];
+        for (let i = 0; i < src.tth.length; i++) {
+            const t = src.tth[i];
+            if (t >= lo && t <= hi) { tth.push(t); intensity.push(src.intensity[i]); }
+        }
+        if (tth.length === 0) return null;
+        return { tth, intensity };
+    };
+
+    // Wavelength currently in effect (for formats that store it).
+    const getExportWavelength = () => {
+        const w = parseFloat(ui.wavelength.value);
+        return (isFinite(w) && w > 0) ? w : 1.54056;
+    };
+
+    const num = (v, dp = 6) => Number(v).toFixed(dp);
+
+    const buildExportContent = (fmt, pattern) => {
+        const { tth, intensity } = pattern;
+        const n = tth.length;
+        const lambda = getExportWavelength();
+        const step = n > 1 ? (tth[n - 1] - tth[0]) / (n - 1) : 0;
+        let out = [];
+
+        switch (fmt) {
+            case 'xy':
+            case 'dat': {
+                for (let i = 0; i < n; i++) out.push(`${num(tth[i], 5)} ${num(intensity[i], 4)}`);
+                return { text: out.join('\n') + '\n', ext: fmt === 'xy' ? 'xy' : 'dat', mime: 'text/plain' };
+            }
+            case 'csv': {
+                out.push('2theta,intensity');
+                for (let i = 0; i < n; i++) out.push(`${num(tth[i], 5)},${num(intensity[i], 4)}`);
+                return { text: out.join('\n') + '\n', ext: 'csv', mime: 'text/csv' };
+            }
+            case 'uxd': {
+                out.push('_FILEVERSION=1');
+                out.push('; Exported by Brutus');
+                out.push(`_WL1=${num(lambda, 6)}`);
+                out.push(`_START=${num(tth[0], 6)}`);
+                out.push(`_STEPSIZE=${num(step, 6)}`);
+                out.push('_STEPCOUNT=' + n);
+                out.push('_COUNTS');
+                // 5 values per line, matching common UXD style
+                for (let i = 0; i < n; i += 5) {
+                    out.push(intensity.slice(i, i + 5).map(v => num(v, 3)).join(' '));
+                }
+                return { text: out.join('\n') + '\n', ext: 'uxd', mime: 'text/plain' };
+            }
+            case 'gsas': {
+                // Minimal GSAS ESD (constant-step, ESD format). Header + BANK line.
+                // GSAS uses centidegrees for CONST start/step.
+                const start100 = tth[0] * 100;
+                const step100 = step * 100;
+                const lines = [];
+                const npts = n;
+                const recPerLine = 5; // ESD packs (pos?, no) — here we use "ESD": Y and sigma
+                // ESD format: each value field width 12: intensity then sqrt(I) as esd
+                const dataLines = [];
+                let buf = '';
+                let count = 0;
+                // This app's ESD reader takes tokens at index 1,3,5,... as the
+                // intensity, so we write each record as "<esd> <intensity>".
+                for (let i = 0; i < n; i++) {
+                    const yi = Math.max(0, intensity[i]);
+                    const esd = Math.sqrt(yi > 0 ? yi : 1);
+                    buf += esd.toFixed(2).padStart(12) + yi.toFixed(2).padStart(12);
+                    count++;
+                    if (count === recPerLine) { dataLines.push(buf); buf = ''; count = 0; }
+                }
+                if (buf.length) dataLines.push(buf);
+                lines.push('Exported by Brutus'.padEnd(80));
+                lines.push(
+                    `BANK 1 ${npts} ${Math.ceil(npts / recPerLine)} CONST ` +
+                    `${start100.toFixed(2)} ${step100.toFixed(2)} 0 0 ESD`
+                );
+                for (const dl of dataLines) lines.push(dl);
+                return { text: lines.join('\n') + '\n', ext: 'esd', mime: 'text/plain' };
+            }
+            case 'xrdml': {
+                const positions = `        <positions axis="2Theta" unit="deg">\n` +
+                    `          <startPosition>${num(tth[0], 6)}</startPosition>\n` +
+                    `          <endPosition>${num(tth[n - 1], 6)}</endPosition>\n` +
+                    `        </positions>`;
+                const counts = intensity.map(v => Math.round(v)).join(' ');
+                const xml =
+`<?xml version="1.0" encoding="UTF-8"?>
+<xrdMeasurements xmlns="http://www.xrdml.com/XRDMeasurement/1.5">
+  <xrdMeasurement measurementType="Scan" status="Completed">
+    <usedWavelength intended="K-Alpha 1">
+      <kAlpha1 unit="Angstrom">${num(lambda, 6)}</kAlpha1>
+    </usedWavelength>
+    <scan appendNumber="0" mode="Continuous" scanAxis="2Theta">
+      <dataPoints>
+${positions}
+        <intensities unit="counts">${counts}</intensities>
+      </dataPoints>
+    </scan>
+  </xrdMeasurement>
+</xrdMeasurements>
+`;
+                return { text: xml, ext: 'xrdml', mime: 'application/xml' };
+            }
+            case 'brukerxml': {
+                const counts = intensity.map(v => Math.round(v)).join(' ');
+                const xml =
+`<?xml version="1.0" encoding="utf-8"?>
+<RawDataFile>
+  <DataRoutes>
+    <DataRoute>
+      <ScanInformation>
+        <ScanAxes>
+          <ScanAxisInfo AxisName="TwoTheta">
+            <Start axis="TwoTheta">${num(tth[0], 6)}</Start>
+            <startPosition axis="TwoTheta">${num(tth[0], 6)}</startPosition>
+            <increment axis="TwoTheta">${num(step, 6)}</increment>
+          </ScanAxisInfo>
+        </ScanAxes>
+        <usedWavelength kAlpha1="${num(lambda, 6)}" />
+      </ScanInformation>
+      <Datum>
+        <dataPoints>
+          <counts>${counts}</counts>
+        </dataPoints>
+      </Datum>
+    </DataRoute>
+  </DataRoutes>
+</RawDataFile>
+`;
+                return { text: xml, ext: 'xml', mime: 'application/xml' };
+            }
+            default:
+                return { text: '', ext: 'txt', mime: 'text/plain' };
+        }
+    };
+
+    const baseNameNoExt = (name) => {
+        if (!name) return 'pattern';
+        const dot = name.lastIndexOf('.');
+        return dot > 0 ? name.slice(0, dot) : name;
+    };
+
+    const triggerDownload = (text, filename, mime) => {
+        const blob = new Blob([text], { type: mime + ';charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+
+    // Formats that do not store an explicit per-point 2θ column, so they must
+    // assume a constant step and/or embed a single wavelength. We warn the user
+    // what metadata is being written into these on their behalf.
+    const SAVE_FORMAT_META = {
+        xrdml:     { wavelength: true,  constStep: true,  label: 'XRDML' },
+        brukerxml: { wavelength: true,  constStep: true,  label: 'Bruker XML' },
+        uxd:       { wavelength: true,  constStep: true,  label: 'UXD' },
+        gsas:      { wavelength: false, constStep: true,  label: 'GSAS ESD' },
+        xy:        { wavelength: false, constStep: false, label: 'XY' },
+        csv:       { wavelength: false, constStep: false, label: 'CSV' },
+        dat:       { wavelength: false, constStep: false, label: 'DAT' }
+    };
+
+    // True when the exported (currently visible) 2θ grid is not evenly spaced.
+    // Constant-step formats would silently resample such data onto a regular grid.
+    const patternStepIsIrregular = () => {
+        const p = getExportPattern();
+        const t = p ? p.tth : null;
+        if (!t || t.length < 3) return false;
+        const step = (t[t.length - 1] - t[0]) / (t.length - 1);
+        if (!(Math.abs(step) > 0)) return false;
+        const tol = Math.abs(step) * 0.02; // 2% of the nominal step
+        for (let i = 1; i < t.length; i++) {
+            if (Math.abs((t[i] - t[i - 1]) - step) > tol) return true;
+        }
+        return false;
+    };
+
+    const updateSaveInfo = () => {
+        const fmt = ui.saveFormatSelect.value;
+        const meta = SAVE_FORMAT_META[fmt] || {};
+        const notes = [];
+
+        // Kα2 state of the data being written (workingExperimentalData is what
+        // is plotted, already stripped when the main strip control is on).
+        const stripped = !!(ui.stripKa2Checkbox && ui.stripKa2Checkbox.checked
+                            && ui.wavelengthPreset && ui.wavelengthPreset.value !== 'custom');
+        if (stripped) {
+            notes.push(`Kα2-stripped data will be saved (the plotted pattern has Kα2 removed).`);
+        } else {
+            notes.push(`Raw data will be saved (no Kα2 stripping applied to the plotted pattern).`);
+        }
+
+        // The export is clipped to what's on screen when zoomed.
+        const p = getExportPattern();
+        if (p && p.tth.length) {
+            const full = workingExperimentalData.tth.length;
+            if (p.tth.length < full) {
+                notes.push(`Only the visible range is exported: ${p.tth[0].toFixed(3)}–${p.tth[p.tth.length - 1].toFixed(3)}° 2θ (${p.tth.length} of ${full} points). Reset the zoom to export the full pattern.`);
+            }
+        }
+        if (meta.wavelength) {
+            const w = getExportWavelength();
+            notes.push(`${meta.label} stores a wavelength — the value from the wavelength box (${w.toFixed(5)} Å) will be written.`);
+        }
+        if (meta.constStep && patternStepIsIrregular()) {
+            notes.push(`${meta.label} assumes a constant 2θ step; this scan is not evenly spaced, so intensities will be written against a uniform start/step and positions may shift slightly.`);
+        }
+        ui.saveMenuMsg.innerHTML = notes.length ? 'Info: ' + notes.join('<br>Info: ') : '';
+    };
+
+    const openSaveMenu = () => {
+        const p = getExportPattern();
+        if (!p) { showStatus('No data to save.', 'error'); return; }
+        updateSaveInfo();
+        ui.saveMenuOverlay.classList.add('open');
+    };
+    const closeSaveMenu = () => ui.saveMenuOverlay.classList.remove('open');
+
+    // MIME + human description per extension, for the native save dialog's type list.
+    const EXT_DESC = {
+        xy: 'XY data', csv: 'CSV', dat: 'Data', xrdml: 'XRDML',
+        xml: 'Bruker XML', uxd: 'Bruker UXD', esd: 'GSAS ESD'
+    };
+
+    // Save via the File System Access API when available (real OS save dialog
+    // where the user chooses folder + name), otherwise fall back to a normal
+    // browser download into the default downloads folder.
+    const saveTextToFile = async (text, suggestedName, ext, mime) => {
+        if (window.showSaveFilePicker) {
+            try {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName,
+                    types: [{
+                        description: EXT_DESC[ext] || 'Data file',
+                        accept: { [mime || 'text/plain']: ['.' + ext] }
+                    }]
+                });
+                const writable = await handle.createWritable();
+                await writable.write(text);
+                await writable.close();
+                return handle.name || suggestedName;
+            } catch (err) {
+                // AbortError = user cancelled the dialog; do nothing.
+                if (err && err.name === 'AbortError') return null;
+                // Any other failure (e.g. permissions) → fall through to download.
+                console.warn('showSaveFilePicker failed, falling back to download:', err);
+            }
+        }
+        triggerDownload(text, suggestedName, mime);
+        return suggestedName;
+    };
+
+    const doSave = async () => {
+        const pattern = getExportPattern();
+        if (!pattern) { showStatus('No data to save.', 'error'); return; }
+
+        const fmt = ui.saveFormatSelect.value;
+        const { text, ext, mime } = buildExportContent(fmt, pattern);
+        const suggestedName = `${baseNameNoExt(loadedFileName) || 'pattern'}.${ext}`;
+
+        ui.saveMenuConfirm.disabled = true;
+        const savedName = await saveTextToFile(text, suggestedName, ext, mime);
+        ui.saveMenuConfirm.disabled = false;
+
+        if (savedName === null) return; // user cancelled the native dialog
+        closeSaveMenu();
+        showStatus(`Saved ${savedName} (${pattern.tth.length} points).`, 'info', 4000);
+    };
+
+    if (ui.saveAsButton)      ui.saveAsButton.addEventListener('click', openSaveMenu);
+    if (ui.saveFormatSelect)  ui.saveFormatSelect.addEventListener('change', updateSaveInfo);
+    if (ui.saveMenuCancel)    ui.saveMenuCancel.addEventListener('click', closeSaveMenu);
+    if (ui.saveMenuConfirm)   ui.saveMenuConfirm.addEventListener('click', doSave);
+    if (ui.saveMenuOverlay)   ui.saveMenuOverlay.addEventListener('click', (e) => {
+        if (e.target === ui.saveMenuOverlay) closeSaveMenu();
+    });
+
+    // Chart help: click the "?" button to toggle the panel (no hover trigger).
+    const helpBtn = document.getElementById('help-icon-btn');
+    const helpPanel = document.getElementById('help-tooltip');
+    if (helpBtn && helpPanel) {
+        const closeHelp = () => { helpPanel.classList.remove('open'); helpBtn.setAttribute('aria-expanded', 'false'); };
+        helpBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const open = helpPanel.classList.toggle('open');
+            helpBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+        // Clicking anywhere outside the panel or the button closes it.
+        document.addEventListener('click', (e) => {
+            if (!helpPanel.contains(e.target) && e.target !== helpBtn) closeHelp();
+        });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeHelp(); });
+    }
+
     // event listeners 
     ui.wavelengthPreset.addEventListener('change', handleWavelengthPresetChange);
     // Edits to the wavelength input auto-switch the preset to "custom" when the
@@ -1499,13 +1827,9 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
                     test: (name, content) => name.endsWith('.xrdml') || (content.includes('<?xml') && content.includes('<xrdMeasurement')),
                     parser: parseXrdmlFile
                 },
-                { // BRML
-                    test: (name, content) => name.endsWith('.brml') || (content.includes('<?xml') && content.includes('<RawDataFile')),
-                    parser: parseBrukerBrmlFile
-                },
-                { // Rigaku RASX (try brml parser)
-                    test: (name, content) => name.endsWith('.rasx') && content.includes('<?xml'),
-                    parser: parseBrukerBrmlFile
+                { // Bruker XML (uncompressed RawDataFile; e.g. RawData0.xml from an unzipped .brml)
+                    test: (name, content) => (name.endsWith('.xml') && content.includes('<RawDataFile')) || (content.includes('<?xml') && content.includes('<RawDataFile')),
+                    parser: parseBrukerXmlFile
                 },
                 { // UXD
                     test: (name, content, firstLine) => name.endsWith('.uxd') || firstLine.startsWith('_FILEVERSION'),
@@ -1652,8 +1976,8 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
             return { tth, intensity };
         };
 
+        const parseBrukerXmlFile = (xmlString) => { const parser = new DOMParser(); const xmlDoc = parser.parseFromString(xmlString, "application/xml"); if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing Bruker XML file."); } let wavelength = null; const wlNode = xmlDoc.querySelector('usedWavelength'); if (wlNode) { const kAlpha1 = wlNode.getAttribute('kAlpha1'); if (kAlpha1) wavelength = parseFloat(kAlpha1); } const intensityNode = xmlDoc.querySelector("dataPoints > counts"); if (!intensityNode) throw new Error("No <counts> data found in Bruker XML file."); const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number); const startPosNode = xmlDoc.querySelector('startPosition[axis="TwoTheta"]'); const stepSizeNode = xmlDoc.querySelector('increment[axis="TwoTheta"]'); if (!startPosNode || !stepSizeNode) throw new Error("Could not find scan parameters in Bruker XML file."); const startPos = parseFloat(startPosNode.textContent); const stepSize = parseFloat(stepSizeNode.textContent); const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * stepSize); return { tth, intensity, wavelength }; };
         const parseXrdmlFile = (xmlString) => { const parser = new DOMParser(); const xmlDoc = parser.parseFromString(xmlString, "application/xml"); if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing XRDML file."); } let wavelength = null; const kAlpha1Node = xmlDoc.querySelector("kAlpha1"); if (kAlpha1Node?.textContent) wavelength = parseFloat(kAlpha1Node.textContent); const intensityNode = xmlDoc.querySelector("intensities") || xmlDoc.querySelector("counts"); if (!intensityNode) throw new Error("Could not find <intensities> or <counts> in XRDML file."); const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number); const positionsNode = xmlDoc.querySelector('positions[axis="2Theta"]'); if (!positionsNode) throw new Error("Could not find <positions> in XRDML file."); const startPosNode = positionsNode.querySelector("startPosition"); const endPosNode = positionsNode.querySelector("endPosition"); if (!startPosNode || !endPosNode) throw new Error("Could not find start/end positions in XRDML."); const startPos = parseFloat(startPosNode.textContent); const endPos = parseFloat(endPosNode.textContent); if (!isFinite(startPos) || !isFinite(endPos)) throw new Error("XRDML start/end positions are not numeric."); if (intensity.length === 0) throw new Error("XRDML file contains no intensity points."); /* With a single point the old expression divided by zero and produced NaN/Infinity for every 2-theta; emit the single start position instead. */ const step = intensity.length > 1 ? (endPos - startPos) / (intensity.length - 1) : 0; const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * step); return { tth, intensity, wavelength }; };
-        const parseBrukerBrmlFile = (xmlString) => { const parser = new DOMParser(); const xmlDoc = parser.parseFromString(xmlString, "application/xml"); if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing BRML file."); } let wavelength = null; const wlNode = xmlDoc.querySelector('usedWavelength'); if (wlNode) { const kAlpha1 = wlNode.getAttribute('kAlpha1'); if (kAlpha1) wavelength = parseFloat(kAlpha1); } const intensityNode = xmlDoc.querySelector("dataPoints > counts"); if (!intensityNode) throw new Error("No <counts> data found in BRML file."); const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number); const startPosNode = xmlDoc.querySelector('startPosition[axis="TwoTheta"]'); const stepSizeNode = xmlDoc.querySelector('increment[axis="TwoTheta"]'); if (!startPosNode || !stepSizeNode) throw new Error("Could not find scan parameters in BRML file."); const startPos = parseFloat(startPosNode.textContent); const stepSize = parseFloat(stepSizeNode.textContent); const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * stepSize); return { tth, intensity, wavelength }; };
         const parseRigakuRasFile = (text) => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; let inDataSection = false; let wavelength = null; for (const line of lines) { const upperLine = line.toUpperCase(); if (upperLine.startsWith('*WAVE_LENGTH') || upperLine.startsWith('*MEAS_COND_XG_WAVE_LENGTH')) { const parts = line.trim().split(/\s+/); if (parts.length > 1) { const wl = parseFloat(parts[1]); if (!isNaN(wl)) wavelength = wl; } } if (upperLine.startsWith('*RAS_INT_START')) { inDataSection = true; continue; } if (upperLine.startsWith('*RAS_INT_END')) break; if (inDataSection) { const parts = line.trim().split(/[\s,]+/); if (parts.length >= 2) { const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); } } } } if (tth.length === 0) throw new Error("No data found in RAS file data section."); return { tth, intensity, wavelength }; };
         const parseGsasEsdFile = (text) => { const lines = text.trim().split(/\r?\n/); let wavelength = null; let startTth, stepSize; let dataStartIndex = -1; lines.forEach((line, index) => { const upperLine = line.toUpperCase(); if (upperLine.includes('WAVELENGTH')) { const match = line.match(/wavelength\s+([0-9.]+)/i); if (match && match[1]) wavelength = parseFloat(match[1]); } if (upperLine.startsWith('BANK')) { const parts = line.trim().split(/\s+/); /* parts[6] is the step size, so a CONST line needs 7 tokens, not 6. With >= 6 a 6-token line made stepSize = parseFloat(undefined) = NaN, and the "=== undefined" guard below let NaN through, turning every 2-theta into start + i*NaN. */ if (parts.length >= 7 && parts[4].toUpperCase() === 'CONST') { const s0 = parseFloat(parts[5]) / 100.0; const ds = parseFloat(parts[6]) / 100.0; /* Reject non-numeric or zero/negative steps here rather than emitting a NaN/constant 2-theta axis downstream. */ if (isFinite(s0) && isFinite(ds) && ds > 0) { startTth = s0; stepSize = ds; dataStartIndex = index + 1; } } } }); if (!isFinite(startTth) || !isFinite(stepSize)) throw new Error("GSAS Parse Error: Could not find a valid 'BANK' line with CONST scan parameters."); if (dataStartIndex !== -1 && lines[dataStartIndex]?.toUpperCase().includes('STD')) dataStartIndex++; if (dataStartIndex === -1 || dataStartIndex >= lines.length) throw new Error("GSAS Parse Error: Found scan parameters but no subsequent data lines."); const intensity = []; for (let i = dataStartIndex; i < lines.length; i++) { const parts = lines[i].trim().split(/\s+/); for (let j = 1; j < parts.length; j += 2) { const val = parseFloat(parts[j]); if (!isNaN(val)) intensity.push(val); } } if (intensity.length === 0) throw new Error("GSAS Parse Error: No intensity data could be parsed."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
         
@@ -1718,6 +2042,8 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
         }
 
         ui.fileName.textContent = file.name;
+        ui.fileName.title = file.name;
+        loadedFileName = file.name;
 
         // Tabula rasa. A new file makes every previous session-scoped value
         // (peaks, solutions, indexing run stats, sort/context state)
@@ -1871,6 +2197,9 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
         // Store full dataset
         fullExperimentalData = { tth: tth_out, intensity: int_out };
         updateWorkingData(); // This will apply stripping if needed
+
+        // Data is now loaded: the file can be re-exported.
+        if (ui.saveAsButton) ui.saveAsButton.disabled = false;
 
 
         // Hide placeholder, show chart, custom cursor (depuis sept 2025)
@@ -5101,13 +5430,9 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
     };
 
     const resolveSnap = (tth, mode) => {
-        if (mode === 'off') return null;
-        const dataHit = (mode === 'data' || mode === 'auto') ? snapToData(tth) : null;
-        const hklHit  = (mode === 'hkl'  || mode === 'auto') ? snapToHkl(tth)  : null;
-        if (dataHit && hklHit) {
-            return Math.abs(dataHit.tth - tth) <= Math.abs(hklHit.tth - tth) ? dataHit : hklHit;
-        }
-        return dataHit || hklHit;
+        if (mode === 'data') return snapToData(tth);
+        if (mode === 'hkl')  return snapToHkl(tth);
+        return null; // 'off'
     };
 
     const tthFromEvent = (e) => {
@@ -5139,7 +5464,6 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
         const Q = 4 * Math.PI * st / lam;
         let txt = `2\u03B8 ${shown.toFixed(3)}\u00B0   d ${isFinite(dsp) ? dsp.toFixed(4) : '-'} \u00C5   Q ${Q.toFixed(3)} \u00C5\u207B\u00B9`;
         if (hit && hit.kind === 'hkl') txt += `   \u2192 hkl (${hit.hkl.h},${hit.hkl.k},${hit.hkl.l})`;
-        else if (hit) txt += '   \u2192 data maximum';
         ui.snapReadout.textContent = txt;
         // Only repaint when the snap target actually moved: mousemove fires far
         // faster than a full-pattern redraw can keep up with.
@@ -5204,7 +5528,7 @@ ui.chartCanvas.addEventListener('click', (e) => {
         recalculatePeakValues(); // tag + d/q in one shot
         updatePeakTable(); updateStartIndexingButtonState();
         const how = hit
-            ? (hit.kind === 'hkl' ? ` (snapped to hkl ${hit.hkl.h}${hit.hkl.k}${hit.hkl.l})` : ' (snapped to data maximum)')
+            ? (hit.kind === 'hkl' ? ` (snapped to hkl ${hit.hkl.h}${hit.hkl.k}${hit.hkl.l})` : ' (snapped to observed peak)')
             : '';
         showStatus(`Peak added at ${tth.toFixed(3)}\u00B0${how}`, 'success', 2000);
     });
@@ -5308,7 +5632,7 @@ const generatePDFReport = async (singleSolution = null) => {
         yPos += 5;
             
         doc.setFont(FONT.LABEL, 'normal').text(`Data File:`, margin, yPos);
-        doc.setFont(FONT.DATA, 'normal').text(ui.fileName.textContent, margin + 25, yPos);
+        doc.setFont(FONT.DATA, 'normal').text(ui.fileName.textContent || '', margin + 25, yPos);
         yPos += 10;
           
         const imgData = xrdChart.toBase64Image('image/png', 1.0);      
