@@ -2041,8 +2041,10 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
             return;
         }
 
-        ui.fileName.textContent = file.name;
-        ui.fileName.title = file.name;
+        if (ui.fileName) {
+            ui.fileName.textContent = file.name;
+            ui.fileName.title = file.name;
+        }
         loadedFileName = file.name;
 
         // Tabula rasa. A new file makes every previous session-scoped value
@@ -5632,7 +5634,7 @@ const generatePDFReport = async (singleSolution = null) => {
         yPos += 5;
             
         doc.setFont(FONT.LABEL, 'normal').text(`Data File:`, margin, yPos);
-        doc.setFont(FONT.DATA, 'normal').text(ui.fileName.textContent || '', margin + 25, yPos);
+        doc.setFont(FONT.DATA, 'normal').text((ui.fileName ? ui.fileName.textContent : '') || loadedFileName || '', margin + 25, yPos);
         yPos += 10;
           
         const imgData = xrdChart.toBase64Image('image/png', 1.0);      
