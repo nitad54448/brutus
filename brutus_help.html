@@ -246,8 +246,23 @@
                 <li><code>worker-logic.js</code> — shared logic loaded three ways: directly on the main thread (for post-processing and helper maths), as a standalone Web Worker (for the background CPU indexing of cubic/tetragonal/hexagonal), and via <code>importScripts()</code> inside each refinement worker. Contains all crystallographic mathematics: HKL generation, Q-calculation, least-squares solvers, figure-of-merit calculations, error propagation, and the Niggli reduction.</li>
                 <li><code>refinement-worker.js</code> — a thin batch-refinement worker. GPU-found candidate cells are refined (full weighted least-squares, M(20), error propagation) not on the main thread but across a <strong>pool of these workers</strong>, sized to <code>hardwareConcurrency − 2</code> (minimum 1) to leave cores free for the UI and the GPU driver. Candidate cells are streamed to the pool in round-robin batches while the GPU search is still running, so refinement overlaps GPU execution.</li>
                 <li><code>webgpu-engine.js</code> — the GPU-accelerated brute-force search for orthorhombic, monoclinic, and triclinic systems. Manages the WebGPU device, buffers, dispatch chunking, and combinadic bookkeeping; loads the WGSL compute shaders below.</li>
+                <li><code>styles.css</code>, <code>inter-font.css</code>, and the vendored libraries under
+                    <code>scripts/</code> (Chart.js, Hammer, the Chart.js zoom plugin, jsPDF).</li>
                 <li><code>ortho_solver.wgsl</code>, <code>monoclinic_solver.wgsl</code>, <code>triclinic_solver.wgsl</code> — the WGSL compute kernels. Each unranks HKL combinations on the fly from a u32 combinadic (combinatorial-number-system) index, solves the per-trial linear system (3×3, 4×4, or 6×6), applies the geometric and figure-of-merit filters, and atomically appends surviving cells to the results buffer. In the triclinic kernel the 6×6 coefficient matrix depends only on the chosen HKL combination, not on the peak-to-HKL assignment, so it is Gauss-eliminated <strong>once</strong> per combination and the stored multipliers are then re-applied to each of the $6! = 720$ permuted right-hand sides. This is arithmetically identical to re-solving the system from scratch each time (the elimination multipliers are a function of the matrix alone), and a singular matrix now abandons the whole combination immediately rather than being re-detected 720 times.</li>
             </ul>
+            <div class="callout-note">
+                <strong>Versioning and the browser cache.</strong> The <code>?v=</code> query string on the
+                <code>&lt;script&gt;</code> tags in <code>brutus.html</code> exists only to force browsers to
+                re-fetch a file that has changed. Its value is arbitrary — a date is merely readable — and
+                only the fact that it <em>changed</em> matters. Note that <code>worker-logic.js</code> is
+                loaded three ways (see above) and each way is a separate cache entry, so a partial bump can
+                leave the main thread and the workers running <strong>different builds of the same file</strong>.
+                That does not present as a caching problem: it presents as results that disagree between the
+                table and the report. The worker URLs are therefore derived at runtime from the query string
+                on the <code>main_app.js</code> tag, so bumping that single value in <code>brutus.html</code>
+                busts the whole chain. Keep the date in the page footer in step with it — the PDF report reads
+                that footer for its version line.
+            </div>
         </section>
 
         <!-- ============================================================ -->
@@ -614,6 +629,15 @@
                 <code>Load File</code> and becomes active once a data file has been loaded. Clicking it
                 opens a small dialog where you choose an output format; pressing <code>Save</code> then hands
                 off to the browser's own save dialog, so you pick the folder and file name in the normal way.
+            </p>
+            <p>
+                Below the two buttons, a chip shows the loaded file and its size. Long names are shortened
+                from the <em>middle</em> so the extension stays visible, and the full name is available on
+                hover. The <strong>&times;</strong> on the chip unloads the file: it aborts any indexing run
+                in flight, discards the peaks, solutions and run statistics, clears the pattern and returns
+                the window to its opening state. When there is something to lose it first opens a
+                confirmation dialog &mdash; the same panel as <code>Save as</code> &mdash; naming the file and
+                listing exactly what will be discarded. With nothing to lose it simply unloads.
             </p>
 
             <h3>What is exported</h3>
@@ -1535,9 +1559,8 @@
         <em>P</em> can never accumulate a single violation. It is therefore always among the zero-violation
         candidates, for every pattern, by construction. Reporting
         &ldquo;<em>A</em>-centered (A) or Primitive (P)&rdquo; would state something structurally guaranteed
-        rather than something measured, and it was never done for <em>F</em> or <em>I</em>, which are collapsed
-        to a single symbol. The <strong>Lattice Centering</strong> line therefore names only the genuine centering
-        found — <em>P</em> appears there only when no centering survives at all.
+        rather than something measured. The <strong>Lattice Centering</strong> line therefore names only the
+        genuine centering found — <em>P</em> appears there only when no centering survives at all.
     </p>
     <p>
         <em>P</em> is still retained internally and passed to the space-group candidate list as an allowed
@@ -1546,6 +1569,20 @@
         actually primitive?&rdquo; is answered by the <strong>Possible Extinctions</strong> list and by the
         <a href="#space-group-mc">Space Group MC</a>, not by the centering line.
     </p>
+    <div class="callout-note">
+        <strong>This applies to <em>F</em> and <em>I</em> too, and it did not always.</strong> The candidate
+        pool used to collapse to <em>F</em> or <em>I</em> <em>alone</em> when either survived, while the
+        <em>A</em>/<em>B</em>/<em>C</em> and <em>R</em> branches kept <em>P</em> beside them. That single letter
+        was a hard commit: the pool is the candidate filter for the extinction test <em>and</em> for the
+        compatibility list, so a wrong <em>I</em> verdict did not demote the primitive settings, it
+        <strong>deleted</strong> them — and a group that was never a candidate looks exactly like a group that
+        was ruled out. This is the same pseudo-symmetry trap described just above: no measured reflection
+        happens to fall in the forbidden parity class, <em>I</em> comes back clean, and the true primitive cell
+        is the thing that disappears from the report. <em>F</em> and <em>I</em> qualify on the same bar
+        <em>A</em>/<em>B</em>/<em>C</em> do — zero hard violations, which <em>P</em> also has by construction —
+        so they are no longer treated as more certain. The <strong>Lattice Centering</strong> line is unchanged
+        by this: it is built after <em>P</em> is stripped.
+    </div>
     <p>
         <strong>How to read this.</strong> A genuine centering produces a condition on
         <em>general</em> $hkl$ — <em>hkl</em>: $k+l=2n$ for <em>A</em>, $h+k+l=2n$ for <em>I</em>, and so on —
@@ -3186,7 +3223,7 @@
             </ol>
 
             <div class="footer">
-                <p>Help guide generated with the help of an AI, based on source code analysis. Last revised 8 August 2026.</p>
+                <p>Help guide generated with the help of an AI, based on source code analysis. Last revised 27 July 2026.</p>
             </div>
         </section>
 

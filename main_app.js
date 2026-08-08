@@ -293,8 +293,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const ui = {
         fileInput: document.getElementById('file-input'),
-        fileInputLabel: document.querySelector('.file-input-label'),
+        // Was document.querySelector('.file-input-label') on a <label>. The
+        // label carried its own background, which overrode .btn-secondary and
+        // made `Load File` a different colour from `Save as`. It is now a
+        // <button> with exactly the same classes, so they cannot drift.
+        fileInputLabel: document.getElementById('load-file-button'),
         fileName: document.getElementById('file-name-box'),
+        fileChipName: document.getElementById('file-chip-name'),
+        fileChipSize: document.getElementById('file-chip-size'),
+        fileChipClear: document.getElementById('file-chip-clear'),
+        unloadOverlay: document.getElementById('unload-overlay'),
+        unloadFile: document.getElementById('unload-file'),
+        unloadLosses: document.getElementById('unload-losses'),
+        unloadCancel: document.getElementById('unload-cancel'),
+        unloadConfirm: document.getElementById('unload-confirm'),
         saveAsButton: document.getElementById('save-as-button'),
         saveMenuOverlay: document.getElementById('save-menu-overlay'),
         saveFormatSelect: document.getElementById('save-format-select'),
@@ -889,6 +901,46 @@ const getOrthogonalityScore = (cell) => {
     let indexingRunToken = 0;
     let sortState = { column: 'm20', direction: 'desc' };
     let workerURL = null;    
+
+    // --- ONE SOURCE OF TRUTH FOR THE CACHE-BUSTING VERSION -----------------
+    //
+    // worker-logic.js used to be fetched under THREE different URLs, and only
+    // one of them was in brutus.html:
+    //
+    //   main thread        worker-logic.js?v=NNN   (the <script> tag)
+    //   CPU index worker   worker-logic.js         (bare -- never busted)
+    //   refinement workers worker-logic.js?v=NNN   (from a hardcoded literal here)
+    //
+    // Three cache entries for one file. Bumping the version in the HTML alone
+    // left the workers on the old key, so the main thread and the workers could
+    // run DIFFERENT builds of the same file -- and a change to anything they
+    // share (getSolutionKey, the scoring, the FoM) then disagrees across the
+    // boundary. That presents as "the table and the report don't match", which
+    // is about the least obvious symptom a stale cache could have chosen.
+    //
+    // Take the query string off whatever tag loaded main_app.js and reuse it
+    // for every worker. refinement-worker.js already inherits it in turn via
+    // self.location.search, so the whole chain now follows from the single
+    // ?v= edit in brutus.html.
+    //
+    // Falls back to no query when the tag cannot be found (inlined script,
+    // renamed bundle, a test harness with no DOM) -- which is exactly the old
+    // behaviour, so nothing breaks, it merely stops busting.
+    const APP_VERSION_QS = (() => {
+        try {
+            const el = (typeof document !== 'undefined' && document.currentScript &&
+                        /main_app\.js/.test(document.currentScript.src || ''))
+                ? document.currentScript
+                : (typeof document !== 'undefined'
+                    ? document.querySelector('script[src*="main_app.js"]')
+                    : null);
+            const src = el ? (el.getAttribute('src') || el.src || '') : '';
+            const i = src.indexOf('?');
+            return i >= 0 ? src.slice(i) : '';
+        } catch (_) {
+            return '';
+        }
+    })();
     // In-run reservoir size. This used to be 50/40, which meant any cell outside
     // the top 40 by M20 *at the moment it arrived* was destroyed before
     // applyFinalSieve, the post-process worker, or space-group analysis ever saw
@@ -992,9 +1044,119 @@ const handleNewSolution = (newSolution) => {
 };
 
 
+// Tabula rasa. A new file makes every previous session-scoped value (peaks,
+// solutions, indexing run stats, sort/context state) meaningless. Critically,
+// abort first: if an indexing run for the OLD file is still in flight, its
+// GPU/worker results would keep trickling in via handleNewSolution() and land
+// straight in the arrays reset below, silently mixing solutions from two
+// different files together.
+//
+// Factored out of the file-load handler so the Unload button clears exactly the
+// same things. Two copies of a reset list is how one of them ends up forgetting
+// a field.
+const resetSessionState = () => {
+    abortActiveIndexing();
+
+    pickedPeaks = [];
+    solutions = [];
+    displayedSolutions = [];
+    selectedSolution = null;
+    selectedPeakIndex = null;
+    currentHklList = [];
+    foundSolutionMap.clear();
+    sortState = { column: 'm20', direction: 'desc' };
+    ctxMenuTargetIndex = -1;
+    taskProgress = [];
+    taskTotals = [];
+    cumulativeTrials = 0;
+    gpuTotalTrials = 0;
+    indexingStartTime = 0;
+    lastDurationStr = '';
+    lastIndexingStats = '';
+
+    updatePeakTable();
+    updateSolutionsTable();
+    updateStartIndexingButtonState();
+    ui.solutionsLed.className = 'led-indicator gray';
+    ui.reportButton.disabled = true; // solutions is now empty (abortActiveIndexing() set this from the pre-reset count)
+};
+
+// Middle truncation. CSS text-overflow cuts the END, which removes the
+// extension -- the one part of a filename you always want to keep. Keep the
+// head and the whole suffix, elide the middle.
+const truncateMiddle = (name, max = 30) => {
+    const str = String(name || '');
+    if (str.length <= max) return str;
+    const dot = str.lastIndexOf('.');
+    // Only treat a trailing dot-group as an extension if it plausibly is one.
+    const ext = (dot > 0 && str.length - dot <= 8) ? str.slice(dot) : '';
+    const keep = max - ext.length - 1;
+    if (keep < 4) return str.slice(0, Math.max(1, max - 1)) + '\u2026';
+    return str.slice(0, keep) + '\u2026' + ext;
+};
+
+const formatFileSize = (bytes) => {
+    if (!Number.isFinite(bytes) || bytes < 0) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+// Single place that paints the chip, so the empty and loaded states cannot
+// disagree about which classes are set.
+const renderFileChip = (name, sizeBytes) => {
+    if (!ui.fileName || !ui.fileChipName) return;
+    if (!name) {
+        ui.fileName.classList.add('is-empty');
+        ui.fileChipName.textContent = 'No file loaded';
+        ui.fileName.title = '';
+        if (ui.fileChipSize) ui.fileChipSize.textContent = '';
+        return;
+    }
+    ui.fileName.classList.remove('is-empty');
+    ui.fileChipName.textContent = truncateMiddle(name);
+    ui.fileName.title = name;   // full name on hover
+    if (ui.fileChipSize) ui.fileChipSize.textContent = formatFileSize(sizeBytes);
+};
+
+// Full unload: session state AND the data itself, back to the pristine
+// first-load view. Everything the load path switches ON is switched off here,
+// which is why the two live next to each other.
+const clearLoadedFile = () => {
+    resetSessionState();
+
+    fullExperimentalData = { tth: [], intensity: [] };
+    workingExperimentalData = { tth: [], intensity: [] };
+    loadedFileName = '';
+
+    // Re-arm the input: without this, re-selecting the SAME file fires no
+    // change event and Load File appears dead.
+    if (ui.fileInput) ui.fileInput.value = '';
+    if (ui.fileInputLabel) ui.fileInputLabel.classList.remove('error');
+    if (ui.saveAsButton) ui.saveAsButton.disabled = true;
+
+    // The load path disables Ka2 stripping when a file carries its own
+    // wavelength. Leaving it disabled would strand the control with no file to
+    // justify it.
+    if (ui.stripKa2Checkbox) ui.stripKa2Checkbox.disabled = false;
+
+    if (xrdChart) {
+        try { xrdChart.resetZoom('none'); } catch (_) { /* no zoom state yet */ }
+    }
+    if (typeof updateAllMarkers === 'function') updateAllMarkers();
+
+    if (ui.peakControls) ui.peakControls.classList.add('hidden');
+    if (ui.indexingControls) ui.indexingControls.classList.add('hidden');
+    if (ui.resultsContainer) ui.resultsContainer.style.display = 'none';
+    if (ui.placeholder) ui.placeholder.style.display = '';
+
+    renderFileChip(null);
+    showStatus('File unloaded.', 'info', 2000);
+};
+
 const setupWorker = () => {
     try {
-        workerURL = 'worker-logic.js'; 
+        workerURL = 'worker-logic.js' + APP_VERSION_QS;
     } catch (error) {
         console.error("Failed to set up worker URL:", error);
         showStatus("Critical error: Could not initialize indexing engine.", "error", 10000);
@@ -1058,7 +1220,7 @@ const setupWorker = () => {
             // got it back for the rest of the session.
             if (this.workers.length >= this.size) return; // idempotent
             for (let i = this.workers.length; i < this.size; i++) {
-                const w = new Worker('refinement-worker.js?v=20260728');
+                const w = new Worker('refinement-worker.js' + APP_VERSION_QS);
                 w.activeBatches = new Set(); // Track pending batches on this worker
                 w.onmessage = (e) => this._onMessage(e, w);
                 w.onerror = (err) => {
@@ -1707,6 +1869,62 @@ ${positions}
         showStatus(`Saved ${savedName} (${pattern.tth.length} points).`, 'info', 4000);
     };
 
+    // `Load File` is a <button> now rather than a <label for>, so the click has
+    // to be forwarded to the hidden input by hand. The trade is worth it: as a
+    // label it carried .file-input-label, whose background overrode
+    // .btn-secondary and made it a visibly different colour from `Save as`.
+    if (ui.fileInputLabel) ui.fileInputLabel.addEventListener('click', () => {
+        if (ui.fileInput) ui.fileInput.click();
+    });
+
+    // Unloading throws away peaks and solutions, so confirm when there is
+    // something to lose. A stray click on a small x should not silently bin an
+    // indexing run.
+    //
+    // This used window.confirm(), which draws the browser's own panel: wrong
+    // font, wrong colours, wrong button order, and it announces the origin
+    // ("127.0.0.1:5500 indique") above the question. Every other destructive or
+    // modal step in Brutus -- Save as, Refine MC, Swap hkl, Space Group MC --
+    // uses the same in-page dialog, so this one does too.
+    const openUnloadDialog = () => {
+        if (!ui.unloadOverlay) { clearLoadedFile(); return; }   // markup missing: do not trap the user
+        if (ui.unloadFile) ui.unloadFile.textContent = loadedFileName || 'the current file';
+        if (ui.unloadLosses) {
+            const losses = [];
+            if (pickedPeaks.length) losses.push(`${pickedPeaks.length} picked peak${pickedPeaks.length === 1 ? '' : 's'}`);
+            if (solutions.length)   losses.push(`${solutions.length} solution${solutions.length === 1 ? '' : 's'}`);
+            if (isIndexing)  losses.push('the indexing run now in progress');
+            ui.unloadLosses.innerHTML = losses.map(t => `<li>${t}</li>`).join('');
+            ui.unloadLosses.style.display = losses.length ? '' : 'none';
+        }
+        ui.unloadOverlay.classList.add('open');
+        if (ui.unloadConfirm) ui.unloadConfirm.focus();   // Enter confirms, Esc cancels
+    };
+    const closeUnloadDialog = () => {
+        if (ui.unloadOverlay) ui.unloadOverlay.classList.remove('open');
+    };
+
+    if (ui.fileChipClear) ui.fileChipClear.addEventListener('click', () => {
+        // Nothing to lose: unload straight away rather than making the user
+        // dismiss a dialog to discard nothing.
+        const atRisk = (solutions.length > 0) || (pickedPeaks.length > 0) || isIndexing;
+        if (!atRisk) { clearLoadedFile(); return; }
+        openUnloadDialog();
+    });
+    if (ui.unloadCancel)  ui.unloadCancel.addEventListener('click', closeUnloadDialog);
+    if (ui.unloadConfirm) ui.unloadConfirm.addEventListener('click', () => {
+        closeUnloadDialog();
+        clearLoadedFile();
+    });
+    if (ui.unloadOverlay) ui.unloadOverlay.addEventListener('click', (e) => {
+        if (e.target === ui.unloadOverlay) closeUnloadDialog();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && ui.unloadOverlay && ui.unloadOverlay.classList.contains('open')) {
+            closeUnloadDialog();
+        }
+    });
+
     if (ui.saveAsButton)      ui.saveAsButton.addEventListener('click', openSaveMenu);
     if (ui.saveFormatSelect)  ui.saveFormatSelect.addEventListener('change', updateSaveInfo);
     if (ui.saveMenuCancel)    ui.saveMenuCancel.addEventListener('click', closeSaveMenu);
@@ -2056,44 +2274,10 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
             return;
         }
 
-        if (ui.fileName) {
-            ui.fileName.textContent = file.name;
-            ui.fileName.title = file.name;
-        }
+        renderFileChip(file.name, file.size);
         loadedFileName = file.name;
 
-        // Tabula rasa. A new file makes every previous session-scoped value
-        // (peaks, solutions, indexing run stats, sort/context state)
-        // meaningless. Critically, abort first: if an indexing run for the
-        // OLD file is still in flight, its GPU/worker results would keep
-        // trickling in via handleNewSolution() and land straight in the
-        // arrays we're about to reset below, silently mixing solutions from
-        // two different files together.
-        abortActiveIndexing();
-
-        pickedPeaks = [];
-        solutions = [];
-        displayedSolutions = [];
-        selectedSolution = null;
-        selectedPeakIndex = null;
-        currentHklList = [];
-        foundSolutionMap.clear();
-        sortState = { column: 'm20', direction: 'desc' };
-        ctxMenuTargetIndex = -1;
-        taskProgress = [];
-        taskTotals = [];
-        cumulativeTrials = 0;
-        gpuTotalTrials = 0;
-        indexingStartTime = 0;
-        lastDurationStr = '';
-        lastIndexingStats = '';
-
-        updatePeakTable();
-        updateSolutionsTable();
-        updateStartIndexingButtonState();
-        ui.solutionsLed.className = 'led-indicator gray';
-        ui.reportButton.disabled = true; // solutions is now empty (abortActiveIndexing() set this from the pre-reset count)
-        
+        resetSessionState();
 
         const text = await file.text();
         let parsed;
@@ -5649,7 +5833,10 @@ const generatePDFReport = async (singleSolution = null) => {
         yPos += 5;
             
         doc.setFont(FONT.LABEL, 'normal').text(`Data File:`, margin, yPos);
-        doc.setFont(FONT.DATA, 'normal').text((ui.fileName ? ui.fileName.textContent : '') || loadedFileName || '', margin + 25, yPos);
+        // Read the variable, not the DOM. The filename now lives in a chip with
+        // sibling nodes (size, clear button), so textContent would drag "248 KB"
+        // into the report's Data file line.
+        doc.setFont(FONT.DATA, 'normal').text(loadedFileName || '', margin + 25, yPos);
         yPos += 10;
           
         const imgData = xrdChart.toBase64Image('image/png', 1.0);      

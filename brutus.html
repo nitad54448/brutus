@@ -65,21 +65,29 @@
         overflow-wrap: anywhere;
     }
 
-    /* Save-as dialog. Same object as the Refine MC / Swap dialogs: same
-       overlay, same panel, same button row. */
-    #save-menu-overlay {
+    /* Save-as and Unload dialogs. Same object as the Refine MC / Swap dialogs:
+       same overlay, same panel, same button row. The two share every rule below
+       rather than restating them, so a later tweak to one cannot leave the
+       other behind -- which is how you end up with two dialogs that are almost
+       the same. */
+    #save-menu-overlay,
+    #unload-overlay {
         display: none; position: fixed; inset: 0; z-index: 3000;
         background: rgba(0,0,0,0.55); align-items: center; justify-content: center;
     }
-    #save-menu-overlay.open { display: flex; }
-    #save-menu-modal {
+    #save-menu-overlay.open,
+    #unload-overlay.open { display: flex; }
+    #save-menu-modal,
+    #unload-modal {
         background: var(--medium-bg); border: 1px solid var(--border-color);
         border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
         width: min(420px, 92vw); max-height: 86vh; display: flex; flex-direction: column;
         padding: 18px 20px; color: var(--text-light);
     }
-    #save-menu-modal h3 { margin: 0 0 4px 0; font-size: 1.05rem; }
-    #save-menu-modal .save-sub { margin: 0 0 14px 0; font-size: 0.8rem; color: var(--text-dark); line-height: 1.45; }
+    #save-menu-modal h3,
+    #unload-modal h3 { margin: 0 0 4px 0; font-size: 1.05rem; }
+    #save-menu-modal .save-sub,
+    #unload-modal .save-sub { margin: 0 0 14px 0; font-size: 0.8rem; color: var(--text-dark); line-height: 1.45; }
     #save-menu-modal .save-field { display: flex; flex-direction: column; gap: 4px; font-size: 0.875rem; font-weight: 500; color: var(--text-medium); margin-bottom: 14px; }
     #save-menu-modal .save-field select {
         width: 100%; box-sizing: border-box; background: var(--light-bg);
@@ -91,7 +99,53 @@
         box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
     }
     #save-menu-msg { min-height: 18px; margin-top: 10px; font-size: 0.8rem; color: var(--text-dark); line-height: 1.4; }
-    #save-menu-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; }
+    #save-menu-buttons,
+    #unload-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; }
+
+    /* The file being unloaded, and what goes with it. Named in the panel rather
+       than in the prose so it reads at a glance before the OK is pressed. */
+    #unload-file {
+        font-size: 0.85rem; color: var(--text-light); word-break: break-all;
+        background: var(--light-bg); border: 1px solid var(--border-color);
+        border-radius: 4px; padding: 6px 8px; margin: 0 0 12px 0;
+    }
+    #unload-losses { margin: 0 0 4px 0; padding-left: 18px; font-size: 0.8rem; color: var(--text-medium); }
+    #unload-losses li { margin: 2px 0; }
+
+    /* Loaded-file chip. Sits under the Load/Save pair and replaces a bare <p>
+       that end-truncated the name -- which cut off the extension, the part you
+       most want to keep. Truncation is now done in JS from the middle. */
+    .file-chip {
+        display: flex; align-items: center; gap: 8px;
+        width: 100%; box-sizing: border-box; margin-top: 0.4rem;
+        padding: 5px 6px 5px 8px; min-height: 30px;
+        background: var(--light-bg); border: 1px solid var(--border-color);
+        border-radius: 6px; font-size: 0.8rem; line-height: 1.2;
+    }
+    .file-chip.is-empty { background: none; border-style: dashed; }
+    .file-chip-icon { flex: none; color: var(--text-dark); font-size: 0.75rem; }
+    .file-chip-name {
+        flex: 1 1 auto; min-width: 0; color: var(--text-medium);
+        white-space: nowrap; overflow: hidden;
+    }
+    .file-chip.is-empty .file-chip-name { color: var(--text-dark); font-style: italic; }
+    .file-chip-size { flex: none; color: var(--text-dark); font-size: 0.72rem; }
+    .file-chip-clear {
+        flex: none; width: 18px; height: 18px; padding: 0; line-height: 1;
+        display: flex; align-items: center; justify-content: center;
+        background: none; border: none; border-radius: 4px;
+        color: var(--text-dark); font-size: 1rem; cursor: pointer;
+    }
+    .file-chip-clear:hover { background: var(--medium-bg); color: var(--text-light); }
+    .file-chip-clear:focus-visible { outline: 2px solid var(--primary-accent); outline-offset: 1px; }
+    .file-chip.is-empty .file-chip-clear { display: none; }
+
+    /* Parse-failure state. `Load File` used to be a <label> carrying
+       .file-input-label, whose own background overrode .btn-secondary -- which
+       is exactly why it did not match `Save as`. It is now the same element
+       with the same classes, so the two are identical by construction, and the
+       error affordance is defined here rather than riding on that class. */
+    #load-file-button.error { border-color: #e24b4a; color: #f09595; }
 
     /* Chart help: a real button (click to toggle), tooltip opens to the LEFT
        of the icon and sits on top of everything so it stays on-screen. These
@@ -129,12 +183,15 @@
 
             <div class="control-group">
                 <div style="display: flex; gap: 0.5rem;">
-                    <label for="file-input" class="file-input-label btn btn-secondary btn-like flex-1" style="text-align:center; cursor:pointer;">
-                        <span>Load File</span>
-                    </label>
+                    <button id="load-file-button" class="btn btn-secondary btn-like flex-1">Load File</button>
                     <button id="save-as-button" class="btn btn-secondary btn-like flex-1" disabled>Save as</button>
                 </div>
-                <p id="file-name-box" style="width:100%; box-sizing:border-box; margin:0.4rem 0 0 0; font-size:0.8rem; color:var(--text-dark); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-height:1.1em;"></p>
+                <div id="file-name-box" class="file-chip is-empty">
+                    <span class="file-chip-icon" aria-hidden="true">&#9723;</span>
+                    <span id="file-chip-name" class="file-chip-name">No file loaded</span>
+                    <span id="file-chip-size" class="file-chip-size"></span>
+                    <button type="button" id="file-chip-clear" class="file-chip-clear" title="Unload this file and clear the session" aria-label="Unload file">&#215;</button>
+                </div>
                 <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.xrdml,.xml,.ras,.esd,.std,.udf,.uxd,.xra,.gsa">
             </div>
 
@@ -159,6 +216,20 @@
                     <div id="save-menu-buttons">
                         <button id="save-menu-cancel" class="btn btn-secondary">Cancel</button>
                         <button id="save-menu-confirm" class="btn btn-primary">Save</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Unload confirmation (mirrors the Save-as dialog above) -->
+            <div id="unload-overlay">
+                <div id="unload-modal" role="dialog" aria-modal="true" aria-labelledby="unload-title">
+                    <h3 id="unload-title">Unload file</h3>
+                    <p class="save-sub">This clears the session and returns Brutus to its opening state. It cannot be undone.</p>
+                    <p id="unload-file"></p>
+                    <ul id="unload-losses"></ul>
+                    <div id="unload-buttons">
+                        <button id="unload-cancel" class="btn btn-secondary">Cancel</button>
+                        <button id="unload-confirm" class="btn btn-primary">Unload</button>
                     </div>
                 </div>
             </div>

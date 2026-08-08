@@ -3065,8 +3065,31 @@ function determineCentering(indexed_hkls, system) {
     let plausible = hardKeys.filter(key => violationsHard[key] === minHardViolations && (validBravaisCenterings[system] || ['P']).includes(key));
     if (plausible.length === 0 && violationsHard['P'] === minHardViolations) { plausible = ['P']; } else if (plausible.length === 0) { plausible = ['P']; }
     let finalCenterings;
-    if (plausible.includes('F')) finalCenterings = ['F'];
-    else if (plausible.includes('I')) finalCenterings = ['I'];
+    // F and I keep P alongside them, exactly as A/B/C and R already do.
+    //
+    // They used to collapse to ['F'] / ['I'] alone, and that single letter is a
+    // HARD COMMIT: plausibleCenterings is the candidate filter for BOTH
+    // detectExtinctions() and the compatibility list, so a wrong F or I verdict
+    // did not demote the primitive settings, it deleted them. The correct group
+    // was then absent from the report rather than ranked below the wrong one --
+    // and "never a candidate" is indistinguishable, on the page, from "ruled
+    // out". That is the pseudo-symmetry failure mode described at length in the
+    // Space Group MC scoring notes: on PbSO4 an I-centred hypothesis looks clean
+    // because no measured reflection happens to land in its forbidden parity
+    // class, and the true P2_1/a cell is the thing that disappears.
+    //
+    // The asymmetry was almost certainly an oversight rather than a decision:
+    // the R branch immediately below reasons explicitly about not slamming the
+    // door on the primitive groups, and the A/B/C branch does the same. F and I
+    // qualify on the same bar those do -- zero HARD violations, which P also
+    // always has by construction -- so there is no ground for treating them as
+    // more certain.
+    //
+    // This does NOT change the centering line the user sees: `description` is
+    // built from reportedCenterings, which strips P a few lines below. Only the
+    // candidate pool widens.
+    if (plausible.includes('F')) finalCenterings = plausible.includes('P') ? ['F', 'P'] : ['F'];
+    else if (plausible.includes('I')) finalCenterings = plausible.includes('P') ? ['I', 'P'] : ['I'];
     // R was absent from this hierarchy too, so even after it became testable it
     // fell through to the A/B/C branch, matched nothing, and was replaced by
     // ['P'] -- the R verdict was computed and then discarded one line later.
