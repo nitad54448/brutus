@@ -161,6 +161,8 @@
                 <li><a href="#numbers-and-limits">Numbers &amp; Limits</a></li>
                 <li><a href="#evaluating-solutions">Evaluating Solutions</a></li>
                 <li><a href="#space-group-analysis">Space Group Analysis</a></li>
+                <li style="padding-left:1rem;font-size:0.92em;"><a href="#space-group-mc">&mdash; Space Group MC</a></li>
+                <li style="padding-left:1rem;font-size:0.92em;"><a href="#sg-in-the-report">&mdash; Space groups in the PDF report</a></li>
                 <li><a href="#advanced-topics">Advanced Topics</a></li>
                 <li><a href="#troubleshooting">Troubleshooting</a></li>
                 <li><a href="#references">References</a></li>
@@ -527,7 +529,7 @@
                         <li><strong>Erase Solution:</strong> Permanently removes that solution from the ledger.</li>
                         <li><strong>Swap hkl:</strong> Opens a dialog to manually correct peak assignments for the selected cell.</li>
                         <li><strong>Refine MC:</strong> Runs a Monte Carlo stochastic search to polish the cell and escape local minima.</li>
-                        <li><strong>Space Group MC:</strong> Re-refines the cell once per space group of its crystal system, each time with that group forbidden reflections removed from the calculated line list, and ranks the results. See <a href="#space-group-mc">Space Group MC</a>.</li>
+                        <li><strong>Space Group MC:</strong> Re-refines the cell once per <em>extinction class</em> of its crystal system, each time with that class&rsquo;s forbidden reflections removed from the calculated line list, and ranks the classes by a log-odds score. This is the only ranking of space-group hypotheses Brutus makes. See <a href="#space-group-mc">Space Group MC</a>.</li>
                         <li><strong>Generate Report:</strong> Creates a PDF report for that solution only.</li>
                     </ul>
                 </li>
@@ -1474,8 +1476,8 @@
     The indexed peaks are compared against the extinction rules (centering conditions and
     glide/screw symmetry conditions) for all candidate space groups. To prevent noise or overlap from unfairly disqualifying a valid space group, Brutus classifies violations into two categories:
     <ul>
-        <li><strong>Hard violations:</strong> A strong, real (non-Kα<sub>2</sub>), unambiguous reflection clearly breaks a rule. These heavily penalise the space group and lower its ranking.</li>
-        <li><strong>Soft violations:</strong> A reflection breaks a rule, but the peak is considered unreliable. These do <em>not</em> penalise the space group's ranking, but are listed in the report for the user to review. A violation is flagged as "soft" if the peak is:
+        <li><strong>Hard violations:</strong> A strong, real (non-Kα<sub>2</sub>), unambiguous reflection clearly breaks a rule. These count against the setting: they are what groups the compatibility list, and in the <a href="#space-group-mc">Space Group MC</a> they are what falsifies a class outright.</li>
+        <li><strong>Soft violations:</strong> A reflection breaks a rule, but the peak is considered unreliable. These do <em>not</em> count against the setting, but are listed in the report for the user to review. A violation is flagged as "soft" if the peak is:
             <ul style="margin-top: 0.5rem; margin-bottom: 0.5rem;">
                 <li><strong>Kα<sub>2</sub>-suspect:</strong> Flagged as a likely Kα<sub>2</sub> companion (position <em>and</em> intensity ratio — see below). Never applies to Custom or Kα<sub>1</sub>-only radiation, or to Kα<sub>2</sub>-stripped data — see the note below on stripping residuals.</li>
                 <li><strong>Weak:</strong> The peak height is below 5% of a <strong>local</strong> maximum, measured over a &plusmn;15&deg; 2&theta; window centered on the peak. The window is local because diffracted intensity falls off steeply with angle (Lorentz&ndash;polarisation, Debye&ndash;Waller, absorption). Measured against a single global maximum, the same 5% threshold would act as an angle cutoff in disguise: above roughly 90&deg; 2&theta; nearly every genuine reflection would fall below it, and the whole back-reflection region would silently lose its power to falsify an absence rule. Comparing each peak against peaks at comparable 2&theta; preserves the crystallographic intent &mdash; a truly forbidden reflection should have no intensity &mdash; without the angular bias.</li>
@@ -1538,11 +1540,11 @@
         found — <em>P</em> appears there only when no centering survives at all.
     </p>
     <p>
-        <em>P</em> is still retained internally and passed to the space-group ranking as an allowed centering;
-        removing it there would delete every primitive space group (<em>P</em>2<sub>1</sub>2<sub>1</sub>2<sub>1</sub>,
+        <em>P</em> is still retained internally and passed to the space-group candidate list as an allowed
+        centering; removing it there would delete every primitive space group (<em>P</em>2<sub>1</sub>2<sub>1</sub>2<sub>1</sub>,
         <em>Pbcn</em>, <em>Pca</em>2<sub>1</sub> …) from the candidate list. The question &ldquo;is this lattice
-        actually primitive?&rdquo; is answered by the <strong>Possible Extinctions</strong> list and the
-        space-group ranking, not by the centering line.
+        actually primitive?&rdquo; is answered by the <strong>Possible Extinctions</strong> list and by the
+        <a href="#space-group-mc">Space Group MC</a>, not by the centering line.
     </p>
     <p>
         <strong>How to read this.</strong> A genuine centering produces a condition on
@@ -1551,7 +1553,8 @@
         <em>zonal</em> conditions ($h0l$, $0kl$, $hk0$: glide planes) and <em>axial</em> conditions
         ($h00$, $0k0$, $00l$: screw axes) with no general-$hkl$ rule, the lattice is primitive and the
         centering shown survived only because no measured reflection happened to fall in its forbidden parity
-        class. Treat such an assignment as unconfirmed and prefer the primitive space groups in the ranking.
+        class. Treat such an assignment as unconfirmed and check the primitive classes in the
+        <a href="#space-group-mc">Space Group MC</a>, which applies no centering pre-filter at all.
     </p>
     <p>
         Beyond this, <em>P</em> remains meaningful in one other place: <strong>cell reduction</strong>, where it
@@ -1585,11 +1588,11 @@
         four independent ones, with the discrimination unchanged: Abma and Ac2a still explain 4/4, Abmm 3/4,
         Pccn 2/4.
     </p>
-    <h4>The extinction test and the ranking use the same demotions</h4>
+    <h4>The extinction test and the violation count use the same demotions</h4>
     <p>
         A rule is confirmed when every <em>reliable</em> reflection in its zone satisfies it. Reliability
         excludes K&alpha;2-suspect peaks and peaks below the local intensity floor — and now also applies the
-        same <strong>ambiguity demotion</strong> the ranking uses: a reflection that formally breaks the rule
+        same <strong>ambiguity demotion</strong> the violation count uses: a reflection that formally breaks the rule
         is forgiven when another calculated <em>hkl</em> within the same peak's tolerance window is not
         forbidden by it, because the peak could equally well be that reflection.
     </p>
@@ -1601,7 +1604,7 @@
         penalised for failing to explain it.
     </p>
     <p>
-        The same consensus guard as the ranking applies: forgiving one overlap is reasonable, forgiving a
+        The same consensus guard as the violation count applies: forgiving one overlap is reasonable, forgiving a
         systematic trend is not. If five or more reflections — and at least 15% of those examined in the zone —
         all break the same rule, the rule is treated as genuinely broken however excusable each individual case
         looks.
@@ -1611,22 +1614,27 @@
         Systematic absences are blind to an inversion centre. Abma (#64) and Ac2a (#41) have
         <em>byte-identical</em> reflection conditions, so no powder extinction analysis can separate them —
         only $|E|$ statistics or the solved structure can. Settings lacking a centre of symmetry are therefore
-        marked <strong>[acentric]</strong> in the list, so an apparent tie is read as the genuine ambiguity it
-        is rather than as indecision by the ranking.
+        marked <strong>[acentric]</strong> in the list, so settings that the absences cannot separate are read
+        as the genuine ambiguity they are.
     </p>
     <p>
-        <strong>The same logic applies to ranking.</strong> A confirming reflection is weighted by how much of
+        <strong>The same logic applies to the confirmation score.</strong> A confirming reflection is weighted by how much of
         its zone the condition <em>forbids</em>, normalised so an ordinary $2n$ rule keeps weight 1.0 and
         $l=4n$ scores 1.5. A stricter condition is harder evidence: a reflection such as 004 is consistent
         with $l=2n$ and with $l=4n$ alike, but surviving the $l=4n$ test excludes far more of the zone.
         Weighting the two equally would leave <em>P</em>4<sub>1</sub>, <em>P</em>4<sub>3</sub>,
         <em>P</em>4<sub>1</sub>22 and <em>P</em>4<sub>3</sub>22 tied with <em>P</em>4<sub>2</sub> and
-        <em>P</em>4<sub>2</sub>22 on identical evidence, and the ranking would fall through to the
-        space-group-number tiebreak — which happens to favour the higher-numbered, <em>less</em> constrained
-        groups. Because the weight is normalised rather than raw, an ordinary $2n$-based score is untouched:
-        the scheme promotes genuinely stronger rules instead of shifting the whole ranking against the
-        rule-free baseline.
+        <em>P</em>4<sub>2</sub>22 on identical evidence. Because the weight is normalised rather than raw,
+        an ordinary $2n$-based score is untouched: the scheme promotes genuinely stronger rules instead of
+        shifting the whole score against the rule-free baseline.
     </p>
+    <div class="callout-note">
+        <strong>This score no longer orders anything.</strong> The confirmation figure of merit described here
+        is still computed, and it still feeds the <em>explains n/N absences</em> tag printed beside each
+        setting, but it no longer sorts the report's space-group list — see
+        <a href="#sg-compatibility-list">A compatibility list, not a ranking</a> below. Ranking space-group
+        hypotheses happens in one place only, the <a href="#space-group-mc">Space Group MC</a>.
+    </div>
     <h4>A reflection belongs to every zone it fits</h4>
     <p>
         Zone labels are <strong>nested, not exclusive</strong>. In ITA notation <em>hk0</em> means simply
@@ -1675,7 +1683,7 @@
     <p>
         Because inheritance only ever <em>adds</em> applicable rules, each space group is held to every
         condition that genuinely applies to it. Groups that would otherwise show zero hard violations
-        therefore accumulate them, and fall in the ranking or drop out of the candidate list. That is the test
+        therefore accumulate them, and move down the compatibility list or drop out of it entirely. That is the test
         working as intended: those violations were always present in the data, they were simply not being
         checked against.
     </p>
@@ -1704,20 +1712,57 @@
         setting as <em>explains n/N absences</em>, with any it fails to account for listed explicitly.
     </p>
     <p>
-        Ranking order is now: hard violations ascending, then <strong>unexplained absences ascending</strong>,
-        then the confirmation figure of merit, then soft violations, then space-group number. The absence
-        pattern is deliberately promoted above the figure of merit, because the figure of merit counts
-        reflections that are present and is dominated by the well-populated zones that every candidate
-        explains equally; systematic absences are the discriminating evidence in space-group determination.
         For zektzerite, Abma and Acam explain 4/4 detected conditions while Abmm, Acmm, Abm2, Ac2m and Ammm
-        explain 3/4.
+        explain 3/4 — exactly the distinction a count of confirmations cannot make on its own, since every
+        one of those settings is confirmed by the same well-populated zones.
     </p>
     <p>
-        <strong>Hard violations still come first.</strong> A genuinely observed reflection in a forbidden class
-        is strong evidence against a setting, so no amount of absence agreement will lift a candidate above one
-        with fewer hard violations. If an expected setting is missing from the list entirely, it has exceeded
-        <code>MAX_VIOLATIONS</code> (2) and the reflections responsible are worth inspecting individually —
-        they are frequently overlaps that the ambiguity demotion failed to rescue under the stricter rule set.
+        <strong>Hard violations come first, and they are the only thing that groups the list.</strong> A
+        genuinely observed reflection in a forbidden class is strong evidence against a setting. If an
+        expected setting is missing from the list entirely, it has exceeded <code>MAX_VIOLATIONS</code> (2)
+        and the reflections responsible are worth inspecting individually — they are frequently overlaps
+        that the ambiguity demotion failed to rescue under the stricter rule set.
+    </p>
+
+    <h4 id="sg-compatibility-list">A compatibility list, not a ranking</h4>
+    <p>
+        Everything above establishes <em>which</em> settings the observed absences contradict, and by how many
+        reflections. That much is sound, and it is what the PDF report prints. What Brutus no longer does here
+        is put those settings in preference order.
+    </p>
+    <p>
+        The reason is structural, and it is worth being blunt about. A confirmation score counts reflections
+        that <strong>are present</strong>, so it can never separate a rule set from a strictly less-constrained
+        one that contains it: the extra condition earns only whatever few extra confirmations happen to fall in
+        its zone, and that difference is swamped by the shared, well-populated zones. The
+        <em>explains n/N absences</em> term was added to patch exactly that asymmetry, but it is an
+        unnormalised weight with no scale — differences in it are not comparable between patterns and cannot
+        be turned into odds. Two further problems sit underneath it:
+    </p>
+    <ul>
+        <li>
+            The whole list is judged against <strong>one cell that was refined knowing nothing about
+            extinctions</strong>. That cell was pulled toward the very forbidden reflections it is now being
+            asked to rule on, and peaks near them were paired with the wrong lines — which is precisely how
+            the correct setting acquires its violations.
+        </li>
+        <li>
+            The candidate pool is <strong>pre-filtered by the centering test</strong>. A wrong centering
+            verdict does not demote the correct setting, it removes it from the list altogether.
+        </li>
+    </ul>
+    <p>
+        The list is therefore grouped by hard violations and, within each group, ordered by space-group number.
+        No preference is expressed beyond &ldquo;this many observed reflections contradict it&rdquo;. The cap
+        on its length is applied <em>after</em> that neutral sort rather than before: truncating a
+        score-ordered list drops settings for scoring reasons while presenting itself as a list of what is
+        merely compatible, and &ldquo;never a candidate&rdquo; reads far too easily as &ldquo;ruled out&rdquo;.
+        The report states how many settings it shows out of how many were found.
+    </p>
+    <p>
+        To choose <em>between</em> compatible settings, use the <a href="#space-group-mc">Space Group MC</a>.
+        It refits the cell once per hypothesis, merges the settings your data cannot separate, applies no
+        centering pre-filter, and scores a likelihood ratio you can read as odds.
     </p>
     <h4>Swap hkl &mdash; correcting an assignment by hand</h4>
     <p>
@@ -1834,7 +1879,10 @@
                 <li>
                 
                     <p>
-  <strong>Rank space groups.</strong> Based on the crystal system and detected centering, the internal space-group database is filtered. Candidate space groups are evaluated using a <strong>Weighted Extinction Confidence</strong> score, which actively rewards groups whose systematic absence rules are confirmed by experimental reflections. Higher-order centerings (<em>A, B, C, I, F, R</em>) receive a statistical weighting bonus over primitive (<em>P</em>) lattices because they constrain more reciprocal space. Candidates are sorted primarily by minimizing hard violations, then ranked by their confidence score (with minor penalties applied for soft violations such as low-intensity peaks or suspected K&alpha;<sub>2</sub> overlaps). To prevent interface clutter from combinatorial settings, the output is strictly limited to the <strong>top 20</strong> highest-ranking candidates, displaying the conventional space-group name consistent with the orientation found by the program.
+  <strong>List the compatible space groups.</strong> Based on the crystal system and detected centering, the internal space-group database is filtered, and every remaining setting is tested against the indexed reflections. A setting is kept when its hard violations do not exceed <code>MAX_VIOLATIONS</code> (2). Each surviving setting carries its hard and soft violation counts, the offending reflections, and how many of the detected absences it accounts for (<em>explains n/N</em>).
+</p>
+<p>
+  The output is a <strong>compatibility list, not a ranking</strong>: settings are grouped by hard violation count and ordered by space-group number within each group, and the length cap (40 settings, with the total stated) is applied after that neutral sort. A <strong>Weighted Extinction Confidence</strong> score is still computed per setting and still drives the <em>explains n/N</em> figure, but it no longer decides the order — see <a href="#sg-compatibility-list">A compatibility list, not a ranking</a>. Names are given as the conventional space-group symbol consistent with the orientation the program found. Ranking hypotheses against each other is the job of the <a href="#space-group-mc">Space Group MC</a>.
 </p>
                 
                 </li>
@@ -1844,7 +1892,9 @@
             <ul>
                 <li>
                     <strong>0 hard violations:</strong>
-                    Ideal case. No unambiguous reflection breaks the extinction rules; these are the strongest candidates.
+                    Ideal case. No unambiguous reflection breaks the extinction rules, so the data are
+                    consistent with the setting. Note what this does <em>not</em> say: several settings
+                    normally reach 0 together, and being compatible with all of them is not a determination.
                 </li>
                 <li>
                     <strong>1–2 hard violations:</strong>
@@ -1856,7 +1906,8 @@
                     Every indexed reflection reaches the extinction analysis, so the counts are large in
                     absolute terms for every centering and every space group — and larger than in tables that
                     score only a filtered subset of peaks. A count means something only alongside the other
-                    candidates in the same run. Compare candidates against <em>each other</em>.
+                    candidates in the same run. Compare candidates against <em>each other</em>, and remember
+                    that they are all being judged against a cell refined without knowing about any of them.
                 </li>
                 <li>
                     <strong>Ambiguous peaks (in italics in the PDF report):</strong>
@@ -1869,6 +1920,10 @@
                     <strong>Soft-violation warnings:</strong>
                     Space groups that are only challenged by Kα<sub>2</sub>-suspect reflections are flagged. They may
                     still be the correct space group; strip Kα<sub>2</sub> and re-run to resolve the ambiguity.
+                    The <a href="#space-group-mc">Space Group MC</a> sidesteps this trap by excluding
+                    Kα<sub>2</sub>-suspect peaks from its evidence altogether — a ghost sitting a few
+                    hundredths of a degree off its parent is exactly the kind of peak that lands on a forbidden
+                    line and manufactures a violation against the correct rule set.
                 </li>
                 <li>
                     <strong>A centering with 0 hard violations but a large soft pile:</strong>
@@ -2413,6 +2468,11 @@
                 line list, so it only means anything alongside the hypothesis it assumes &mdash; which is what
                 the badge is for.
             </p>
+            <p>
+                The same record travels into the <strong>PDF report</strong>, which reproduces this verdict
+                rather than deriving one of its own; see
+                <a href="#sg-in-the-report">What the PDF report says about space groups</a>.
+            </p>
 
             <h4>Interpreting the table</h4>
             <ul>
@@ -2521,6 +2581,62 @@
                 (ExtSym) works from integrated intensities and can separate candidates this scan must leave
                 tied &mdash; or structure solution itself. The scoring above is in the same spirit as that
                 work, reduced to what peak <em>positions</em> alone can support.
+            </div>
+
+            <h3 id="sg-in-the-report">What the PDF report says about space groups</h3>
+            <p>
+                The report used to carry a ranking of its own, and it was not the one on screen. Two different
+                algorithms were answering two different questions on two different sets of peaks, so a user who
+                ran the Space Group MC, picked a class, and then generated a report could find the report
+                leading with a different group entirely. That has been removed. The report now has exactly one
+                source of ranking authority, and it is the Space Group MC.
+            </p>
+            <p>
+                Each solution&rsquo;s detail page carries two blocks, in this order:
+            </p>
+            <h4>1. Space Group Determination</h4>
+            <p>
+                Printed only when the cell came from a Space Group MC run (via <strong>Add as solution</strong>).
+                It is a verbatim reproduction of what that run concluded &mdash; the report recomputes nothing
+                and re-orders nothing. It gives:
+            </p>
+            <ul>
+                <li>the <strong>class</strong> (extinction symbol) and every space group it contains;</li>
+                <li>the <strong>reflection conditions</strong> that define it;</li>
+                <li>the <strong>margin</strong> over the runner-up, in nats and as approximate odds;</li>
+                <li>the <strong>evidence</strong>: clean absences out of informative ones, hard and soft
+                    violations, unindexed peaks;</li>
+                <li>the <strong>method</strong>: whether absences were weighted per reflection (Wilson
+                    $|E|^2$) or uniformly, the estimated $p$, and whether the cell was refined by the
+                    Monte-Carlo pass or by stage-1 least squares only.</li>
+            </ul>
+            <p>
+                Two cases are called out rather than smoothed over. A margin below the 2.3-nat threshold prints
+                as <strong>NOT DECISIVE</strong>, in warning colour, stating that the cell is refined
+                <em>under</em> the hypothesis rather than proof of it &mdash; a bold class name at the top of a
+                page is read as an answer, and when the run ended in a tie it is not one. A stage-1 row says so
+                too, since a lead over a class that was never fully refined is a weaker statement than a lead
+                over one that was.
+            </p>
+            <p>
+                When no Space Group MC was run, the block says so plainly and points you at the tool. It does
+                not substitute a weaker determination.
+            </p>
+            <h4>2. Space groups compatible with the observed absences</h4>
+            <p>
+                The list described in <a href="#sg-compatibility-list">A compatibility list, not a ranking</a>:
+                grouped by hard violation count, ordered by space-group number within each group, with the
+                offending reflections, the <em>explains n/N absences</em> tag and any conditions the setting
+                fails to account for. Its heading and its explanatory note both state that it is not a ranking,
+                and it discloses how many settings it is showing out of how many were found.
+            </p>
+            <div class="callout-note">
+                <strong>One caveat that remains.</strong> The two blocks still differ in the peaks they are
+                built from. The Space Group MC excludes K&alpha;<sub>2</sub>-suspect peaks and applies no
+                centering pre-filter; the compatibility list, the <strong>Lattice Centering</strong> line and
+                the <strong>Possible Extinctions</strong> list elsewhere in the report do neither. They can
+                therefore still disagree about the detected centering or the detected conditions &mdash; just
+                no longer about which space group wins, because only one of them now claims a winner.
             </div>
         </section>
 
@@ -2799,8 +2915,8 @@
             </p>
             <p>
                 The same walk is reused, under a restricted line list, by
-                <a href="#space-group-mc">Space Group MC</a>, which refines the cell once per space group of
-                its crystal system and ranks the results.
+                <a href="#space-group-mc">Space Group MC</a>, which refines the cell once per
+                <em>extinction class</em> of its crystal system and ranks the classes by a log-odds score.
             </p>
 
             <h3>7. Final De-Duplication (Sieving)</h3>
@@ -3070,7 +3186,7 @@
             </ol>
 
             <div class="footer">
-                <p>Help guide generated with the help of an AI, based on source code analysis. Last revised 27 July 2026.</p>
+                <p>Help guide generated with the help of an AI, based on source code analysis. Last revised 8 August 2026.</p>
             </div>
         </section>
 

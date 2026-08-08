@@ -933,7 +933,10 @@ const handleNewSolution = (newSolution) => {
     try { solKey = getSolutionKey(newSolution); } catch (e) { solKey = null; }
 
     let isDuplicate = false;
-    if (solKey !== null) {
+    // getSolutionKey now returns null (not undefined) for an unkeyable cell;
+    // test truthiness so neither form can be filed as a real key -- an
+    // undefined _solKey used to match every other undefined _solKey here.
+    if (solKey) {
         newSolution._solKey = solKey;
         const dupIdx = solutions.findIndex(s => s._solKey === solKey);
         if (dupIdx !== -1) {
@@ -1089,11 +1092,23 @@ const setupWorker = () => {
             const msg = e.data;
             if (!msg || !msg.type) return;
             this._lastActivity = this._now();
-            if (msg.type === 'solution') {
+            if (msg.type === 'solutions') {
+                // Batched return path: the worker accumulates accepted cells and
+                // posts them in chunks instead of paying a structured clone per
+                // cell. Kept separate from 'solution' so the single-payload form
+                // below still works for any unbatched producer.
+                const list = msg.payloads;
+                if (Array.isArray(list)) {
+                    for (let i = 0; i < list.length; i++) handleNewSolution(list[i]);
+                }
+            } else if (msg.type === 'solution') {
                 handleNewSolution(msg.payload);
             } else if (msg.type === 'cellError' || msg.type === 'batchError') {
                 // Point 2 Fix: Stop dropping error messages
-                console.warn(`[RefinementWorkerPool] Error in batch/task ${msg.batchId ?? msg.taskId}:`, msg.message);
+                const where = (msg.cellIndex !== undefined && msg.cellIndex !== null)
+                    ? ` [cell #${msg.cellIndex}${msg.system ? ' ' + msg.system : ''}]` : '';
+                console.warn(`[RefinementWorkerPool] Error in batch/task ${msg.batchId ?? msg.taskId}${where}:`,
+                             msg.message, msg.cell || '');
             } else if (msg.type === 'done') {
                 const id = (msg.batchId !== undefined) ? msg.batchId : msg.taskId;
                 if (w && w.activeBatches) w.activeBatches.delete(id);
@@ -5747,6 +5762,110 @@ const generatePDFReport = async (singleSolution = null) => {
             yPos += 5;
         });
     
+        // ------------------------------------------------------------------
+        // SPACE-GROUP DETERMINATION BLOCK
+        //
+        // Reproduces the Space Group MC's verdict from the fields it stamped on
+        // the solution. The report deliberately performs NO ranking of its own:
+        // the two used to disagree because they answered different questions
+        // (likelihood ratio over merged extinction CLASSES, each with its own
+        // refit, versus a violation tally over individual SETTINGS judged
+        // against one extinction-blind cell) on different data (the MC excludes
+        // Ka2-suspect peaks; the report's analysis does not) from different
+        // candidate pools (the report's is pre-filtered by the centering test,
+        // the MC's is not, on purpose).
+        //
+        // Nothing here recomputes: if a value was not produced by an MC run it
+        // is not shown, and the absence of a determination is stated plainly.
+        const writeSgVerdict = (sol) => {
+            const wrap = (text, x, size, style) => {
+                doc.setFont(FONT.DATA, style || 'normal').setFontSize(size);
+                doc.splitTextToSize(text, pdfWidth - x - margin).forEach(l => {
+                    if (yPos > 280) { doc.addPage(); yPos = 20; }
+                    doc.text(l, x, yPos);
+                    yPos += (size <= SIZE.SMALL) ? 3.5 : 4;
+                });
+            };
+
+            if (yPos > 258) { doc.addPage(); yPos = 20; }
+            doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2)
+               .text('Space Group Determination:', margin, yPos);
+            yPos += 6;
+
+            if (!sol.sgClass) {
+                wrap('No space-group determination was performed for this cell. The list below states ' +
+                     'which settings the observed absences are compatible with; it does not choose ' +
+                     'between them. Run "Space Group MC" on this solution to compare the extinction ' +
+                     'classes as hypotheses, then add the result as a solution to have it appear here.',
+                     margin + 5, SIZE.BODY, 'italic');
+                yPos += 3;
+                return;
+            }
+
+            wrap(`Class: ${sol.sgClass}`, margin + 5, SIZE.BODY, 'bold');
+            if (sol.sgMembers && sol.sgMembers.length) {
+                wrap(`Space groups in this class: ${sol.sgMembers.join(', ')}`, margin + 5, SIZE.BODY);
+            }
+            if (sol.sgConditions && sol.sgConditions.length) {
+                wrap(`Reflection conditions: ${sol.sgConditions.join(' ; ')}`, margin + 5, SIZE.BODY);
+            }
+
+            // The margin, in the MC's own units, with the decisiveness verdict
+            // spelled out. A cell taken from a row that was in a tie is not a
+            // determination, and the report must not let the bold class name
+            // above imply that it was.
+            const marg = sol.sgMargin;
+            const decisiveNats = (typeof SG_DECISIVE_NATS === 'number') ? SG_DECISIVE_NATS : 2.3;
+            if (isFinite(marg)) {
+                const odds = Math.exp(Math.min(30, marg));
+                if (marg >= decisiveNats) {
+                    wrap(`Margin: ${marg.toFixed(1)} nats ahead of the runner-up ` +
+                         `(about ${odds.toPrecision(2)}:1).`, margin + 5, SIZE.BODY);
+                } else {
+                    doc.setTextColor(150, 60, 0);
+                    wrap(`NOT DECISIVE: only ${marg.toFixed(1)} nats ahead of the runner-up ` +
+                         `(about ${odds.toPrecision(2)}:1), below the ${decisiveNats.toFixed(1)}-nat ` +
+                         `threshold. The absences in this pattern do not separate this class from the ` +
+                         `next one; the cell below is refined under this hypothesis, not proof of it.`,
+                         margin + 5, SIZE.BODY);
+                    doc.setTextColor(0, 0, 0);
+                }
+            } else if (marg === Infinity) {
+                wrap('Margin: the only class the data do not contradict.', margin + 5, SIZE.BODY);
+            }
+
+            const ev = sol.sgEvidence;
+            if (ev) {
+                const bits = [];
+                if (isFinite(ev.clean) && isFinite(ev.informative)) {
+                    bits.push(`${ev.clean}/${ev.informative} forbidden lines clean`);
+                }
+                if (isFinite(ev.hardViolations)) {
+                    bits.push(`${ev.hardViolations} hard violation(s)` +
+                              (ev.softViolations ? ` (+${ev.softViolations} soft)` : ''));
+                }
+                if (isFinite(ev.unindexed)) bits.push(`${ev.unindexed} unindexed peak(s)`);
+                if (bits.length) wrap(`Evidence: ${bits.join(', ')}.`, margin + 5, SIZE.BODY);
+
+                // How the number was arrived at matters as much as the number.
+                const how = [];
+                how.push(ev.wilson
+                    ? 'absences weighted per reflection (Wilson |E|^2)'
+                    : 'absences weighted uniformly (no intensity weighting)');
+                if (isFinite(ev.pHat)) how.push(`p(line observed) = ${(ev.pHat * 100).toFixed(0)}%`);
+                how.push(ev.mode === 'mc'
+                    ? 'cell refined by Monte-Carlo under this hypothesis'
+                    : 'cell refined by least squares only (stage 1; not directly comparable with fully refined classes)');
+                wrap(`Method: ${how.join('; ')}.`, margin + 5, SIZE.SMALL, 'italic');
+            }
+            if (isFinite(sol.sgScore)) {
+                wrap(`Log-odds score: ${sol.sgScore.toFixed(2)} nats (relative; only differences are meaningful).`,
+                     margin + 5, SIZE.SMALL, 'italic');
+            }
+            yPos += 3;
+            doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
+        };
+
         // Detailed Solution 
         solutionsToReport.forEach((sol, solIndex) => {
             doc.addPage(); yPos = 20;
@@ -6038,20 +6157,48 @@ const generatePDFReport = async (singleSolution = null) => {
                  });
                  yPos += 3; 
 
-                 if (sol.analysis.rankedSpaceGroups && sol.analysis.rankedSpaceGroups.length > 0) {
+                 // --- SPACE-GROUP DETERMINATION -------------------------------
+                 // The determination is the Space Group MC's, not this report's.
+                 // It is reproduced verbatim from the fields the MC stamped onto
+                 // the solution when the user pressed "Add as solution"; the
+                 // report does not re-derive, re-order or second-guess it. When
+                 // no MC was run the report says so, rather than substituting
+                 // the weaker violation-tally ordering that used to sit here and
+                 // silently disagree with what was on screen.
+                 writeSgVerdict(sol);
+
+                 const sgCompatible = sol.analysis.compatibleSettings ||
+                                      sol.analysis.rankedSpaceGroups || [];
+                 if (sgCompatible.length > 0) {
                      if (yPos > 260) { doc.addPage(); yPos = 20; }
-                     doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Possible Space Groups:', margin, yPos);
+                     doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2)
+                        .text('Space groups compatible with the observed absences:', margin, yPos);
                      yPos += 6;
+
+                     doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
+                     const listNote = doc.splitTextToSize(
+                         'Not a ranking. Settings are grouped by how many observed reflections contradict them ' +
+                         'and listed by space-group number within each group. Ordering candidates by agreement ' +
+                         'counts is unreliable, because a less-constrained setting can never score worse than a ' +
+                         'more-constrained one it contains; use the Space Group MC to compare hypotheses.',
+                         pdfWidth - 2 * margin - 5);
+                     listNote.forEach(l => {
+                         if (yPos > 280) { doc.addPage(); yPos = 20; }
+                         doc.text(l, margin + 5, yPos);
+                         yPos += 3.5;
+                     });
+                     yPos += 1.5;
+                     doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
 
                      if (sol.analysis.usedKa2SoftScoring) {
                          doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
-                         const note = '(Hard = real reflection violations, count toward ranking below. Soft = from Ka2-suspect/weak peaks only, shown for reference.)';
+                         const note = '(Hard = violations by real reflections. Soft = from Ka2-suspect/weak peaks only, shown for reference.)';
                          doc.text(note, margin + 5, yPos);
                          yPos += 4;
                          doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
                      }
 
-                     const sgList = sol.analysis.rankedSpaceGroups.slice(0, 20);
+                     const sgList = sgCompatible;
                      const groupsByViolation = {};
                      sgList.forEach(sg => {
                          const v = sg.hardViolations || 0;
@@ -6107,14 +6254,29 @@ const generatePDFReport = async (singleSolution = null) => {
                              const hardList = sg.violatedReflectionsHard || [];
                              const softList = sg.violatedReflectionsSoft || [];
 
-                             printViolationList(hardList, 'Hard violations (weigh against this space group):', false);
-                             printViolationList(softList, 'Soft violations (Ka2-suspect/weak; not counted against ranking):', true);
+                             printViolationList(hardList, 'Hard violations (reflections observed on lines this setting forbids):', false);
+                             printViolationList(softList, 'Soft violations (Ka2-suspect/weak; shown for reference only):', true);
 
                              doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
                              yPos += 2;
                          });
                          yPos += 2;
                      });
+
+                     // The list is capped. Say so explicitly: a truncated list
+                     // read as complete is how "the correct group is not even a
+                     // candidate" gets mistaken for "the correct group was ruled
+                     // out".
+                     const nTotal = sol.analysis.compatibleSettingsTotal;
+                     if (isFinite(nTotal) && nTotal > sgList.length) {
+                         if (yPos > 280) { doc.addPage(); yPos = 20; }
+                         doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
+                         doc.text(`Showing ${sgList.length} of ${nTotal} compatible settings ` +
+                                  `(lowest space-group numbers first within each violation group).`,
+                                  margin + 5, yPos);
+                         doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
+                         yPos += 4;
+                     }
                  }
                  yPos += 3; 
 
@@ -6162,7 +6324,13 @@ const generatePDFReport = async (singleSolution = null) => {
                       }
                       yPos += 5;
                  }
-            } 
+            } else {
+                // No absence analysis at all (it can throw, and the MC's
+                // "Add as solution" path tolerates that). The MC verdict is
+                // stored on the solution itself and does not depend on the
+                // analysis, so it must still be reported here.
+                writeSgVerdict(sol);
+            }
             yPos += 4; 
             if (yPos > 255) { doc.addPage(); yPos = 20; }
     

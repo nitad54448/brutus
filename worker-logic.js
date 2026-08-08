@@ -548,6 +548,16 @@ const getSolutionKey = (cell) => {
             const vol = getVolumeTriclinic(std).toFixed(P); 
             const angles = [std.alpha, std.beta, std.gamma].sort().map(a => a.toFixed(P)).join('_'); 
             return `${std.system}_${vol}_${angles}`;
+        default:
+            // The switch fell through and the function returned UNDEFINED for
+            // any cell whose system it did not recognise (or that had no system
+            // at all). Callers then did foundSolutionMap.get(undefined), which
+            // collapses every such cell onto a single shared slot -- so the
+            // second one and all after it were discarded as "duplicates" of a
+            // completely unrelated cell. The indexer only emits the six systems
+            // above, so this is a malformed-input path, but it must be explicit
+            // and falsy so the `if (!key)` guards downstream can see it.
+            return null;
     }
 };
     
@@ -1094,6 +1104,13 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     // 4. --- POST THE SOLUTION ---
     if (final_solution_to_post) {
         const key = getSolutionKey(final_solution_to_post);
+        // An unkeyable cell (unrecognised system) cannot be deduped, and must
+        // not be filed under the shared `undefined` slot -- that made unrelated
+        // cells shadow each other. Post it and skip the ledger: no dedup is
+        // better than wrong dedup.
+        if (!key) {
+            return exitFunction(final_solution_to_post);
+        }
         const existing = foundSolutionMap.get(key);
         
         if (!existing || final_solution_to_post.m20 > existing.m20) {
@@ -2599,9 +2616,48 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
     // is a deliberate act, done through the "Swap hkl" command, which produces a
     // separate solution the user can compare against this one.
     const rankedSpaceGroups = rankSpaceGroups(hkls_for_analysis, solution.system, centeringResult.plausibleCenterings, spaceGroupData, MAX_VIOLATIONS, detectedExtinctions);
+
+    // --- DEMOTED FROM A RANKING TO A COMPATIBILITY LIST ---
+    //
+    // rankSpaceGroups() orders by matchScore, which counts reflections that ARE
+    // PRESENT. As its own comment concedes, that cannot distinguish a rule set
+    // from a strictly less-constrained one: confirmations are nearly free, and
+    // systematic ABSENCES are the evidence in space-group determination. The
+    // extinction bonus was added to patch the asymmetry, but it is an
+    // unnormalised heuristic with no scale, so matchScore differences are not
+    // comparable across patterns and cannot be turned into odds.
+    //
+    // Worse, this whole list is judged against ONE cell that was refined
+    // without knowing about any extinction rule -- so it was pulled toward the
+    // forbidden reflections it is now being asked to rule on -- and the
+    // candidate pool is pre-filtered by centeringResult.plausibleCenterings, so
+    // a wrong centering verdict removes the correct setting from the list
+    // entirely rather than merely demoting it.
+    //
+    // The ranking authority is sgScoreClass()/sgRankRows() (the Space Group MC):
+    // it refits the cell per hypothesis, merges settings the data cannot
+    // separate, and scores a real likelihood ratio in nats. What survives here
+    // is the part that is still sound -- WHICH settings the observed absences
+    // contradict, and by how many reflections -- presented in a neutral order
+    // (fewest hard violations first, then space-group number) so no ordering
+    // claim is made beyond that.
+    //
+    // The cap also had to move off matchScore: slicing the top 20 of a heuristic
+    // order is a heuristic selection, so a setting could vanish from the report
+    // for scoring reasons while being presented as merely "compatible".
+    const compatibleSorted = rankedSpaceGroups.slice().sort((a, b) =>
+        ((a.hardViolations || 0) - (b.hardViolations || 0)) ||
+        ((a.number || 0) - (b.number || 0)) ||
+        String(a.symbol || '').localeCompare(String(b.symbol || '')));
+    const SG_LIST_CAP = 40;
+    const compatibleSettings = compatibleSorted.slice(0, SG_LIST_CAP);
+
     return {
         centering: centeringResult.description,
-        rankedSpaceGroups: rankedSpaceGroups.slice(0, 20),
+        compatibleSettings: compatibleSettings,
+        compatibleSettingsTotal: compatibleSorted.length,
+        // Deprecated alias, same array. Nothing should rank by this order.
+        rankedSpaceGroups: compatibleSettings,
         detectedExtinctions: detectedExtinctions,
         centeringViolations: centeringResult.violations,
         centeringViolationsHard: centeringResult.violationsHard,
@@ -4291,7 +4347,10 @@ function combinatorialSwapSearch(sol, data, state, postMessage_func, cfgIn) {
     for (const cell of chain) {
         if (posted >= cfg.MAX_POST) break;
         const key = getSolutionKey(cell);
-        const existing = foundSolutionMap.get(key);
+        // Same rule as refineAndTestSolution: an unkeyable cell is posted but
+        // never filed, rather than sharing the `undefined` slot with every
+        // other unkeyable cell.
+        const existing = key ? foundSolutionMap.get(key) : undefined;
         if (existing && !(cell.m20 > existing.m20)) continue;
 
         try { cell.errors = propagateErrors(system, cell._fit, cell); } catch (e) { cell.errors = null; }
@@ -4301,9 +4360,11 @@ function combinatorialSwapSearch(sol, data, state, postMessage_func, cfgIn) {
         // clone to the main thread.
         delete cell._fit; delete cell._resid; delete cell._swaps;
 
-        if (existing) foundSolutions[existing.index] = cell;
-        else foundSolutions.push(cell);
-        foundSolutionMap.set(key, { m20: cell.m20, index: existing ? existing.index : foundSolutions.length - 1 });
+        if (key) {
+            if (existing) foundSolutions[existing.index] = cell;
+            else foundSolutions.push(cell);
+            foundSolutionMap.set(key, { m20: cell.m20, index: existing ? existing.index : foundSolutions.length - 1 });
+        }
 
         postMessage_func({ type: 'solution', payload: cell });
         posted++;
@@ -4322,11 +4383,15 @@ function combinatorialSwapSearch(sol, data, state, postMessage_func, cfgIn) {
 
 // ============================================================================
 // CRITICAL IMPORT ORDER WARNING:
-// When imported into refinement-worker.js via importScripts(), this top-level
-// self.onmessage handler is executed FIRST, and then safely CLOBBERED by 
-// refinement-worker.js's own self.onmessage handler. 
-// DO NOT move this block below importScripts() or reorder script initialization, 
-// otherwise this standalone handler will override the batched refinement engine!
+// This standalone handler belongs to the CPU indexing worker only. It is not
+// installed at all inside a refinement worker: refinement-worker.js sets
+// self.IS_REFINEMENT_WORKER = true BEFORE its importScripts() call, and the
+// guard below sees the flag and skips the assignment. (It is not "clobbered
+// afterwards" as this comment used to claim -- refinement-worker.js assigning
+// its own self.onmessage happens to have the same effect, but the guard is
+// what actually protects the batched engine.)
+// DO NOT move the IS_REFINEMENT_WORKER flag below importScripts(), or this
+// handler WILL be installed and will then race the batched refinement engine.
 // ============================================================================
 
 if (typeof self !== 'undefined' && typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope && !self.IS_REFINEMENT_WORKER) {
