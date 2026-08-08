@@ -272,7 +272,7 @@
             <ol>
                 <li>
                     <strong>Load the data file.</strong>
-                    Click <code>Load File</code>. Supported formats include <code>.xy</code>, <code>.xrdml</code>, <code>.xml</code> (Panalytical XRDML or Bruker <code>RawDataFile</code>), <code>.ras</code>, <code>.xra</code>, <code>.uxd</code>, <code>.udf</code>, GSAS <code>.esd</code>, and plain text two-column data.
+                    Click <code>Load File</code>. Supported formats include <code>.xy</code>, <code>.xrdml</code>, <code>.xml</code> (Panalytical XRDML or Bruker <code>RawDataFile</code>), <code>.ras</code>, <code>.xra</code>, <code>.uxd</code>, <code>.udf</code>, GSAS <code>.esd</code>, FullProf free-format <code>.dat</code>, and plain text two-column data.
                 </li>
                 <li>
                     <strong>Detect peaks.</strong>
@@ -638,6 +638,28 @@
                 the window to its opening state. When there is something to lose it first opens a
                 confirmation dialog &mdash; the same panel as <code>Save as</code> &mdash; naming the file and
                 listing exactly what will be discarded. With nothing to lose it simply unloads.
+            </p>
+
+            <h3>A note on <code>.dat</code></h3>
+            <p>
+                The extension <code>.dat</code> covers two quite different things, and Brutus tells them apart
+                by <strong>content</strong> rather than by name. A plain whitespace two-column file is read as
+                such. A <strong>FullProf free-format</strong> file &mdash; optional <code>!</code> comment
+                lines, then a line giving <em>start, step, end</em> in 2&theta;, then the intensities packed
+                several to a line &mdash; is recognised by its header triple together with its value count:
+                the file must carry (end &minus; start)/step + 1 values, give or take a padded final line.
+            </p>
+            <p>
+                The count is what makes the test safe. A two-column file fails on the triple; a three-column
+                <em>x, y, &sigma;</em> file passes the triple but fails the count. Without the check a FullProf
+                file loads <em>silently and wrongly</em> through the two-column reader, which takes
+                <code>15.00 0.01</code> for a data point and then <code>25 22</code> for the next &mdash;
+                producing a plausible-looking pattern of counts plotted against counts.
+            </p>
+            <p>
+                The format records no wavelength, so the usual Cu default applies and can be changed in the
+                <code>Radiation</code> selector as with any <code>.xy</code> file. Export of this format is not
+                offered; saving as <code>DAT</code> writes the two-column form.
             </p>
 
             <h3>What is exported</h3>
