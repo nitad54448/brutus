@@ -1205,6 +1205,11 @@ const setupWorker = () => {
             // same state as its peers. Without it a replacement worker would sit
             // in the pool uninitialised and reject every batch it was handed.
             this._initPayload = null;
+            // Hard-crash tally, used to stop _spawn() rebuilding a worker that
+            // dies deterministically (a bad worker-logic.js deploy crashes every
+            // replacement the instant it is handed a batch, and refineBatch calls
+            // _spawn() on every batch -- an unbounded spawn/crash loop).
+            this._crashCount = 0;
         }
 
         _now() {
@@ -1219,12 +1224,25 @@ const setupWorker = () => {
             // the old `length > 0` guard meant a pool that lost a worker never
             // got it back for the rest of the session.
             if (this.workers.length >= this.size) return; // idempotent
+            // Give up rebuilding after enough crashes that the fault is clearly
+            // the worker script, not one unlucky cell. Logged loudly because
+            // refineBatch()'s empty-pool guard silently resolves after this.
+            if (this._crashCount > this.size * 3) {
+                if (!this._crashGiveUpLogged) {
+                    this._crashGiveUpLogged = true;
+                    console.error('[RefinementWorkerPool] Refusing to respawn: ' +
+                                  `${this._crashCount} worker crashes. Refinement is disabled ` +
+                                  'for this run (check refinement-worker.js / worker-logic.js).');
+                }
+                return;
+            }
             for (let i = this.workers.length; i < this.size; i++) {
                 const w = new Worker('refinement-worker.js' + APP_VERSION_QS);
                 w.activeBatches = new Set(); // Track pending batches on this worker
                 w.onmessage = (e) => this._onMessage(e, w);
                 w.onerror = (err) => {
                     console.error(`Refinement worker hard crash:`, err.message);
+                    this._crashCount++;
                     // Prevent infinite hangs by resolving all batches assigned to this crashed worker
                     for (const id of w.activeBatches) {
                         const resolve = this.pendingResolvers.get(id);
@@ -1235,11 +1253,18 @@ const setupWorker = () => {
                     }
                     w.activeBatches.clear();
 
-                    // ADD THIS: Remove the dead worker from the pool
+                    // Remove the dead worker from the pool...
                     const deadIndex = this.workers.indexOf(w);
                     if (deadIndex !== -1) {
                         this.workers.splice(deadIndex, 1);
                     }
+                    // ...and actually kill it. Dropping the last reference does
+                    // NOT stop a Worker: the thread keeps running, holding its
+                    // ~350 KB copy of worker-logic.js and its dedup map, and it
+                    // can still post messages for batches we just force-resolved.
+                    // Over a long session with repeated crashes that is a real
+                    // leak of both memory and cores.
+                    try { w.terminate(); } catch (_) {}
                 };
                 // A worker created after init() has already run starts blank and
                 // would reject every batch with 'Worker not initialized'. Replay
@@ -1273,6 +1298,12 @@ const setupWorker = () => {
                              msg.message, msg.cell || '');
             } else if (msg.type === 'done') {
                 const id = (msg.batchId !== undefined) ? msg.batchId : msg.taskId;
+                // The worker caps how many cellError messages it posts per batch,
+                // so this count is the only place the true total shows up.
+                if (msg.errors) {
+                    console.warn(`[RefinementWorkerPool] batch ${id}: ${msg.errors} of ` +
+                                 `${msg.processed} cell(s) failed (only the first few were reported).`);
+                }
                 if (w && w.activeBatches) w.activeBatches.delete(id);
                 const resolve = this.pendingResolvers.get(id);
                 if (resolve) {
