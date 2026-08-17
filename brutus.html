@@ -57,6 +57,25 @@
         min-height: 90px;
         overflow: auto;
     }
+    .sg-chip {
+        display: inline-block;
+        padding: 2px 6px;
+        margin: 2px;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--light-bg);
+        cursor: pointer;
+        font-size: 0.8rem;
+        transition: background 0.15s, border-color 0.15s;
+    }
+    .sg-chip:hover {
+        background: var(--medium-bg);
+    }
+    .sg-chip.selected-chip {
+        background: var(--primary-accent);
+        color: #fff;
+        border-color: var(--primary-accent);
+    }
     /* The Wilson / tie / progress line - the one that grows. */
     #sg-overlay #sg-msg {
         flex: 0 1 auto;
@@ -512,12 +531,13 @@
     <div id="status-box"></div>
 
     <script src="main_app.js?v=20260728"></script>
-<div id="app-footer">Brutus, 16 August 2026</div>
+<div id="app-footer">Brutus, 17 August 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-swap">Swap hkl</div>
     <div id="ctx-mc">Refine MC</div>
     <div id="ctx-sg">Space Group MC</div>
+    <div id="ctx-pdcif">Export pdCIF</div>
     <div id="ctx-report">Generate Report</div>
 </div>
 <div id="mc-overlay">

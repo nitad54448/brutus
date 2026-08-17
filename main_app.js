@@ -2226,6 +2226,10 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
                 { // Jade MDI (treat as 2-column)
                      test: (name, content, firstLine, upper) => name.endsWith('.mdi') && (upper.includes('2-THETA, INTENSITY') || upper.startsWith('(SAMPLE')),
                      parser: parseDataFile
+                },
+                { // pdCIF
+                    test: (name, content) => name.endsWith('.cif') || content.includes('_pd_meas_2theta_scan'),
+                    parser: parsePdCifFile
                 }
             ];
             
@@ -2398,6 +2402,96 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
         const parseUxdFile = (text) => { const lines = text.trim().split(/\r?\n/); const intensity = []; let startTth, stepSize, wavelength; let inDataSection = false; for (const line of lines) { const trimmedLine = line.trim(); if (inDataSection) { const parts = trimmedLine.split(/\s+/); parts.forEach(part => { const val = parseFloat(part); if (!isNaN(val)) intensity.push(val); }); } else { if (trimmedLine.toUpperCase().startsWith('_START=')) startTth = parseFloat(trimmedLine.substring(7)); else if (trimmedLine.toUpperCase().startsWith('_STEPSIZE=')) stepSize = parseFloat(trimmedLine.substring(10)); else if (trimmedLine.toUpperCase().startsWith('_WL1=')) wavelength = parseFloat(trimmedLine.substring(5)); else if (trimmedLine.toUpperCase() === '_COUNTS') inDataSection = true; } } if (startTth === undefined || stepSize === undefined) throw new Error("Could not find _START and _STEPSIZE in UXD file."); if (intensity.length === 0) throw new Error("No intensity data found after _COUNTS in UXD file."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
         const parsePhilipsUdfFile = (text) => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; let inDataSection = false; let wavelength = null; for (const line of lines) { const trimmedLine = line.trim(); if (trimmedLine.toUpperCase().startsWith('LAMBDA')) { const parts = trimmedLine.split('='); if (parts.length > 1) wavelength = parseFloat(parts[1]); } if (trimmedLine.toUpperCase() === '[DATA]') { inDataSection = true; continue; } if (trimmedLine.startsWith('[') && trimmedLine.toUpperCase() !== '[DATA]') inDataSection = false; if (inDataSection) { const parts = trimmedLine.split(/,/).map(p => p.trim()); if(parts.length >= 2) { const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); } } } } if (tth.length === 0) throw new Error("No [Data] section found in UDF file."); return { tth, intensity, wavelength }; };
 
+        const parsePdCifFile = (text) => {
+            const lines = text.trim().split(/\r?\n/);
+            const tth = [], intensity = [];
+            let inLoop = false;
+            let loopHeaders = [];
+            let wavelengths = [];
+
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i].trim();
+                if (line === '' || line.startsWith('#')) continue;
+
+                // Single line wavelength (ensure we don't accidentally match a loop id/wt tag)
+                if (line.includes('_diffrn_radiation_wavelength') && !line.includes('_id') && !line.includes('_wt')) {
+                    const match = line.match(/_diffrn_radiation_wavelength\s+([0-9.]+)/);
+                    if (match && match[1]) {
+                        wavelengths.push(parseFloat(match[1]));
+                    }
+                }
+
+                if (line === 'loop_') {
+                    inLoop = true;
+                    loopHeaders = [];
+                    continue;
+                }
+
+                if (inLoop) {
+                    if (line.startsWith('_')) {
+                        loopHeaders.push(line);
+                    } else {
+                        const tthIndex = loopHeaders.findIndex(h => h === '_pd_meas_2theta_scan' || h === '_pd_proc_2theta_corrected');
+                        const intIndex = loopHeaders.findIndex(h => h.includes('_pd_meas_intensity') || h.includes('_pd_proc_intensity'));
+                        const wlIndex = loopHeaders.findIndex(h => h === '_diffrn_radiation_wavelength');
+
+                        if (tthIndex !== -1 && intIndex !== -1) {
+                            const parts = line.split(/[\s,]+/);
+                            if (parts.length >= Math.max(tthIndex, intIndex) + 1) {
+                                const x = parseFloat(parts[tthIndex]);
+                                const y = parseFloat(parts[intIndex]);
+                                if (!isNaN(x) && !isNaN(y)) {
+                                    tth.push(x);
+                                    intensity.push(y);
+                                }
+                            }
+                        } else if (wlIndex !== -1) {
+                            // Extract wavelength if it was declared in a loop
+                            const parts = line.split(/[\s,]+/);
+                            if (parts.length > wlIndex) {
+                                const val = parseFloat(parts[wlIndex]);
+                                if (!isNaN(val)) wavelengths.push(val);
+                            }
+                        } else {
+                            inLoop = false;
+                        }
+                    }
+                }
+            }
+            if (tth.length === 0) throw new Error("Could not find _pd_meas_2theta_scan and intensity data in pdCIF file.");
+            
+            let presetMatch = null;
+            let wavelength = null;
+
+            if (wavelengths.length >= 2) {
+                // Doublet found. Match the shortest wavelength (ka1) to our presets.
+                const ka1 = Math.min(...wavelengths);
+                for (const element of Object.keys(WAVELENGTH_PRESETS)) {
+                    if (element === 'custom') continue;
+                    if (Math.abs(WAVELENGTH_PRESETS[element].ka1 - ka1) < 0.005) {
+                        presetMatch = element + '_avg';
+                        break;
+                    }
+                }
+            } else if (wavelengths.length === 1) {
+                // Monochromatic found. Check if it perfectly matches an average or a specific Ka1.
+                const wl = wavelengths[0];
+                for (const element of Object.keys(WAVELENGTH_PRESETS)) {
+                    if (element === 'custom') continue;
+                    if (Math.abs(WAVELENGTH_PRESETS[element].ka_avg - wl) < 0.005) {
+                        presetMatch = element + '_avg';
+                        break;
+                    }
+                    if (Math.abs(WAVELENGTH_PRESETS[element].ka1 - wl) < 0.005) {
+                        presetMatch = element + '_ka1';
+                        break;
+                    }
+                }
+                wavelength = wl;
+            }
+
+            return { tth, intensity, wavelength, presetMatch };
+        };
 
     ui.fileInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
@@ -2511,8 +2605,13 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
     
 
         // Handle wavelength from file, if any.. problem here for some xrdml ?
- if (parsed.wavelength) {
-            // This is a monochromatic, known wavelength from the file
+        if (parsed.presetMatch) {
+            // A recognized doublet or K-alpha average was detected
+            ui.wavelengthPreset.value = parsed.presetMatch;
+            handleWavelengthPresetChange({ onLoad: true });
+            showStatus(`Loaded preset wavelength from file: ${parsed.presetMatch.replace('_', ' ')}`, 'info');
+        } else if (parsed.wavelength) {
+            // This is a monochromatic, known wavelength from the file that does not match a preset
             ui.wavelengthPreset.value = 'custom';
             ui.wavelength.value = parsed.wavelength.toFixed(5);
             ui.stripKa2Checkbox.checked = false;
@@ -4823,6 +4922,7 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
     let sgAbort = false;
     let sgRows = [];
     let sgSelectedSig = null;
+    let sgSelectedMemberIdx = 0; // Tracks which specific space group chip is selected
     // Display order. The log-odds score is both the ANALYTIC authority -- it picks
     // the stage-2 shortlist, sets the tie report and estimates p -- and the
     // default ordering, so what the table shows first is what the evidence
@@ -4964,8 +5064,12 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
     // stale loop variable hid until it reached the console as
     // "ReferenceError: i is not defined".
     const sgRowHtml = (r, ctx) => {
-        const groups = r.members.map(m => `${m.symbol} (${m.number})`);
-        const groupsShort = groups.slice(0, 4).join(', ') + (groups.length > 4 ? ` +${groups.length - 4}` : '');
+        const groupsHtml = r.members.map((m, idx) => {
+            const isSelected = (r.sig === ctx.selectedSig && idx === ctx.selectedMemberIdx);
+            const chipCls = isSelected ? 'sg-chip selected-chip' : 'sg-chip';
+            return `<span class="${chipCls}" data-idx="${idx}">${m.symbol} (${m.number})</span>`;
+        }).join(' ');
+
         const conds = (r.conditions && r.conditions.length) ? r.conditions.join(' ; ') : 'no conditions';
         const isBest = !r.error && r === ctx.best;
         // Score is shown relative to the leader OF THE SAME TIER. Measuring a
@@ -4996,7 +5100,7 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
 
         return `<tr class="${cls.join(' ')}" data-sig="${r.sig}" title="${conds}">` +
                `<td title="${(r.mergedLabels || []).join(' \u2261 ')}">${r.label}</td>` +
-               `<td class="sg-groups" title="${groups.join(', ')}">${groupsShort}</td>` +
+               `<td class="sg-groups">${groupsHtml}</td>` +
                `<td>${r.error ? '-' : (r.nLines ?? '-')}</td>` +
                `<td>${r.error ? '-' : sgFmt(r.m20, 2)}</td>` +
                `<td class="sg-score">${r.error ? '-' : (isBest ? '0.00' : sgSigned(dScore, 2))}</td>` +
@@ -5018,7 +5122,8 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
             best,
             bestScore: best ? best.score : null,
             deadScore: dead ? dead.score : null,
-            selectedSig: sgSelectedSig
+            selectedSig: sgSelectedSig,
+            selectedMemberIdx: sgSelectedMemberIdx
         };
         const displayed = sgSortForDisplay(ranked);
         sgTbody.innerHTML = displayed.map(r => sgRowHtml(r, ctx)).join('');
@@ -5036,7 +5141,16 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
     sgTbody.addEventListener('click', (e) => {
         const tr = e.target.closest('tr');
         if (!tr) return;
-        sgSelectedSig = tr.dataset.sig;
+        
+        const chip = e.target.closest('.sg-chip');
+        if (chip) {
+            sgSelectedSig = tr.dataset.sig;
+            sgSelectedMemberIdx = parseInt(chip.dataset.idx, 10);
+        } else {
+            // Clicking the row but outside a chip selects the row and defaults to the first chip
+            sgSelectedSig = tr.dataset.sig;
+            sgSelectedMemberIdx = 0;
+        }
         sgRenderRows(getImpurityPeaks());
     });
 
@@ -5068,6 +5182,7 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
         sgParent = parent;
         sgRows = [];
         sgSelectedSig = null;
+        sgSelectedMemberIdx = 0;
         sgTbody.innerHTML = '';
         sgAddBtn.disabled = true;
         sgRunBtn.disabled = false;
@@ -5145,7 +5260,7 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
         sgScoreOpts = { ...sgScoreOpts, frame, wilson };
 
         sgRunning = true; sgAbort = false;
-        sgRows = []; sgSelectedSig = null;
+        sgRows = []; sgSelectedSig = null; sgSelectedMemberIdx = 0;
         sgRunBtn.textContent = 'Stop';
         sgAddBtn.disabled = true;
 
@@ -5328,7 +5443,11 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
         // the label -- and alongside the margin, since a cell taken from a row
         // that was in a three-way tie is not a determination.
         child.sgClass = row.label;
-        child.sgMembers = row.members.map(m => `${m.symbol} (${m.number})`);
+        
+        // Grab only the specific chip the user selected
+        const selectedMember = row.members[sgSelectedMemberIdx] || row.members[0];
+        child.sgMembers = [`${selectedMember.symbol} (${selectedMember.number})`];
+        
         child.sgConditions = row.conditions;
         child.sgScore = row.score;
         child.sgMargin = sgMargin(sgRows);
@@ -5355,11 +5474,115 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
         const margTxt = isFinite(marg)
             ? (marg < SG_DECISIVE_NATS ? ` - NOT decisive (${marg.toFixed(1)} nats over the runner-up)` : ` - ${marg.toFixed(1)} nats ahead`)
             : '';
-        showStatus(`Added cell refined under ${row.label} (${row.members.length} space group(s)): ` +
+        showStatus(`Added cell refined under ${row.label} (${selectedMember.symbol}): ` +
                    `M20 ${sgFmt(row.m20, 2)}, ${row.hardViolations} hard violation(s)${margTxt}.`, 'success', 8000);
     });
 
-    // 4. Action: Single Report
+    // 4. Action: Export pdCIF
+    document.getElementById('ctx-pdcif').addEventListener('click', () => {
+        const target = ctxTargetSolution();
+        if (target) {
+            generatePdCIF(target);
+        }
+    });
+
+    const generatePdCIF = (sol) => {
+        // Fetch original wavelength based on preset to match the raw data export
+        let wl = parseFloat(ui.wavelength.value) || 1.54184;
+        let isDoublet = false;
+        let wlKa1, wlKa2, wlRatio;
+        
+        const presetVal = ui.wavelengthPreset.value;
+        if (presetVal !== 'custom') {
+            const [element, type] = presetVal.split('_');
+            const data = WAVELENGTH_PRESETS[element];
+            if (data) {
+                if (type === 'avg') {
+                    isDoublet = true;
+                    wlKa1 = data.ka1;
+                    wlKa2 = data.ka2;
+                    wlRatio = data.ratio;
+                } else {
+                    wl = data.ka1;
+                }
+            }
+        }
+        
+        // Brutus: 2th_corr = 2th_obs - Z. pdCIF: 2th_calc = 2th_meas + offset.
+        const pdCifOffset = -(sol.zero_correction || 0);
+
+        let cif = `data_brutus_solution\n\n`;
+        cif += `_audit_creation_method 'Brutus'\n`;
+        cif += `_cell_length_a       ${sol.a.toFixed(5)}\n`;
+        cif += `_cell_length_b       ${(sol.b || sol.a).toFixed(5)}\n`;
+        cif += `_cell_length_c       ${(sol.c || sol.a).toFixed(5)}\n`;
+        cif += `_cell_angle_alpha    ${(sol.alpha || 90).toFixed(3)}\n`;
+        cif += `_cell_angle_beta     ${(sol.beta || 90).toFixed(3)}\n`;
+        cif += `_cell_angle_gamma    ${(sol.gamma || 90).toFixed(3)}\n`;
+        cif += `_cell_volume         ${sol.volume.toFixed(3)}\n\n`;
+        
+        // Extract space group and IT number
+        let sgName = '?';
+        let sgNumber = '?';
+        if (sol.sgMembers && sol.sgMembers.length > 0) {
+            const parts = sol.sgMembers[0].split(' (');
+            sgName = parts[0];
+            if (parts.length > 1) {
+                sgNumber = parts[1].replace(')', '');
+            }
+        } else if (sol.sgClass) {
+            sgName = sol.sgClass;
+        }
+
+        cif += `_space_group_name_H-M_alt       ${sgName}\n`;
+        if (sgNumber !== '?') {
+            cif += `_space_group_IT_number          ${sgNumber}\n`;
+        }
+        cif += `\n`;
+        
+        cif += `_pd_calib_2theta_offset         ${pdCifOffset.toFixed(5)}\n\n`;
+
+        if (isDoublet) {
+            cif += `loop_\n`;
+            cif += `    _diffrn_radiation_wavelength_id\n`;
+            cif += `    _diffrn_radiation_wavelength\n`;
+            cif += `    _diffrn_radiation_wavelength_wt\n`;
+            cif += `  1  ${wlKa1.toFixed(6)}  1.0\n`;
+            cif += `  2  ${wlKa2.toFixed(6)}  ${wlRatio.toFixed(5)}\n\n`;
+        } else {
+            cif += `_diffrn_radiation_wavelength    ${wl.toFixed(6)}\n\n`;
+        }
+        
+        cif += `_diffrn_radiation_probe         x-ray\n\n`;
+
+        cif += `loop_\n`;
+        cif += `_pd_meas_2theta_scan\n`;
+        cif += `_pd_meas_intensity_total\n`;
+        
+        // Write raw data (limited to the indexing range)
+        const tMin = parseFloat(ui.tthMinSlider.value);
+        const tMax = parseFloat(ui.tthMaxSlider.value);
+        const tth = fullExperimentalData.tth;
+        const int = fullExperimentalData.intensity;
+        for (let i = 0; i < tth.length; i++) {
+            if (tth[i] >= tMin && tth[i] <= tMax) {
+                cif += `${tth[i].toFixed(5)} ${Math.round(int[i])}\n`;
+            }
+        }
+
+        // Trigger download
+        const blob = new Blob([cif], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${baseNameNoExt(loadedFileName) || 'pattern'}_sol.CIF`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+
+    // 5. Action: Single Report
     document.getElementById('ctx-report').addEventListener('click', () => {
         const target = ctxTargetSolution();
         if (target) {

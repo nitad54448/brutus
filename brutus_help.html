@@ -272,7 +272,7 @@
             <ol>
                 <li>
                     <strong>Load the data file.</strong>
-                    Click <code>Load File</code>. Supported formats include <code>.xy</code>, <code>.xrdml</code>, <code>.xml</code> (Panalytical XRDML or Bruker <code>RawDataFile</code>), <code>.ras</code>, <code>.xra</code>, <code>.uxd</code>, <code>.udf</code>, GSAS <code>.esd</code>, FullProf free-format <code>.dat</code>, and plain text two-column data.
+                    Click <code>Load File</code>. Supported formats include <code>.xy</code>, <code>.xrdml</code>, <code>.xml</code> (Panalytical XRDML or Bruker <code>RawDataFile</code>), <code>.ras</code>, <code>.xra</code>, <code>.uxd</code>, <code>.udf</code>, GSAS <code>.esd</code>, FullProf free-format <code>.dat</code>, Powder CIF <code>.cif</code>, and plain text two-column data.
                 </li>
                 <li>
                     <strong>Detect peaks.</strong>
@@ -545,6 +545,7 @@
                         <li><strong>Swap hkl:</strong> Opens a dialog to manually correct peak assignments for the selected cell.</li>
                         <li><strong>Refine MC:</strong> Runs a Monte Carlo stochastic search to polish the cell and escape local minima.</li>
                         <li><strong>Space Group MC:</strong> Re-refines the cell once per <em>extinction class</em> of its crystal system, each time with that class&rsquo;s forbidden reflections removed from the calculated line list, and ranks the classes by a log-odds score. This is the only ranking of space-group hypotheses Brutus makes. See <a href="#space-group-mc">Space Group MC</a>.</li>
+                        <li><strong>Export pdCIF:</strong> Saves the raw diffraction data, refined cell parameters, zero offset, and selected space group into a standard Powder CIF (<code>.cif</code>) file.</li>
                         <li><strong>Generate Report:</strong> Creates a PDF report for that solution only.</li>
                     </ul>
                 </li>
@@ -705,7 +706,11 @@
                 <tr><td>Bruker <code>RawDataFile</code> XML</td><td><code>.xml</code></td><td>yes</td><td>constant step</td></tr>
                 <tr><td>Bruker UXD</td><td><code>.uxd</code></td><td>yes</td><td>constant step</td></tr>
                 <tr><td>GSAS ESD</td><td><code>.esd</code></td><td>no</td><td>constant step</td></tr>
+                <tr><td>Powder CIF (pdCIF)</td><td><code>.cif</code></td><td>yes</td><td>per-point 2θ</td></tr>
             </table>
+            <p style="margin-top:0.6rem;">
+                <strong>Exporting to pdCIF:</strong> While the <code>Save as</code> button exports the current view of the pattern, you can also export a complete <strong>Powder CIF (pdCIF)</strong> directly from a solved cell. Right-click any solution in the Solutions tab and select <strong>Export pdCIF</strong>. This saves the unstripped raw data within your indexed 2θ range, the refined unit cell, the applied zero offset (mapped safely to <code>_pd_calib_2theta_offset</code>), the wavelength (including Kα<sub>1</sub>/Kα<sub>2</sub> doublet ratios), and the selected space group in a standard format ready for deposition or Rietveld refinement.
+            </p>
             <p style="margin-top:0.6rem;">
                 For the formats that record a wavelength, the value written is the one in the
                 <code>Ka1 Wavelength</code> box, and the dialog shows it before you save. The default file name
