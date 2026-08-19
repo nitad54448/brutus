@@ -2400,7 +2400,70 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
 };
         
         const parseUxdFile = (text) => { const lines = text.trim().split(/\r?\n/); const intensity = []; let startTth, stepSize, wavelength; let inDataSection = false; for (const line of lines) { const trimmedLine = line.trim(); if (inDataSection) { const parts = trimmedLine.split(/\s+/); parts.forEach(part => { const val = parseFloat(part); if (!isNaN(val)) intensity.push(val); }); } else { if (trimmedLine.toUpperCase().startsWith('_START=')) startTth = parseFloat(trimmedLine.substring(7)); else if (trimmedLine.toUpperCase().startsWith('_STEPSIZE=')) stepSize = parseFloat(trimmedLine.substring(10)); else if (trimmedLine.toUpperCase().startsWith('_WL1=')) wavelength = parseFloat(trimmedLine.substring(5)); else if (trimmedLine.toUpperCase() === '_COUNTS') inDataSection = true; } } if (startTth === undefined || stepSize === undefined) throw new Error("Could not find _START and _STEPSIZE in UXD file."); if (intensity.length === 0) throw new Error("No intensity data found after _COUNTS in UXD file."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
-        const parsePhilipsUdfFile = (text) => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; let inDataSection = false; let wavelength = null; for (const line of lines) { const trimmedLine = line.trim(); if (trimmedLine.toUpperCase().startsWith('LAMBDA')) { const parts = trimmedLine.split('='); if (parts.length > 1) wavelength = parseFloat(parts[1]); } if (trimmedLine.toUpperCase() === '[DATA]') { inDataSection = true; continue; } if (trimmedLine.startsWith('[') && trimmedLine.toUpperCase() !== '[DATA]') inDataSection = false; if (inDataSection) { const parts = trimmedLine.split(/,/).map(p => p.trim()); if(parts.length >= 2) { const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); } } } } if (tth.length === 0) throw new Error("No [Data] section found in UDF file."); return { tth, intensity, wavelength }; };
+        
+        const parsePhilipsUdfFile = (text) => {
+    const lines = text.trim().split(/\r?\n/);
+    const isRawScan = lines.some(l => l.trim().toUpperCase() === 'RAWSCAN');
+
+    if (isRawScan) {
+        let startTth, endTth, stepSize, wavelength = null;
+        let inDataSection = false;
+        const intensity = [];
+
+        for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!inDataSection) {
+                const upper = trimmedLine.toUpperCase();
+                if (upper === 'RAWSCAN') { inDataSection = true; continue; }
+                const parts = trimmedLine.split(',').map(p => p.trim());
+                const key = parts[0].toUpperCase();
+                if (key === 'DATAANGLERANGE') {
+                    startTth = parseFloat(parts[1]);
+                    endTth = parseFloat(parts[2]);
+                } else if (key === 'SCANSTEPSIZE') {
+                    stepSize = parseFloat(parts[1]);
+                } else if (key === 'LABDAALPHA1') {
+                    wavelength = parseFloat(parts[1]);
+                }
+            } else {
+                trimmedLine.split(',').forEach(part => {
+                    const val = parseFloat(part.trim());
+                    if (!isNaN(val)) intensity.push(val);
+                });
+            }
+        }
+
+        if (intensity.length === 0) throw new Error("No intensity data found after RawScan in UDF file.");
+        if (startTth === undefined || stepSize === undefined) throw new Error("Could not find DataAngleRange/ScanStepSize in UDF file.");
+
+        const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize);
+        return { tth, intensity, wavelength };
+    }
+
+    // Legacy [DATA]-section UDF format
+    const tth = [], intensity = [];
+    let inDataSection = false;
+    let wavelength = null;
+    for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (trimmedLine.toUpperCase().startsWith('LAMBDA')) {
+            const parts = trimmedLine.split('=');
+            if (parts.length > 1) wavelength = parseFloat(parts[1]);
+        }
+        if (trimmedLine.toUpperCase() === '[DATA]') { inDataSection = true; continue; }
+        if (trimmedLine.startsWith('[') && trimmedLine.toUpperCase() !== '[DATA]') inDataSection = false;
+        if (inDataSection) {
+            const parts = trimmedLine.split(/,/).map(p => p.trim());
+            if (parts.length >= 2) {
+                const x = parseFloat(parts[0]);
+                const y = parseFloat(parts[1]);
+                if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); }
+            }
+        }
+    }
+    if (tth.length === 0) throw new Error("No [Data] section found in UDF file.");
+    return { tth, intensity, wavelength };
+};
 
         const parsePdCifFile = (text) => {
             const lines = text.trim().split(/\r?\n/);
