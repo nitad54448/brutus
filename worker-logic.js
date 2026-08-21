@@ -1153,7 +1153,7 @@ let trialsBatch = 0; let lastReportTime = performance.now();
             refineAndTestSolution({ a: Math.sqrt((hkl[0]*hkl[0] + hkl[1]*hkl[1] + hkl[2]*hkl[2]) / q_obs[i]), system: 'cubic' });
             trialsBatch++; 
 
-if (performance.now() - lastReportTime >= 50) { // Report at most every 50ms
+if (trialsBatch % 5000 === 0 && performance.now() - lastReportTime >= 50) { // Report at most every 50ms
                 postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
                 totalTrialsCompleted += trialsBatch;
                 const progress = (totalTrialsCompleted / totalTrialsToRun) * 80; // 80% reserved
@@ -1195,7 +1195,7 @@ function indexTetragonalOrHexagonal(data, state, postMessage_func, system) {
                     
                     trialsBatch++; 
 
-                    if (performance.now() - lastReportTime >= 50) { // Report at most every 50ms
+                    if (trialsBatch % 5000 === 0 && performance.now() - lastReportTime >= 50) { // Report at most every 50ms
                 postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
                 totalTrialsCompleted += trialsBatch;
                 const progress = (totalTrialsCompleted / totalTrialsToRun) * 80; // 80% reserved

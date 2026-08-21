@@ -513,7 +513,7 @@ try {
                 // Previously the engine copied resultsBuffer.size bytes every chunk, which
                 // means copying the entire (possibly 50k-cell) staging buffer even when only
                 // a handful of new cells landed. Now we copy ceil to (countToRead * structSize).
-                if (numSolutions > solutionsReadCount) {
+                if (numSolutions > solutionsReadCount && solutionsReadCount < maxSolutions) {
                     const countToRead = Math.min(numSolutions, maxSolutions);
 
                     // DELTA COPY. The previous version copied and mapped
@@ -596,4 +596,4 @@ try {
     runTriclinicSolver(...args) {
         return this._runSolver(WebGPUEngine.SYSTEM_CONFIGS.triclinic, ...args);
     }
-}
+}

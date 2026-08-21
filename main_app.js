@@ -374,8 +374,10 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {number} defaultVal - A default value to use if parsing fails.
      */
     function validateNumberInput(inputEl, defaultVal = 0) {
-        const min = parseFloat(inputEl.min) || 0;
-        const max = parseFloat(inputEl.max) || Infinity;
+        const minVal = parseFloat(inputEl.min);
+        const maxVal = parseFloat(inputEl.max);
+        const min = isNaN(minVal) ? -Infinity : minVal;
+        const max = isNaN(maxVal) ? Infinity : maxVal;
         let value = parseFloat(inputEl.value);
 
         if (isNaN(value)) {
@@ -411,26 +413,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return Math.max(lo, Math.min(raw, hi));
     }
 
-    //  Add validation to all number inputs
-    //c'est fait plus tard ?
-    //ui.maxVolume.addEventListener('blur', () => validateNumberInput(ui.maxVolume, 4000));
-    ui.impurityPeaksInput.addEventListener('blur', () => validateNumberInput(ui.impurityPeaksInput, 1));
-    ui.tthError.addEventListener('blur', () => validateNumberInput(ui.tthError, 0.04));
     
-    // Add validation to the new GPU inputs
-    ui.gpuHklTriplets.addEventListener('blur', () => {
-        validateNumberInput(ui.gpuHklTriplets, 100);
-        updateGpuStatusText(); // Also update status text on blur
-    });
-    ui.gpuPeaksCount.addEventListener('blur', () => {
-        // Special min-value logic for gpuPeaksCount
-        const currentMin = parseFloat(ui.gpuPeaksCount.min) || 4;
-        validateNumberInput(ui.gpuPeaksCount, currentMin);
-        updateGpuStatusText(); // Also update status text on blur
-    });
-
-    ui.gpuFomThreshold.addEventListener('blur', () => validateNumberInput(ui.gpuFomThreshold, 3.0));
-    ui.gpuBufferSize.addEventListener('blur', () => validateNumberInput(ui.gpuBufferSize, 50));
 
 
     /**
@@ -786,9 +769,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const debouncedUpdateAndRedraw = debounce(() => {
         updateWorkingData();
         if (xrdChart) {
-            // Stripping and deconvolution both change the intensities, so the
-            // ordinate is rescaled as well as redrawn.
-            setExperimentalTrace(true); // pas d'animation, sinon c'est trop lent
+            if (xAxisMode === 'd' || xAxisMode === 'q') {
+                rebuildPlot(true);
+            } else {
+                // Stripping and deconvolution both change the intensities, so the
+                // ordinate is rescaled as well as redrawn.
+                setExperimentalTrace(true); // pas d'animation, sinon c'est trop lent
+            }
         }
         findPeaks();
     }, 250);
@@ -1141,9 +1128,12 @@ const clearLoadedFile = () => {
     if (ui.stripKa2Checkbox) ui.stripKa2Checkbox.disabled = false;
 
     if (xrdChart) {
-        try { xrdChart.resetZoom('none'); } catch (_) { /* no zoom state yet */ }
-    }
+            try { xrdChart.resetZoom('none'); } catch (_) { /* no zoom state yet */ }
+            xrdChart.data.datasets.forEach(ds => ds.data = []);
+            xrdChart.update('none');
+        }
     if (typeof updateAllMarkers === 'function') updateAllMarkers();
+
 
     if (ui.peakControls) ui.peakControls.classList.add('hidden');
     if (ui.indexingControls) ui.indexingControls.classList.add('hidden');
@@ -1589,18 +1579,15 @@ const setupWorker = () => {
                 const strippedIntensity = stripZhang(tth, intensity, preset.ka1, preset.ka2, preset.ratio);
                 
                 // Save this as the working data for plotting AND peak search
-                workingExperimentalData = { tth: [...tth], intensity: strippedIntensity };
+                workingExperimentalData = { tth: tth, intensity: strippedIntensity };
             } else {
                 // Fallback if preset parsing fails
-                workingExperimentalData = { ...fullExperimentalData };
+                workingExperimentalData = fullExperimentalData;
             }
 
         } else {
             // No stripping requested, use raw data
-            workingExperimentalData = { 
-                tth: [...fullExperimentalData.tth], 
-                intensity: [...fullExperimentalData.intensity] 
-            };
+            workingExperimentalData = fullExperimentalData;
         }
     };
 
@@ -2072,6 +2059,9 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
                 recalculatePeakValues();
                 updatePeakTable();
             }
+            if (xrdChart && (xAxisMode === 'd' || xAxisMode === 'q')) {
+                rebuildPlot(false);
+            }
         });
     }
 
@@ -2295,8 +2285,7 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
                 const commaCount = (rawLine.match(/,/g) || []).length;
                 const hasOtherDelim = /[\s;]/.test(rawLine);
                 const hasDot = rawLine.includes('.');
-                const commaIsDecimal = commaCount > 0 && !hasDot &&
-                    (hasOtherDelim || commaCount === 1);
+                const commaIsDecimal = commaCount > 0 && !hasDot && hasOtherDelim;
                 const sanitizedLine = commaIsDecimal
                     ? rawLine.replace(/,(\d)/g, '.$1')
                     : rawLine.replace(/,/g, ' ');
@@ -2824,7 +2813,13 @@ ui.tthMinSlider.addEventListener('input', () => {
         windowSize = Math.max(3, windowSize); if (windowSize % 2 === 0) windowSize += 1; windowSize = Math.min(windowSize, n);
         const halfWindow = Math.floor(windowSize / 2);
         const result = new Array(n);
-        const coefficients = (windowSize === 9 && polyOrder === 2) ? [-0.0909, 0.0606, 0.1687, 0.2333, 0.2545, 0.2333, 0.1687, 0.0606, -0.0909] : (() => { const weights = []; for (let i = -halfWindow; i <= halfWindow; i++) weights.push(1 - Math.abs(i) / (halfWindow + 1)); const sum = weights.reduce((a, b) => a + b, 0); return weights.map(w => w / sum); })();
+        const SG_COEFFS = {
+            5: [-3/35, 12/35, 17/35, 12/35, -3/35],
+            7: [-2/21, 3/21, 6/21, 7/21, 6/21, 3/21, -2/21],
+            9: [-21/231, 14/231, 39/231, 54/231, 59/231, 54/231, 39/231, 14/231, -21/231],
+            11: [-36/429, 9/429, 44/429, 69/429, 84/429, 89/429, 84/429, 69/429, 44/429, 9/429, -36/429]
+        };
+        const coefficients = (polyOrder === 2 && SG_COEFFS[windowSize]) ? SG_COEFFS[windowSize] : (() => { const weights = []; for (let i = -halfWindow; i <= halfWindow; i++) weights.push(1 - Math.abs(i) / (halfWindow + 1)); const sum = weights.reduce((a, b) => a + b, 0); return weights.map(w => w / sum); })();
         for (let i = 0; i < n; i++) {
             let smoothedValue = 0;
             for (let j = -halfWindow; j <= halfWindow; j++) {
@@ -3076,6 +3071,7 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
             selectedPeakIndex = null;
         }
         ui.peakListBody.innerHTML = '';
+        const fragment = document.createDocumentFragment();
         pickedPeaks.forEach((peak, index) => {
             const row = document.createElement('tr');
             const isSuspect = !!peak.ka2Suspect;
@@ -3101,8 +3097,9 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
             }
             const indexLabel = `${index + 1}${isParent ? '*' : ''}`;
             row.innerHTML = `<td>${indexLabel}</td><td><input type="number" class="peak-tth-input" value="${peak.tth.toFixed(4)}" data-index="${index}" step="0.0001"></td><td><input type="number" class="peak-d-input" value="${peak.d.toFixed(5)}" data-index="${index}" disabled></td><td><button class="delete-peak-btn" data-index="${index}">X</button></td>`;
-            ui.peakListBody.appendChild(row);
+            fragment.appendChild(row);
         });
+        ui.peakListBody.appendChild(fragment);
         ui.peakTableContainer.classList.toggle('hidden', pickedPeaks.length === 0);
         updateKa2Banner();
         updateAllMarkers();
@@ -3219,7 +3216,15 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
     // update
     const updateStartIndexingButtonState = () => {
         // Step 1: Check Peaks
-        const needed = 4 - pickedPeaks.length;
+        const tthMin = parseFloat(ui.tthMinSlider.value) || -Infinity;
+        const tthMax = parseFloat(ui.tthMaxSlider.value) || Infinity;
+        const validPeaks = pickedPeaks.filter(p => p.tth >= tthMin && p.tth <= tthMax && !p.ka2Suspect);
+        
+        let minRequired = 4;
+        if (ui.gpuParamsContainer && !ui.gpuParamsContainer.classList.contains('hidden')) {
+            minRequired = parseInt(ui.gpuPeaksCount.value, 10) || 7;
+        }
+        const needed = minRequired - validPeaks.length;
         
         if (needed > 0) { 
             // Not enough peaks
@@ -3255,6 +3260,7 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
 
     // Attach listeners
     ui.gpuHklTriplets.addEventListener('input', updateStartIndexingButtonState);
+    ui.gpuPeaksCount.addEventListener('input', updateStartIndexingButtonState);
     ui.systemCheckboxes.forEach(cb => cb.addEventListener('change', updateStartIndexingButtonState));
     
     // Also run on init
@@ -3290,6 +3296,15 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
         if (e.target.classList.contains('delete-peak-btn')) {
             const index = parseInt(e.target.dataset.index);
             pickedPeaks.splice(index, 1);
+            
+            if (selectedPeakIndex !== null) {
+                if (index === selectedPeakIndex) {
+                    selectedPeakIndex = null;
+                } else if (index < selectedPeakIndex) {
+                    selectedPeakIndex--;
+                }
+            }
+            
             recalculatePeakValues(); // re-flag + recompute after deletion
             updatePeakTable();
             updateStartIndexingButtonState();
@@ -4440,7 +4455,8 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
                 let valA = a[column]; let valB = b[column];
                 if (isNaN(valA) || valA == null) valA = -Infinity;
                 if (isNaN(valB) || valB == null) valB = -Infinity;
-                return (valA - valB) * dir;
+                if (valA === valB) return 0;
+                return (valA > valB ? 1 : -1) * dir;
             }
         });
     };
@@ -4599,6 +4615,11 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
             
             foundSolutionMap.clear(); //= vérifier.. une fois une solution effacée...?
 
+            if (selectedSolution === target) {
+                selectedSolution = null;
+                currentHklList = [];
+            }
+
             updateSolutionsTable();
             updateAllMarkers(); // Clear blue lines if we deleted the selected one
             ctxMenuTargetIndex = -1;
@@ -4649,7 +4670,8 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
         const tMin = parseFloat(ui.tthMinSlider.value);
         const tMax = parseFloat(ui.tthMaxSlider.value);
         const pk = pickedPeaks.filter(p => p.tth >= tMin && p.tth <= tMax);
-        if (pk.length < 6) { showStatus('Not enough peaks in the 2-theta range.', 'error', 4000); return; }
+        const minReq = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7, triclinic: 7 }[parent.system] || 6;
+        if (pk.length < minReq) { showStatus(`Not enough peaks in the 2-theta range (need ${minReq} for ${parent.system}).`, 'error', 4000); return; }
 
         swapParent = parent;
         swapRows = getPeakAssignments(parent, pk, wl, te, tMax);
@@ -4853,9 +4875,10 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
         const imp = getImpurityPeaks();
         const rz = !!(ui.refineZeroCheckbox && ui.refineZeroCheckbox.checked);
         const pk = pickedPeaks.filter(p => p.tth >= tMin && p.tth <= tMax);
-        if (pk.length < 6) {
+        const minReq = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7, triclinic: 7 }[parent.system] || 6;
+        if (pk.length < minReq) {
             mcMsg.classList.remove('info');
-            mcMsg.textContent = 'Not enough peaks in the 2-theta range (need at least 6).';
+            mcMsg.textContent = `Not enough peaks in the 2-theta range (need at least ${minReq} for ${parent.system}).`;
             return;
         }
         if (!isFinite(wl) || wl <= 0) {
