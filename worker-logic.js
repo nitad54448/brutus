@@ -2647,7 +2647,7 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
     // for scoring reasons while being presented as merely "compatible".
     const compatibleSorted = rankedSpaceGroups.slice().sort((a, b) =>
         ((a.hardViolations || 0) - (b.hardViolations || 0)) ||
-        ((a.number || 0) - (b.number || 0)) ||
+        ((b.number || 0) - (a.number || 0)) ||
         String(a.symbol || '').localeCompare(String(b.symbol || '')));
     const SG_LIST_CAP = 40;
     const compatibleSettings = compatibleSorted.slice(0, SG_LIST_CAP);

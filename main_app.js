@@ -6905,7 +6905,7 @@ const generatePDFReport = async (singleSolution = null) => {
                          if (yPos > 280) { doc.addPage(); yPos = 20; }
                          doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
                          doc.text(`Showing ${sgList.length} of ${nTotal} compatible settings ` +
-                                  `(lowest space-group numbers first within each violation group).`,
+                                  `(highest space-group numbers first within each violation group).`,
                                   margin + 5, yPos);
                          doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
                          yPos += 4;
