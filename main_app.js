@@ -463,8 +463,8 @@ document.addEventListener('DOMContentLoaded', () => {
             
             webGPUSupportsCompute = false; 
             
-            // error message, 10 secondes
-            showStatus("WebGPU init failed. Orthorhombic, Monoclinic and Triclinic searches are disabled.", "error", 10000);
+            // error message, permanent toast red warning
+            showStatus("⚠ WebGPU is not initialized. GPU searches are disabled. See the Help file for details.", "error", 86400000);
             
             // Disable and gray out the monoclinic checkbox
             if (monoCheckbox) {
