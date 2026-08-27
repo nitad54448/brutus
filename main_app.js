@@ -535,18 +535,54 @@ document.addEventListener('DOMContentLoaded', () => {
     // Release the device on navigation rather than relying on GC.
     window.addEventListener('pagehide', releaseWebGPUEngine);
   
-   // Function to load space group JSON data, error if not found, ..
+   // Cache-buster for the database fetch. APP_VERSION_QS is declared much
+   // further down and `const` is not hoisted, so the ?v= is read from the
+   // script tag again here rather than moving unrelated code around.
+    const SG_DB_VERSION_QS = (() => {
+        try {
+            const el = (typeof document !== 'undefined')
+                ? document.querySelector('script[src*="main_app.js"]') : null;
+            const src = el ? (el.getAttribute('src') || el.src || '') : '';
+            const i = src.indexOf('?');
+            return i >= 0 ? src.slice(i) : '';
+        } catch (_) { return ''; }
+    })();
+
+   // Space group database. Built from the sg/ tree by sg_pack.py:
+   //     python3 sg_pack.py --sg-dir sg --out sg_ops.json
+   //
+   // The old cctbx_space_groups_all_settings_v4.json is gone. It stored only
+   // reflection-condition strings, which forced the app to guess zone
+   // membership from the label -- 'hhl' as |h| == |k|, matching the separate
+   // h-hl zone as well -- and to reconstruct implied conditions with an
+   // inheritance rule. sg_ops.json carries the symmetry operators, so absences
+   // are computed rather than parsed, and the zone normals, so membership is
+   // arithmetic. Loading a v4 file here will fail the operator check below.
     async function loadSpaceGroupData() {
         try {
-            const response = await fetch('cctbx_space_groups_all_settings_v4.json');
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+            // Versioned like the scripts. The database format changed when the
+            // operators arrived, so a browser holding a cached copy of the old
+            // file fails the operator check below with a message about v4 --
+            // confusing, because the file on disk is correct.
+            const response = await fetch('sg_ops.json' + SG_DB_VERSION_QS);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            if (!data || !data.space_groups) throw new Error("no 'space_groups' member");
+            if (!data.rotations || !data.zone_defs) {
+                throw new Error("no operator/zone tables -- this looks like the old " +
+                                "v4 file. Rebuild with sg_pack.py.");
             }
-            spaceGroupData = await response.json();
-            console.log("Space group data (all settings) loaded successfully.");
+            spaceGroupData = data;
+            const nSettings = Object.values(data.space_groups)
+                .reduce((n, g) => n + ((g.settings || []).length), 0);
+            console.log(`Space group database loaded: ${nSettings} settings, ` +
+                        `${data.rotations.length} distinct rotations, ` +
+                        `${Object.keys(data.zone_defs).length} zone labels.`);
         } catch (error) {
-            console.error("Could not load space group data:", error);
-            showStatus("Warning: Could not load cctbx_space_groups_all_settings_v4.json. Space group analysis will be disabled.", "error", 8000);
+            console.error("Could not load sg_ops.json:", error);
+            showStatus("Warning: could not load sg_ops.json (" + error.message +
+                       "). Space group analysis will be disabled. Build it with " +
+                       "sg_pack.py --sg-dir sg --out sg_ops.json", "error", 10000);
         }
     }
     
@@ -1537,26 +1573,69 @@ const setupWorker = () => {
             return y_src[lo] * (1 - t) + y_src[hi] * t;
         };
 
-        // Step 2, 3 & 4: Resample to uniform grid, compute difference, and clamp positive
+
+// Step 2, 3 & 4: Resample to uniform grid, compute difference, and clamp positive
         const q_grid = new Float64Array(M);
         const delta_y_pos = new Float64Array(M);
+        const ratio_lam = ka1 / ka2;
+        
+        // Fast local background estimate to prevent baseline oscillation
+        const bg = new Float64Array(n);
+        const w = Math.max(10, Math.floor(n / 100)); // Adaptive window
+        for (let i = 0; i < n; i++) {
+            let min_val = intensity[i];
+            const start = Math.max(0, i - w);
+            const end = Math.min(n - 1, i + w);
+            for (let j = start; j <= end; j++) {
+                if (intensity[j] < min_val) min_val = intensity[j];
+            }
+            bg[i] = min_val;
+        }
+
         for (let m = 0; m < M; m++) {
             const q = q_min + m * dq;
             q_grid[m] = q;
-            const y1 = interp(q, q_a1, intensity);
-            const y2 = interp(q, q_a2, intensity);
-            const diff = y2 - ratio * y1;
-            delta_y_pos[m] = Math.max(diff, (1 - ratio) * Math.min(y1, y2));
+            
+            // Isolate peak component
+            const y2_raw = interp(q, q_a2, intensity);
+            const b2 = interp(q, q_a2, bg);
+            const y2 = Math.max(0, y2_raw - b2);
+            
+            const q_parent = q * ratio_lam;
+            const m_parent = (q_parent - q_min) / dq;
+            
+            let diff;
+            if (m_parent <= 0) {
+                const y1_raw = interp(q_parent, q_a1, intensity);
+                const b1 = interp(q_parent, q_a1, bg);
+                const y1_corr = Math.max(0, y1_raw - b1);
+                diff = y2 - ratio * y1_corr;
+            } else {
+                const idx = Math.floor(m_parent);
+                const t = m_parent - idx;
+                const val0 = delta_y_pos[idx];
+                
+                if (idx + 1 < m) {
+                    const val1 = delta_y_pos[idx + 1];
+                    const y1_corr = val0 * (1 - t) + val1 * t;
+                    diff = y2 - ratio * y1_corr;
+                } else {
+                    // Implicit solve if q_parent falls in the current cell m
+                    diff = (y2 - ratio * val0 * (1 - t)) / (1 + ratio * t);
+                }
+            }
+            
+            delta_y_pos[m] = Math.max(diff, 0);
         }
-
-        // Step 5: Inverse mapping T_α2^(-1) back to experimental 2θ grid
+        
+        // Step 5: Inverse mapping T_a2^(-1) back to experimental 2theta grid
         const corrected = new Array(n);
         for (let i = 0; i < n; i++) {
-            // Under T_α2^(-1), angle tth[i] corresponds to reciprocal space coordinate q_a2[i]
-            corrected[i] = interp(q_a2[i], q_grid, delta_y_pos);
+            // Restore the untouched background
+            corrected[i] = interp(q_a2[i], q_grid, delta_y_pos) + bg[i];
         }
 
-        return corrected;
+        return corrected;        
     };
 
     const updateWorkingData = () => {
@@ -2874,7 +2953,7 @@ ui.tthMinSlider.addEventListener('input', () => {
         const smoothingWidth = parseInt(ui.smoothingWidthSlider.value, 10);
         const background = rollingBallBackground(intensity, ballRadius, smoothingWidth);
         const backgroundCorrected = intensity.map((y, i) => Math.max(0, y - background[i]));
-        const windowSize = Math.max(5, Math.min(11, Math.floor(n / 100)));
+        const windowSize = Math.max(5, smoothingWidth);
         const smoothed = savitzkyGolay(backgroundCorrected, windowSize, 2);
 
         // --- Range-restricted noise/threshold statistics ---
@@ -3785,7 +3864,15 @@ systemsToSearch.forEach(system => {
         refineZero: !!ui.refineZeroCheckbox.checked,
         fom_threshold: parseFloat(ui.gpuFomThreshold.value) || 0.8,
         max_solutions: (parseInt(ui.gpuBufferSize.value, 10) || 50) * 1000,
-        gpu_peaks_count: parseInt(ui.gpuPeaksCount.value, 10) || 7
+        gpu_peaks_count: parseInt(ui.gpuPeaksCount.value, 10) || 7,
+        // Physical plausibility limits. extractCell* in all three shaders used
+        // to hard-code 2.0 / 50.0 / 20.0 while refineAndTestSolution kept its
+        // own copies of the same three numbers; the shader side now reads them
+        // from here (config.f_params2) so there is one place to change them.
+        // These values reproduce the previous behaviour exactly.
+        min_axis: 2.0,
+        max_axis: 50.0,
+        min_volume: 20.0
     };
     
     let currentGpuTaskIndex = 0;
@@ -4003,6 +4090,48 @@ systemsToSearch.forEach(system => {
         },
     };
 
+    // How each system's hkl basis is packed for the GPU.
+    //
+    // The shaders no longer receive raw [h,k,l,pad]; they receive the PRODUCTS
+    // they actually consume. Both the matrix rows and the FoM inner loop want
+    // h^2/k^2/l^2 (and h*l, or k*l/h*l/h*k), and the FoM recomputed them for
+    // every candidate cell against every basis reflection -- which is where
+    // nearly all GPU time went. Computing them once here removes 3 (ortho),
+    // 4 (mono) or 6 (triclinic) multiplies from the innermost loop and turns
+    // three scalar loads into one 16-byte vector load.
+    //
+    // This is not an approximation: |h|,|k|,|l| <= 12 so every product is a
+    // small integer, exactly representable in f32. The shader gets bit-for-bit
+    // what it used to compute.
+    //
+    // Ortho and mono keep the old 16-byte stride, so their buffers are the same
+    // size as before. Triclinic needs six products and so uses two vec4s
+    // (32 bytes); the engine reads the stride from cfg.hklFloats and the shader
+    // indexes hkl_basis[i*2] / hkl_basis[i*2+1]. Keep these three in sync with
+    // the @binding(1) comments in the .wgsl files.
+    //
+    // HKL_PACKING is stamped onto the returned array and re-checked by the
+    // engine. Raw indices and packed products have the SAME stride for ortho
+    // and mono, so a mismatch is otherwise invisible: the run completes and
+    // silently finds nothing. That is exactly the bug this tag exists to catch.
+    const HKL_PACKING = 'products/v1';
+
+    const HKL_PACKERS = {
+        orthorhombic: { floats: 4, pack: (o, i, h, k, l) => {
+            const b = i * 4;
+            o[b] = h * h; o[b + 1] = k * k; o[b + 2] = l * l; o[b + 3] = 0;
+        } },
+        monoclinic: { floats: 4, pack: (o, i, h, k, l) => {
+            const b = i * 4;
+            o[b] = h * h; o[b + 1] = k * k; o[b + 2] = l * l; o[b + 3] = h * l;
+        } },
+        triclinic: { floats: 8, pack: (o, i, h, k, l) => {
+            const b = i * 8;
+            o[b] = h * h; o[b + 1] = k * k; o[b + 2] = l * l; o[b + 3] = k * l;
+            o[b + 4] = h * l; o[b + 5] = h * k; o[b + 6] = 0; o[b + 7] = 0;
+        } },
+    };
+
     // Build the HKL basis array. If splitSpecial is true, axial HKLs (two of h,k,l are 0)
     // are placed at the front of the list before truncation to n_hkl_for_basis.
     const buildHklBasis = (system, n_hkl_for_basis, splitSpecial) => {
@@ -4024,9 +4153,11 @@ systemsToSearch.forEach(system => {
             ordered = hkl_full;
         }
         const hkl_basis_raw = ordered.slice(0, n_hkl_for_basis);
-        const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
-        hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
-        return { hkl_basis_raw, hklBasisArray };
+        const packer = HKL_PACKERS[system];
+        if (!packer) throw new Error(`No HKL packer registered for system '${system}'.`);
+        const hklBasisArray = new Float32Array(hkl_basis_raw.length * packer.floats);
+        hkl_basis_raw.forEach((hkl, i) => { packer.pack(hklBasisArray, i, hkl[0], hkl[1], hkl[2]); });
+        return { hkl_basis_raw, hklBasisArray, hklFloats: packer.floats, hklPacking: HKL_PACKING };
     };
 
     // Build the peak-combo flat Uint32Array using the already-present createCombinationGenerator.
@@ -4085,7 +4216,7 @@ systemsToSearch.forEach(system => {
                 engine.createPipeline(cfg.entryPoint);
 
                 // 1. HKL basis
-                const { hkl_basis_raw, hklBasisArray } = buildHklBasis(system, n_hkl_for_basis, cfg.splitSpecialHkls);
+                const { hkl_basis_raw, hklBasisArray, hklPacking } = buildHklBasis(system, n_hkl_for_basis, cfg.splitSpecialHkls);
 
                 // 2. Peak combinations
                 const max_p = Math.min(n_peaks_for_combo, qObsArray.length);
@@ -4136,7 +4267,13 @@ systemsToSearch.forEach(system => {
                     qTolerancesArray,
                     progressCallback,   // pass directly: an arrow wrapper would drop .reportPlan
                     gpuStopSignal,
-                    baseParams,
+                    // hklPacking rides in baseParams rather than as another
+                    // positional argument -- this list is long enough that
+                    // inserting one shifts everything after it, which is exactly
+                    // the mistake the tag exists to catch. Spread rather than
+                    // stored on baseParams at construction, so the tag reports
+                    // what buildHklBasis ACTUALLY produced for this run.
+                    { ...baseParams, hklPacking },
                     handleIntermediateResults
                 );
                 const engineMs = performance.now() - tEngineStart;

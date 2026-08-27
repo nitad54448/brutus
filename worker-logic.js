@@ -2417,6 +2417,10 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
         hklList:[]
     };
     if (!spaceGroupData?.space_groups) { console.warn("Space group data not loaded"); return fallbackResult; }
+    if (!sgEnsureDatabase(spaceGroupData)) {
+        console.warn("Space group database has no operator table (rebuild with sg_pack.py)");
+        return fallbackResult;
+    }
     const all_calc_hkls = generateHKL_for_analysis(solution, wavelength, tthMax);
 
     if (all_calc_hkls.length === 0) {
@@ -3140,6 +3144,7 @@ function determineCentering(indexed_hkls, system) {
 function detectExtinctions(indexed_hkls, system, spaceGroupData, allowedCenterings, evidence) {
     const confirmedRules = new Set();
     if (!spaceGroupData?.space_groups || indexed_hkls.length === 0) { return ["None detected (no data or rules)"]; }
+    if (!sgEnsureDatabase(spaceGroupData)) { return ["None detected (database has no operators)"]; }
     // --- CANDIDATE POOL: CRYSTAL SYSTEM *AND* CENTERING ---
     // Only conditions that a still-viable space group could actually own are
     // testable. Admitting rules from centerings the lattice test has already
@@ -3151,7 +3156,11 @@ function detectExtinctions(indexed_hkls, system, spaceGroupData, allowedCenterin
         sg.settings.forEach(setting => {
             if (!sgSettingAxesMatch(setting, system)) return;
             if (!settingCenteringAllowed(setting.symbol, allowedCenterings)) return;
-            const conditions = setting.reflection_conditions || {};
+            // Printed conditions only. The pool exists to name which INDIVIDUAL
+            // condition the data supports, and that is an International Tables
+            // presentation question -- absences themselves come from the
+            // operators, in countViolations().
+            const conditions = setting.conditions || {};
             Object.entries(conditions).forEach(([zone, condList]) => {
                 condList.forEach(condStr => { potentialRules.add(`${zone}: ${condStr}`); });
             });
@@ -3433,6 +3442,7 @@ function detectExtinctions(indexed_hkls, system, spaceGroupData, allowedCenterin
 
 
 function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData, maxViolations, detectedExtinctions) {
+    if (!sgEnsureDatabase(spaceGroupData)) return [];
     const candidateGroups = Object.values(spaceGroupData.space_groups)
         .filter(sg => sgSystemMatches(sg.crystal_system, system));
     const validSettings = [];
@@ -3498,8 +3508,8 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
             // Same filter detectExtinctions() applies to its candidate pool.
             if (!settingCenteringAllowed(setting.symbol, allowedCenterings)) { continue; }
             
-            const rules = setting.reflection_conditions || {};
-            const violations = countViolations(indexed_hkls, rules);
+            const rules = setting.conditions || {};
+            const violations = countViolations(indexed_hkls, setting);
             
             // Cutoff remains on HARD violations only
             if (violations.hardCount <= maxViolations) {
@@ -3675,19 +3685,37 @@ const satisfiesCondition = (h, k, l, condStr) => {
     return true;
 };
 
-function countViolations(indexed_hkls, rules) {
+// A violation is an OBSERVED reflection the candidate says is systematically
+// absent. `setting` supplies the operators, which answer that exactly and
+// completely: no zone lookup, no inheritance, and no dependence on whether the
+// tables happened to print the condition that kills a particular reflection.
+//
+// The rule strings are still consulted, but only to NAME the violated condition
+// in the detail line the report shows. If no printed condition matches -- which
+// happens when the absence follows from a condition the tables leave implied --
+// the detail says so rather than inventing one.
+function countViolations(indexed_hkls, setting) {
     let hardCount = 0;
     let softCount = 0;
     const detailsHard = [];
     const detailsSoft = [];
 
-    // Helper: does this single (h,k,l) violate any applicable rule?
-    // Mirrors the per-reflection checks below so we can probe alternative hkls.
-    const hklViolatesRules = (h, k, l) => {
-        for (const { cond } of applicableRules(rules, h, k, l)) {
-            if (!satisfiesCondition(h, k, l, cond)) return true;
+    const C = sgOpsCompile(setting);
+    if (!C) return { count: 0, hardCount: 0, softCount: 0,
+                     details: [], detailsHard: [], detailsSoft: [] };
+    const printed = sgSettingConditions(setting);
+
+    const hklViolatesRules = (h, k, l) => sgOpsAbsent(h, k, l, C);
+
+    // Which printed condition explains this absence? Presentation only.
+    const nameFor = (h, k, l) => {
+        for (let i = 0; i < printed.length; i++) {
+            const { zone, cond } = printed[i];
+            if (zoneApplies(zone, h, k, l) && !satisfiesCondition(h, k, l, cond)) {
+                return `${zone}: ${cond}`;
+            }
         }
-        return false;
+        return 'a systematic absence of this group';
     };
 
     for (const reflection of indexed_hkls) {
@@ -3712,13 +3740,10 @@ function countViolations(indexed_hkls, rules) {
             if (refl.lowIntensity) tags.push('weak');
             return tags.length > 0 ? ` [${tags.join(', ')}]` : '';
         };
-        for (const { zone, cond } of applicableRules(rules, h, k, l)) {
-            if (!satisfiesCondition(h, k, l, cond)) {
-                isViolation = true;
-                const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
-                violationDetail = `(${h},${k},${l})${tth_string} violates ${zone}: ${cond}${softTagFor(reflection)}`;
-                break;
-            }
+        if (sgOpsAbsent(h, k, l, C)) {
+            isViolation = true;
+            const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
+            violationDetail = `(${h},${k},${l})${tth_string} violates ${nameFor(h, k, l)}${softTagFor(reflection)}`;
         }
 
         // --- AMBIGUOUS-HKL DEMOTION ---
@@ -3787,61 +3812,7 @@ function getReflectionZone(h, k, l) {
     return 'hkl';
 }
 
-// --- ZONE MEMBERSHIP (inclusive) ---
-// getReflectionZone() above returns ONE label, which is right for reporting but
-// wrong for testing reflection conditions: a reflection can belong to several
-// zone families at once and must satisfy the rules of EVERY family it belongs
-// to. 330 is an hk0 reflection (l=0) and simultaneously an hh0/hhl one (h=k);
-// 004 is 00l and also hhl (h=k=0). Testing only the single label silently
-// misses real extinctions - e.g. in I-42d (122), which has hhl: 2h+l=4n and no
-// hk0 rule, reflection 110 is systematically absent (2h+l=2, not 4n) yet was
-// classified 'hk0' and never tested against the hhl rule.
-//
-// Membership is deliberately INCLUSIVE (hkl contains everything, hk0 contains
-// h00, hhl contains hh0 and 00l, ...). This is REQUIRED, not merely tidier:
-// cctbx_space_groups_all_settings_v4.json stores only the conditions that are
-// not already implied by a more general class. Pna21 (33) is stored as just
-// {0kl: k+l=2n, h0l: h=2n}; the axial conditions International Tables prints
-// for it (00l: l=2n, 0k0: k=2n, h00: h=2n) are omitted because each follows by
-// restriction - k+l=2n at k=0 IS l=2n. Without inheritance those extinctions
-// were never tested: verified against structure factors from the group
-// operations, the old single-zone test missed 001/003/005/010/030/050/100/300/
-// 500 for Pna21, and changed verdicts for 264 of the 527 settings in the file.
-// A cross-check over all 527 settings found no case where a general-class
-// condition contradicts a listed special-class one, so inheritance can only
-// restore a missing absence, never invent a false one.
-//
-// NOTE: 'hkk', 'hll', 'hkh', 'h-hl', 'hh0' and 'hhh' do not occur in the
-// bundled database (only hkl, h0l, 0kl, hk0, 00l, hhl, 0k0, h00 are used).
-// They are kept for forward compatibility; 'hll' preserves the original
-// code's reading (|h|==|l|) which is ambiguous against a positional reading,
-// so re-check it if a database that uses that key is ever loaded.
-const ZONE_PREDICATES = {
-    'hkl':  () => true,
-    'hk0':  (h, k, l) => l === 0,
-    'h0l':  (h, k, l) => k === 0,
-    '0kl':  (h, k, l) => h === 0,
-    'h00':  (h, k, l) => k === 0 && l === 0,
-    '0k0':  (h, k, l) => h === 0 && l === 0,
-    '00l':  (h, k, l) => h === 0 && k === 0,
-    'hhl':  (h, k, l) => Math.abs(h) === Math.abs(k),
-    'hh0':  (h, k, l) => Math.abs(h) === Math.abs(k) && l === 0,
-    'hhh':  (h, k, l) => Math.abs(h) === Math.abs(k) && Math.abs(k) === Math.abs(l),
-    'hkk':  (h, k, l) => Math.abs(k) === Math.abs(l),
-    'hll':  (h, k, l) => Math.abs(h) === Math.abs(l),
-    'hkh':  (h, k, l) => Math.abs(h) === Math.abs(l),
-    'h-hl': (h, k, l) => h === -k,
-};
 
-// Does a rule labelled `zoneLabel` apply to this reflection?
-// Unknown labels fall back to the old exact-match behaviour so an unrecognised
-// key in the space-group database can never start matching everything.
-function zoneApplies(zoneLabel, h, k, l) {
-    const H = Math.round(h), K = Math.round(k), L = Math.round(l);
-    const pred = ZONE_PREDICATES[zoneLabel];
-    if (pred) return pred(H, K, L);
-    return getReflectionZone(H, K, L) === zoneLabel;
-}
 
 // Does a database group belong to the crystal system the indexer reported?
 //
@@ -4612,90 +4583,7 @@ const SG_HOLOHEDRY = {
     orthorhombic: 'mmm', monoclinic: '2/m', triclinic: '-1',
 };
 
-const SG_LAUE_OF_POINT_GROUP = {
-    '1': '-1', '-1': '-1',
-    '2': '2/m', 'm': '2/m', '2/m': '2/m',
-    '222': 'mmm', 'mm2': 'mmm', 'mmm': 'mmm',
-    '4': '4/m', '-4': '4/m', '4/m': '4/m',
-    '422': '4/mmm', '4mm': '4/mmm', '-42m': '4/mmm', '-4m2': '4/mmm', '4/mmm': '4/mmm',
-    '3': '-3', '-3': '-3',
-    '32': '-3', '3m': '-3', '-3m': '-3',        // see note above
-    '6': '6/m', '-6': '6/m', '6/m': '6/m',
-    '622': '6/mmm', '6mm': '6/mmm', '-62m': '6/mmm', '-6m2': '6/mmm', '6/mmm': '6/mmm',
-    '23': 'm-3', 'm-3': 'm-3',
-    '432': 'm-3m', '-43m': 'm-3m', 'm-3m': 'm-3m',
-};
 
-// The orbit of (h,k,l) under a Laue class, in the conventional setting.
-// Every operation here must leave the reflection conditions of any group in that
-// class invariant -- sgAuditLaueOrbits() checks exactly that against the whole
-// database.
-function sgLaueOrbit(h, k, l, laue) {
-    const out = [];
-    const push = (a, b, c) => out.push([a, b, c]);
-    const signs = (x, y, z) => {
-        for (const sx of [1, -1]) for (const sy of [1, -1]) for (const sz of [1, -1])
-            push(sx * x, sy * y, sz * z);
-    };
-    switch (laue) {
-        case 'm-3m': {                       // all 6 permutations, all signs
-            for (const [x, y, z] of [[h,k,l],[h,l,k],[k,h,l],[k,l,h],[l,h,k],[l,k,h]]) signs(x, y, z);
-            break;
-        }
-        case 'm-3': {                        // CYCLIC permutations only, all signs
-            for (const [x, y, z] of [[h,k,l],[k,l,h],[l,h,k]]) signs(x, y, z);
-            break;
-        }
-        case '4/mmm': {
-            for (const [x, y] of [[h,k],[k,h]])
-                for (const sx of [1,-1]) for (const sy of [1,-1]) for (const sz of [1,-1])
-                    push(sx * x, sy * y, sz * l);
-            break;
-        }
-        case '4/m': {                        // 4-fold about c, plus inversion
-            let a = h, b = k;
-            for (let r = 0; r < 4; r++) {
-                push(a, b, l); push(-a, -b, -l);
-                const na = -b, nb = a; a = na; b = nb;
-            }
-            break;
-        }
-        case '6/mmm': {                      // 6-fold about c, the mirror, both signs of l
-            let a = h, b = k;
-            for (let r = 0; r < 6; r++) {
-                for (const sz of [1,-1]) { push(a, b, sz * l); push(b, a, sz * l); }
-                const na = -b, nb = a + b; a = na; b = nb;
-            }
-            break;
-        }
-        case '6/m': {                        // 6-fold about c, plus inversion
-            let a = h, b = k;
-            for (let r = 0; r < 6; r++) {
-                push(a, b, l); push(-a, -b, -l);
-                const na = -b, nb = a + b; a = na; b = nb;
-            }
-            break;
-        }
-        case '-3': {                         // 3-fold about c: (h,k) -> (k,-h-k)
-            let a = h, b = k;
-            for (let r = 0; r < 3; r++) {
-                push(a, b, l); push(-a, -b, -l);
-                const na = b, nb = -a - b; a = na; b = nb;
-            }
-            break;
-        }
-        case 'mmm':
-            signs(h, k, l);
-            break;
-        case '2/m':                          // b unique
-            push(h, k, l); push(-h, k, -l); push(h, -k, l); push(-h, -k, -l);
-            break;
-        default:                             // -1
-            push(h, k, l); push(-h, -k, -l);
-            break;
-    }
-    return out;
-}
 
 // ---------------------------------------------------------------------------
 // Compiled reflection conditions
@@ -4766,129 +4654,6 @@ function sgCompileCondition(condStr) {
     return out;
 }
 
-// (h,k,l) => is this line PRESENT under `rules`? Memoised: the annealing walk
-// asks about the same few hundred reflections thousands of times.
-//
-// The orbit rule used to be a plain OR: allowed if ANY member of the holohedral
-// orbit satisfies its own conditions. That is right for the reason the comment
-// above sgEquivalents() gives -- the generator emits one representative per
-// folded set and a condition need not be invariant under the choice -- but it is
-// WRONG for members that are true symmetry equivalents, because those share one
-// structure factor and are absent together. The two cases have to be separated
-// or one of them breaks.
-//
-// Worked example of the breakage. Fd-3m lists 0kl: k+l = 4n. The generator emits
-// 200 (h >= k >= l), never 020. applicableRules() correctly finds no 0kl rule for
-// 200 -- h is not zero -- so 200 passes on its own, the OR accepted it, and the
-// line stayed in the list. But 200 and 020 are symmetry equivalents in a cubic
-// group, 020 fails k+l = 4n, so the reflection is absent: 200 is missing from
-// every diamond-type pattern ever measured. The consequence was that Fd-3m
-// produced exactly the same line list as Fm-3m and the two were merged into one
-// class. Every d-glide in the cubic system -- diamond, spinel, pyrochlore -- was
-// undetectable.
-//
-// The fix partitions the folding orbit into TRUE symmetry orbits, using the
-// Laue class taken from the database's point_group field:
-//
-//     allowed(hkl) = OR  over Laue orbits O inside the folding orbit
-//                    AND over members m of O
-//                        okDirect(m)
-//
-//   * AND inside a Laue orbit is correct because those members are genuine
-//     symmetry equivalents: one structure factor, present or absent together.
-//     That is what fixes Fd-3m -- 200 and 020 are equivalent under m-3m, 020
-//     fails k+l=4n, so the line goes.
-//   * OR across Laue orbits is correct because those members are NOT equivalent;
-//     they merely share a d-spacing after the generator folded them onto one
-//     representative, and a powder line appears if any of them is present. That
-//     is what keeps R alive: 102 is forbidden in the obverse setting but shares
-//     its q with the allowed 012, so the line survives.
-//   * Groups whose Laue class is smaller than the holohedral one now get the
-//     right answer in both directions. Pa-3 keeps 210 (m-3 has no transposition
-//     to import a k=2n demand) while Fd-3m still loses 200.
-//
-// If point_group is missing the centering is used as a fallback proxy: it splits
-// the orbit for R, where the holohedral six-fold is not a lattice operation, and
-// is a no-op everywhere else.
-function sgAllowedFn(rules, system, centering, pointGroup) {
-    // Flatten the rule set once. applicableRules() rebuilds this from
-    // Object.entries on every reflection; the predicate does not depend on which
-    // zone a condition was listed under, so a flat (zonePredicate, condition)
-    // list is exactly equivalent and allocates nothing per call.
-    const flat = [];
-    for (const [zone, conds] of Object.entries(rules || {})) {
-        if (!Array.isArray(conds) || !conds.length) continue;
-        const zp = ZONE_PREDICATES[zone] || ((h, k, l) => getReflectionZone(h, k, l) === zone);
-        for (const cond of conds) flat.push([zp, sgCompileCondition(cond)]);
-    }
-    if (!flat.length) return () => true;                  // nothing is forbidden
-
-    const laue = SG_LAUE_OF_POINT_GROUP[pointGroup] || null;
-    // When the Laue class already IS the holohedry of the crystal system, the
-    // folding orbit is a single symmetry orbit and the partition is a no-op --
-    // a plain AND, with none of the orbit-key bookkeeping. That is the majority
-    // of groups, so it is worth the special case: building a Laue orbit for
-    // every member of every folding orbit made class enumeration 20x slower.
-    const holo = laue && laue === SG_HOLOHEDRY[system];
-    const centPred = SG_CENTERING_PRED[centering] || SG_CENTERING_PRED['P'];
-    const cache = new Map();
-
-    const okDirect = (h, k, l) => {
-        for (let i = 0; i < flat.length; i++) {
-            const f = flat[i];
-            if (f[0](h, k, l) && !f[1](h, k, l)) return false;
-        }
-        return true;
-    };
-
-    return (h, k, l) => {
-        const key = h + ',' + k + ',' + l;
-        const hit = cache.get(key);
-        if (hit !== undefined) return hit;
-
-        const orbit = sgEquivalents(h, k, l, system);
-        let ok = false;
-
-        if (holo) {
-            // one symmetry orbit: plain AND
-            ok = true;
-            for (let i = 0; i < orbit.length; i++) {
-                const m = orbit[i];
-                if (!okDirect(m[0], m[1], m[2])) { ok = false; break; }
-            }
-        } else if (laue) {
-            // Walk the folding orbit, expanding one true symmetry orbit at a
-            // time and marking its members so each is visited once. AND inside
-            // an orbit, OR across them -- and the first orbit that survives
-            // settles it, so the usual case exits after one expansion.
-            const seen = new Set();
-            for (let i = 0; i < orbit.length && !ok; i++) {
-                const m = orbit[i];
-                if (seen.has(m[0] + ',' + m[1] + ',' + m[2])) continue;
-                const cls = sgLaueOrbit(m[0], m[1], m[2], laue);
-                let good = true;
-                for (let j = 0; j < cls.length; j++) {
-                    const c = cls[j];
-                    seen.add(c[0] + ',' + c[1] + ',' + c[2]);
-                    if (good && !okDirect(c[0], c[1], c[2])) good = false;
-                }
-                if (good) ok = true;
-            }
-        } else {
-            // fallback: centering as a proxy for "is this operation in the group"
-            let any = false;
-            for (let i = 0; i < orbit.length; i++) {
-                const m = orbit[i];
-                if (!centPred(m[0], m[1], m[2])) continue;
-                any = true;
-                if (!okDirect(m[0], m[1], m[2])) { any = false; break; }
-            }
-            ok = any;
-        }
-        cache.set(key, ok);
-        return ok;
-    };
-}
 
 // ============================================================================
 // EXTINCTION-CLASS CONSTRUCTION
@@ -4948,27 +4713,6 @@ function sgBehaviourSignatureString(allowed) {
     return bits.join('');
 }
 
-// ---------------------------------------------------------------------------
-// Extinction (diffraction) symbols
-// ---------------------------------------------------------------------------
-// A row is a SET of space groups the data cannot separate. Labelling it with
-// the lowest-numbered member reads like a determination: the user sees
-// "P2_12_12_1" and takes it for an answer, when what the absences actually
-// establish is the extinction symbol. So the label is derived from BEHAVIOUR:
-// for each symmetry direction of the crystal system, probe allowed() on the
-// relevant zone and axis and report the glide/screw letter that reproduces it
-// exactly. Anything the probe cannot name comes back as "?" rather than a
-// guess, and the member column always carries the full truth.
-
-const SG_CENTERING_PRED = {
-    'P': () => true,
-    'A': (h, k, l) => _sgMod(k + l, 2) === 0,
-    'B': (h, k, l) => _sgMod(h + l, 2) === 0,
-    'C': (h, k, l) => _sgMod(h + k, 2) === 0,
-    'I': (h, k, l) => _sgMod(h + k + l, 2) === 0,
-    'F': (h, k, l) => _sgMod(h + k, 2) === 0 && _sgMod(k + l, 2) === 0,
-    'R': (h, k, l) => _sgMod(-h + k + l, 3) === 0,
-};
 
 const _sgMod = (x, n) => ((x % n) + n) % n;
 
@@ -5100,50 +4844,16 @@ function sgProbeZone(allowed, centPred, zoneKey, R) {
     return '?';
 }
 
-// The predicate the LABEL is derived from.
-//
-// allowed() answers a powder question: is there a peak at this d? It ORs across
-// the inequivalent reflections the generator folded onto one representative. An
-// extinction symbol answers a different question -- what does this group forbid?
-// -- and that is per reflection class, not per powder shell.
-//
-// Pa-3 shows why the two must not be confused. Its hk0 condition is h = 2n. The
-// generator emits only h >= k, so the representative (2,1,0) stands for both 210
-// and 120, which are NOT equivalent under m-3; allowed() therefore reports
-// "h even OR k even", which no single glide letter describes, and the label came
-// out "P?-". Restricting to the reflection's own Laue orbit gives back h = 2n
-// and the conventional "Pa-".
-function sgLabelPredicate(rules, system, centering, pointGroup) {
-    const flat = [];
-    for (const [zone, conds] of Object.entries(rules || {})) {
-        if (!Array.isArray(conds) || !conds.length) continue;
-        const zp = ZONE_PREDICATES[zone] || ((h, k, l) => getReflectionZone(h, k, l) === zone);
-        for (const cond of conds) flat.push([zp, sgCompileCondition(cond)]);
-    }
-    if (!flat.length) return () => true;
-    const laue = SG_LAUE_OF_POINT_GROUP[pointGroup] || null;
-    const okDirect = (h, k, l) => {
-        for (let i = 0; i < flat.length; i++) {
-            const f = flat[i];
-            if (f[0](h, k, l) && !f[1](h, k, l)) return false;
-        }
-        return true;
-    };
-    if (!laue) return okDirect;
-    return (h, k, l) => {
-        const orb = sgLaueOrbit(h, k, l, laue);
-        for (let i = 0; i < orb.length; i++) {
-            if (!okDirect(orb[i][0], orb[i][1], orb[i][2])) return false;
-        }
-        return true;
-    };
-}
 
 // Falls back to "<centering>?" for a system with no direction table, which keeps
 // the label honest instead of inventing a symbol we did not derive.
-function sgExtinctionSymbol(allowed, system, centering) {
-    const cent = SG_CENTERING_PRED[centering] ? centering : 'P';
-    const centPred = SG_CENTERING_PRED[cent];
+function sgExtinctionSymbol(allowed, system, centering, centPredIn) {
+    // centPredIn comes from the setting's own centring operators (identity
+    // rotation, non-zero translation), so R-obverse and every other centring
+    // are exact rather than looked up from a per-letter table. The 'P' default
+    // keeps the probe honest if a caller has no setting to hand.
+    const cent = String(centering || 'P').charAt(0) || 'P';
+    const centPred = centPredIn || (() => true);
     const dirs = SG_SYMBOL_DIRECTIONS[system];
     if (!dirs) return cent + '?';
     if (!dirs.length) return cent;
@@ -5179,7 +4889,293 @@ function sgExtinctionSymbol(allowed, system, centering) {
 // Every distinct ABSTRACT extinction class of a crystal system.
 // `allowedCenterings` is optional; pass the list from determineCentering() to
 // scan only the lattices the absences already allow, or omit it to scan all.
+// ============================================================================
+// SPACE-GROUP CORE: OPERATORS AND ZONES
+// ============================================================================
+//
+// Everything about systematic absences now comes from the symmetry OPERATORS,
+// and everything about zone membership from the zone NORMALS. Both arrive in
+// sg_ops.json (see sg_pack.py); neither is inferred from a rule string.
+//
+// ABSENCE. From
+//     F(h) = exp(2*pi*i * h.t) * F(hR)      for every operator (R, t)
+// it follows that if hR = h then F(h) = exp(2*pi*i h.t) F(h), so F(h) must
+// vanish unless h.t is an integer. That is the definition, and it is complete:
+// it needs no zone table, no inheritance rule and no centering proxy, because
+// the centring translations are themselves operators.
+//
+// ZONES. A zone is the set of reflections killed by n.h = 0 for each of its
+// normals. The old ZONE_PREDICATES table guessed these from the label and got
+// three families wrong: 'hhl' was Math.abs(h) === Math.abs(k), which also
+// matches h === -k -- the separate 'h-hl' zone, with different conditions in
+// trigonal and hexagonal groups. Same for 'hkk'/'hll'/'hkh'. Refereed against
+// the generator's own zone records, the string path was wrong on 180
+// reflections of P6_3/mmc and 48 of R-3c inside |h|,|k|,|l| <= 5; the operator
+// path was wrong on none.
+//
+// Normals also make membership INCLUSIVE for free, which the old table needed a
+// long argument to justify: h00 satisfies the hk0 normal (l = 0), so h00 is in
+// hk0 automatically, and a condition stated only on the general zone still
+// reaches the special reflections it governs.
+//
+// INDEX CONVENTION. cctbx writes x' = R x + t with R row-major, so reflection
+// indices transform as the ROW vector h' = h R:
+//     h'_c = h*R[0*3+c] + k*R[1*3+c] + l*R[2*3+c]
+// matching _zone_fixed_by() in the generator, which contracts b[i] with
+// R[3*i + c]. Translations are exact rationals t = t_num / t_den.
+
+// ---------------------------------------------------------------------------
+// Database registration
+// ---------------------------------------------------------------------------
+// The zone table is global to a database, so it is installed once at load
+// rather than threaded through every call. Both the main thread and each worker
+// call this after fetching, because they each hold their own copy of this file.
+let SG_ZONE_NORMALS = null;       // label -> [[n0,n1,n2], ...]
+let SG_ROTATIONS = null;          // shared rotation table
+let _SG_INSTALLED_DB = null;      // identity of the database currently installed
+
+function sgInstallDatabase(db) {
+    SG_ROTATIONS = (db && db.rotations) || null;
+    SG_ZONE_NORMALS = (db && db.zone_defs) || null;
+    _SG_INSTALLED_DB = db || null;
+    _SG_ZONE_PRED_CACHE.clear();
+    // _SG_OPS_CACHE is keyed on the setting objects themselves, so a different
+    // database brings different objects and cannot collide with stale entries.
+    return !!(SG_ROTATIONS && SG_ZONE_NORMALS);
+}
+
+// Idempotent, and cheap when nothing changed. Called at the top of every entry
+// point that receives the database, so neither the main thread nor any worker
+// has to remember to install it -- the database is structured-cloned into each
+// worker and every context holds its own copy of this file.
+function sgEnsureDatabase(db) {
+    if (db && db !== _SG_INSTALLED_DB) sgInstallDatabase(db);
+    return !!SG_ROTATIONS;
+}
+
+const _SG_ZONE_PRED_CACHE = new Map();
+
+// Does a rule labelled `zoneLabel` apply to this reflection?
+//
+// Exact when the database supplies normals for the label. An unknown label
+// falls back to an exact-match on the reported zone name, which can only ever
+// under-apply a rule -- never make one match everything.
+function zoneApplies(zoneLabel, h, k, l) {
+    const H = Math.round(h), K = Math.round(k), L = Math.round(l);
+    let pred = _SG_ZONE_PRED_CACHE.get(zoneLabel);
+    if (pred === undefined) {
+        const normals = SG_ZONE_NORMALS ? SG_ZONE_NORMALS[zoneLabel] : null;
+        if (normals && normals.length) {
+            const N = normals.map(v => [v[0] | 0, v[1] | 0, v[2] | 0]);
+            pred = (a, b, c) => {
+                for (let i = 0; i < N.length; i++) {
+                    const n = N[i];
+                    if (n[0] * a + n[1] * b + n[2] * c !== 0) return false;
+                }
+                return true;
+            };
+        } else if (normals) {
+            pred = () => true;                       // no normals == the whole of hkl
+        } else {
+            pred = null;
+        }
+        _SG_ZONE_PRED_CACHE.set(zoneLabel, pred);
+    }
+    if (pred) return pred(H, K, L);
+    return getReflectionZone(H, K, L) === zoneLabel;
+}
+
+// ---------------------------------------------------------------------------
+// Compiling a setting's operators
+// ---------------------------------------------------------------------------
+// Two lists come out, used for different things:
+//   R/Tn     operators with a NON-ZERO translation. Only these can extinguish
+//            anything, so the absence test never looks at pure rotations. For a
+//            symmorphic group this holds just the centring vectors.
+//   pgR      the point group: rotation parts with duplicates removed. Needed
+//            for epsilon and centricity, never for absence.
+//   cenTn    the centring translations: operators whose rotation is the
+//            identity. These give the lattice predicate that SG_CENTERING_PRED
+//            used to hard-code per letter.
+const _SG_OPS_CACHE = new WeakMap();
+
+function sgOpsCompile(setting) {
+    if (!setting) return null;
+    const cached = _SG_OPS_CACHE.get(setting);
+    if (cached !== undefined) return cached;
+
+    const packed = setting.ops;
+    const rotations = SG_ROTATIONS;
+    if (!packed || !packed.length || !rotations) { _SG_OPS_CACHE.set(setting, null); return null; }
+    const den = setting.t_den || 1;
+
+    const absIdx = [], pgRot = [], cen = [];
+    const seenRot = new Set();
+    for (let i = 0; i < packed.length; i++) {
+        const op = packed[i];
+        const r = rotations[op[0]];
+        if (!r || r.length !== 9) { _SG_OPS_CACHE.set(setting, null); return null; }
+        if (!seenRot.has(op[0])) { seenRot.add(op[0]); pgRot.push(r); }
+        const isIdentity = r[0] === 1 && r[4] === 1 && r[8] === 1 &&
+                           !r[1] && !r[2] && !r[3] && !r[5] && !r[6] && !r[7];
+        if (isIdentity) cen.push([op[1], op[2], op[3]]);
+        if (op[1] || op[2] || op[3]) absIdx.push(i);
+    }
+
+    const nA = absIdx.length;
+    const R = new Int32Array(nA * 9);
+    const Tn = new Int32Array(nA * 3);
+    for (let a = 0; a < nA; a++) {
+        const op = packed[absIdx[a]];
+        const r = rotations[op[0]];
+        for (let j = 0; j < 9; j++) R[a * 9 + j] = r[j];
+        Tn[a * 3] = op[1]; Tn[a * 3 + 1] = op[2]; Tn[a * 3 + 2] = op[3];
+    }
+    const nP = pgRot.length;
+    const P = new Int32Array(nP * 9);
+    for (let i = 0; i < nP; i++) for (let j = 0; j < 9; j++) P[i * 9 + j] = pgRot[i][j];
+
+    const nC = cen.length;
+    const Cn = new Int32Array(nC * 3);
+    for (let i = 0; i < nC; i++) { Cn[i * 3] = cen[i][0]; Cn[i * 3 + 1] = cen[i][1]; Cn[i * 3 + 2] = cen[i][2]; }
+
+    const out = { nAbs: nA, R, Tn, den, nPg: nP, pgR: P, nCen: nC, cenTn: Cn,
+                  orderZ: packed.length, orderP: nP };
+    _SG_OPS_CACHE.set(setting, out);
+    return out;
+}
+
+// h is systematically absent iff some operator fixes h and shifts its phase.
+function sgOpsAbsent(h, k, l, C) {
+    const R = C.R, Tn = C.Tn, den = C.den, n = C.nAbs;
+    for (let i = 0; i < n; i++) {
+        const b = i * 9;
+        // hR == h ?  One component at a time; most operators fail on the first.
+        if (h * R[b] + k * R[b + 3] + l * R[b + 6] !== h) continue;
+        if (h * R[b + 1] + k * R[b + 4] + l * R[b + 7] !== k) continue;
+        if (h * R[b + 2] + k * R[b + 5] + l * R[b + 8] !== l) continue;
+        // h.t integral ?  Exact integer arithmetic: h.t = num / den.
+        const t = i * 3;
+        const num = h * Tn[t] + k * Tn[t + 1] + l * Tn[t + 2];
+        // JS % keeps the sign of the dividend and -0 === 0, so this is a
+        // correct divisibility test for negative indices as written.
+        if (num % den !== 0) return true;
+    }
+    return false;
+}
+
+// Is this reflection allowed by the LATTICE alone? Derived from the centring
+// operators, so R-obverse and every other centring come out right without a
+// per-letter table.
+function sgOpsCenteringPred(C) {
+    if (!C || C.nCen === 0) return () => true;
+    const Cn = C.cenTn, den = C.den, n = C.nCen;
+    return (h, k, l) => {
+        for (let i = 0; i < n; i++) {
+            const t = i * 3;
+            if ((h * Cn[t] + k * Cn[t + 1] + l * Cn[t + 2]) % den !== 0) return false;
+        }
+        return true;
+    };
+}
+
+// The powder question: is there a peak at this d-spacing?
+//
+// A powder line collects every reflection sharing its d, which the METRIC
+// decides, not the space group -- so the line survives if ANY member of the
+// metric orbit does. The old sgAllowedFn needed "AND inside a Laue orbit, OR
+// across orbits" plus a folding walk to work out which members a condition
+// governed. Absence is constant on a point-group orbit -- |F(hR)| = |F(h)| --
+// so every member of one answers identically and the AND collapses to a plain
+// OR over the metric orbit. The Fd-3m and Pa-3 cases the old comment describes
+// both come out right without any of that machinery.
+function sgOpsAllowedFn(setting, system) {
+    const C = sgOpsCompile(setting);
+    if (!C) return null;
+    if (C.nAbs === 0) return () => true;
+    const cache = new Map();
+    return (h, k, l) => {
+        const key = h + ',' + k + ',' + l;
+        const hit = cache.get(key);
+        if (hit !== undefined) return hit;
+        const orbit = sgEquivalents(h, k, l, system);
+        let ok = false;
+        for (let i = 0; i < orbit.length; i++) {
+            const m = orbit[i];
+            if (!sgOpsAbsent(m[0], m[1], m[2], C)) { ok = true; break; }
+        }
+        cache.set(key, ok);
+        return ok;
+    };
+}
+
+// The label question: what does this group forbid, per reflection rather than
+// per powder shell? With operators it is the absence test itself. The Laue-orbit
+// restriction the old sgLabelPredicate needed is unnecessary: asking about a
+// reflection already asks about its whole orbit.
+function sgOpsLabelPredicate(setting) {
+    const C = sgOpsCompile(setting);
+    if (!C) return null;
+    if (C.nAbs === 0) return () => true;
+    return (h, k, l) => !sgOpsAbsent(h, k, l, C);
+}
+
+// epsilon(h): the order of the stabiliser of h in the point group.
+//     <|F(h)|^2> = epsilon(h) * sum_j f_j^2
+// Reflections on a symmetry axis or plane are expected epsilon times STRONGER
+// than a general reflection at the same resolution.
+function sgOpsEpsilon(h, k, l, C) {
+    const R = C.pgR, n = C.nPg;
+    let eps = 0;
+    for (let i = 0; i < n; i++) {
+        const b = i * 9;
+        if (h * R[b] + k * R[b + 3] + l * R[b + 6] !== h) continue;
+        if (h * R[b + 1] + k * R[b + 4] + l * R[b + 7] !== k) continue;
+        if (h * R[b + 2] + k * R[b + 5] + l * R[b + 8] !== l) continue;
+        eps++;
+    }
+    return eps || 1;
+}
+
+// h is centric iff some operation sends it to -h, which happens in
+// non-centrosymmetric groups too: centricity belongs to the reflection, not the
+// group. Deliberately unused in the class score -- see SG_USE_EPSILON_WEIGHT.
+function sgOpsIsCentric(h, k, l, C) {
+    const R = C.pgR, n = C.nPg;
+    for (let i = 0; i < n; i++) {
+        const b = i * 9;
+        if (h * R[b] + k * R[b + 3] + l * R[b + 6] !== -h) continue;
+        if (h * R[b + 1] + k * R[b + 4] + l * R[b + 7] !== -k) continue;
+        if (h * R[b + 2] + k * R[b + 5] + l * R[b + 8] !== -l) continue;
+        return true;
+    }
+    return false;
+}
+
+// A stable key for deduplicating settings that carry identical symmetry.
+function sgOpsKey(setting) {
+    const ops = (setting && setting.ops) || [];
+    let s = (setting.t_den || 1) + '#';
+    for (let i = 0; i < ops.length; i++) s += ops[i].join('.') + ';';
+    return s;
+}
+
+// Every printed condition of a setting, flattened to {zone, cond} pairs. This
+// is the presentation layer: what the tables print, for display and for the
+// condition-by-condition evidence hunt in detectExtinctions. Absences never
+// come from here.
+function sgSettingConditions(setting) {
+    const out = [];
+    const conds = (setting && setting.conditions) || {};
+    for (const zone of Object.keys(conds)) {
+        const list = conds[zone] || [];
+        for (let i = 0; i < list.length; i++) out.push({ zone, cond: list[i] });
+    }
+    return out;
+}
+
 function sgExtinctionClasses(spaceGroupData, system, allowedCenterings) {
+    if (!sgEnsureDatabase(spaceGroupData)) return [];
     const groups = Object.values(spaceGroupData?.space_groups || {})
         .filter(sg => sgSystemMatches(sg.crystal_system, system));
     const buckets = new Map();   // hash -> [cls, ...], verified on the full string
@@ -5195,21 +5191,24 @@ function sgExtinctionClasses(spaceGroupData, system, allowedCenterings) {
         for (const setting of (sg.settings || [])) {
             if (!sgSettingAxesMatch(setting, system)) continue;
             if (!settingCenteringAllowed(setting.symbol, allowedCenterings)) continue;
-            const rules = setting.reflection_conditions || {};
-            const cent = String(setting.symbol || '').charAt(0);
-            const ruleKey = cent + '|' + (sg.point_group || '') + '|' + JSON.stringify(
-                Object.keys(rules).sort().map(z => [z, (rules[z] || []).slice().sort()]));
+            const C = sgOpsCompile(setting);
+            if (!C) continue;                       // no operators, nothing to say
+            const cent = String(setting.centering || setting.symbol || '').charAt(0);
+            const ruleKey = sgOpsKey(setting);
 
             let probe = probed.get(ruleKey);
             if (!probe) {
-                const allowed = sgAllowedFn(rules, system, cent, sg.point_group);
+                const allowed = sgOpsAllowedFn(setting, system);
                 probe = { allowed, sigStr: sgBehaviourSignatureString(allowed),
-                          labelFn: sgLabelPredicate(rules, system, cent, sg.point_group) };
+                          labelFn: sgOpsLabelPredicate(setting),
+                          centPred: sgOpsCenteringPred(C) };
                 probed.set(ruleKey, probe);
             }
             const allowed = probe.allowed;
             const sigStr = probe.sigStr;
             const labelFn = probe.labelFn;
+            const centPred = probe.centPred;
+            const rules = setting.conditions || {};
             const key = sgHash(sigStr);
             let bucket = buckets.get(key);
             if (!bucket) { bucket = []; buckets.set(key, bucket); }
@@ -5217,6 +5216,7 @@ function sgExtinctionClasses(spaceGroupData, system, allowedCenterings) {
             if (!cls) {
                 cls = {
                     sig: key + ':' + bucket.length, sigStr, rules, allowed, labelFn,
+                    centPred,
                     label: setting.symbol,
                     centering: cent,
                     members: [],
@@ -5239,7 +5239,7 @@ function sgExtinctionClasses(spaceGroupData, system, allowedCenterings) {
         c.centric = c.members.length > 0 && c.members.every(m => m.centric);
         c.repSymbol = c.members.length ? c.members[0].symbol : c.label;
         // Label with the extinction symbol, NOT with a representative group.
-        try { c.label = sgExtinctionSymbol(c.labelFn || c.allowed, system, c.centering); }
+        try { c.label = sgExtinctionSymbol(c.labelFn || c.allowed, system, c.centering, c.centPred); }
         catch (e) { c.label = c.centering + '?'; }
         c.sigStr = null;   // release the fingerprint; only the key is needed now
     }
@@ -5546,6 +5546,53 @@ function sgErfc(x) {
     return x >= 0 ? r : 2 - r;
 }
 
+// THE INTENSITY WEIGHT OF A POWDER LINE
+//
+// The expected line intensity is
+//     <I> = Lp * SUM over the coincident reflections of <|F|^2>
+//         = Lp * SUM epsilon(h) * sum_j f_j^2
+// and by orbit-stabiliser |orbit| * epsilon = |G|. So summing epsilon over a
+// full orbit gives |G| REGARDLESS OF THE REFLECTION: at a given resolution the
+// mean line intensity does not depend on multiplicity at all. High-multiplicity
+// general lines have many modest contributions, low-multiplicity special lines
+// have few, each epsilon times stronger, and the two balance exactly. That is
+// Wilson's result, and it is not the intuitive answer.
+//
+// Weighting by multiplicity alone -- which this file used to do -- therefore
+// expects a cubic {h00} line (m = 6) to be an EIGHTH the strength of a {hkl}
+// line (m = 48) at the same angle, when their means are equal. z_min at h00 is
+// inflated eightfold, p comes out far too low, and a clean absence there earns
+// almost no credit. On the axial reflections. Which are the ones that decide
+// screw axes. Tetragonal is up to 4x, orthorhombic and monoclinic up to 2x.
+//
+// Computed under the HOLOHEDRY of the crystal system, so it depends only on the
+// cell and never on the candidate. That matters: the calibration note below is
+// right that a hypothesis able to set its own intensity scale is the M20
+// failure in a new costume, and a hypothesis-free weight cannot be gamed.
+//
+// It is also why centricity stays out, though sgOpsIsCentric exists. An
+// extinction class is not a space group: C2, Cm and C2/m share one class with
+// three different point groups and three different centricities, so "is this
+// class centric" has no answer. The note at the calibration step reached the
+// same conclusion from the Pbca/Pbc- failure; the operator view says why.
+//
+// Set false to restore the old multiplicity weighting for an A/B comparison.
+const SG_USE_EPSILON_WEIGHT = true;
+
+const SG_HOLOHEDRY_ORDER = {
+    cubic: 48, tetragonal: 16, hexagonal: 24,
+    orthorhombic: 8, monoclinic: 4, triclinic: 2,
+};
+
+// m * epsilon over the metric orbit. Written out rather than collapsed to the
+// constant so the algebra stays visible, and so a resolution group holding two
+// coincident families still weighs twice as much as one holding one.
+function sgHolohedryWeight(h, k, l, system) {
+    const m = sgMultiplicity(h, k, l, system);
+    const H = SG_HOLOHEDRY_ORDER[system] || 2;
+    return m * (H / m);
+}
+
 // Powder multiplicity: how many distinct hkl share this d-spacing by symmetry.
 // The generator emits one representative per folded orbit, so this is the size of
 // that orbit after removing duplicates.
@@ -5577,10 +5624,15 @@ function sgWilsonContext(frame, data, state, system) {
     if (!frame || !frame.refl || !frame.refl.length) return null;
 
     // multiplicity and Lp per resolution group
+    // Intensity weight per resolution group. m * epsilon, not m -- see the note
+    // on sgHolohedryWeight for why multiplicity alone under-values exactly the
+    // axial reflections that carry the screw-axis evidence.
     const grpMult = new Float64Array(frame.nGroups);
     for (let i = 0; i < frame.refl.length; i++) {
         const r = frame.refl[i];
-        grpMult[frame.groupOf[i]] += sgMultiplicity(r.h, r.k, r.l, system);
+        grpMult[frame.groupOf[i]] += SG_USE_EPSILON_WEIGHT
+            ? sgHolohedryWeight(r.h, r.k, r.l, system)
+            : sgMultiplicity(r.h, r.k, r.l, system);
     }
 
     // pair observed peaks with groups, and correct their heights

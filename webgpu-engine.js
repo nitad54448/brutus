@@ -149,7 +149,7 @@ class WebGPUEngine {
         // The layout is identical for every system/shader, so build it once per
         // device rather than on every createPipeline call.
         if (this.bindGroupLayout) return this.bindGroupLayout;
-        // Define the layout manually to prevent compiler from stripping unused debug bindings
+        // Define the layout manually rather than relying on layout: 'auto'
         this.bindGroupLayout = this.device.createBindGroupLayout({
             entries: [
                 { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }, // q_obs
@@ -159,10 +159,14 @@ class WebGPUEngine {
                 { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // solution_counter (RW)
                 { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // results_list (RW)
                 { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },           // config
-                { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // debug_counter (RW)
-                { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // debug_log (RW)
-                { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }  // q_tolerances
+                { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }  // q_tolerances
             ]
+            // debug_counter and debug_log (formerly 7 and 8) are gone; q_tolerances
+            // moved 9 -> 7. Nothing ever wrote debug_log on the hot path and nothing
+            // read it back, but they still counted toward maxStorageBuffersPerShaderStage,
+            // whose WebGPU DEFAULT is 8. This layout used to need 9 storage buffers, so
+            // createComputePipeline failed outright on any adapter reporting exactly 8 --
+            // common on integrated and mobile GPUs. It now needs 7.
         });
         return this.bindGroupLayout;
     }
@@ -299,6 +303,13 @@ class WebGPUEngine {
     // possibly matter.
     static YIELD_INTERVAL_MS = 16;
 
+    // How many chunk dispatches to queue before stalling for a counter readback.
+    // Each sync point costs a full CPU<->GPU round trip (onSubmittedWorkDone +
+    // mapAsync), which used to be paid once per chunk. Larger values amortise
+    // that further but delay the max_solutions early-out and coarsen the
+    // candidate count in the status line; 8 keeps both within a frame or two.
+    static CHUNKS_PER_SYNC = 8;
+
     // === Unified Solver (replaces runOrthoSolver / runMonoclinicSolver / runTriclinicSolver) ===
     //
     // Per-system configuration table. Each entry describes the differences between the three
@@ -311,6 +322,7 @@ class WebGPUEngine {
         orthorhombic: {
             K: 3,
             structFloats: 4,                // 4 f32 per cell (a, b, c, pad) = 16 bytes
+            hklFloats: 4,                   // hkl_basis: vec4(h^2, k^2, l^2, 0)
             peakComboStride: 3,
             workgroupX: 8,
             workgroupY: 8,
@@ -321,6 +333,7 @@ class WebGPUEngine {
         monoclinic: {
             K: 4,
             structFloats: 4,                // 4 f32 per cell (a, b, c, beta) = 16 bytes
+            hklFloats: 4,                   // hkl_basis: vec4(h^2, k^2, l^2, h*l)
             peakComboStride: 4,
             workgroupX: 8,
             workgroupY: 8,
@@ -331,6 +344,7 @@ class WebGPUEngine {
         triclinic: {
             K: 6,
             structFloats: 8,                // 8 f32 per cell (a,b,c,alpha,beta,gamma,pad,pad) = 32 bytes
+            hklFloats: 8,                   // hkl_basis: vec4(h^2,k^2,l^2,k*l) + vec4(h*l,h*k,0,0)
             peakComboStride: 6,
             workgroupX: 4,                  // Triclinic: more work per thread -> smaller groups
             workgroupY: 4,
@@ -351,20 +365,38 @@ class WebGPUEngine {
 
         const K_VALUE = cfg.K;
 
-        // Packing invariants. hkl_basis is stored as [h,k,l,pad] (4 f32 per
-        // reflection) and peak_combos as `peakComboStride` u32 per combo. If
-        // either array is ever built with a length that isn't a whole number of
-        // records, n_hkls / numPeakCombos silently go fractional and mis-size
-        // the combinadic space and dispatch — no throw, just wrong results.
-        // Fail loud and early instead.
-        if (hklBasisArray.length % 4 !== 0) {
-            throw new Error(`hklBasisArray length ${hklBasisArray.length} is not a multiple of 4 (expected [h,k,l,pad] records).`);
+        // Packing invariants. hkl_basis now holds PRECOMPUTED hkl products, not
+        // raw indices: `cfg.hklFloats` f32 per reflection (4 for ortho/mono,
+        // 8 for triclinic — see HKL_PACKERS in main_app.js and the binding
+        // comments in the shaders). peak_combos is `peakComboStride` u32 per
+        // combo. If either array is ever built with a length that isn't a whole
+        // number of records, n_hkls / numPeakCombos silently go fractional and
+        // mis-size the combinadic space and dispatch — no throw, just wrong
+        // results. Fail loud and early instead.
+        const hklFloats = cfg.hklFloats;
+        if (hklBasisArray.length % hklFloats !== 0) {
+            throw new Error(`hklBasisArray length ${hklBasisArray.length} is not a multiple of ${hklFloats} for system ${cfg.systemName}.`);
+        }
+        // The shaders read PRECOMPUTED PRODUCTS, not raw indices. For ortho and
+        // mono both forms have the same 4-float stride, so sending the raw
+        // [h,k,l,pad] form is invisible to every check above: the dispatch
+        // succeeds, every candidate cell is nonsense, the FoM rejects all of
+        // them, and the run reports no solutions with no error anywhere. That
+        // is not a hypothetical -- it is what happens when main_app.js and this
+        // file drift apart. buildHklBasis stamps what it produced; refuse
+        // anything else.
+        if (baseParams.hklPacking !== 'products/v1') {
+            throw new Error(
+                `hkl basis packing mismatch: expected 'products/v1', got ` +
+                `${baseParams.hklPacking === undefined ? 'nothing' : `'${baseParams.hklPacking}'`}. ` +
+                `main_app.js buildHklBasis() and webgpu-engine.js are out of sync — ` +
+                `the shaders need precomputed hkl products, not raw indices.`);
         }
         if (peakCombos.length % cfg.peakComboStride !== 0) {
             throw new Error(`peakCombos length ${peakCombos.length} is not a multiple of stride ${cfg.peakComboStride} for system ${cfg.systemName}.`);
         }
 
-        const n_hkls = hklBasisArray.length / 4;
+        const n_hkls = hklBasisArray.length / hklFloats;
         const binomialData = this.generateBinomialTable(n_hkls, K_VALUE);
         const binomialBuffer = this.createBuffer(binomialData, GPUBufferUsage.STORAGE);
         const totalHklCombos = binomialData[n_hkls * (K_VALUE + 1) + K_VALUE];
@@ -382,13 +414,12 @@ class WebGPUEngine {
         const counterReadBuffer = this.createReadBuffer(4);
         const resultsReadBuffer = this.createReadBuffer(maxSolutions * solutionStructSize);
 
-        // Debug buffers: still created and bound because the shader declares the bindings,
-        // but nothing is ever written to debug_log on the hot path (see shaders). These are
-        // effectively no-ops and we never read them back.
-        const debugCounterBuffer = this.createStorageBuffer(4);
-        const debugLogBuffer = this.createStorageBuffer(32 * 32 * 4); // Generous for any system
+        // (debugCounterBuffer / debugLogBuffer removed along with bindings 7 and 8.)
 
-        const configBufferSize = 48;
+        // 64, not 48: Config gained a fourth vec4<f32> holding the physical
+        // limits (min_axis, max_axis, min_volume) that extractCell* used to
+        // hard-code while main_app.js kept its own copy of the same numbers.
+        const configBufferSize = 64;
         const configBuffer = this.device.createBuffer({
             size: configBufferSize,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
@@ -404,8 +435,13 @@ class WebGPUEngine {
         configViewU32[0] = 0;                                   // z_offset (overwritten per chunk)
         configViewU32[1] = baseParams.impurity_peaks;
         configViewU32[2] = finalFomCount;
-        configViewU32[3] = hklBasisArray.length / 4;
-        configViewU32[4] = hklBasisArray.length / 4;
+        // n_hkls, NOT hklBasisArray.length / 4: the triclinic basis is packed at
+        // 8 f32 per reflection, so the old literal 4 would have told the shader
+        // there were twice as many reflections as there are — a FoM loop running
+        // off the end of the basis and a combinadic space sized against the
+        // wrong n. Both fields are reflection COUNTS.
+        configViewU32[3] = n_hkls;   // n_hkl_for_fom
+        configViewU32[4] = n_hkls;   // n_basis_total
         configViewU32[5] = totalHklCombos;
         configViewU32[6] = maxSolutions;                         // FIXED: use resolved maxSolutions, not raw baseParams.max_solutions
         configViewU32[7] = 0;
@@ -413,6 +449,16 @@ class WebGPUEngine {
         configViewF32[9] = baseParams.tth_error;
         configViewF32[10] = baseParams.max_volume;
         configViewF32[11] = baseParams.fom_threshold;
+        // f_params2: physical limits, previously hard-coded inside every shader.
+        // Defaults reproduce the old literals exactly, so behaviour is unchanged
+        // unless the caller deliberately overrides them.
+        const minAxis   = Number.isFinite(baseParams.min_axis)   ? baseParams.min_axis   : 2.0;
+        const maxAxis   = Number.isFinite(baseParams.max_axis)   ? baseParams.max_axis   : 50.0;
+        const minVolume = Number.isFinite(baseParams.min_volume) ? baseParams.min_volume : 20.0;
+        configViewF32[12] = minAxis;
+        configViewF32[13] = maxAxis;
+        configViewF32[14] = minVolume;
+        configViewF32[15] = 0;
 
         this.device.queue.writeBuffer(configBuffer, 0, configData);
 
@@ -426,9 +472,7 @@ class WebGPUEngine {
                 { binding: 4, resource: { buffer: counterBuffer } },
                 { binding: 5, resource: { buffer: resultsBuffer } },
                 { binding: 6, resource: { buffer: configBuffer } },
-                { binding: 7, resource: { buffer: debugCounterBuffer } },
-                { binding: 8, resource: { buffer: debugLogBuffer } },
-                { binding: 9, resource: { buffer: qTolerancesBuffer } },
+                { binding: 7, resource: { buffer: qTolerancesBuffer } },
             ],
         });
 
@@ -465,6 +509,9 @@ class WebGPUEngine {
         let solutionsReadCount = 0;
         let stoppedEarly = false;
         let lastYield = performance.now();
+        // Last counter value actually read back; used for progress on the chunks
+        // that no longer stall for a readback (see CHUNKS_PER_SYNC below).
+        let lastKnownSolutions = 0;
 
         // Byte alignment for copyBufferToBuffer: WebGPU requires size to be a multiple of 4.
         // One cell is already a multiple of 4 bytes (4 or 8 f32s), so any count*structSize is safe.
@@ -491,10 +538,38 @@ try {
                 passEncoder.dispatchWorkgroups(workgroupsX, safeWorkgroupsY, 1);
                 passEncoder.end();
 
-                // Copy only the counter this chunk. We will decide how many result bytes to
-                // copy once we know the counter value.
-                commandEncoder.copyBufferToBuffer(counterBuffer, 0, counterReadBuffer, 0, 4);
+                // Only the LAST chunk of a sync group copies the counter back.
+                const isSyncChunk = ((i + 1) % WebGPUEngine.CHUNKS_PER_SYNC === 0) || (i === totalChunks - 1);
+                if (isSyncChunk) {
+                    // Copy only the counter. We will decide how many result bytes to
+                    // copy once we know the counter value.
+                    commandEncoder.copyBufferToBuffer(counterBuffer, 0, counterReadBuffer, 0, 4);
+                }
                 this.device.queue.submit([commandEncoder.finish()]);
+
+                // --- Round-trip reduction -----------------------------------
+                // This used to await onSubmittedWorkDone() and mapAsync() on EVERY
+                // chunk, so each chunk paid a full CPU<->GPU stall (a couple of ms)
+                // no matter how little work it contained. Triclinic at defaults is
+                // ~2,150 chunks, i.e. several seconds of pure latency; a run that
+                // trips the chunk-count warning is far worse.
+                //
+                // The per-chunk writeBuffer + submit pair stays exactly as it was --
+                // batching several dispatches into ONE encoder would be wrong,
+                // because queue.writeBuffer is ordered against SUBMITS, not against
+                // encoded passes, so every pass in the batch would see the last
+                // z_offset written. Only the readback is batched.
+                //
+                // Bounded to CHUNKS_PER_SYNC dispatches in flight, so nothing queues
+                // without limit. The cost is that the max_solutions early-out and the
+                // candidate count can lag by up to that many chunks, which is
+                // harmless: the shader itself early-outs once the counter reaches
+                // max_solutions, so the extra chunks do almost no work.
+                if (!isSyncChunk) {
+                    if (progressCallback) progressCallback((i + 1) / totalChunks, lastKnownSolutions);
+                    continue;
+                }
+
                 await this.device.queue.onSubmittedWorkDone();
 
                 // Safely map counter buffer (catching aborts if device is lost or stopped)
@@ -508,6 +583,7 @@ try {
 
                 const numSolutions = new Uint32Array(counterReadBuffer.getMappedRange())[0];
                 counterReadBuffer.unmap();
+                lastKnownSolutions = numSolutions;
 
                 // SMART BUFFER COPY: only copy back the cells that were actually written.
                 // Previously the engine copied resultsBuffer.size bytes every chunk, which
@@ -555,8 +631,11 @@ try {
 
                     for (let k = 0; k < newCount; k++) {
                         const cellObj = cfg.parseCell(rawResults, k * cfg.structFloats);
-                        // Fast pre-filter: only keep cells with physically reasonable unit cell dimensions (2.0 Å to 50.0 Å)
-                        if (cellObj && cellObj.a >= 2.0 && cellObj.a <= 50.0) {
+                        // Fast pre-filter on physically reasonable axis lengths.
+                        // Reads the same min_axis/max_axis the shaders now get via
+                        // config.f_params2, rather than a third hard-coded copy of
+                        // 2.0 / 50.0.
+                        if (cellObj && cellObj.a >= minAxis && cellObj.a <= maxAxis) {
                             newBatch.push(cellObj);
                         }
                     }
@@ -575,7 +654,7 @@ try {
             // Guaranteed cleanup: prevents VRAM leaks even if an error or abort occurs above
             qObsBuffer.destroy(); hklBasisBuffer.destroy(); peakCombosBuffer.destroy(); binomialBuffer.destroy();
             counterBuffer.destroy(); resultsBuffer.destroy(); counterReadBuffer.destroy(); resultsReadBuffer.destroy();
-            configBuffer.destroy(); debugCounterBuffer.destroy(); debugLogBuffer.destroy(); qTolerancesBuffer.destroy();
+            configBuffer.destroy(); qTolerancesBuffer.destroy();
         }
 
         // Cells are delivered incrementally through onIntermediateResults; there

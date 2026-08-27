@@ -15,7 +15,14 @@ alias Mat4x4 = mat4x4<f32>;
 
 // === Bindings ===
 @group(0) @binding(0) var<storage, read> q_obs: array<f32>;
-@group(0) @binding(1) var<storage, read> hkl_basis: array<f32>; // [h,k,l,pad]
+// PRECOMPUTED hkl products, NOT raw indices. Each element is
+//     vec4(h*h, k*k, l*l, h*l)
+// packed on the JS side (see HKL_PACKERS in main_app.js) -- which is exactly
+// one row of the 4x4 system, and exactly the dot product the FoM needs. Same
+// 16 bytes per reflection as the old [h,k,l,pad] layout, so buffer sizing is
+// unchanged. The products are small integers (|h|,|k|,|l| <= 12) and exact in
+// f32, so this is bit-for-bit what the shader used to compute per candidate.
+@group(0) @binding(1) var<storage, read> hkl_basis: array<vec4<f32>>;
 @group(0) @binding(2) var<storage, read> peak_combos: array<u32>; // [i,j,k,l]
 
 // Pascal's Triangle Table for Combinadics
@@ -28,15 +35,26 @@ alias Mat4x4 = mat4x4<f32>;
 struct Config { 
     u_params1: vec4<u32>, // Indices 0-3
     u_params2: vec4<u32>, // Indices 4-7
-    f_params: vec4<f32>   // Indices 8-11
+    f_params: vec4<f32>,  // Indices 8-11
+    // Chunk 4 (F32): min_axis, max_axis, min_volume, pad
+    // These were hard-coded as 2.0 / 50.0 / 20.0 in extractCell*, in all three
+    // shaders, while main_app.js kept its own copy of the same three numbers.
+    // Two sources for one limit is how limits drift apart.
+    f_params2: vec4<f32>  // Indices 12-15
 };
 
 
 @group(0) @binding(6) var<uniform> config: Config;
 
-@group(0) @binding(7) var<storage, read_write> debug_counter: atomic<u32>;
-@group(0) @binding(8) var<storage, read_write> debug_log: array<f32>;
-@group(0) @binding(9) var<storage, read> q_tolerances: array<f32>;
+@group(0) @binding(7) var<storage, read> q_tolerances: array<f32>;
+
+// NOTE: bindings 7 (debug_counter) and 8 (debug_log) are GONE, and
+// q_tolerances moved from 9 to 7. Nothing ever wrote to debug_log on the hot
+// path and nothing ever read it back, but they still counted against
+// maxStorageBuffersPerShaderStage -- whose DEFAULT in WebGPU is 8. The old
+// layout needed 9 storage buffers, so createComputePipeline failed outright on
+// every adapter that reports exactly 8 (common on integrated and mobile GPUs).
+// The layout now needs 7.
 
 
 // === Constants ===
@@ -44,7 +62,6 @@ const PI: f32 = 3.1415926535;
 const DEG: f32 = 180.0 / PI;
 const WORKGROUP_SIZE_Y: u32 = 8u;
 const MAX_Y_WORKGROUPS: u32 = 16383u; 
-const MAX_DEBUG_CELLS: u32 = 10u;
 const MAX_FOM_PEAKS: u32 = 32u; 
 
 // Monoclinic Constants (K=4)
@@ -121,12 +138,14 @@ fn extractCell(params: Vec4) -> RawMonoSolution {
     let b_val = 1.0 / sqrt(B);
     let c_val = 1.0 / sqrt(C * sinBetaSq);
 
-    if (a_val < 2.0 || a_val > 50.0 || b_val < 2.0 || b_val > 50.0 || c_val < 2.0 || c_val > 50.0) { 
+    let min_ax = config.f_params2.x;
+    let max_ax = config.f_params2.y;
+    if (a_val < min_ax || a_val > max_ax || b_val < min_ax || b_val > max_ax || c_val < min_ax || c_val > max_ax) { 
         return RawMonoSolution(0.0, 0.0, 0.0, 0.0); 
     }
     
     let volume = a_val * b_val * c_val * sqrt(sinBetaSq);
-    if (volume < 20.0 || volume > config.f_params.z) { 
+    if (volume < config.f_params2.z || volume > config.f_params.z) { 
          return RawMonoSolution(0.0, 0.0, 0.0, 0.0);
     }
 
@@ -173,6 +192,9 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32, D: f32) -> f32 {
     if (n_peaks_to_check == 0u) { return 999.0; }
     let max_imp = min(config.u_params1.y, n_peaks_to_check - 1u);
 
+    let abcd = Vec4(A, B, C, D);
+    let n_basis = config.u_params1.w;
+
     // --- OPTIMIZATION 1: Skip Sorting if No Impurities ---
     if (max_imp == 0u) {
         var sum_abs_error: f32 = 0.0;
@@ -185,12 +207,9 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32, D: f32) -> f32 {
             let tol = q_tolerances[i]; 
             var min_diff: f32 = 1e10; 
             
-            for (var j: u32 = 0u; j < config.u_params1.w; j = j + 1u) {
-                let h = hkl_basis[j * 4u + 0u];
-                let k = hkl_basis[j * 4u + 1u];
-                let l = hkl_basis[j * 4u + 2u];
-                
-                let q_calc = A*h*h + B*k*k + C*l*l + D*h*l;
+            for (var j: u32 = 0u; j < n_basis; j = j + 1u) {
+                // q_calc = A*h^2 + B*k^2 + C*l^2 + D*h*l, products precomputed.
+                let q_calc = dot(abcd, hkl_basis[j]);
                 let diff = abs(q_obs_val - q_calc);
                 
                 if (diff < min_diff) { min_diff = diff; }
@@ -209,28 +228,59 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32, D: f32) -> f32 {
     }
 
     // --- PATH B: With Impurities (Requires Sorting) ---
+    let count_to_sum = n_peaks_to_check - max_imp; // guarded above, cannot underflow
+    let max_allowed_total = config.f_params.w * f32(count_to_sum);
+
+    // Fail-fast for the impurity path. Path A has had one for a while; this
+    // one had to score all 32 peaks before it could reject anything, which is
+    // the expensive half of the run whenever impurity_peaks > 0.
+    //
+    // The bound: the final score drops the max_imp LARGEST errors, so after
+    // seeing i+1 peaks,
+    //     (sum of all errors so far) - (sum of the max_imp largest so far)
+    // is a lower bound on the final sum. It never decreases as peaks are added
+    // (a new error either misses the top-k and adds to the sum, or joins the
+    // top-k and evicts something no larger), and unseen peaks contribute >= 0.
+    // So exceeding the budget here means exceeding it at the end -- this can
+    // only reject candidates the full computation would have rejected too.
+    //
+    // `top` holds the largest max_imp errors, zero-initialised so that the
+    // first max_imp insertions fill it naturally. Capped at 4 entries; a larger
+    // impurity count simply disables the bound rather than reading OOB.
+    let use_fast_bound = (max_imp <= 4u);
+    var top: array<f32, 4> = array<f32, 4>(0.0, 0.0, 0.0, 0.0);
+    var top_sum: f32 = 0.0;
+    var sum_all: f32 = 0.0;
+
     var errors: array<f32, 32>; 
     for (var i: u32 = 0u; i < n_peaks_to_check; i = i + 1u) {
         let q_obs_val = q_obs[i];
         let tol = q_tolerances[i]; 
         var min_diff: f32 = 1e10; 
         
-        for (var j: u32 = 0u; j < config.u_params1.w; j = j + 1u) {
-            let h = hkl_basis[j * 4u + 0u];
-            let k = hkl_basis[j * 4u + 1u];
-            let l = hkl_basis[j * 4u + 2u];
-            let q_calc = A*h*h + B*k*k + C*l*l + D*h*l;
-            
+        for (var j: u32 = 0u; j < n_basis; j = j + 1u) {
+            let q_calc = dot(abcd, hkl_basis[j]);
             let diff = abs(q_obs_val - q_calc);
             if (diff < min_diff) { min_diff = diff; }
         }
         let norm = min_diff / tol; 
         // Using absolute difference
         errors[i] = norm;
+
+        if (use_fast_bound) {
+            // Evict the smallest of the current top-k if this error beats it.
+            var min_i: u32 = 0u;
+            var min_v: f32 = top[0];
+            for (var t: u32 = 1u; t < max_imp; t = t + 1u) {
+                if (top[t] < min_v) { min_v = top[t]; min_i = t; }
+            }
+            if (norm > min_v) { top_sum = top_sum - min_v + norm; top[min_i] = norm; }
+            sum_all += norm;
+            if ((sum_all - top_sum) > max_allowed_total) { return 999.0; }
+        }
     }
 
     // --- OPTIMIZATION 3: Partial Selection Sort ---
-    let count_to_sum = n_peaks_to_check - max_imp; // guarded above, cannot underflow
     var sum_of_valid_errors: f32 = 0.0;
 
     for (var i: u32 = 0u; i < count_to_sum; i = i + 1u) {
@@ -277,16 +327,23 @@ fn main_4p(
     // 3. Generate HKL Indices (Combinadics K=4)
     let hkl_indices = get_combinadic_indices(hkl_linear_idx, config.u_params2.x);
 
-    // 4. Build M Matrix
-    var M_hkl_rows: array<vec4<f32>, 4>; 
-    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
-        let hkl_idx = hkl_indices[i];
-        let h = hkl_basis[hkl_idx * 4u + 0u];
-        let k = hkl_basis[hkl_idx * 4u + 1u];
-        let l = hkl_basis[hkl_idx * 4u + 2u];
-        M_hkl_rows[i] = Vec4(h*h, k*k, l*l, h*l);
-    }
-    let M_hkl = Mat4x4(M_hkl_rows[0], M_hkl_rows[1], M_hkl_rows[2], M_hkl_rows[3]);
+    // 4. Build M Matrix. Each basis entry already holds (h^2, k^2, l^2, h*l),
+    //    which IS one row, so this is four vector loads and nothing else.
+    //
+    //    On the constructor convention: Mat4x4(v0..v3) takes COLUMN vectors, so
+    //    M_hkl is the transpose of the matrix these rows describe. That is NOT
+    //    a bug here -- solve4x4 below indexes M[i] as a row and M[i][j] as
+    //    (row i, col j), i.e. it walks the WGSL columns as if they were rows,
+    //    and the two transposes cancel exactly. (ortho_solver.wgsl used the
+    //    same constructor with a cofactor solver that did NOT cancel it, which
+    //    is the transpose bug fixed there. Leaving this note so the two are not
+    //    "made consistent" in the wrong direction later.)
+    let M_hkl = Mat4x4(
+        hkl_basis[hkl_indices[0]],
+        hkl_basis[hkl_indices[1]],
+        hkl_basis[hkl_indices[2]],
+        hkl_basis[hkl_indices[3]]
+    );
 
     // 5. Get q_obs
     let p_offset = peak_combo_idx * 4u;

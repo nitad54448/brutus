@@ -1,0 +1,41 @@
+output 27 aug
+
+
+python sg_pack.py --sg-dir sg --out sg_ops.json
+packed 527 settings in 230 space groups -> sg_ops.json (687 KB)
+  distinct rotation matrices : 64
+  total operators            : 7340
+  zone labels                : 27  ((-2k)k0, (-2k)kl, 00l, 0k-k, 0k0, 0kk, 0kl, h(-2h)0, h(-2h)l, h-h-h, h-h0, h-hh ...)
+  zone records with rules    : 5089
+
+node validate_sg.mjs sg sg_ops.json 5
+  old rule-string layer removed: sgAllowedFn, sgLabelPredicate, sgLaueOrbit,
+  ZONE_PREDICATES, SG_CENTERING_PRED, SG_LAUE_OF_POINT_GROUP
+database: 527 settings, 64 rotations, 27 zone labels
+
+1. absences: operators vs the generator's zone records
+   700 910 reflections, 0 wrong
+2. zoneApplies vs each setting's own normals: 0 wrong
+
+3. sgExtinctionClasses
+   triclinic       1 classes,    2 settings,  0 unnamed symbols, 1 ms
+      P[2]
+   monoclinic     14 classes,   35 settings,  0 unnamed symbols, 20 ms
+   orthorhombic  111 classes,  238 settings,  0 unnamed symbols, 179 ms
+   tetragonal     31 classes,   81 settings,  0 unnamed symbols, 97 ms
+   hexagonal       9 classes,   52 settings,  0 unnamed symbols, 40 ms
+   cubic          17 classes,   42 settings,  0 unnamed symbols, 175 ms
+
+4. countViolations, operator-based
+   Pnma vs 63 reflections: 16 hard, 0 soft
+   e.g. (0,0,1) at 21.000° violates 0kl: k+l=2n | (0,0,3) at 23.000° violates 0kl: k+l=2n | (0,1,0) at 21.000° violates 0kl: k+l=2n
+   named by a printed condition: 16/16
+
+5. Wilson weight
+   cubic         100  m= 6  m*eps=48  x8.0
+   cubic         123  m=48  m*eps=48  x1.0
+   tetragonal    001  m= 2  m*eps=16  x8.0
+   orthorhombic  100  m= 2  m*eps= 8  x4.0
+   monoclinic    010  m= 2  m*eps= 4  x2.0
+
+PASS: operators match the generator, zones match their normals, old layer gone.
