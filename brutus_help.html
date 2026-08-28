@@ -246,6 +246,14 @@
                 <li><code>worker-logic.js</code> — shared logic loaded three ways: directly on the main thread (for post-processing and helper maths), as a standalone Web Worker (for the background CPU indexing of cubic/tetragonal/hexagonal), and via <code>importScripts()</code> inside each refinement worker. Contains all crystallographic mathematics: HKL generation, Q-calculation, least-squares solvers, figure-of-merit calculations, error propagation, and the Niggli reduction.</li>
                 <li><code>refinement-worker.js</code> — a thin batch-refinement worker. GPU-found candidate cells are refined (full weighted least-squares, M(20), error propagation) not on the main thread but across a <strong>pool of these workers</strong>, sized to <code>hardwareConcurrency − 2</code> (minimum 1) to leave cores free for the UI and the GPU driver. Candidate cells are streamed to the pool in round-robin batches while the GPU search is still running, so refinement overlaps GPU execution.</li>
                 <li><code>webgpu-engine.js</code> — the GPU-accelerated brute-force search for orthorhombic, monoclinic, and triclinic systems. Manages the WebGPU device, buffers, dispatch chunking, and combinadic bookkeeping; loads the WGSL compute shaders below.</li>
+                <li><code>sg_ops.json</code> &mdash; the space-group database: all 527 settings of the 230
+                    groups, each carrying its full set of <strong>symmetry operators</strong> together with the
+                    zone definitions and the printed reflection conditions. Built from a directory of
+                    per-setting files by <code>sg_pack.py</code>, which folds them into one file (Brutus needs
+                    every setting at once to build extinction classes, and 527 fetches is not an option) and
+                    drops the parts that exist for structure solution rather than indexing. Operators are
+                    dictionary-encoded against a shared table of the 64 distinct rotation matrices, so the
+                    whole database is under a megabyte.</li>
                 <li><code>styles.css</code>, <code>inter-font.css</code>, and the vendored libraries under
                     <code>scripts/</code> (Chart.js, Hammer, the Chart.js zoom plugin, jsPDF).</li>
                 <li><code>ortho_solver.wgsl</code>, <code>monoclinic_solver.wgsl</code>, <code>triclinic_solver.wgsl</code> — the WGSL compute kernels. Each unranks HKL combinations on the fly from a u32 combinadic (combinatorial-number-system) index, solves the per-trial linear system (3×3, 4×4, or 6×6), applies the geometric and figure-of-merit filters, and atomically appends surviving cells to the results buffer. In the triclinic kernel the 6×6 coefficient matrix depends only on the chosen HKL combination, not on the peak-to-HKL assignment, so it is Gauss-eliminated <strong>once</strong> per combination and the stored multipliers are then re-applied to each of the $6! = 720$ permuted right-hand sides. This is arithmetically identical to re-solving the system from scratch each time (the elimination multipliers are a function of the matrix alone), and a singular matrix now abandons the whole combination immediately rather than being re-detected 720 times.</li>
@@ -1492,6 +1500,68 @@
                 After a high-quality unit cell is obtained, Brutus can suggest likely space groups based on
                 systematic absences. This serves as input for subsequent structure solution or Rietveld refinement.
             </p>
+
+            <h3 id="sg-two-routes">Two routes, one absence test</h3>
+            <p>
+                Space groups reach you by two different routes, and it is worth knowing which is which before
+                reading either.
+            </p>
+            <table>
+                <tr>
+                    <th style="width:20%"></th>
+                    <th>Automatic analysis</th>
+                    <th><a href="#space-group-mc">Space Group MC</a></th>
+                </tr>
+                <tr>
+                    <td><strong>When</strong></td>
+                    <td>Runs on its own for every solution; appears in the results table and in the PDF report.</td>
+                    <td>Only when you ask for it, on one cell at a time.</td>
+                </tr>
+                <tr>
+                    <td><strong>Question</strong></td>
+                    <td>Which settings do the observed reflections <em>contradict</em>, and by how many?</td>
+                    <td>Which extinction class does the evidence <em>favour</em>, and by how much?</td>
+                </tr>
+                <tr>
+                    <td><strong>Output</strong></td>
+                    <td>A compatibility list: settings grouped by hard-violation count, ordered by space-group
+                        number within each group. <a href="#sg-compatibility-list">Not a ranking.</a></td>
+                    <td>A ranked table with a log-odds score, a margin over the runner-up, and a
+                        <em>NOT DECISIVE</em> flag when that margin is too small to call.</td>
+                </tr>
+                <tr>
+                    <td><strong>Unit of answer</strong></td>
+                    <td>Individual settings.</td>
+                    <td>Extinction <em>classes</em> &mdash; sets of settings powder data cannot separate.</td>
+                </tr>
+                <tr>
+                    <td><strong>Peaks used</strong></td>
+                    <td>All indexed peaks, K&alpha;<sub>2</sub>-suspect ones included but demoted to soft.</td>
+                    <td>K&alpha;<sub>2</sub>-suspect peaks excluded; no centering pre-filter.</td>
+                </tr>
+                <tr>
+                    <td><strong>Refines the cell?</strong></td>
+                    <td>No.</td>
+                    <td>Yes &mdash; under each hypothesis in turn, which is the point of it.</td>
+                </tr>
+            </table>
+            <p>
+                <strong>Only one of them claims a winner.</strong> The automatic analysis reports what the data
+                rule out; it does not put the survivors in preference order, for the reason set out in
+                <a href="#sg-compatibility-list">A compatibility list, not a ranking</a>. If you want a
+                determination, run the Space Group MC. The PDF report reproduces its conclusion verbatim and
+                recomputes nothing &mdash; see
+                <a href="#sg-in-the-report">What the PDF report says about space groups</a>.
+            </p>
+            <p>
+                What the two share is the primitive underneath: both decide whether a given reflection is
+                systematically absent by applying the candidate&rsquo;s <strong>symmetry operators</strong>
+                directly, as described in
+                <a href="#sg-absences-from-operators">Absences are computed from the symmetry operators</a>.
+                So they can still disagree about the detected centering or which conditions the data support
+                &mdash; they are looking at different peak sets and asking different questions &mdash; but not
+                about whether a particular reflection is forbidden under a particular group.
+            </p>
             <p>
                 <em>Note:</em> For some space groups that have different origin choices but identical extinction rules
                 (e.g. Pmmn), both settings appear in the list. This is intentional — they are not distinguishable
@@ -1524,8 +1594,10 @@
                 </li>
                 <li>
     <strong>Determine centering and extinctions.</strong>
-    The indexed peaks are compared against the extinction rules (centering conditions and
-    glide/screw symmetry conditions) for all candidate space groups. To prevent noise or overlap from unfairly disqualifying a valid space group, Brutus classifies violations into two categories:
+    Each indexed peak is tested against every candidate setting by asking its <strong>symmetry
+    operators</strong> directly, as described in <a href="#sg-absences-from-operators">Absences are computed
+    from the symmetry operators</a>. To prevent noise or overlap from unfairly disqualifying a valid space
+    group, Brutus classifies violations into two categories:
     <ul>
         <li><strong>Hard violations:</strong> A strong, real (non-Kα<sub>2</sub>), unambiguous reflection clearly breaks a rule. These count against the setting: they are what groups the compatibility list, and in the <a href="#space-group-mc">Space Group MC</a> they are what falsifies a class outright.</li>
         <li><strong>Soft violations:</strong> A reflection breaks a rule, but the peak is considered unreliable. These do <em>not</em> count against the setting, but are listed in the report for the user to review. A violation is flagged as "soft" if the peak is:
@@ -1699,58 +1771,72 @@
         <a href="#sg-compatibility-list">A compatibility list, not a ranking</a> below. Ranking space-group
         hypotheses happens in one place only, the <a href="#space-group-mc">Space Group MC</a>.
     </div>
-    <h4>A reflection belongs to every zone it fits</h4>
+    <h4 id="sg-absences-from-operators">Absences are computed from the symmetry operators</h4>
     <p>
-        Zone labels are <strong>nested, not exclusive</strong>. In ITA notation <em>hk0</em> means simply
-        $l=0$ with <em>h</em> and <em>k</em> unrestricted, so 330 is an <em>hk0</em> reflection — and
-        simultaneously an <em>hh0</em>/<em>hhl</em> one, since $h=k$. Likewise 004 is <em>00l</em> and also
-        <em>hhl</em> (with $h=k=0$), and 300 is <em>h00</em> and also <em>hk0</em> and <em>h0l</em>. A
-        reflection must satisfy the condition of <em>every</em> family it belongs to.
+        A reflection condition such as <em>0kl</em>: $k+l=2n$ is a <em>description</em> of a systematic
+        absence, written for a printed table. The absence itself follows from the symmetry operators. For
+        every operator $(R, \mathbf{t})$ of a space group,
+    </p>
+    <p style="text-align:center">
+        $F(\mathbf{h}) = \exp(2\pi i\, \mathbf{h}\cdot\mathbf{t})\; F(\mathbf{h}R)$
     </p>
     <p>
-        Brutus therefore tests each reflection against all applicable zones rather than against a single
-        classifying label. The membership is deliberately inclusive, which is self-consistent with the printed
-        tables: I-4̄2d's <em>hhl</em>: $2h+l=4n$ specialises at $h=k=0$ to $l=4n$, exactly its separately-listed
-        <em>00l</em> condition, and Ia-3̄'s <em>hk0</em>: $h,k=2n$ specialises at $k=0$ to $h=2n$, exactly its
-        listed <em>h00</em> condition.
+        so whenever an operator leaves the reflection unmoved &mdash; $\mathbf{h}R = \mathbf{h}$ &mdash; the
+        relation reads $F = e^{2\pi i \mathbf{h}\cdot\mathbf{t}} F$, and $F$ must vanish unless
+        $\mathbf{h}\cdot\mathbf{t}$ is a whole number. That single test is what Brutus applies:
+    </p>
+    <div class="callout-note" style="text-align:center">
+        <strong>$\mathbf{h}$ is systematically absent if some operator has
+        $\mathbf{h}R = \mathbf{h}$ with $\mathbf{h}\cdot\mathbf{t} \notin \mathbb{Z}$.</strong>
+    </div>
+    <p>
+        Translations are stored as exact rationals, so the test is integer arithmetic throughout &mdash; there
+        is no tolerance, and no rounding to get wrong. Three consequences are worth spelling out, because each
+        is a class of error that a condition-string test is exposed to and this one is not.
     </p>
     <p>
-        <strong>Why it matters — the database omits axial conditions on purpose.</strong> The bundled
-        <code>cctbx_space_groups_all_settings_v4.json</code> lists only the conditions not already implied by a
-        more general class. Pna2<sub>1</sub> (33), for example, is stored as just
-        <code>{0kl: k+l=2n, h0l: h=2n}</code>. The axial conditions that
-        <em>International Tables</em> prints for it — <em>00l</em>: $l=2n$, <em>0k0</em>: $k=2n$,
-        <em>h00</em>: $h=2n$ — are absent, because each follows by restriction: $k+l=2n$ at $k=0$
-        <em>is</em> $l=2n$. Inheritance is therefore not an optional refinement; without it those extinctions
-        are never tested at all.
+        <strong>Nothing has to be inherited.</strong> Zone labels are nested rather than exclusive: 330 is an
+        <em>hk0</em> reflection and simultaneously an <em>hhl</em> one, 004 is <em>00l</em> and also
+        <em>hhl</em>, 300 is <em>h00</em> and also <em>hk0</em> and <em>h0l</em>. Printed tables exploit this
+        to stay short &mdash; Pna2<sub>1</sub> is listed with only <code>{0kl: k+l=2n, h0l: h=2n}</code>,
+        because its <em>00l</em>: $l=2n$ follows by restricting $k+l=2n$ to $k=0$. A test that reads the
+        printed conditions must therefore reconstruct the implied ones or miss them entirely. The operators
+        imply nothing: they answer for the reflection in front of them, whether or not any table prints a
+        condition covering it.
     </p>
     <p>
-        Checked against structure factors computed directly from the space-group operations, over all
-        reflections to $h,k,l\le 6$:
-    </p>
-    <table>
-        <tr><th>Space group</th><th>Missed by single-zone</th><th>Missed by inclusive</th></tr>
-        <tr><td>Pna2<sub>1</sub> (33)</td><td>9 &nbsp;(001 003 005 010 030 050 100 300 500)</td><td>0</td></tr>
-        <tr><td>Pbcn (60)</td><td>9</td><td>0</td></tr>
-        <tr><td>Fddd (70)</td><td>6 &nbsp;(002 006 020 060 200 600)</td><td>0</td></tr>
-        <tr><td>I-4̄2d (122)</td><td>5 &nbsp;(002 006 110 330 550)</td><td>0</td></tr>
-        <tr><td>P4<sub>3</sub>2<sub>1</sub>2 (96)</td><td>0</td><td>0</td></tr>
-        <tr><td>Ia-3̄ (206)</td><td>0</td><td>0</td></tr>
-    </table>
-    <p>
-        The single-zone test carries real weight: across the whole database it decides the verdict for
-        <strong>264 of 527 settings</strong>, almost all of them axial reflections that a naive test would
-        treat as allowed. A cross-check over all 527 settings finds <strong>no case</strong> in which a
-        general-class condition contradicts a listed special-class condition, so inheritance can never
-        manufacture a false absence — it only ever restores a missing one.
+        <strong>Centering is not a special case.</strong> The centring vectors <em>are</em> operators &mdash;
+        identity rotation, non-zero translation &mdash; so lattice absences fall out of the same test as glide
+        and screw absences, with no separate per-letter rule. Rhombohedral obverse and reverse settings, which
+        differ only in which translations they carry, are simply different operator lists.
     </p>
     <p>
-        Because inheritance only ever <em>adds</em> applicable rules, each space group is held to every
-        condition that genuinely applies to it. Groups that would otherwise show zero hard violations
-        therefore accumulate them, and move down the compatibility list or drop out of it entirely. That is the test
-        working as intended: those violations were always present in the data, they were simply not being
-        checked against.
+        <strong>Zone spelling stops mattering.</strong> Where a zone is still referred to by name &mdash; in
+        the report, and when naming which printed condition a violation breaks &mdash; membership is decided
+        by the zone&rsquo;s <em>normal vectors</em>, stored alongside it: $\mathbf{h}$ lies in the zone when
+        $\mathbf{n}\cdot\mathbf{h}=0$ for each normal. This distinguishes families that a label-matching
+        test conflates. <em>hhl</em> ($h=k$) and <em>h&#772;hl</em> ($h=-k$) are different zones carrying
+        different conditions in trigonal and hexagonal groups: in P6<sub>3</sub>/mmc reflection 111 is absent
+        while 1&#772;11 is present, and in R-3&#772;c 223 is present while 2&#772;23 is absent. The
+        arithmetic test also makes membership inclusive for free, which is what the nesting above requires:
+        <em>h00</em> satisfies the <em>hk0</em> normal $l=0$, so it is an <em>hk0</em> reflection without
+        anything having to say so.
     </p>
+    <p>
+        The database carries 27 distinct zone labels across the 527 settings, including forms such as
+        <em>h(-2h)l</em>, <em>(-2k)kl</em>, <em>0kk</em> and <em>hk-k</em>. Roughly 30% of all zone records
+        in the database use one of the labels that only the normal-vector test can reach.
+    </p>
+    <p>
+        <strong>What this changes in practice.</strong> Every setting is now held to every absence it actually
+        implies, which is strictly more than any printed subset states. Groups that would otherwise show zero
+        hard violations therefore accumulate them and move down the compatibility list, or drop out of it.
+        Those violations were always present in the data; they were simply not being checked against.
+        Violations are still <em>named</em> by a printed condition where one applies, since that is what makes
+        the report readable &mdash; and where an absence follows from a condition the tables leave implied,
+        the report says so rather than inventing a rule to blame.
+    </p>
+
     <h4>Rewarding settings that explain the observed absences</h4>
     <p>
         Violation counting is <strong>one-sided</strong>: it only ever looks at reflections that <em>are</em>
@@ -2033,9 +2119,11 @@
             </p>
             <ul>
                 <li>
-                    <strong>Arithmetic.</strong> Two rule sets are first compared by what they forbid over a
-                    box of <em>hkl</em>, not by comparing their condition strings, so two settings whose stored
-                    conditions differ only in wording do not produce two identical rows.
+                    <strong>Arithmetic.</strong> Two settings are first compared by what their operators
+                    forbid over a box of <em>hkl</em>, never by comparing the conditions printed for them.
+                    Settings whose tables are worded differently but which forbid the same reflections
+                    therefore collapse into one row, and settings whose tables happen to look alike but which
+                    forbid different reflections do not.
                 </li>
                 <li>
                     <strong>Observable.</strong> The surviving classes are then compared by the pattern they
@@ -2326,7 +2414,9 @@
             <ol>
                 <li>
                     Each observed height is corrected to a quantity proportional to $|F|^2$ by dividing out
-                    the Lorentz-polarisation factor and the symmetry multiplicity that the lattice implies.
+                    the Lorentz-polarisation factor and the <strong>intensity weight</strong> of the line.
+                    That weight is $m\varepsilon$, not the multiplicity $m$ alone, and the difference is not
+                    a detail &mdash; see the note below.
                 </li>
                 <li>
                     The corrected intensities are averaged in shells of $s^2 = (\sin\theta/\lambda)^2$.
@@ -2350,6 +2440,40 @@
                     that position is the Wilson tail probability of exceeding it.
                 </li>
             </ol>
+            <div class="callout-note">
+                <strong>Multiplicity alone is the wrong weight, and it is wrong exactly where it hurts.</strong>
+                The mean intensity of a powder line is
+                $\langle I\rangle \propto Lp \sum \langle |F|^2\rangle$ over the reflections that coincide
+                there, and Wilson&rsquo;s relation gives
+                $\langle |F(\mathbf{h})|^2\rangle = \varepsilon(\mathbf{h}) \sum_j f_j^2$, where
+                $\varepsilon$ counts the symmetry operations that leave $\mathbf{h}$ fixed. By the
+                orbit&ndash;stabiliser theorem $m\varepsilon = |G|$, so summing $\varepsilon$ over a full
+                orbit gives the same number <em>for every reflection</em>: at a given resolution the mean line
+                intensity does not depend on multiplicity at all. High-multiplicity general lines have many
+                modest contributions; low-multiplicity special lines have few, each $\varepsilon$ times
+                stronger, and the two balance exactly.
+                <p style="margin-top:0.75rem">
+                Weighting by $m$ alone therefore expects a cubic $\{h00\}$ line ($m=6$) to be an
+                <strong>eighth</strong> the strength of a $\{hkl\}$ line ($m=48$) at the same angle, when
+                their means are equal. The detection threshold at $h00$ comes out eightfold too high, $p$ far
+                too low, and a clean absence there earns almost no credit &mdash; on the axial reflections,
+                which are precisely the ones that decide screw axes. Tetragonal is out by up to 4&times;,
+                orthorhombic and monoclinic by up to 2&times;. Brutus uses $m\varepsilon$, computed under the
+                <em>holohedry</em> of the crystal system so that it depends only on the cell and never on the
+                candidate being scored &mdash; a weight a hypothesis could adjust in its own favour would be
+                the M(20) failure in a new costume.
+                </p>
+            </div>
+            <div class="callout-note">
+                <strong>Why centricity is deliberately left out.</strong> The same operators would also say
+                whether each reflection is centric, which changes the shape of the weak tail. It is not used,
+                because the scoring compares <em>extinction classes</em> and centricity is not a property of
+                one: C2, Cm and C2/m share a single class but have three different point groups and three
+                different centricities, so &ldquo;is this class centric?&rdquo; has no answer. Choosing a
+                distribution per class would make the ranking swing on something powder data cannot see, and
+                on something that is not even well defined for the object being ranked. One distribution is
+                used for every row, so the choice cancels out of every comparison.
+            </div>
             <div class="callout-note">
                 <strong>Wilson supplies the shape; your data supply the level.</strong> The tail probability
                 computed as above turned out to be systematically too generous &mdash; measured against
@@ -2700,7 +2824,9 @@
                 centering pre-filter; the compatibility list, the <strong>Lattice Centering</strong> line and
                 the <strong>Possible Extinctions</strong> list elsewhere in the report do neither. They can
                 therefore still disagree about the detected centering or the detected conditions &mdash; just
-                no longer about which space group wins, because only one of them now claims a winner.
+                no longer about which space group wins, because only one of them now claims a winner, and no
+                longer about whether a given reflection is forbidden, because both now put that question to
+                the same symmetry operators.
             </div>
         </section>
 
