@@ -5226,7 +5226,14 @@ function sgExtinctionClasses(spaceGroupData, system, allowedCenterings) {
                 };
                 bucket.push(cls);
             }
+            // hall travels with the member because it is the ONLY field that
+            // names one setting unambiguously. Several IT numbers cover more
+            // than one setting -- 62 is Pnma, Pmnb, Pbnm, Pcmn, Pmcn and Pnam --
+            // and they impose different absences on the same cell. A consumer
+            // handed only the number and an H-M string has to re-parse the
+            // string to work out which; handed the Hall symbol it does not.
             cls.members.push({ number: sg.number, symbol: setting.symbol,
+                               hall: setting.hall || null,
                                centric: !!sg.centrosymmetric });
         }
     }
