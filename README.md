@@ -16,7 +16,9 @@ account, and there is no install step.
 
 ## Running it
 
-It is a static site, so any web server will do:
+This program can be run by accessing <https://nitad54448.github.io/brutus/brutus.html>.
+
+If you want, you can copy all these files in a folder of your choice, then run it directly. This is a static site, so any web server will work, you can launch one in Visual Studio or by:
 
 ```bash
 cd brutus
@@ -26,40 +28,33 @@ python -m http.server 8000
 
 Opening `brutus.html` straight off the disk (`file://`) will *not* work — the
 app fetches the shaders and the space-group database at runtime, and browsers
-block that for local files. It costs one command to avoid.
+block that for local files.
 
 For the low-symmetry systems you need a browser with **WebGPU** (recent Chrome,
-Edge, or Safari 18+). Cubic, tetragonal and hexagonal run on the CPU in a Web
-Worker and work anywhere.
+Edge, or Safari 18+ with graphic acceleration set to ON). You have probably a GPU, so if it does not work it is the settings of your browser, rather than the device. I tested this program on many devices, even on a Android phone. For indexing Cubic, tetragonal and hexagonal this program uses the CPU in a Web Worker and work anywhere. 
 
 ---
 
 ## How it works
 
-Peak positions are converted to Q-space, where $Q = 1/d^2$, because the
+The program will read a data file and then you detect peak positions. Peak positions are converted to Q-space, where $Q = 1/d^2$, because the
 relationship between $Q$ and the Miller indices is linear in the reciprocal cell
 parameters:
 
 $$Q_{hkl} = Ah^2 + Bk^2 + Cl^2 + Dkl + Ehl + Fhk$$
 
 The assumption underneath everything is that the strongest low-angle
-reflections have small integer indices. So: pick as many observed peaks as there
-are unknowns, guess an $(hkl)$ for each, solve the linear system, and see what
-falls out. A trial that survives a cheap filter is then refined properly by
-weighted least squares — including the zero-point error — and scored against the
+reflections have small integer indices. So the program pick some observed peaks, guess an $(hkl)$ for each, solve the linear system, and see what falls out. A trial that survives a cheap filter is then refined properly by weighted least squares — including the zero-point error — and scored against the
 whole peak list with M(20) and F(N).
 
 The interesting part is the filtering, because the search generates enormous
 numbers of candidates and almost all of them are nonsense. Each GPU thread
 solves one system, throws away anything geometrically implausible, and scores
-the survivor against the first ten peaks, bailing out the moment the running
-error exceeds budget. Fewer than one in a thousand random cells gets past that,
-which is what makes the approach viable at all.
+the survivor against the first ten peaks. Very few cells survuve this test, but since the program will test about 10 millions cells per second, it will probably find a valid cell, if peaks, volume and system are correctly selected.
 
-The full methodology — the per-system parameterisations, the figure-of-merit
+The full methodology with the system parameterisations, the figure-of-merit
 definitions, the weighting scheme, the two-round zero-point strategy, the
-space-group statistics — is in **`brutus_help.html`**, which is a great deal
-more thorough than this file and is the place to look if you want to know why
+space-group statistics — is in **`brutus_help.html`**, which is more thorough than this file and is the place to look if you want to know why
 something behaves the way it does.
 
 ---
@@ -79,14 +74,14 @@ something behaves the way it does.
    (≈0.02° synchrotron, ≈0.05° typical lab). Then pick the crystal systems.
    Orthorhombic, monoclinic and triclinic are mutually exclusive — selecting one
    unselects the others.
-5. **Index.** Then sort the solutions by M(20) and click a row to overlay the
+5. **Index.** Sort the solutions by M(20) and click a row to overlay the
    calculated tick marks on your pattern.
 
 ---
 
 ## When it finds nothing
 
-Almost always the peak list. Check that the first ten to fifteen lines really
+Almost always the problem is the peak list. Check that the first ten to fifteen lines really
 do belong to one phase and that their positions are accurate.
 
 After that, the two settings that most often shut the search out:
@@ -101,7 +96,7 @@ After that, the two settings that most often shut the search out:
   zero offset therefore shows up as a uniform error on every peak, and once it
   approaches the stated tolerance nothing gets through.
 
-Since v2026-08 the app tells you which of these it was. A run that finds nothing
+Since v2026-08-28 the app tells you which of these it was. A run that finds nothing
 now reports the volume range of the candidates it saw and how many peaks the
 best of them kept inside the error budget, so "no solutions" comes with a reason
 and a setting to change.
@@ -157,9 +152,9 @@ integer arithmetic throughout, with no tolerance to get wrong.
 `sg_ops.json` holds all **530 settings of the 230 space groups** — every
 symmetry operator, the zone definitions, and the printed reflection conditions —
 in about 240 KB. Rotation matrices are dictionary-encoded against a shared table
-of the 64 distinct ones, which is why it fits in a single fetch.
+of the 64 distinct ones.
 
-It is generated directly from [cctbx](https://cctbx.github.io/):
+The sg_ops.json is generated directly from [cctbx](https://cctbx.github.io/):
 
 ```bash
 python build_sg_db.py --out sg_ops.json
@@ -188,7 +183,7 @@ reflection conditions and compares them against the International Tables.
 `check_sg_ops.mjs` also reports how many settings are actually *reachable*.
 About 77 are deliberately excluded: monoclinic settings that are not b-unique,
 and settings written on rhombohedral rather than hexagonal axes. That is
-correct, not a loss — the indexer produces b-unique monoclinic cells and indexes
+correct, not a loss — Brutus produces b-unique monoclinic cells and indexes
 R lattices in hexagonal axes, so a condition list written for other axes refers
 to different indices, and applying it would be wrong.
 
@@ -232,7 +227,7 @@ running *different builds of the same file*, which does not present as a caching
 problem — it presents as the results table and the PDF report disagreeing. Run
 `python bump_version.py` after any change; it sets every `?v=` together and
 warns if they have drifted apart. The `.wgsl` shaders are still fetched
-unversioned, so a shader change also wants a hard reload.
+unversioned, so a shader change also requires a hard reload .
 
 ---
 
