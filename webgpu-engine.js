@@ -409,9 +409,17 @@ class WebGPUEngine {
         const peakCombosBuffer = this.createBuffer(peakCombos, GPUBufferUsage.STORAGE);
         const qTolerancesBuffer = this.createBuffer(qTolerancesArray, GPUBufferUsage.STORAGE);
 
-        const counterBuffer = this.createStorageBuffer(4);
+        // 32 bytes, not 4: slot 0 is the solution count as before, slots 1-3 are
+        // run diagnostics (see the binding comment in the shaders). Slot 2 is an
+        // atomicMin, so it must start at u32 MAX -- WebGPU zero-fills new
+        // buffers, and a min seeded at 0 would stay 0 forever and report every
+        // run as having produced a zero-volume cell.
+        const counterBuffer = this.createStorageBuffer(32);
+        const counterInit = new Uint32Array(8);
+        counterInit[2] = 0xFFFFFFFF;
+        this.device.queue.writeBuffer(counterBuffer, 0, counterInit);
         const resultsBuffer = this.createStorageBuffer(maxSolutions * solutionStructSize);
-        const counterReadBuffer = this.createReadBuffer(4);
+        const counterReadBuffer = this.createReadBuffer(32);
         const resultsReadBuffer = this.createReadBuffer(maxSolutions * solutionStructSize);
 
         // (debugCounterBuffer / debugLogBuffer removed along with bindings 7 and 8.)
@@ -512,6 +520,10 @@ class WebGPUEngine {
         // Last counter value actually read back; used for progress on the chunks
         // that no longer stall for a readback (see CHUNKS_PER_SYNC below).
         let lastKnownSolutions = 0;
+        // Run diagnostics, refreshed at every sync point. When a run finds
+        // nothing these are the only evidence of WHY, so they are reported
+        // whether or not the run succeeded.
+        const diag = { peaksInBudget: 0, volMin: 0xFFFFFFFF, volMax: 0 };
 
         // Byte alignment for copyBufferToBuffer: WebGPU requires size to be a multiple of 4.
         // One cell is already a multiple of 4 bytes (4 or 8 f32s), so any count*structSize is safe.
@@ -543,7 +555,7 @@ try {
                 if (isSyncChunk) {
                     // Copy only the counter. We will decide how many result bytes to
                     // copy once we know the counter value.
-                    commandEncoder.copyBufferToBuffer(counterBuffer, 0, counterReadBuffer, 0, 4);
+                    commandEncoder.copyBufferToBuffer(counterBuffer, 0, counterReadBuffer, 0, 32);
                 }
                 this.device.queue.submit([commandEncoder.finish()]);
 
@@ -581,7 +593,12 @@ try {
                     break;
                 }
 
-                const numSolutions = new Uint32Array(counterReadBuffer.getMappedRange())[0];
+                const counters = new Uint32Array(counterReadBuffer.getMappedRange());
+                const numSolutions = counters[0];
+                // Snapshot the diagnostics: the mapped range dies at unmap().
+                diag.peaksInBudget = counters[1];
+                diag.volMin = counters[2];
+                diag.volMax = counters[3];
                 counterReadBuffer.unmap();
                 lastKnownSolutions = numSolutions;
 
@@ -661,7 +678,25 @@ try {
         // is no accumulated list to hand back. The old `potentialCells: []` was
         // permanently empty and every caller ignored it, which is exactly the
         // kind of return value someone eventually trusts. Report counts instead.
-        return { cellsEmitted: solutionsReadCount, stoppedEarly };
+        return {
+            cellsEmitted: solutionsReadCount,
+            stoppedEarly,
+            diagnostics: {
+                system: cfg.systemName,
+                // Most peaks any candidate kept inside the FoM error budget,
+                // out of how many were scored. Short of nPeaksScored means no
+                // cell ever fitted the whole set.
+                peaksInBudget: diag.peaksInBudget,
+                nPeaksScored: Math.min(configViewU32[2], 32),
+                // Volume range of cells that cleared the axis test, BEFORE the
+                // volume gate. null when nothing cleared the axis test at all.
+                volMin: diag.volMin === 0xFFFFFFFF ? null : diag.volMin,
+                volMax: diag.volMax === 0 && diag.volMin === 0xFFFFFFFF ? null : diag.volMax,
+                maxVolume: configViewF32[10],
+                minVolume: configViewF32[14],
+                fomThreshold: configViewF32[11],
+            },
+        };
     }
 
     // Backward-compatible entry points. brutus.html's makeGpuTask references these by name

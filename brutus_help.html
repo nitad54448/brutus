@@ -246,18 +246,124 @@
                 <li><code>worker-logic.js</code> — shared logic loaded three ways: directly on the main thread (for post-processing and helper maths), as a standalone Web Worker (for the background CPU indexing of cubic/tetragonal/hexagonal), and via <code>importScripts()</code> inside each refinement worker. Contains all crystallographic mathematics: HKL generation, Q-calculation, least-squares solvers, figure-of-merit calculations, error propagation, and the Niggli reduction.</li>
                 <li><code>refinement-worker.js</code> — a thin batch-refinement worker. GPU-found candidate cells are refined (full weighted least-squares, M(20), error propagation) not on the main thread but across a <strong>pool of these workers</strong>, sized to <code>hardwareConcurrency − 2</code> (minimum 1) to leave cores free for the UI and the GPU driver. Candidate cells are streamed to the pool in round-robin batches while the GPU search is still running, so refinement overlaps GPU execution.</li>
                 <li><code>webgpu-engine.js</code> — the GPU-accelerated brute-force search for orthorhombic, monoclinic, and triclinic systems. Manages the WebGPU device, buffers, dispatch chunking, and combinadic bookkeeping; loads the WGSL compute shaders below.</li>
-                <li><code>sg_ops.json</code> &mdash; the space-group database: all 527 settings of the 230
-                    groups, each carrying its full set of <strong>symmetry operators</strong> together with the
-                    zone definitions and the printed reflection conditions. Built from a directory of
-                    per-setting files by <code>sg_pack.py</code>, which folds them into one file (Brutus needs
-                    every setting at once to build extinction classes, and 527 fetches is not an option) and
-                    drops the parts that exist for structure solution rather than indexing. Operators are
+                <li><code>sg_ops.json</code> &mdash; the space-group database: all <strong>530 settings</strong>
+                    of the 230 groups, each carrying its full set of <strong>symmetry operators</strong>
+                    together with the zone definitions and the printed reflection conditions. Generated
+                    directly from cctbx by <code>build_sg_db.py</code> (see
+                    <a href="#build-scripts">Build and maintenance scripts</a>). Operators are
                     dictionary-encoded against a shared table of the 64 distinct rotation matrices, so the
-                    whole database is under a megabyte.</li>
+                    whole database is about 235&nbsp;KB &mdash; one fetch rather than the 530 the app would
+                    otherwise need to build its extinction classes.</li>
                 <li><code>styles.css</code>, <code>inter-font.css</code>, and the vendored libraries under
                     <code>scripts/</code> (Chart.js, Hammer, the Chart.js zoom plugin, jsPDF).</li>
                 <li><code>ortho_solver.wgsl</code>, <code>monoclinic_solver.wgsl</code>, <code>triclinic_solver.wgsl</code> — the WGSL compute kernels. Each unranks HKL combinations on the fly from a u32 combinadic (combinatorial-number-system) index, solves the per-trial linear system (3×3, 4×4, or 6×6), applies the geometric and figure-of-merit filters, and atomically appends surviving cells to the results buffer. In the triclinic kernel the 6×6 coefficient matrix depends only on the chosen HKL combination, not on the peak-to-HKL assignment, so it is Gauss-eliminated <strong>once</strong> per combination and the stored multipliers are then re-applied to each of the $6! = 720$ permuted right-hand sides. This is arithmetically identical to re-solving the system from scratch each time (the elimination multipliers are a function of the matrix alone), and a singular matrix now abandons the whole combination immediately rather than being re-detected 720 times.</li>
             </ul>
+
+            <h3 id="build-scripts">Build and maintenance scripts</h3>
+            <p>
+                None of these are needed to <em>run</em> Brutus. The application is static: put the HTML, the
+                JavaScript, the shaders and <code>sg_ops.json</code> on any web server (or open them from a
+                local one) and it works. The scripts below exist to build that database and to check the
+                things a browser cannot tell you it got wrong.
+            </p>
+
+            <h4><code>build_sg_db.py</code> &mdash; the space-group database</h4>
+            <p>
+                Reads cctbx and writes <code>sg_ops.json</code>. Requires a cctbx environment; nothing else in
+                Brutus does.
+            </p>
+            <pre><code>python3 build_sg_db.py --out sg_ops.json</code></pre>
+            <p>
+                It walks every setting cctbx knows, extracts the exact rational symmetry operators, and
+                derives the zones and reflection conditions <em>from those operators</em>: for each operator
+                the zone is the integer null space of $R - I$, and on that zone the phase requirement
+                $\mathbf{h}\cdot\mathbf{t} \in \mathbb{Z}$ reduces to an exact integer congruence. Nothing
+                is copied from a table, so the conditions cannot drift out of step with the operators the app
+                actually uses &mdash; and every setting is verified before the file is written.
+            </p>
+            <p>
+                This replaced a two-stage pipeline (one program wrote 527 per-setting files, a second merged
+                the handful of fields Brutus needs). That put two schemas between cctbx and the application,
+                and a field renamed upstream broke the merge silently. It also lost three settings: the file
+                now carries the full 530.
+            </p>
+            <table>
+                <tr><th style="width:26%">Option</th><th>Effect</th></tr>
+                <tr><td><code>--self-test</code></td>
+                    <td>Checks the derivation against nine space groups built by closing published generators,
+                        with <strong>no cctbx involved</strong>. Each group's order is checked against its
+                        published value first, so a typo in a generator fails loudly instead of quietly
+                        testing the wrong group. Run this first: if it passes, the mathematics is sound and
+                        only the cctbx enumeration is unexercised.</td></tr>
+                <tr><td><code>--check FILE</code></td>
+                    <td>Re-reads a finished <code>sg_ops.json</code> cold and confirms it is internally
+                        consistent: every zone label used by a condition exists, the conditions reproduce the
+                        operators reflection by reflection, <code>crystal_system</code> is lower case, and the
+                        centring letters are ones the app recognises.</td></tr>
+                <tr><td><code>--box N</code></td>
+                    <td>Half-range of the <em>hkl</em> box used for that verification (default 5). Larger is
+                        stricter and costs little.</td></tr>
+                <tr><td><code>--limit N</code>, <code>--pretty</code></td>
+                    <td>Stop after N settings (smoke test); write indented JSON.</td></tr>
+            </table>
+
+            <h4><code>check_sg_ops.mjs</code> &mdash; does the app accept the database?</h4>
+            <pre><code>node check_sg_ops.mjs sg_ops.json</code></pre>
+            <p>
+                Where <code>--check</code> validates the file against <em>itself</em>, this validates it
+                against the <em>application</em>. It loads the real <code>worker-logic.js</code>, replays the
+                loader's gates, confirms every field the code dereferences is present, and builds the
+                extinction classes for each crystal system. It then reports <strong>reachability</strong>:
+                how many settings can actually be used, and why any cannot.
+            </p>
+            <div class="callout-note">
+                <strong>Some settings are excluded on purpose, and the check says so.</strong> About 70
+                monoclinic settings are dropped because their Hall symbol is not b-unique, and about seven
+                more because they are written on rhombohedral rather than hexagonal axes. That is correct:
+                the indexer produces b-unique monoclinic cells and indexes R lattices in hexagonal axes, so a
+                condition list written for other axes refers to <em>different indices</em> and applying it
+                would be wrong, not generous. Those exclusions are reported as <code>ok</code> with their
+                reason. An exclusion the check cannot explain, an operator set that fails to compile, or a
+                whole crystal system vanishing, are the things it exists to catch.
+            </div>
+            <p>
+                One consequence worth knowing when reading any of this output: in the database
+                <code>hall</code> is the identifier and <code>symbol</code> is a display label. Several
+                settings share a Hermann&ndash;Mauguin symbol &mdash; the two origin choices of a
+                centrosymmetric group, and the hexagonal and rhombohedral descriptions of an R group, are the
+                common cases. Origin choice provably cannot change which reflections are absent, so those
+                pairs are expected to land in the same extinction class and appear as two members under one
+                symbol.
+            </p>
+
+            <h4><code>bump_version.py</code> &mdash; cache busting</h4>
+            <pre><code>python3 bump_version.py            # stamp today's date
+python3 bump_version.py --check    # report, change nothing</code></pre>
+            <p>
+                Sets the <code>?v=</code> on every versioned <code>&lt;script&gt;</code> tag in
+                <code>brutus.html</code> to one value, and warns if they currently disagree &mdash; which
+                matters for the reason set out in the note below. Run it after changing any JavaScript or
+                rebuilding the database.
+            </p>
+
+            <h4>Verification scripts</h4>
+            <p>
+                Two further checks accompany the code rather than the data, and are worth running after
+                touching the areas they cover.
+            </p>
+            <ul>
+                <li><code>node test_sg_ops.mjs</code> &mdash; derives reflection conditions from operators for
+                    ten space groups and checks them against the International Tables, using the operator
+                    core inside the shipping <code>worker-logic.js</code> rather than a copy of it. Covers
+                    screw axes, every glide, all centrings, the 4n d-glide conditions, and the trigonal and
+                    hexagonal zone families that a label-matching test gets wrong.</li>
+                <li><code>node check_pipeline.mjs</code> &mdash; confirms that <code>main_app.js</code>,
+                    <code>webgpu-engine.js</code> and the three shaders still agree on how the HKL basis is
+                    packed, and that the engine's parameter list matches what the application passes. Both
+                    failures are otherwise invisible: the run completes, every candidate cell is nonsense,
+                    and the search reports no solutions with no error anywhere.</li>
+            </ul>
+
             <div class="callout-note">
                 <strong>Versioning and the browser cache.</strong> The <code>?v=</code> query string on the
                 <code>&lt;script&gt;</code> tags in <code>brutus.html</code> exists only to force browsers to
@@ -268,8 +374,15 @@
                 That does not present as a caching problem: it presents as results that disagree between the
                 table and the report. The worker URLs are therefore derived at runtime from the query string
                 on the <code>main_app.js</code> tag, so bumping that single value in <code>brutus.html</code>
-                busts the whole chain. Keep the date in the page footer in step with it — the PDF report reads
-                that footer for its version line.
+                busts the whole chain &mdash; and so does the fetch of <code>sg_ops.json</code>, which would
+                otherwise be cached across a database rebuild and fail the operator check while the file on
+                disk was perfectly correct. <code>bump_version.py</code> sets all of them together and warns
+                if they have drifted apart. Keep the date in the page footer in step with it — the PDF report
+                reads that footer for its version line.
+                <p style="margin-top:0.75rem">
+                The <code>.wgsl</code> shaders are fetched by bare filename with no <code>?v=</code> at all,
+                so a shader change still needs a hard reload (Ctrl+Shift+R). That is the one remaining gap.
+                </p>
             </div>
         </section>
 
@@ -1823,9 +1936,12 @@
         anything having to say so.
     </p>
     <p>
-        The database carries 27 distinct zone labels across the 527 settings, including forms such as
-        <em>h(-2h)l</em>, <em>(-2k)kl</em>, <em>0kk</em> and <em>hk-k</em>. Roughly 30% of all zone records
-        in the database use one of the labels that only the normal-vector test can reach.
+        The database carries 25 distinct zone labels across the 530 settings. Twelve of them &mdash;
+        <em>(-2k)kl</em>, <em>0k-k</em>, <em>0kk</em>, <em>h(-2h)l</em>, <em>h-h-h</em>, <em>h-h0</em>,
+        <em>h-hh</em>, <em>h0-h</em>, <em>h0h</em>, <em>hh-h</em>, <em>hk-h</em> and <em>hk-k</em> &mdash;
+        are spellings the old label-matching table had no entry for at all, so a condition carried on any of
+        them matched nothing and was skipped in silence. Those are largely the trigonal and hexagonal
+        families, which is why those two systems are where the operator treatment changes the most.
     </p>
     <p>
         <strong>What this changes in practice.</strong> Every setting is now held to every absence it actually

@@ -2,8 +2,13 @@
 // Extracts the real buildHklBasis from main_app.js rather than a copy.
 import { readFileSync } from 'fs';
 
-const app = readFileSync('./main_app.js','utf8');
-const eng = readFileSync('./webgpu-engine.js','utf8');
+// Normalise line endings before any pattern matching. The shipped files are
+// CRLF, and patterns written with \n silently fail to match against \r\n --
+// which made this report a false FAIL on every field it extracts. A checker
+// that cries wolf gets ignored, which is worse than not having it.
+const read = (f) => readFileSync(f, 'utf8').replace(/\r\n/g, '\n');
+const app = read('./main_app.js');
+const eng = read('./webgpu-engine.js');
 
 // pull HKL_PACKERS + HKL_PACKING straight out of the app source
 const i0 = app.indexOf("const HKL_PACKING = 'products/v1';");
@@ -33,7 +38,7 @@ const shaderExpect = {
 console.log('\nshader indexing');
 for (const [sys, [file, needles]] of Object.entries(shaderExpect)) {
   let src = '';
-  try { src = readFileSync('./'+file,'utf8'); } catch { console.log(`  ${file}: not present here`); continue; }
+  try { src = read('./'+file); } catch { console.log(`  ${file}: not present here`); continue; }
   const isVec4 = /hkl_basis: array<vec4<f32>>/.test(src);
   const found = needles.filter(n => src.includes(n));
   const good = isVec4 && found.length === needles.length;

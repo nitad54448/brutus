@@ -27,7 +27,33 @@ alias Vec3 = vec3<f32>;
 
 @group(0) @binding(3) var<storage, read> binomial_table: array<u32>; 
 
-@group(0) @binding(4) var<storage, read_write> solution_counter: atomic<u32>;
+// Slot 0 is the solution count, as before. Slots 1-3 are run DIAGNOSTICS, and
+// they exist because a run that finds nothing currently says only that: no
+// solutions, no reason, no hint which of Max Volume / 2-theta Error / FoM
+// threshold was the one that shut the search out.
+//
+// They are min/max rather than counts ON PURPOSE. Counting rejected trials
+// looks like the obvious design and does not survive contact with the numbers:
+// total trials are C(n_hkl,3) x C(n_peaks,3) x 6, which is 9.4e8 at a
+// 300-reflection basis but 3.5e10 at 1000 and 9.0e11 at the 2954 maximum --
+// past u32 by a factor of 210. A wrapped counter reports confident nonsense,
+// which is worse than reporting nothing. A min and a max cannot overflow.
+//
+// A range is also the more useful answer. "4.2M cells rejected on volume" says
+// the cap fired; "candidates ran 2100-7800 A^3" says what to raise it to.
+//
+//   [0] solution count                                     atomicAdd
+//   [1] most peaks any candidate kept inside the error
+//       budget before the FoM fail-fast gave up (0..32)    atomicMax, init 0
+//   [2] smallest cell volume, A^3, among cells that passed
+//       the AXIS test -- recorded BEFORE the volume gate   atomicMin, init MAX
+//   [3] largest such volume                                atomicMax, init 0
+//   [4..7] reserved
+//
+// The writes sit only on already-filtered paths: [2]/[3] fire after the axis
+// test, [1] once per FoM call. Nothing touches an atomic on the hot reject path
+// where most trials die.
+@group(0) @binding(4) var<storage, read_write> solution_counter: array<atomic<u32>, 8>;
 @group(0) @binding(5) var<storage, read_write> results_list: array<RawOrthoSolution>;
 
 // --- ALIGNED CONFIG STRUCT (16-byte alignment) ---
@@ -134,7 +160,15 @@ fn extractCellOrtho(params: Vec3) -> RawOrthoSolution {
     }
     
     let volume = a_val * b_val * c_val;
-    
+
+    // Diagnostics: volume range of everything that cleared the axis test, taken
+    // BEFORE the volume gate below. If a run finds nothing and this range lies
+    // entirely above config.f_params.z, the Max Volume setting is the reason,
+    // and the range says what to raise it to.
+    let vol_diag = u32(clamp(volume, 0.0, 4.0e9));
+    atomicMin(&solution_counter[2], vol_diag);
+    atomicMax(&solution_counter[3], vol_diag);
+
     if (volume < config.f_params2.z || volume > config.f_params.z) { 
          return RawOrthoSolution(0.0, 0.0, 0.0, 0.0);
     }
@@ -186,6 +220,7 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32) -> f32 {
     if (max_imp == 0u) {
         var sum_abs_error: f32 = 0.0;
         let max_allowed_total = config.f_params.w * f32(n_peaks_to_check);
+        var peaks_ok: u32 = 0u;
 
         for (var i: u32 = 0u; i < n_peaks_to_check; i = i + 1u) {
             let q_obs_val = q_obs[i];
@@ -202,8 +237,19 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32) -> f32 {
             // Changed to Abs Difference (FoM = Mean |diff|/tol)
             sum_abs_error += norm;  
             
-            if (sum_abs_error > max_allowed_total) { return 999.0; }
+    // Diagnostics: how many peaks the best candidate kept inside the error
+    // budget before the fail-fast gave up. The FoM VALUE cannot be used for
+    // this -- the fail-fast returns 999.0 the moment the running sum exceeds
+    // budget, so it is 999 for everything that misses and says nothing about
+    // how badly. The peak count does: 9 of 10 means nudge the tolerance,
+    // 2 of 10 means the cell is nowhere near.
+            if (sum_abs_error > max_allowed_total) {
+                atomicMax(&solution_counter[1], peaks_ok);
+                return 999.0;
+            }
+            peaks_ok = peaks_ok + 1u;
         }
+        atomicMax(&solution_counter[1], peaks_ok);
         return sum_abs_error / f32(n_peaks_to_check);
     }
 
@@ -257,9 +303,13 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32) -> f32 {
             }
             if (norm > min_v) { top_sum = top_sum - min_v + norm; top[min_i] = norm; }
             sum_all += norm;
-            if ((sum_all - top_sum) > max_allowed_total) { return 999.0; }
+            if ((sum_all - top_sum) > max_allowed_total) {
+                atomicMax(&solution_counter[1], i);
+                return 999.0;
+            }
         }
     }
+    atomicMax(&solution_counter[1], n_peaks_to_check);
 
     var sum_of_valid_errors: f32 = 0.0;
 
@@ -286,7 +336,7 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32) -> f32 {
 fn main_3p(
     @builtin(global_invocation_id) global_id: vec3<u32>
 ) { 
-    if (atomicLoad(&solution_counter) >= config.u_params2.z) { return; }
+    if (atomicLoad(&solution_counter[0]) >= config.u_params2.z) { return; }
 
     // 1. Calculate Indices
     let peak_combo_idx: u32 = global_id.x;
@@ -334,7 +384,7 @@ fn main_3p(
             let avg_err = validate_fom_avg_diff(A_sol, B_sol, C_sol);
             
             if (avg_err < config.f_params.w) { 
-                let idx = atomicAdd(&solution_counter, 1u);
+                let idx = atomicAdd(&solution_counter[0], 1u);
                 if (idx < config.u_params2.z) {
                     results_list[idx] = cell;
                 }

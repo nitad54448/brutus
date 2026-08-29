@@ -548,8 +548,13 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (_) { return ''; }
     })();
 
-   // Space group database. Built from the sg/ tree by sg_pack.py:
-   //     python3 sg_pack.py --sg-dir sg --out sg_ops.json
+   // Space group database, built straight from cctbx by build_sg_db.py:
+   //     python3 build_sg_db.py --out sg_ops.json
+   //
+   // One script, one point of failure. It was previously produced by running a
+   // separate generator to write 527 per-setting files and a second script to
+   // merge them; that put two schemas between cctbx and this app, and a field
+   // renamed upstream broke the merge silently.
    //
    // The old cctbx_space_groups_all_settings_v4.json is gone. It stored only
    // reflection-condition strings, which forced the app to guess zone
@@ -570,7 +575,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!data || !data.space_groups) throw new Error("no 'space_groups' member");
             if (!data.rotations || !data.zone_defs) {
                 throw new Error("no operator/zone tables -- this looks like the old " +
-                                "v4 file. Rebuild with sg_pack.py.");
+                                "v4 file. Rebuild with build_sg_db.py.");
             }
             spaceGroupData = data;
             const nSettings = Object.values(data.space_groups)
@@ -582,7 +587,7 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error("Could not load sg_ops.json:", error);
             showStatus("Warning: could not load sg_ops.json (" + error.message +
                        "). Space group analysis will be disabled. Build it with " +
-                       "sg_pack.py --sg-dir sg --out sg_ops.json", "error", 10000);
+                       "python3 build_sg_db.py --out sg_ops.json", "error", 10000);
         }
     }
     
@@ -1573,69 +1578,26 @@ const setupWorker = () => {
             return y_src[lo] * (1 - t) + y_src[hi] * t;
         };
 
-
-// Step 2, 3 & 4: Resample to uniform grid, compute difference, and clamp positive
+        // Step 2, 3 & 4: Resample to uniform grid, compute difference, and clamp positive
         const q_grid = new Float64Array(M);
         const delta_y_pos = new Float64Array(M);
-        const ratio_lam = ka1 / ka2;
-        
-        // Fast local background estimate to prevent baseline oscillation
-        const bg = new Float64Array(n);
-        const w = Math.max(10, Math.floor(n / 100)); // Adaptive window
-        for (let i = 0; i < n; i++) {
-            let min_val = intensity[i];
-            const start = Math.max(0, i - w);
-            const end = Math.min(n - 1, i + w);
-            for (let j = start; j <= end; j++) {
-                if (intensity[j] < min_val) min_val = intensity[j];
-            }
-            bg[i] = min_val;
-        }
-
         for (let m = 0; m < M; m++) {
             const q = q_min + m * dq;
             q_grid[m] = q;
-            
-            // Isolate peak component
-            const y2_raw = interp(q, q_a2, intensity);
-            const b2 = interp(q, q_a2, bg);
-            const y2 = Math.max(0, y2_raw - b2);
-            
-            const q_parent = q * ratio_lam;
-            const m_parent = (q_parent - q_min) / dq;
-            
-            let diff;
-            if (m_parent <= 0) {
-                const y1_raw = interp(q_parent, q_a1, intensity);
-                const b1 = interp(q_parent, q_a1, bg);
-                const y1_corr = Math.max(0, y1_raw - b1);
-                diff = y2 - ratio * y1_corr;
-            } else {
-                const idx = Math.floor(m_parent);
-                const t = m_parent - idx;
-                const val0 = delta_y_pos[idx];
-                
-                if (idx + 1 < m) {
-                    const val1 = delta_y_pos[idx + 1];
-                    const y1_corr = val0 * (1 - t) + val1 * t;
-                    diff = y2 - ratio * y1_corr;
-                } else {
-                    // Implicit solve if q_parent falls in the current cell m
-                    diff = (y2 - ratio * val0 * (1 - t)) / (1 + ratio * t);
-                }
-            }
-            
-            delta_y_pos[m] = Math.max(diff, 0);
-        }
-        
-        // Step 5: Inverse mapping T_a2^(-1) back to experimental 2theta grid
-        const corrected = new Array(n);
-        for (let i = 0; i < n; i++) {
-            // Restore the untouched background
-            corrected[i] = interp(q_a2[i], q_grid, delta_y_pos) + bg[i];
+            const y1 = interp(q, q_a1, intensity);
+            const y2 = interp(q, q_a2, intensity);
+            const diff = y2 - ratio * y1;
+            delta_y_pos[m] = Math.max(diff, (1 - ratio) * Math.min(y1, y2));
         }
 
-        return corrected;        
+        // Step 5: Inverse mapping T_α2^(-1) back to experimental 2θ grid
+        const corrected = new Array(n);
+        for (let i = 0; i < n; i++) {
+            // Under T_α2^(-1), angle tth[i] corresponds to reciprocal space coordinate q_a2[i]
+            corrected[i] = interp(q_a2[i], q_grid, delta_y_pos);
+        }
+
+        return corrected;
     };
 
     const updateWorkingData = () => {
@@ -2953,7 +2915,7 @@ ui.tthMinSlider.addEventListener('input', () => {
         const smoothingWidth = parseInt(ui.smoothingWidthSlider.value, 10);
         const background = rollingBallBackground(intensity, ballRadius, smoothingWidth);
         const backgroundCorrected = intensity.map((y, i) => Math.max(0, y - background[i]));
-        const windowSize = Math.max(5, smoothingWidth);
+        const windowSize = Math.max(5, Math.min(11, Math.floor(n / 100)));
         const smoothed = savitzkyGolay(backgroundCorrected, windowSize, 2);
 
         // --- Range-restricted noise/threshold statistics ---
@@ -3743,6 +3705,58 @@ let lastThrottleTime = 0;
 
 
 // In brutus.html
+    // ---- GPU run diagnostics -------------------------------------------------
+    // A run that finds nothing used to say only that. These turn the three
+    // counters the shaders now keep (see the @binding(4) comment there) into a
+    // sentence naming the setting to change.
+    //
+    // Collected per GPU task and cleared at the start of each indexing run.
+    let gpuDiagnostics = [];
+
+    // One-line technical summary, for the console.
+    const describeGpuDiagnostics = (d) => {
+        const vol = (d.volMin === null)
+            ? 'no candidate passed the axis test'
+            : `candidate volumes ${Math.round(d.volMin)}-${Math.round(d.volMax)} A^3 ` +
+              `(limits ${Math.round(d.minVolume)}-${Math.round(d.maxVolume)})`;
+        return `diagnostics: ${vol}; best candidate held ${d.peaksInBudget}/${d.nPeaksScored} ` +
+               `peaks inside the FoM budget (threshold ${d.fomThreshold})`;
+    };
+
+    // The reason a run produced nothing, phrased as something to act on.
+    // Returns null when the diagnostics do not clearly implicate one setting --
+    // guessing wrong is worse than staying quiet.
+    const explainNoGpuSolutions = (diags) => {
+        if (!diags || !diags.length) return null;
+        const reasons = [];
+        for (const d of diags) {
+            const label = d.system ? `${d.system}: ` : '';
+            if (d.volMin === null) {
+                // Nothing even reached the volume gate, so the axis window or
+                // the peak set is the problem, not the volume cap.
+                reasons.push(`${label}no candidate cell had all axes in range — check the peak list and 2θ range`);
+                continue;
+            }
+            if (d.volMin > d.maxVolume) {
+                reasons.push(`${label}every candidate cell was larger than Max Volume ` +
+                             `(${Math.round(d.maxVolume)} Å³); they ranged ` +
+                             `${Math.round(d.volMin)}–${Math.round(d.volMax)} Å³ — raise Max Volume`);
+                continue;
+            }
+            if (d.volMax < d.minVolume) {
+                reasons.push(`${label}every candidate cell was smaller than the ${Math.round(d.minVolume)} Å³ floor`);
+                continue;
+            }
+            // Cells of plausible size existed; the FoM is what rejected them.
+            if (d.nPeaksScored > 0 && d.peaksInBudget < d.nPeaksScored) {
+                reasons.push(`${label}cells of plausible size were found, but the best one matched only ` +
+                             `${d.peaksInBudget} of ${d.nPeaksScored} peaks within the error budget — ` +
+                             `raise 2θ Error, or raise the GPU FoM threshold`);
+            }
+        }
+        return reasons.length ? reasons : null;
+    };
+
 const startIndexing = async () => { 
     // Snapshot the current token; if abortActiveIndexing() runs before this
     // run's tail reaches finalizeIndexing(), the token will have moved on
@@ -3799,6 +3813,8 @@ const startIndexing = async () => {
         showStatus("Please find at least 3 peaks in the selected range.", 'error');
         return;
     }
+
+    gpuDiagnostics = [];
 
     const webgpuSystems = [];
     const workerSystems = [];
@@ -4160,6 +4176,7 @@ systemsToSearch.forEach(system => {
         return { hkl_basis_raw, hklBasisArray, hklFloats: packer.floats, hklPacking: HKL_PACKING };
     };
 
+
     // Build the peak-combo flat Uint32Array using the already-present createCombinationGenerator.
     // Previously these were hand-written nested for-loops (3, 4, and 6 levels deep).
     const buildPeakCombos = (max_p, K) => {
@@ -4258,7 +4275,7 @@ systemsToSearch.forEach(system => {
                     throw new Error(`Engine missing method ${cfg.engineMethod}`);
                 }
                 const tEngineStart = performance.now();
-                await engineFn.call(
+                const engineResult = await engineFn.call(
                     engine,
                     qObsArray,
                     hklBasisArray,
@@ -4285,6 +4302,10 @@ systemsToSearch.forEach(system => {
                 const drainMs = performance.now() - tDrainStart;
                 console.log(`[perf]   engineFn('${cfg.label}') wall time: ${engineMs.toFixed(0)} ms`);
                 console.log(`[perf]   dispatch: ${dispatchMs.toFixed(0)} ms  |  pool-drain: ${drainMs.toFixed(0)} ms  |  cells: ${cellsDispatchedToRefine}  |  workers: ${REFINE_POOL_SIZE}`);
+                if (engineResult?.diagnostics) {
+                    gpuDiagnostics.push(engineResult.diagnostics);
+                    console.log('[perf]   ' + describeGpuDiagnostics(engineResult.diagnostics));
+                }
             } catch (err) {
                 console.error(`WebGPU Error (${cfg.label}):`, err);
                 showStatus(`${cfg.shortLabel} GPU Error: ${err.message}`, 'error');
@@ -4534,7 +4555,16 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
         ui.solutionsLed.className = 'led-indicator green';
     } else {
         const message = stoppedByUser ? 'Indexing stopped by user.' : 'Indexing finished.';
-        showStatus(`${message} No valid solutions were found.`, 'info');
+        // Say WHY, when the GPU diagnostics point at one setting. A bare "no
+        // solutions" leaves the user guessing between Max Volume, 2θ Error and
+        // the FoM threshold, and those are not guessable.
+        const why = stoppedByUser ? null : explainNoGpuSolutions(gpuDiagnostics);
+        if (why) {
+            showStatus(`${message} No valid solutions were found. ${why[0]}`, 'error', 15000);
+            for (const r of why) console.log(`[indexing] no solutions — ${r}`);
+        } else {
+            showStatus(`${message} No valid solutions were found.`, 'info');
+        }
         if (solutions.length === 0) {
             ui.solutionsLed.className = 'led-indicator red';
         }
