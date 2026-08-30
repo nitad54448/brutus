@@ -932,11 +932,25 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
             postMessage_func({ type: 'solution', payload: payload });
         }
     };
-    
+
+    // --- Rejection accounting -------------------------------------------
+    // Optional: present only on the CPU indexing worker's state (see the
+    // self.onmessage handler at the bottom of this file). A run that ends with
+    // zero solutions previously had nothing to say about WHY -- every trial
+    // returned through the same silent exitFunction(). These counters are the
+    // difference between "no solutions" and "every cell was bigger than your
+    // Max Volume". Cost is one property read plus an increment on paths that
+    // are already returning, which is not measurable against the least-squares
+    // fit that dominates this function.
+    const diag = state.diag;
+    const bump = (k) => { if (diag) diag[k] = (diag[k] || 0) + 1; };
+    if (diag) diag.trials = (diag.trials || 0) + 1;
+
     // console.log("REFINE: Starting refinement for", initialParams);
 
     if (!initialParams || !initialParams.system) {
         // console.log("REFINE: Rejected - no params");
+        bump('badParams');
         return exitFunction();
     }
     
@@ -949,13 +963,32 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     // Explicitly validate both linear dimensions and angles against NaN/Infinity and physical limits
     if (axes_to_check.some(p => !isFinite(p) || p < min_lp_check || p > max_lp_check) ||
         angles_to_check.some(a => !isFinite(a) || a < 10.0 || a > 170.0)) {
+        bump('axisRange');
         return exitFunction(); 
     }
     
     const initial_cell_volume = getVolume(initialParams);
     // !(vol >= 20) safely catches NaN, 0, and negative volumes
     if (!(initial_cell_volume >= 20) || !(initial_cell_volume <= max_volume) || !isFinite(initial_cell_volume)) {
+        // Split the two directions: "every cell was too big" points at Max
+        // Volume, "every cell was too small" points at the peak list. Lumping
+        // them together names neither.
+        if (isFinite(initial_cell_volume)) {
+            if (initial_cell_volume > max_volume) {
+                bump('volumeTooLarge');
+                if (diag) diag.volOverMin = Math.min(diag.volOverMin ?? Infinity, initial_cell_volume);
+            } else {
+                bump('volumeTooSmall');
+            }
+        } else {
+            bump('volumeInvalid');
+        }
         return exitFunction();
+    }
+    if (diag) {
+        diag.volPassed = (diag.volPassed || 0) + 1;
+        diag.volMin = Math.min(diag.volMin ?? Infinity, initial_cell_volume);
+        diag.volMax = Math.max(diag.volMax ?? -Infinity, initial_cell_volume);
     }
 
 
@@ -968,6 +1001,7 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     
     if (all_possible_reflections.length === 0) {
         // console.log("REFINE: Rejected - could not generate HKLs");
+        bump('noReflections');
         return exitFunction();
     }
 
@@ -1019,7 +1053,12 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
                 }
             }
 
-            if (indexed_pairs.length < min_indexed[system]) return null;
+            // How many observed peaks this trial cell could actually account
+            // for. The single most useful number when nothing is found: if the
+            // best cell in a whole run matched 4 of 25 peaks, the peak list or
+            // the 2-theta error is wrong, not the search settings.
+            if (diag) diag.bestIndexed = Math.max(diag.bestIndexed || 0, indexed_pairs.length);
+            if (indexed_pairs.length < min_indexed[system]) { bump('tooFewIndexed'); return null; }
 
             const M = indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
             const q_vec = indexed_pairs.map(p => p.q_obs);
@@ -1035,7 +1074,7 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
             const ls_weights = ls_weights_for_2theta(tth_rads_for_rows);
 
             const fit = solveLeastSquares(M, q_vec, ls_weights);
-            if (!fit || !fit.solution) return null;
+            if (!fit || !fit.solution) { bump('fitFailed'); return null; }
             return { fit, indexed_pairs, peak_indices };
         };
 
@@ -1055,6 +1094,7 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
             const fitResult_with_zero_final = result.fit;
             const refined_cell = extractCellFromFit(fitResult_with_zero_final.solution, system);
 
+            if (!refined_cell) bump('extractFailed');
             if (refined_cell) {
                 // Only attach a zero_correction when we actually refined one.
                 // Leaving it undefined lets applyFinalSieve treat this as a
@@ -1083,6 +1123,15 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
                 
                 const { m20: final_m20, fN: final_fN_20 } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_20_refined, impurity_peaks, local_get_q_tolerance, wavelength);
                 
+                // Best M(20) any refined cell reached, kept even when it fails
+                // the threshold. A run whose best was 1.9 against a 2.0 floor is
+                // a completely different problem from one whose best was 0.2.
+                if (diag && isFinite(final_m20)) {
+                    diag.bestM20 = Math.max(diag.bestM20 ?? -Infinity, final_m20);
+                    diag.refined = (diag.refined || 0) + 1;
+                }
+                if (final_m20 <= min_m20) bump('lowM20');
+
                 if (final_m20 > min_m20) {
                     const peaks_for_merit_all_refined = [];
                     for (let i = 0; i < n_all; i++) {
@@ -4404,6 +4453,10 @@ if (typeof self !== 'undefined' && typeof WorkerGlobalScope !== 'undefined' && s
         // Live-updating arrays
         const foundSolutions = [];
         const foundSolutionMap = new Map();
+
+        // Per-run rejection tally, filled in by refineAndTestSolution and
+        // posted with 'done' so the main thread can explain an empty result.
+        const diag = { system: systemToSearch, trials: 0, min_m20, max_volume: data.max_volume };
         
         // Wrapper for refineAndTestSolution to match the signature expected by logic functions
         const refineAndTestWrapper = (cell) => {
@@ -4413,7 +4466,7 @@ if (typeof self !== 'undefined' && typeof WorkerGlobalScope !== 'undefined' && s
                 { 
                     q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q,
                     N_FOR_M20, min_m20, q_max, d_min,
-                    foundSolutions, foundSolutionMap
+                    foundSolutions, foundSolutionMap, diag
                 },
                 self.postMessage.bind(self) 
             );
@@ -4423,7 +4476,7 @@ if (typeof self !== 'undefined' && typeof WorkerGlobalScope !== 'undefined' && s
         const workerState = {
             q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q,
             N_FOR_M20, min_m20, q_max, d_min,
-            foundSolutions, foundSolutionMap,
+            foundSolutions, foundSolutionMap, diag,
             refineAndTestSolution: refineAndTestWrapper 
         };
 
@@ -4453,6 +4506,14 @@ if (systemToSearch === 'cubic') {
         self.postMessage({ type: 'postProcessSummary', payload: ftStats });
         
         self.postMessage({ type: 'progress', payload: 100 });
+        // Normalise the sentinels so the main thread does not have to reason
+        // about Infinity coming out of a structured clone.
+        if (!isFinite(diag.volMin)) diag.volMin = null;
+        if (!isFinite(diag.volMax)) diag.volMax = null;
+        if (!isFinite(diag.volOverMin)) diag.volOverMin = null;
+        if (!isFinite(diag.bestM20)) diag.bestM20 = null;
+        diag.solutionsFound = foundSolutions.length;
+        self.postMessage({ type: 'searchDiagnostics', payload: diag });
         self.postMessage({ type: 'done' });
     };
 }

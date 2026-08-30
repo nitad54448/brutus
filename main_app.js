@@ -597,6 +597,70 @@ document.addEventListener('DOMContentLoaded', () => {
     
 
 
+    // --- HKL basis size limits, per system -----------------------------------
+    //
+    // The "HKL Basis Size" input used to carry a single hardcoded max="600" in
+    // the HTML, shared by all three GPU systems. That number is not a limit of
+    // anything: it is simultaneously too small and too large.
+    //
+    // Two real limits exist, and they differ per system because they depend on
+    // K (the number of basis reflections combined per trial):
+    //
+    //   1. SUPPLY. get_hkl_search_list(system) only generates so many
+    //      reflections (ortho h,k,l <= 12 -> 2196; mono 612; tri 665).
+    //      buildHklBasis does ordered.slice(0, n), so asking for more than
+    //      exists silently returns fewer -- no error, just a smaller search
+    //      than the number in the box claims.
+    //   2. ADDRESSING. The WGSL solvers unrank HKL K-combinations with a u32
+    //      index, so C(n, K) must stay under 2^32.
+    //
+    // The usable max is the smaller of the two, and the binding one is a
+    // different limit for each system:
+    //
+    //   orthorhombic  K=3   supply 2196   u32 2954   -> 2196  (supply binds)
+    //   monoclinic    K=4   supply  612   u32  568   ->  568  (u32 binds)
+    //   triclinic     K=6   supply  665   u32  123   ->  123  (u32 binds)
+    //
+    // So the old 600 cost orthorhombic ~73% of its available basis -- which is
+    // exactly where the deep reflections that pin down a large c axis live --
+    // while letting triclinic accept values nearly 5x above what the shader can
+    // address. Anything over the cap was then silently clamped at run time by
+    // the guard in makeGpuTask, so the search that ran was not the one the user
+    // configured.
+    const HKL_U32_CAPS = { orthorhombic: 2954, monoclinic: 568, triclinic: 123 };
+
+    const hklBasisMax = (system) => {
+        const u32Cap = HKL_U32_CAPS[system];
+        if (!u32Cap) return null;
+        let supply = Infinity;
+        try {
+            // worker-logic.js is loaded on the main thread ahead of this file.
+            if (typeof get_hkl_search_list === 'function') {
+                supply = get_hkl_search_list(system).length;
+            }
+        } catch (e) {
+            console.warn('hklBasisMax: could not size the basis list for', system, e);
+        }
+        return Math.min(u32Cap, supply);
+    };
+
+    // Point the input's own min/max at the active system, so the browser's
+    // number-input clamping and the blur validator both enforce the real limit
+    // instead of a made-up one.
+    const applyHklBasisLimits = (system, defaultValue) => {
+        const el = ui.gpuHklTriplets;
+        if (!el) return;
+        const max = hklBasisMax(system);
+        if (max === null) return;
+        el.max = String(max);
+        el.min = '10';
+        if (defaultValue !== undefined) el.value = String(Math.min(defaultValue, max));
+        const cur = parseInt(el.value, 10);
+        if (!isFinite(cur) || cur > max) el.value = String(max);
+        const lbl = document.querySelector('label[for="gpu-hkl-triplets"]');
+        if (lbl) lbl.textContent = `HKL Basis Size (max ${max})`;
+    };
+
 // Make Monoclinic, Triclinic, and Orthorhombic mutually exclusive (only one GPU task, 16 nov 2025)
     const monoCheckbox = document.querySelector('.system-checkbox[value="monoclinic"]');
     const triCheckbox = document.querySelector('.system-checkbox[value="triclinic"]');
@@ -608,33 +672,36 @@ document.addEventListener('DOMContentLoaded', () => {
             if (monoCheckbox.checked) {
                 triCheckbox.checked = false;
                 orthoCheckbox.checked = false;
-                ui.gpuHklTriplets.value = 100;
+                applyHklBasisLimits('monoclinic', 100);
                 ui.gpuPeaksCount.value = 7;
                 ui.gpuPeaksCount.min = 4;
             }
             toggleGpuParamsVisibility();
+            updateStartIndexingButtonState();
         });
 
         triCheckbox.addEventListener('change', () => {
             if (triCheckbox.checked) {
                 monoCheckbox.checked = false;
                 orthoCheckbox.checked = false;
-                ui.gpuHklTriplets.value = 40;
+                applyHklBasisLimits('triclinic', 40);
                 ui.gpuPeaksCount.value = 9;
                 ui.gpuPeaksCount.min = 6;
             }
             toggleGpuParamsVisibility();
+            updateStartIndexingButtonState();
         });
         
         orthoCheckbox.addEventListener('change', () => {
             if (orthoCheckbox.checked) {
                 monoCheckbox.checked = false;
                 triCheckbox.checked = false;
-                ui.gpuHklTriplets.value = 300; // Default 300
+                applyHklBasisLimits('orthorhombic', 300); // Default 300
                 ui.gpuPeaksCount.value = 7;    
                 ui.gpuPeaksCount.min = 3;      // Min 3
             }
             toggleGpuParamsVisibility();
+            updateStartIndexingButtonState();
         });
 
         // Add listeners to new inputs to update status text
@@ -895,6 +962,12 @@ const getOrthogonalityScore = (cell) => {
     let workingExperimentalData = { tth: [], intensity: [] }; // The data to be plotted and analyzed (raw or stripped)
 
     let pickedPeaks = [];
+    // True once the user has hand-edited the peak list (added, deleted, moved
+    // or confirmed a peak) since the last automatic detection. findPeaks()
+    // REPLACES pickedPeaks wholesale, so anything that re-runs it without the
+    // user asking would silently discard that work. Only the peak-finding
+    // controls themselves are allowed to do that; see the wavelength handler.
+    let peaksManuallyEdited = false;
     // Index of the peak whose row in the side table is currently being
     // edited (focused or clicked). When non-null, updateAllMarkers draws a
     // tall translucent vertical line across the whole plot at that peak's
@@ -2811,42 +2884,144 @@ ui.tthMinSlider.addEventListener('input', () => {
         debouncedFindPeaks(); // v114
     });
 
-    ui.ballRadiusSlider.addEventListener('input', () => { ui.ballRadiusValue.textContent = ui.ballRadiusSlider.value; debouncedFindPeaks(); });
-    ui.smoothingWidthSlider.addEventListener('input', () => { ui.smoothingWidthValue.textContent = ui.smoothingWidthSlider.value; debouncedFindPeaks(); });
+    ui.ballRadiusSlider.addEventListener('input', () => { ui.ballRadiusValue.textContent = parseFloat(ui.ballRadiusSlider.value).toFixed(3); debouncedFindPeaks(); });
+    // The Q radius is converted to channels using lambda, so the background
+    // window is no longer wavelength-independent the way a raw point count was:
+    // r scales linearly with lambda, so switching Cu -> Mo roughly halves it.
+    //
+    // But findPeaks() REPLACES pickedPeaks, discarding manual additions,
+    // deletions and userConfirmedReal flags. Silently destroying that work
+    // because the user corrected a wavelength typo would be far worse than a
+    // slightly stale background, so only re-detect when the list is still
+    // purely automatic. Otherwise say the background is stale and let the user
+    // decide -- any peak-finding slider re-runs the detection anyway.
+    ui.wavelength.addEventListener('change', () => {
+        if (!workingExperimentalData || !workingExperimentalData.intensity) return;
+        if (!peaksManuallyEdited) {
+            debouncedFindPeaks();
+        } else {
+            showStatus('Wavelength changed. The background window is set in Q, so it is now stale — ' +
+                       'move a peak-finding slider to re-detect (this will discard manual peak edits).',
+                       'info', 9000);
+        }
+    });
+    ui.smoothingWidthSlider.addEventListener('input', () => { ui.smoothingWidthValue.textContent = parseFloat(ui.smoothingWidthSlider.value).toFixed(3); debouncedFindPeaks(); });
     ui.peakThresholdSlider.addEventListener('input', () => { const value = logSliderToValue(parseFloat(ui.peakThresholdSlider.value)); ui.peakThresholdValue.textContent = value.toFixed(1); debouncedFindPeaks(); });
 
-    const rollingBallBackground = (y, radius, smoothingWidth) => {
+    // Convert a rolling-ball radius expressed in Q (A^-1) into a per-point
+    // half-width in channels.
+    //
+    // The radius used to be a raw point count, which made it a property of the
+    // FILE rather than of the sample: the same specimen measured at 0.01 deg
+    // and 0.02 deg per step needed two different slider settings to get the
+    // same background, and a value tuned on one diffractometer was meaningless
+    // on another. Q = 4*pi*sin(theta)/lambda is the physical axis the
+    // background actually lives on, so a Q radius transfers between scans.
+    //
+    // Q is not linear in 2-theta: dQ/d(2theta) = (2*pi*cos(theta)/lambda), which
+    // SHRINKS as the angle rises. A fixed Q window therefore spans progressively
+    // MORE channels toward the back of the scan (typically 2-4x over a lab
+    // range), which is why this returns an array and not a scalar.
+    const qRadiusToPoints = (tth, deltaQ, lambda, minR = 1) => {
+        const n = tth.length;
+        const radii = new Int32Array(n);
+        if (n === 0) return radii;
+        // A window wider than a quarter of the scan is already flattening real
+        // structure; past that it only costs time.
+        const maxR = Math.max(1, Math.floor(n / 4));
+        if (!isFinite(deltaQ) || deltaQ <= 0 || !isFinite(lambda) || lambda <= 0) {
+            radii.fill(Math.min(minR, maxR));
+            return radii;
+        }
+        const K = 4 * Math.PI / lambda;
+        const qAt = (t) => K * Math.sin(t * Math.PI / 360);
+        let prev = -1;
+        for (let i = 0; i < n; i++) {
+            const a = (i > 0) ? i - 1 : 0;
+            const b = (i < n - 1) ? i + 1 : n - 1;
+            const span = b - a;
+            const dQ = span > 0 ? (qAt(tth[b]) - qAt(tth[a])) / span : 0;
+            let r = (dQ > 1e-12) ? Math.round(deltaQ / dQ) : maxR;
+            if (!isFinite(r) || r < minR) r = minR;
+            if (r > maxR) r = maxR;
+            // The running min/max below uses a monotonic deque, which requires
+            // both window edges to advance monotonically. On a normal ascending
+            // 2-theta scan dQ/di decreases, so r is naturally non-decreasing and
+            // grows by well under one channel per step; these two clamps only
+            // bite on malformed or non-monotonic 2-theta axes, where they cost a
+            // slightly asymmetric window instead of a wrong answer.
+            if (prev >= 0) {
+                if (r < prev) r = prev;
+                else if (r > prev + 1) r = prev + 1;
+            }
+            radii[i] = r;
+            prev = r;
+        }
+        return radii;
+    };
+
+    // Running min (isMin) or max over a window whose half-width varies per
+    // point. Monotonic-deque, O(n) total regardless of radius -- the previous
+    // fixed-radius version was O(n*r), and a Q radius can reach several hundred
+    // channels at high angle on a fine scan, where O(n*r) would stall the
+    // slider drag.
+    const runningExtreme = (src, radii, isMin) => {
+        const n = src.length;
+        const out = new Float64Array(n);
+        const dq = new Int32Array(n);
+        let head = 0, tail = 0, nextIn = 0, prevStart = 0;
+        for (let i = 0; i < n; i++) {
+            const r = radii[i];
+            const end = Math.min(n - 1, i + r);
+            let start = i - r;
+            if (start < prevStart) start = prevStart;
+            if (start < 0) start = 0;
+            prevStart = start;
+            while (nextIn <= end) {
+                const v = src[nextIn];
+                while (tail > head && (isMin ? src[dq[tail - 1]] >= v : src[dq[tail - 1]] <= v)) tail--;
+                dq[tail++] = nextIn++;
+            }
+            while (head < tail && dq[head] < start) head++;
+            out[i] = src[dq[head]];
+        }
+        return out;
+    };
+
+    const rollingBallBackground = (y, radii, smoothRadii) => {
         const n = y.length;
-        if (n === 0 || radius <= 0) return new Array(n).fill(0);
+        if (n === 0 || !radii || radii.length !== n) return new Array(n).fill(0);
         let smoothed_y = y;
-        if (smoothingWidth > 1) {
-            smoothed_y = new Array(n);
-            const halfWidth = Math.floor(smoothingWidth / 2);
-            for (let i = 0; i < n; i++) {
-                const start = Math.max(0, i - halfWidth);
-                const end = Math.min(n, i + halfWidth + 1);
-                let sum = 0;
-                for (let j = start; j < end; j++) sum += y[j];
-                smoothed_y[i] = sum / (end - start);
+        if (smoothRadii && smoothRadii.length === n) {
+            // Same moving average as before -- start = max(0, i-hw),
+            // end = min(n, i+hw+1), sum/(end-start) -- but the half-width is now
+            // per point, because it comes from a Q window rather than a raw
+            // channel count. Computed from a prefix sum so the cost is O(n)
+            // instead of O(n*hw): a Q smoothing width maps to a growing number
+            // of channels toward high angle, exactly like the ball radius.
+            //
+            // Prefix-sum cancellation is not a concern at this scale: for 2e4
+            // points of ~1e6 counts the running total reaches ~1e10, where f64
+            // still resolves ~1e-6 absolute, i.e. ~1e-11 relative on a window
+            // sum.
+            let any = false;
+            for (let i = 0; i < n; i++) { if (smoothRadii[i] > 0) { any = true; break; } }
+            if (any) {
+                const prefix = new Float64Array(n + 1);
+                for (let i = 0; i < n; i++) prefix[i + 1] = prefix[i] + y[i];
+                const sm = new Float64Array(n);
+                for (let i = 0; i < n; i++) {
+                    const hw = smoothRadii[i];
+                    const a = Math.max(0, i - hw);
+                    const b = Math.min(n, i + hw + 1);
+                    sm[i] = (prefix[b] - prefix[a]) / (b - a);
+                }
+                smoothed_y = sm;
             }
         }
-        const eroded = new Array(n);
-        for (let i = 0; i < n; i++) {
-            const start = Math.max(0, i - radius);
-            const end = Math.min(n, i + radius + 1);
-            let min = Infinity;
-            for (let j = start; j < end; j++) if (smoothed_y[j] < min) min = smoothed_y[j];
-            eroded[i] = min;
-        }
-        const background = new Array(n);
-        for (let i = 0; i < n; i++) {
-            const start = Math.max(0, i - radius);
-            const end = Math.min(n, i + radius + 1);
-            let max = -Infinity;
-            for (let j = start; j < end; j++) if (eroded[j] > max) max = eroded[j];
-            background[i] = max;
-        }
-        return background;
+        // Erosion then dilation, exactly as before.
+        const eroded = runningExtreme(smoothed_y, radii, true);
+        return runningExtreme(eroded, radii, false);
     };
 
     const savitzkyGolay = (data, windowSize = 9, polyOrder = 2) => {
@@ -2911,9 +3086,18 @@ ui.tthMinSlider.addEventListener('input', () => {
         const minTth = parseFloat(ui.tthMinSlider.value) || tth[0];
         const maxTth = parseFloat(ui.tthMaxSlider.value) || tth[n - 1];
         const minHeightPercent = logSliderToValue(parseFloat(ui.peakThresholdSlider.value)) || 2;
-        const ballRadius = parseInt(ui.ballRadiusSlider.value, 10);
-        const smoothingWidth = parseInt(ui.smoothingWidthSlider.value, 10);
-        const background = rollingBallBackground(intensity, ballRadius, smoothingWidth);
+        // Radius and Smoothing are both Q windows (A^-1), converted here to
+        // per-channel half-widths using this scan's own 2-theta axis and
+        // wavelength. Sharing one unit makes the constraint visible: Smoothing
+        // must stay well under Radius or the moving average erodes the peaks
+        // the rolling ball is supposed to sit under.
+        const ballRadiusQ = parseFloat(ui.ballRadiusSlider.value);
+        const smoothQ = parseFloat(ui.smoothingWidthSlider.value);
+        const lambdaForBg = parseFloat(ui.wavelength.value) || 1.54184;
+        const ballRadii = qRadiusToPoints(tth, ballRadiusQ, lambdaForBg);
+        // minR = 0 so the slider's zero position genuinely disables smoothing.
+        const smoothRadii = (smoothQ > 0) ? qRadiusToPoints(tth, smoothQ, lambdaForBg, 0) : null;
+        const background = rollingBallBackground(intensity, ballRadii, smoothRadii);
         const backgroundCorrected = intensity.map((y, i) => Math.max(0, y - background[i]));
         const windowSize = Math.max(5, Math.min(11, Math.floor(n / 100)));
         const smoothed = savitzkyGolay(backgroundCorrected, windowSize, 2);
@@ -3080,6 +3264,8 @@ if (denominator < -1e-10) {
         // peaks are physically Ka1 lines).
        // Include height so the space group analyzer can filter noise
 pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height }));
+        // The list is now purely auto-detected again.
+        peaksManuallyEdited = false;
 
         recalculatePeakValues();
 
@@ -3305,6 +3491,12 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
     ui.systemCheckboxes.forEach(cb => cb.addEventListener('change', updateStartIndexingButtonState));
     
     // Also run on init
+    // Size the HKL input to whichever GPU system is already checked, so the
+    // limit is correct before the user touches anything.
+    for (const s of ['orthorhombic', 'monoclinic', 'triclinic']) {
+        const cb = document.querySelector(`.system-checkbox[value="${s}"]`);
+        if (cb && cb.checked) { applyHklBasisLimits(s); break; }
+    }
     updateStartIndexingButtonState();
 
 
@@ -3325,6 +3517,7 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
             const existingHeight = pickedPeaks[index]?.height; 
             
             pickedPeaks[index] = { tth, d: 0, q: 0, height: existingHeight, userConfirmedReal: wasUserConfirmed };
+            peaksManuallyEdited = true;
             pickedPeaks.sort((a, b) => a.tth - b.tth);
             recalculatePeakValues();
             updatePeakTable();
@@ -3337,6 +3530,7 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
         if (e.target.classList.contains('delete-peak-btn')) {
             const index = parseInt(e.target.dataset.index);
             pickedPeaks.splice(index, 1);
+            peaksManuallyEdited = true;
             
             if (selectedPeakIndex !== null) {
                 if (index === selectedPeakIndex) {
@@ -3361,6 +3555,7 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
         if (idx < 0 || !pickedPeaks[idx]) return;
         // User explicitly says: not a Ka2 ghost — keep as real.
         pickedPeaks[idx].userConfirmedReal = true;
+        peaksManuallyEdited = true;
         // Recompute flags + d/q. The previous parent of this peak may lose
         // its hasKa2Child status (and revert from λ_Ka1 to user λ for d).
         recalculatePeakValues();
@@ -3712,6 +3907,10 @@ let lastThrottleTime = 0;
     //
     // Collected per GPU task and cleared at the start of each indexing run.
     let gpuDiagnostics = [];
+    // Same, for the CPU worker systems (cubic / tetragonal / hexagonal), which
+    // produced no diagnostics at all before -- so selecting only CPU systems
+    // guaranteed the bare, unexplained "no solutions" message.
+    let cpuDiagnostics = [];
 
     // One-line technical summary, for the console.
     const describeGpuDiagnostics = (d) => {
@@ -3724,37 +3923,91 @@ let lastThrottleTime = 0;
     };
 
     // The reason a run produced nothing, phrased as something to act on.
-    // Returns null when the diagnostics do not clearly implicate one setting --
-    // guessing wrong is worse than staying quiet.
-    const explainNoGpuSolutions = (diags) => {
-        if (!diags || !diags.length) return null;
+    //
+    // This function must ALWAYS return at least one sentence. The previous
+    // version returned null whenever the diagnostics did not cleanly implicate
+    // a single setting, and the caller then printed a bare "No valid solutions
+    // were found." That silence was the single worst failure mode in the app:
+    // the help promises a reason, and every path that could have produced one
+    // (no GPU diagnostics at all, a CPU-only run, a diagnostic that matched
+    // none of the branches below) fell through to nothing. A weaker guess with
+    // the numbers attached beats no message, because the numbers let the user
+    // check the guess.
+    const explainNoSolutions = (gpuDiags, cpuDiags, ctx) => {
         const reasons = [];
-        for (const d of diags) {
+
+        for (const d of (gpuDiags || [])) {
             const label = d.system ? `${d.system}: ` : '';
-            if (d.volMin === null) {
-                // Nothing even reached the volume gate, so the axis window or
-                // the peak set is the problem, not the volume cap.
+            if (d.volMin === null || d.volMin === undefined) {
                 reasons.push(`${label}no candidate cell had all axes in range — check the peak list and 2θ range`);
-                continue;
-            }
-            if (d.volMin > d.maxVolume) {
+            } else if (d.volMin > d.maxVolume) {
                 reasons.push(`${label}every candidate cell was larger than Max Volume ` +
                              `(${Math.round(d.maxVolume)} Å³); they ranged ` +
                              `${Math.round(d.volMin)}–${Math.round(d.volMax)} Å³ — raise Max Volume`);
-                continue;
-            }
-            if (d.volMax < d.minVolume) {
-                reasons.push(`${label}every candidate cell was smaller than the ${Math.round(d.minVolume)} Å³ floor`);
-                continue;
-            }
-            // Cells of plausible size existed; the FoM is what rejected them.
-            if (d.nPeaksScored > 0 && d.peaksInBudget < d.nPeaksScored) {
+            } else if (d.volMax < d.minVolume) {
+                reasons.push(`${label}every candidate cell was smaller than the ${Math.round(d.minVolume)} Å³ floor — ` +
+                             `the peaks may be indexing on a subcell; try more peaks`);
+            } else if (d.nPeaksScored > 0 && d.peaksInBudget < d.nPeaksScored) {
                 reasons.push(`${label}cells of plausible size were found, but the best one matched only ` +
                              `${d.peaksInBudget} of ${d.nPeaksScored} peaks within the error budget — ` +
                              `raise 2θ Error, or raise the GPU FoM threshold`);
+            } else {
+                // Reached only when cells of plausible size passed the FoM gate
+                // yet nothing survived refinement on the CPU side.
+                reasons.push(`${label}candidate cells passed the GPU filter but none survived refinement — ` +
+                             `raise 2θ Error slightly, or add more peaks`);
             }
         }
-        return reasons.length ? reasons : null;
+
+        for (const d of (cpuDiags || [])) {
+            const label = d.system ? `${d.system}: ` : '';
+            const trials = d.trials || 0;
+            if (trials === 0) {
+                reasons.push(`${label}no trial cells were generated at all — check that peaks are present in the 2θ range`);
+            } else if (!d.volPassed) {
+                if (d.volumeTooLarge && d.volOverMin) {
+                    reasons.push(`${label}all ${trials.toLocaleString()} trial cells exceeded Max Volume ` +
+                                 `(${Math.round(d.max_volume)} Å³; smallest was ${Math.round(d.volOverMin)} Å³) — raise Max Volume`);
+                } else {
+                    reasons.push(`${label}none of the ${trials.toLocaleString()} trial cells had a physically ` +
+                                 `plausible volume — check the wavelength and the peak list`);
+                }
+            } else if (!d.refined) {
+                reasons.push(`${label}${d.volPassed.toLocaleString()} cells were the right size, but the best one ` +
+                             `indexed only ${d.bestIndexed || 0} peaks — raise 2θ Error, or remove spurious peaks`);
+            } else if (d.bestM20 !== null && d.bestM20 !== undefined) {
+                reasons.push(`${label}the best refined cell reached M(20) = ${d.bestM20.toFixed(2)}, below the ` +
+                             `${d.min_m20} threshold — the peak list probably contains impurity or spurious peaks`);
+            } else {
+                reasons.push(`${label}${trials.toLocaleString()} cells were tested and none passed refinement — ` +
+                             `raise 2θ Error, or add more peaks`);
+            }
+        }
+
+        // Last resort: no diagnostics arrived from anywhere (a crashed worker,
+        // an aborted GPU task). Say what the run was actually given, since that
+        // is still enough for the user to spot an obviously wrong setting.
+        if (!reasons.length) {
+            reasons.push(`no diagnostics were returned by the search. Run settings: ` +
+                         `${ctx.nPeaks} peaks over ${ctx.tthMin.toFixed(2)}–${ctx.tthMax.toFixed(2)}° 2θ, ` +
+                         `λ = ${ctx.lambda}, 2θ error ${ctx.tthError}°, Max Volume ${Math.round(ctx.maxVolume)} Å³, ` +
+                         `systems: ${ctx.systems.join(', ') || 'none'}`);
+        }
+
+        // Cheap, always-true sanity checks appended as hints. These catch the
+        // settings that make a search hopeless before it starts.
+        const hints = [];
+        if (ctx.nPeaks < 8) {
+            hints.push(`only ${ctx.nPeaks} peaks are in the 2θ window — indexing is unreliable below about 15`);
+        }
+        if (ctx.tthError >= 0.15) {
+            hints.push(`2θ Error is ${ctx.tthError}°, wide enough to let false cells outscore the true one`);
+        } else if (ctx.tthError <= 0.01) {
+            hints.push(`2θ Error is ${ctx.tthError}°, tight enough to reject the true cell on zero-shift alone`);
+        }
+        if (hints.length) reasons.push('Also: ' + hints.join('; '));
+
+        return reasons;
     };
 
 const startIndexing = async () => { 
@@ -3815,6 +4068,7 @@ const startIndexing = async () => {
     }
 
     gpuDiagnostics = [];
+    cpuDiagnostics = [];
 
     const webgpuSystems = [];
     const workerSystems = [];
@@ -4008,6 +4262,8 @@ systemsToSearch.forEach(system => {
 
                     } else if (type === 'solution') {
                      handleNewSolution(payload); //new helper, 20 nov
+                    } else if (type === 'searchDiagnostics') {
+                        cpuDiagnostics.push(payload);
                     } else if (type === 'progress') {
                                  
                         taskProgress[absoluteTaskIndex] = payload; 
@@ -4075,7 +4331,10 @@ systemsToSearch.forEach(system => {
             permutations: 6,
             defaultPeaks: 7,
             defaultHkl: 300,
-            maxHkl: 2954,   // C(2954,3) < 2^32 < C(2955,3): u32 combinadic limit (K=3)
+            // min(basis supply, u32 combinadic cap). See HKL_U32_CAPS above --
+            // this is a single source of truth shared with the UI input's max,
+            // so the box can never offer a value the solver will silently clamp.
+            maxHkl: hklBasisMax('orthorhombic'),   // 2196: the generated list runs out before the u32 cap (2954)
             splitSpecialHkls: true,
         },
         monoclinic: {
@@ -4088,7 +4347,7 @@ systemsToSearch.forEach(system => {
             permutations: 24,
             defaultPeaks: 7,
             defaultHkl: 100,
-            maxHkl: 568,    // C(568,4) < 2^32 < C(569,4): u32 combinadic limit (K=4)
+            maxHkl: hklBasisMax('monoclinic'),     // 568: C(568,4) < 2^32 < C(569,4), u32 binds before the 612-strong list
             splitSpecialHkls: true,
         },
         triclinic: {
@@ -4101,7 +4360,7 @@ systemsToSearch.forEach(system => {
             permutations: 720,
             defaultPeaks: 8,
             defaultHkl: 40,
-            maxHkl: 123,    // C(123,6) < 2^32 < C(124,6): u32 combinadic limit (K=6)
+            maxHkl: hklBasisMax('triclinic'),      // 123: C(123,6) < 2^32 < C(124,6), u32 binds far below the 665-strong list
             splitSpecialHkls: false,
         },
     };
@@ -4555,19 +4814,28 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
         ui.solutionsLed.className = 'led-indicator green';
     } else {
         const message = stoppedByUser ? 'Indexing stopped by user.' : 'Indexing finished.';
-        // Say WHY, when the GPU diagnostics point at one setting. A bare "no
-        // solutions" leaves the user guessing between Max Volume, 2θ Error and
-        // the FoM threshold, and those are not guessable.
-        const why = stoppedByUser ? null : explainNoGpuSolutions(gpuDiagnostics);
-        if (why) {
-            showStatus(`${message} No valid solutions were found. ${why[0]}`, 'error', 15000);
-            for (const r of why) console.log(`[indexing] no solutions — ${r}`);
+        // Say WHY. A bare "no solutions" leaves the user guessing between Max
+        // Volume, 2θ Error, the peak list and the FoM threshold, and those are
+        // not guessable. A stopped run is the one case with a known reason, so
+        // it does not need the diagnostics.
+        if (stoppedByUser) {
+            showStatus(`${message} No valid solutions were found in the part of the search that ran.`, 'info', 8000);
         } else {
-            showStatus(`${message} No valid solutions were found.`, 'info');
+            const why = explainNoSolutions(gpuDiagnostics, cpuDiagnostics, {
+                nPeaks: filteredPeaks.length,
+                tthMin: tthMinVal,
+                tthMax: tthMaxVal,
+                lambda: parseFloat(ui.wavelength.value),
+                tthError: parseFloat(ui.tthError.value),
+                maxVolume: parseFloat(ui.maxVolume.value),
+                systems: Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value),
+            });
+            // explainNoSolutions never returns an empty list, so this branch
+            // always has something to show.
+            showStatus(`${message} No valid solutions were found. ${why.join(' | ')}`, 'error', 20000);
+            for (const r of why) console.log(`[indexing] no solutions — ${r}`);
         }
-        if (solutions.length === 0) {
-            ui.solutionsLed.className = 'led-indicator red';
-        }
+        ui.solutionsLed.className = 'led-indicator red';
     }
 };
  
@@ -6421,6 +6689,7 @@ ui.chartCanvas.addEventListener('click', (e) => {
         }
 
         pickedPeaks.push({ tth, d: 0, q: 0, height });
+        peaksManuallyEdited = true;
         pickedPeaks.sort((a, b) => a.tth - b.tth);
         recalculatePeakValues(); // tag + d/q in one shot
         updatePeakTable(); updateStartIndexingButtonState();

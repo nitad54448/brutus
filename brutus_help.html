@@ -397,7 +397,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 </li>
                 <li>
                     <strong>Detect peaks.</strong>
-                    On the <strong>Peaks</strong> tab, adjust the <code>Min peak (%)</code>, <code>Radius (pts)</code>, and <code>Points</code>
+                    On the <strong>Peaks</strong> tab, adjust the <code>Min peak (%)</code>, <code>Radius (Å⁻¹)</code>, and <code>Smoothing (Å⁻¹)</code>
                     sliders until the automatically detected peaks match the visual pattern.
                 </li>
                 <li>
@@ -464,10 +464,40 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 <li>
                     <strong>Peak finding sliders:</strong>
                     <ul>
-                        <li><code>Radius</code> – rolling-ball background subtraction radius (in data points). Larger values handle broader, slowly varying backgrounds.</li>
-                        <li><code>Points</code> – Savitzky–Golay smoothing window width (in data points). Larger values reduce noise but risk merging or shifting close peaks.</li>
+                        <li><code>Radius</code> – rolling-ball background radius, in reciprocal space
+                            ($Q = 4\pi\sin\theta/\lambda$, Å⁻¹). Larger values handle broader, slowly varying
+                            backgrounds. Default 0.050 Å⁻¹.</li>
+                        <li><code>Smoothing</code> – half-width of the moving average applied <em>inside</em> the
+                            background estimator, before the rolling ball runs. Same units as <code>Radius</code>
+                            (Å⁻¹), so the two are directly comparable. It suppresses noise spikes that would
+                            otherwise drag the estimated background down into the baseline. Set to 0 to disable.
+                            Default 0.012 Å⁻¹.
+                            <div class="callout-warning"><strong>Keep <code>Smoothing</code> well below
+                            <code>Radius</code></strong> — roughly a factor of 4 at the defaults. If the smoothing
+                            window approaches the ball radius, the moving average flattens the very peaks the ball
+                            is supposed to pass underneath, and the background is subtracted from the peaks
+                            themselves.</div></li>
                         <li><code>Min peak (%)</code> – peak detection threshold on a logarithmic scale. Peaks below this fraction of the strongest peak are ignored. Reduce to detect weak reflections; increase to suppress noise.</li>
                     </ul>
+                    <div class="callout-note">
+                        <strong>Why Å⁻¹ and not data points?</strong>
+                        Both sliders used to be counts of data points, which made them properties of the
+                        <em>file</em> rather than of the sample: the same specimen measured at 0.01° and 0.02° per
+                        step needed two different settings to give the same background, and a value tuned on one
+                        diffractometer meant nothing on another. $Q$ is the physical axis the background actually
+                        lives on, so a setting in Å⁻¹ transfers between scans, step sizes and instruments.
+                        <br><br>
+                        Because $Q$ is not linear in $2\theta$ — $dQ/d(2\theta) = 2\pi\cos\theta/\lambda$, which
+                        <em>shrinks</em> as the angle rises — a fixed $Q$ window spans progressively more channels
+                        toward the back of the scan, typically two to four times as many over a laboratory range.
+                        This is intentional and is handled internally per channel. One consequence: high-angle peaks
+                        now receive more smoothing than they did under a flat point count. That is the physically
+                        correct behaviour, but if you had a scan tuned to the old fixed value you may want to nudge
+                        <code>Smoothing</code> down slightly after comparing.
+                        <br><br>
+                        Note that these sliders depend on the wavelength, since $Q$ does. Changing $\lambda$ leaves
+                        the background window stale until peak detection is re-run.
+                    </div>
                 </li>
                 <li>
                     <strong>2θ range sliders:</strong>
@@ -861,14 +891,24 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 </li>
                 <li>
                     <strong>Background subtraction:</strong>
-                    A rolling-ball style algorithm estimates and removes the background.
-                    The <code>Radius</code> slider controls the ball radius in data points.
-                    A larger radius smooths over broader background humps.
+                    A rolling-ball style algorithm estimates and removes the background. The signal is first
+                    passed through a moving average whose half-width is set by the <code>Smoothing</code> slider,
+                    which stops isolated noise spikes from pulling the estimated background down; the ball is then
+                    rolled under the result by an erosion followed by a dilation, with the ball radius set by the
+                    <code>Radius</code> slider. A larger radius rides over broader background humps.
+                    <br><br>
+                    Both sliders are specified in $Q$ (Å⁻¹) and converted internally to a per-channel half-width
+                    using the scan's own $2\theta$ axis and wavelength, so the window follows a fixed span in
+                    reciprocal space rather than a fixed number of channels. The two morphological passes use a
+                    monotonic-deque running minimum and maximum, and the moving average a prefix sum, so the cost
+                    is linear in the number of data points regardless of how wide the windows become.
                 </li>
                 <li>
                     <strong>Data smoothing:</strong>
-                    A Savitzky–Golay filter is applied to the background-subtracted signal to reduce noise
-                    while preserving peak shapes. The <code>Points</code> slider sets the window width.
+                    A Savitzky–Golay filter (quadratic, 5 to 11 points) is applied to the background-subtracted
+                    signal to reduce noise while preserving peak shapes. Its window is sized automatically from the
+                    length of the scan and is not user-adjustable — in particular it is <em>not</em> the
+                    <code>Smoothing</code> slider, which acts earlier and only on the background estimate.
                 </li>
                 <li>
                     <strong>Initial peak detection:</strong>
@@ -943,8 +983,14 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <ul>
                 <li>Start from the default slider values and inspect the result visually. Only the peaks shown in the table will be used in the calculations.</li>
                 <li>If weak but real peaks are missed, reduce <code>Min peak (%)</code>. If noise is detected as peaks, increase it.</li>
-                <li>For broad, slowly varying backgrounds, increase <code>Radius</code>.</li>
-                <li>For noisy data, increase <code>Points</code> (smoothing), but avoid over-smoothing, which can merge or shift peaks.</li>
+                <li>For broad, slowly varying backgrounds, increase <code>Radius</code>. As a rule of thumb it
+                    should be several times your widest peak: a typical laboratory peak of 0.10° FWHM at
+                    $2\theta = 30$° is about 0.007 Å⁻¹ wide in $Q$, so the 0.050 Å⁻¹ default already sits
+                    comfortably above it.</li>
+                <li>For noisy data, increase <code>Smoothing</code>, but avoid over-smoothing, which can merge or
+                    shift close peaks. Keep it well under <code>Radius</code>; if you need more than about a third
+                    of the radius, the data is probably better served by lowering <code>Min peak (%)</code> and
+                    curating the list by hand.</li>
                 <li>Always manually curate the final peak list. Remove artifacts and known impurity peaks.
                     If you are not stripping Kα<sub>2</sub>, delete Kα<sub>2</sub> shoulders explicitly or confirm the
                     program has tagged them correctly.
