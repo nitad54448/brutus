@@ -1,8 +1,62 @@
 // "worker-logic.js" 
 // most of the combs.html functions are moved here, version 15 nov 2025
 //20 nov, moved here the former webworker, indexing-logic
+
+// =====================================================================
+//  RECIPROCAL-SPACE CONVENTION  --  READ BEFORE TOUCHING ANYTHING NAMED q
+// =====================================================================
+//
+//  Two different quantities are legitimately called "Q" in the literature,
+//  and BOTH are used in this project. They differ by more than a constant:
+//  one is the square of the other times 4*pi^2. Confusing them does not
+//  throw -- it silently produces plausible-looking wrong cells.
+//
+//    qsq   = 1/d^2 = 4 sin^2(theta) / lambda^2      [ A^-2 ]
+//            The indexing quantity. Linear in the quadratic form, which is
+//            the whole reason it is used:
+//                qsq = h^2 A + k^2 B + l^2 C + hk D + hl E + kl F
+//            This is what the least-squares fit solves for, and it is what
+//            EVERY q-named identifier in THIS FILE means: q_obs, q_max,
+//            q_calc_sorted, q_to_match, peaks_sorted_by_q, get_q_tolerance,
+//            and the .q field of a peak object.
+//
+//    dstar = 1/d = 2 sin(theta) / lambda            [ A^-1 ]
+//            The square root of the above. Not currently used by name.
+//
+//    Qscat = 4*pi*sin(theta)/lambda = 2*pi/d        [ A^-1 ]
+//            The scattering vector. Used in main_app.js ONLY: the plot's Q
+//            axis mode, the Kalpha2 stripping (Zhang dual-wavelength
+//            differencing), and the peak-finder's Radius / Smoothing
+//            sliders. Never appears in the indexing math.
+//
+//  Relationship:  Qscat = 2*pi*dstar = 2*pi*sqrt(qsq)
+//
+//  The names were NOT mass-renamed to qsq_obs etc. because q_obs, q_max,
+//  peaks_sorted_by_q and q_calc_sorted cross the postMessage boundary
+//  between main_app.js, worker-logic.js and refinement-worker.js as plain
+//  object keys. A rename missed in one of the three fails silently at
+//  runtime rather than at parse time, so the risk outweighs the tidiness.
+//  Use the named helpers below in new code instead of rewriting the
+//  formula inline.
+//
 const RAD = Math.PI / 180.0;
 const DEG = 180.0 / Math.PI;
+
+// 1/d^2 in A^-2 from 2-theta in DEGREES. The indexing quantity.
+const dstarSqFromTthDeg = (tth_deg, lambda) => {
+    const s = Math.sin(tth_deg * RAD / 2);
+    return (4 * s * s) / (lambda * lambda);
+};
+// 1/d^2 in A^-2 from theta in RADIANS (note: theta, not 2-theta).
+const dstarSqFromThetaRad = (theta_rad, lambda) => {
+    const s = Math.sin(theta_rad);
+    return (4 * s * s) / (lambda * lambda);
+};
+// Scattering vector 4*pi*sin(theta)/lambda in A^-1 from 2-theta in DEGREES.
+// Present here only so both conventions are defined in one place; the
+// indexing math must never call this.
+const scatteringQFromTthDeg = (tth_deg, lambda) =>
+    4 * Math.PI * Math.sin(tth_deg * RAD / 2) / lambda;
 
 const metricFromCell = (cell) => {
     const a = cell.a; const b = cell.b ?? cell.a; const c = cell.c ?? cell.a;
@@ -584,6 +638,8 @@ const choleskySolve = (L, b) => {
 
 
 
+// Returns a tolerance in A^-2, i.e. on 1/d^2, matching q_obs / q_calc.
+// It is NOT a tolerance on the scattering vector or on 2-theta.
 const get_q_tolerance = (original_peak_index, tth_obs_rad, wavelength, tth_error) => {
     const theta_rad = tth_obs_rad[original_peak_index] / 2.0;
     const d_theta_rad = tth_error * Math.PI / 360;
@@ -4448,6 +4504,8 @@ if (typeof self !== 'undefined' && typeof WorkerGlobalScope !== 'undefined' && s
         const N_FOR_M20 = Math.min(20, peaks.length);
         const min_m20 = 2.0;
         const d_min = wavelength / (2 * Math.sin(Math.max(...peaks.map(p => p.tth)) * Math.PI / 360));
+        // A^-2. This is 1/d_min^2, NOT a scattering vector -- see the
+        // convention block at the top of this file.
         const q_max = 1 / (d_min * d_min);
         
         // Live-updating arrays

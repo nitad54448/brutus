@@ -1,6 +1,34 @@
 
 document.addEventListener('DOMContentLoaded', () => {
 
+    // =================================================================
+    //  RECIPROCAL-SPACE CONVENTION -- see the full block at the top of
+    //  worker-logic.js. Short version, because BOTH live in this file:
+    //
+    //    Qscat = 4*pi*sin(theta)/lambda = 2*pi/d   [A^-1]
+    //        The scattering vector. Used by: the plot's Q axis mode, the
+    //        Kalpha2 stripping (q_a1 / q_a2), and the peak-finder's Radius
+    //        and Smoothing sliders. Use scatteringQ() below.
+    //
+    //    qsq   = 1/d^2 = 4 sin^2(theta)/lambda^2   [A^-2]
+    //        The indexing quantity. Anything named q_obs, q_max,
+    //        peaks_sorted_by_q or a peak's .q field is THIS, not the
+    //        above -- those values are produced by and passed to
+    //        worker-logic.js, which is entirely in A^-2.
+    //
+    //  They differ by a square, not a scale factor. A value moved from one
+    //  to the other without conversion will not throw; it will just index
+    //  to a wrong cell.
+    // =================================================================
+
+    // Scattering vector in A^-1 from 2-theta in DEGREES. Single definition
+    // so new code cannot pick the wrong formula by accident.
+    const scatteringQ = (tth_deg, lambda) =>
+        4 * Math.PI * Math.sin(tth_deg * Math.PI / 360) / lambda;
+    // Inverse: 2-theta in DEGREES from a scattering vector in A^-1.
+    const tthFromScatteringQ = (q, lambda) =>
+        2 * Math.asin(Math.min(1, Math.max(0, q * lambda / (4 * Math.PI)))) * 180 / Math.PI;
+
 
 
     // Updated Presets with precise Bearden (1967) values
@@ -2933,8 +2961,7 @@ ui.tthMinSlider.addEventListener('input', () => {
             radii.fill(Math.min(minR, maxR));
             return radii;
         }
-        const K = 4 * Math.PI / lambda;
-        const qAt = (t) => K * Math.sin(t * Math.PI / 360);
+        const qAt = (t) => scatteringQ(t, lambda);   // A^-1 scattering vector, NOT 1/d^2
         let prev = -1;
         for (let i = 0; i < n; i++) {
             const a = (i > 0) ? i - 1 : 0;
