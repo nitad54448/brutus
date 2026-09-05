@@ -104,28 +104,82 @@ const PERMUTATIONS_4: array<u32, 96> = array<u32, 96>(
 
 // === Helper Functions ===
 
-fn solve4x4(A_in: Mat4x4, b_in: Vec4) -> Vec4 {
-    var M: Mat4x4 = A_in; 
-    var v: Vec4 = b_in;
-    let n: u32 = 4u;
+// --- FACTOR ONCE / SUBSTITUTE MANY ----------------------------------------
+//
+// solve4x4() used to run a complete Gaussian elimination on every call, and
+// main_4p calls it 24 times per hkl combination with THE SAME MATRIX -- only
+// the right-hand side changes from one peak permutation to the next. The
+// elimination is therefore repeated 24 times to produce the same 6 multipliers
+// and the same 4 pivot choices, every time.
+//
+// Split exactly as triclinic_solver.wgsl already does: factor4x4() runs the
+// elimination once and records what it did (the upper triangle U, the six
+// multipliers in elimination order, and the row swap chosen at each step);
+// substitute4x4() replays that on one RHS and back-substitutes.
+//
+// This is BIT-IDENTICAL to the old code, not merely equivalent. The pivot
+// search reads only M, and `fac = M[r][i] / pivot` depends only on M, so the
+// numbers and their order of operations are unchanged -- the RHS updates were
+// always just along for the ride. (Note the contrast with the triclinic split,
+// which deliberately DID change behaviour by adding the pivoting that shader
+// was missing. Monoclinic already pivoted; nothing about the search changes
+// here, it just stops doing the same work 24 times.)
+//
+// Second, smaller win: a singular M is now detected once and the whole
+// combination is abandoned, instead of 24 eliminations each running to the
+// same near-zero pivot and returning a zero vector for extractCell to reject.
+//
+// On the matrix convention: Mat4x4 is mat4x4<f32>, whose constructor takes
+// COLUMN vectors, and main_4p builds it from four hkl ROWS. Both functions
+// below index M[i] as row i and M[i][j] as (row i, col j) -- i.e. they walk the
+// WGSL columns as if they were rows -- so the two transposes cancel, exactly as
+// the old solve4x4 did. Do not "fix" one without the other.
 
+// Returns false only if the matrix is genuinely singular (no usable pivot in
+// some column), in which case every permutation would have yielded a zero
+// vector anyway.
+fn factor4x4(A: Mat4x4, U: ptr<function, Mat4x4>, facs: ptr<function, array<f32, 6>>,
+             piv: ptr<function, array<u32, 4>>) -> bool {
+    (*U) = A;
+    let n: u32 = 4u;
+    var fi: u32 = 0u;
     for (var i: u32 = 0u; i < n; i = i + 1u) {
         var max_row = i;
-        var max_val = abs(M[i][i]);
+        var max_val = abs((*U)[i][i]);
         for (var k = i + 1u; k < n; k = k + 1u) {
-            let val = abs(M[k][i]);
+            let val = abs((*U)[k][i]);
             if (val > max_val) { max_val = val; max_row = k; }
         }
+        (*piv)[i] = max_row;
         if (max_row != i) {
-            let temp_row = M[i]; M[i] = M[max_row]; M[max_row] = temp_row;
-            let temp_v = v[i]; v[i] = v[max_row]; v[max_row] = temp_v;
+            let temp_row = (*U)[i]; (*U)[i] = (*U)[max_row]; (*U)[max_row] = temp_row;
         }
-        let pivot: f32 = M[i][i]; 
-        if (abs(pivot) < 1e-10) { return Vec4(0.0, 0.0, 0.0, 0.0); }
+        let pivot: f32 = (*U)[i][i];
+        if (abs(pivot) < 1e-10) { return false; }
         for (var r: u32 = i + 1u; r < n; r = r + 1u) {
-            let fac: f32 = M[r][i] / pivot;
-            M[r] = M[r] - (fac * M[i]);
-            v[r] = v[r] - (fac * v[i]);
+            let fac: f32 = (*U)[r][i] / pivot;
+            (*facs)[fi] = fac;
+            fi = fi + 1u;
+            (*U)[r] = (*U)[r] - (fac * (*U)[i]);
+        }
+    }
+    return true;
+}
+
+// Apply the stored row swaps and multipliers to one RHS, then back-substitute.
+// The swap for step i must be replayed BEFORE that step's eliminations, in the
+// same order factor4x4 performed them.
+fn substitute4x4(U: ptr<function, Mat4x4>, facs: ptr<function, array<f32, 6>>,
+                 piv: ptr<function, array<u32, 4>>, b_in: Vec4) -> Vec4 {
+    var v: Vec4 = b_in;
+    let n: u32 = 4u;
+    var fi: u32 = 0u;
+    for (var i: u32 = 0u; i < n; i = i + 1u) {
+        let p = (*piv)[i];
+        if (p != i) { let t = v[i]; v[i] = v[p]; v[p] = t; }
+        for (var r: u32 = i + 1u; r < n; r = r + 1u) {
+            v[r] = v[r] - (*facs)[fi] * v[i];
+            fi = fi + 1u;
         }
     }
     var x: Vec4;
@@ -133,9 +187,9 @@ fn solve4x4(A_in: Mat4x4, b_in: Vec4) -> Vec4 {
         let i: u32 = u32(i_s);
         var s: f32 = v[i];
         for (var j: u32 = i + 1u; j < n; j = j + 1u) {
-            s = s - M[i][j] * x[j];
+            s = s - (*U)[i][j] * x[j];
         }
-        x[i] = s / M[i][i];
+        x[i] = s / (*U)[i][i];
     }
     return x;
 }
@@ -383,8 +437,8 @@ fn main_4p(
     //
     //    On the constructor convention: Mat4x4(v0..v3) takes COLUMN vectors, so
     //    M_hkl is the transpose of the matrix these rows describe. That is NOT
-    //    a bug here -- solve4x4 below indexes M[i] as a row and M[i][j] as
-    //    (row i, col j), i.e. it walks the WGSL columns as if they were rows,
+    //    a bug here -- factor4x4/substitute4x4 index M[i] as a row and M[i][j]
+    //    as (row i, col j), i.e. they walk the WGSL columns as if they were rows,
     //    and the two transposes cancel exactly. (ortho_solver.wgsl used the
     //    same constructor with a cofactor solver that did NOT cancel it, which
     //    is the transpose bug fixed there. Leaving this note so the two are not
@@ -404,7 +458,16 @@ fn main_4p(
         q_obs[peak_combos[p_offset + 2u]],
         q_obs[peak_combos[p_offset + 3u]]
     );
-    
+
+    // 5b. Factor M ONCE. M does not depend on the permutation -- only the RHS
+    // does -- so the elimination that used to run 24 times now runs once.
+    // If M is singular, every permutation would have produced a zero vector and
+    // been rejected by extractCell, so the whole combination can be abandoned.
+    var U_lu: Mat4x4;
+    var lu_facs: array<f32, 6>;
+    var lu_piv: array<u32, 4>;
+    if (!factor4x4(M_hkl, &U_lu, &lu_facs, &lu_piv)) { return; }
+
     // 6. Loop 24 Permutations
     for(var p_idx: u32 = 0u; p_idx < 24u; p_idx = p_idx + 1u) {
         let perm_offset = p_idx * 4u;
@@ -415,7 +478,7 @@ fn main_4p(
              q_base[PERMUTATIONS_4[perm_offset + 3u]]
         );
          
-        let fit_params = solve4x4(M_hkl, q_perm);
+        let fit_params = substitute4x4(&U_lu, &lu_facs, &lu_piv, q_perm);
         let cell = extractCell(fit_params);
          
         if (cell.a > 0.0) { 

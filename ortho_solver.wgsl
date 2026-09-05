@@ -129,19 +129,36 @@ const PERMUTATIONS_3: array<u32, 18> = array<u32, 18>(
 //
 // Taking the rows explicitly instead of a Mat3x3 removes the trap at the
 // source: there is no longer a column-vs-row convention to get wrong.
-fn solve3x3_rows(r0: Vec3, r1: Vec3, r2: Vec3, b: Vec3) -> Vec3 {
+// --- INVERT ONCE / APPLY MANY ---------------------------------------------
+//
+// This was solve3x3_rows(r0, r1, r2, b), called 6 times per hkl triple from
+// main_3p with THE SAME THREE ROWS -- only b changes from one peak permutation
+// to the next. So the three cross products, the determinant and the reciprocal
+// were recomputed 6 times to produce the same inverse, and only the final three
+// multiply-adds actually depended on the permutation.
+//
+// Splitting it hands back the columns of A^-1 once; the permutation loop then
+// does nothing but `c0*b.x + c1*b.y + c2*b.z`. Same operations in the same
+// order as before, so the result is bit-identical -- this is purely the
+// repetition being removed. (Same shape as the factor-once/substitute-many
+// split in monoclinic_solver.wgsl and triclinic_solver.wgsl.)
+//
+// A singular matrix is also now detected once and the combination abandoned,
+// rather than 6 permutations each recomputing the same near-zero determinant
+// and returning a zero vector for extractCellOrtho to reject.
+fn invert3x3_rows(r0: Vec3, r1: Vec3, r2: Vec3,
+                  c0: ptr<function, Vec3>, c1: ptr<function, Vec3>,
+                  c2: ptr<function, Vec3>) -> bool {
     let x12 = cross(r1, r2);
     let detA = dot(r0, x12);
-    if (abs(detA) < 1e-10) { return Vec3(0.0, 0.0, 0.0); }
+    if (abs(detA) < 1e-10) { return false; }
 
     let invDet = 1.0 / detA;
     // Columns of A^-1.
-    let c0 = x12 * invDet;
-    let c1 = cross(r2, r0) * invDet;
-    let c2 = cross(r0, r1) * invDet;
-
-    // x = A^-1 b = c0*b.x + c1*b.y + c2*b.z
-    return c0 * b.x + c1 * b.y + c2 * b.z;
+    (*c0) = x12 * invDet;
+    (*c1) = cross(r2, r0) * invDet;
+    (*c2) = cross(r0, r1) * invDet;
+    return true;
 }
 
 fn extractCellOrtho(params: Vec3) -> RawOrthoSolution {
@@ -366,6 +383,15 @@ fn main_3p(
         q_obs[peak_combos[p_offset + 2u]]
     );
 
+    // 5b. Invert M ONCE. The rows do not depend on the permutation -- only the
+    // RHS does -- so the cross products and determinant that used to run 6
+    // times now run once. A singular M would have been rejected by every
+    // permutation anyway, so the combination can be abandoned outright.
+    var inv_c0: Vec3;
+    var inv_c1: Vec3;
+    var inv_c2: Vec3;
+    if (!invert3x3_rows(row0, row1, row2, &inv_c0, &inv_c1, &inv_c2)) { return; }
+
     // 6. Loop 6 Permutations
     for(var p_idx: u32 = 0u; p_idx < 6u; p_idx = p_idx + 1u) {
         let perm_offset = p_idx * 3u;
@@ -375,7 +401,8 @@ fn main_3p(
              q_base[PERMUTATIONS_3[perm_offset + 2u]]
         );
          
-        let fit_params = solve3x3_rows(row0, row1, row2, q_perm);
+        // x = A^-1 b = c0*b.x + c1*b.y + c2*b.z
+        let fit_params = inv_c0 * q_perm.x + inv_c1 * q_perm.y + inv_c2 * q_perm.z;
         let cell = extractCellOrtho(fit_params);
 
         if (cell.a > 0.0) { 

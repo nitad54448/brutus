@@ -489,7 +489,24 @@ class WebGPUEngine {
         let safeWorkgroupsY = Math.ceil(maxHklPerDispatch / cfg.workgroupY);
         safeWorkgroupsY = Math.max(1, Math.min(safeWorkgroupsY, 16383));
         const hklsPerChunk = safeWorkgroupsY * cfg.workgroupY;
+        // Clamp X against the device's per-dimension dispatch limit. Y is
+        // already clamped to 16383 above; X never was, and it grows as
+        // C(n_peaks, K): triclinic at 30 peaks is C(30,6)/4 = 148,443, well past
+        // the 65,535 WebGPU default. That is a hard dispatchWorkgroups validation
+        // error, not a slow run. The UI's max="20" does not bind -- a number
+        // input reports whatever was typed, and main_app.js reads it with a raw
+        // parseInt -- so the limit has to be enforced somewhere that can see the
+        // device. Throwing (rather than clamping) is deliberate: a clamped X
+        // would silently drop peak combinations from the search.
+        const maxWgPerDim = (this.device.limits &&
+                             this.device.limits.maxComputeWorkgroupsPerDimension) || 65535;
         const workgroupsX = Math.ceil(numPeakCombos / cfg.workgroupX);
+        if (workgroupsX > maxWgPerDim) {
+            throw new Error(
+                `${cfg.systemName}: ${numPeakCombos.toLocaleString()} peak combinations need ` +
+                `${workgroupsX.toLocaleString()} workgroups in X, over this device's limit of ` +
+                `${maxWgPerDim.toLocaleString()}. Lower "Peaks to Combine".`);
+        }
         const totalChunks = Math.ceil(totalHklCombos / hklsPerChunk);
 
         // Chunk-count blow-up guard. hklsPerChunk shrinks as numPeakCombos grows
@@ -541,6 +558,21 @@ try {
                 }
 
                 configViewU32[0] = i * hklsPerChunk;
+                // Write the WHOLE 64-byte struct, even though only z_offset (the
+                // first u32) changes from chunk to chunk.
+                //
+                // Trimming this to a 4-byte partial write is the obvious
+                // micro-optimisation and it MEASURED SLOWER: triclinic went from
+                // ~1.2 s to ~1.6 s, which at ~2,000 chunks is ~0.2 ms of extra
+                // stall per dispatch. The likely reason is that a full-extent
+                // write can be serviced by renaming/discarding the buffer's
+                // backing allocation, so consecutive chunks do not serialise on
+                // it, whereas a partial write has to PRESERVE the other 60 bytes
+                // and therefore takes a real read-modify-write dependency on the
+                // uniform the previous dispatch is still reading. 60 bytes of
+                // redundant upload is far cheaper than a per-chunk barrier.
+                //
+                // Do not "optimise" this again without timing it.
                 this.device.queue.writeBuffer(configBuffer, 0, configData);
 
                 const commandEncoder = this.device.createCommandEncoder();

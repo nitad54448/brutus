@@ -1024,6 +1024,13 @@ const getOrthogonalityScore = (cell) => {
     
     let activeWorkers = [];
     let resolveWorkerTask = null;
+    // Same role as resolveWorkerTask, for the post-processing worker.
+    // abortActiveIndexing() terminates that worker, which fires neither 'done'
+    // nor onerror, so without this the `await new Promise(...)` wrapping it in
+    // startIndexing() never settles: the async run body is pinned forever,
+    // holding its closure (peaks, solutions, baseParams) alive for the rest of
+    // the session and never reaching finalizeIndexing().
+    let resolvePostProcessTask = null;
     // Bumped by abortActiveIndexing() (Stop button, or loading a new file
     // while indexing). startIndexing() captures the value at its own start;
     // finalizeIndexing() compares against the current value to detect that
@@ -1580,8 +1587,14 @@ const setupWorker = () => {
 
             while (outstanding() > 0) {
                 await new Promise(resolve => {
-                    this._drainWake = resolve;
-                    setTimeout(resolve, 250);   // watchdog tick
+                    // Clear the tick when a 'done' wakes us first. Without this
+                    // every early wake left a live 250 ms timer behind, so a busy
+                    // drain accumulated one pending timer per acked batch for its
+                    // whole duration.
+                    let tick = 0;
+                    const wake = () => { clearTimeout(tick); resolve(); };
+                    this._drainWake = wake;
+                    tick = setTimeout(wake, 250);   // watchdog tick
                 });
                 this._drainWake = null;
                 const stillOut = outstanding();
@@ -4400,6 +4413,25 @@ systemsToSearch.forEach(system => {
                 activeWorkers.push(worker);
                 const workerT0 = performance.now();
 
+                // Both 'done' and onerror used to decrement workersRemaining and
+                // test it against 0 independently. terminate() makes the race
+                // unlikely but not impossible, and if the count ever skips past 0
+                // the CPU-worker promise never resolves -- startIndexing() then
+                // waits forever at its Promise.all and the run hangs with the UI
+                // stuck mid-progress. One settle path, guarded, instead.
+                let workerSettled = false;
+                const settleWorker = () => {
+                    if (workerSettled) return;
+                    workerSettled = true;
+                    try { worker.terminate(); } catch (_) {}
+                    activeWorkers = activeWorkers.filter(w => w !== worker);
+                    workersRemaining--;
+                    if (workersRemaining === 0) {
+                        resolveWorkerTask = null;
+                        resolve();
+                    }
+                };
+
                 worker.onmessage = (e) => {
                     const { type, payload } = e.data;
                     if (type === 'trials_completed_batch') {
@@ -4426,13 +4458,7 @@ systemsToSearch.forEach(system => {
                         }
 
                         console.log(`[perf] CPU worker '${system}': ${(performance.now() - workerT0).toFixed(0)} ms`);
-                        worker.terminate();
-                        activeWorkers = activeWorkers.filter(w => w !== worker);
-                        workersRemaining--;
-                        if (workersRemaining === 0) {
-                            resolveWorkerTask = null;
-                            resolve();
-                        }
+                        settleWorker();
                     }
                 };
 
@@ -4444,13 +4470,7 @@ systemsToSearch.forEach(system => {
 
 
                     console.error(`Worker for ${system} crashed:`, err.message);
-                    worker.terminate();
-                    activeWorkers = activeWorkers.filter(w => w !== worker);
-                    workersRemaining--;
-                    if (workersRemaining === 0) {
-                        resolveWorkerTask = null;
-                        resolve(); 
-                    }
+                    settleWorker();
                 };
                 worker.postMessage({ ...baseParams, systemToSearch: system, allowedSystems: systemsToSearch });
             });
@@ -4607,7 +4627,17 @@ systemsToSearch.forEach(system => {
 
         return async () => {
             const K_VALUE = cfg.K;
-            const n_peaks_for_combo = Math.max(K_VALUE, parseInt(ui.gpuPeaksCount.value, 10) || cfg.defaultPeaks);
+            // Clamp to the input's own max attribute, not just its floor. A
+            // number input's `value` is whatever was typed -- `max` is a
+            // validation hint, not an enforced bound -- and this figure drives
+            // C(n_peaks, K) peak combinations, hence the X dispatch dimension
+            // and the size of the peakCombos buffer. At 30 peaks triclinic asks
+            // for 148k workgroups in X (limit 65,535) and a 14 MB buffer; at 50
+            // it asks for 381 MB. Reading the max from the element keeps one
+            // source of truth with the markup.
+            const peaksMax = parseInt(ui.gpuPeaksCount.max, 10) || 20;
+            const n_peaks_for_combo = Math.min(peaksMax,
+                Math.max(K_VALUE, parseInt(ui.gpuPeaksCount.value, 10) || cfg.defaultPeaks));
             let n_hkl_for_basis = Math.max(K_VALUE * 2, parseInt(ui.gpuHklTriplets.value, 10) || cfg.defaultHkl);
 
             // --- u32 combinadic guard ---------------------------------------
@@ -4770,6 +4800,25 @@ systemsToSearch.forEach(system => {
                     `(budget: ${swapCfg.MAX_FITS || 'default'} fits/round)`);
         await new Promise(resolve => {
             const worker = new Worker(workerURL);
+            // Register with activeWorkers, like every other worker. Without this
+            // abortActiveIndexing() cannot reach it, so pressing Stop during
+            // post-processing left it running to completion -- holding a core and
+            // its own copy of worker-logic.js -- and, worse, still posting
+            // 'solution' messages. abortActiveIndexing() has already bumped
+            // indexingRunToken by then, so handleNewSolution() stamped those late
+            // cells with the NEXT run's token: results from an aborted run filed
+            // as belonging to the following one.
+            activeWorkers.push(worker);
+            let ppSettled = false;
+            const settlePostProcess = () => {
+                if (ppSettled) return;
+                ppSettled = true;
+                try { worker.terminate(); } catch (_) {}
+                activeWorkers = activeWorkers.filter(w => w !== worker);
+                resolvePostProcessTask = null;
+                resolve();
+            };
+            resolvePostProcessTask = settlePostProcess;
             const bestOf = (arr) => arr.reduce((m, s) => (s && isFinite(s.m20) && s.m20 > m) ? s.m20 : m, 0);
             const m20Before = bestOf(solutions);
             worker.onmessage = (e) => {
@@ -4782,7 +4831,7 @@ systemsToSearch.forEach(system => {
                         `${st.solutionErrors} solution errors, ${st.swapErrors} swap errors | ` +
                         `best M20 ${(+st.bestBefore).toFixed(2)} -> ${(+st.bestAfter).toFixed(2)}`);
                 }
-                else if (e.data.type === 'done') { worker.terminate(); resolve(); }
+                else if (e.data.type === 'done') { settlePostProcess(); }
             };
             // Never swallow this. A throw inside the post-process worker used to
             // resolve the promise in complete silence, so a run that lost every
@@ -4793,7 +4842,7 @@ systemsToSearch.forEach(system => {
                               err && err.message, err && err.filename, err && err.lineno);
                 showStatus('Post-processing failed: ' + ((err && err.message) || 'worker error') +
                            ' - results are pre-post-processing only.', 'error', 10000);
-                resolve();
+                settlePostProcess();
             };
             worker.postMessage({ 
                 ...baseParams, 
@@ -5002,6 +5051,16 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
         if (typeof resolveWorkerTask === 'function') {
             resolveWorkerTask(); // Unblock the CPU-worker await, if any
             resolveWorkerTask = null;
+        }
+
+        // Same for the post-processing stage. The forEach above already
+        // terminated its worker (it is in activeWorkers now), and a terminated
+        // worker fires neither 'done' nor onerror, so nothing else would ever
+        // settle that promise.
+        if (typeof resolvePostProcessTask === 'function') {
+            const settle = resolvePostProcessTask;
+            resolvePostProcessTask = null;
+            settle();
         }
 
         // Token of the run we are stopping. Its solutions carry this value, so
