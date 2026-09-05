@@ -344,6 +344,8 @@ document.addEventListener('DOMContentLoaded', () => {
         peakControls: document.getElementById('peak-controls'),
         peakThresholdSlider: document.getElementById('peak-threshold-slider'),
         peakThresholdValue: document.getElementById('peak-threshold-value'),
+        peakProminenceSlider: document.getElementById('peak-prominence-slider'),
+        peakProminenceValue: document.getElementById('peak-prominence-value'),
         peakTableContainer: document.getElementById('peak-table-container'),
         peakListBody: document.getElementById('peak-list-body'),
         indexingControls: document.getElementById('indexing-controls'),
@@ -2996,6 +2998,12 @@ ui.tthMinSlider.addEventListener('input', () => {
     });
     ui.smoothingWidthSlider.addEventListener('input', () => { ui.smoothingWidthValue.textContent = parseFloat(ui.smoothingWidthSlider.value).toFixed(3); debouncedFindPeaks(); });
     ui.peakThresholdSlider.addEventListener('input', () => { const value = logSliderToValue(parseFloat(ui.peakThresholdSlider.value)); ui.peakThresholdValue.textContent = value.toFixed(1); debouncedFindPeaks(); });
+    if (ui.peakProminenceSlider) {
+        ui.peakProminenceSlider.addEventListener('input', () => {
+            ui.peakProminenceValue.textContent = ui.peakProminenceSlider.value;
+            debouncedFindPeaks();
+        });
+    }
 
     // Convert a rolling-ball radius expressed in Q (A^-1) into a per-point
     // half-width in channels.
@@ -3229,7 +3237,61 @@ ui.tthMinSlider.addEventListener('input', () => {
             if (current > smoothed[i - 1] && current > smoothed[i + 1]) localMaxIndices.push(i);
             else if (current === smoothed[i + 1] && current > smoothed[i - 1]) { let plateauEnd = i + 1; while (plateauEnd < n - 1 && Math.abs(smoothed[plateauEnd] - current) < maxCorrectedIntensity * 0.001) plateauEnd++; if (plateauEnd < n && smoothed[plateauEnd] < current) localMaxIndices.push(Math.round((i + plateauEnd - 1) / 2)); i = plateauEnd - 1; }
         }
-        const candidates = localMaxIndices.filter(idx => tth[idx] >= minTth && tth[idx] <= maxTth && backgroundCorrected[idx] >= adaptiveThreshold)
+        // --- Prominence filter -------------------------------------------
+        //
+        // Prominence is how far you must descend from a maximum before you can
+        // reach any higher maximum: walk left until the profile rises above
+        // this peak (or the scan ends), keep the lowest value seen; walk right
+        // the same way; the prominence is the peak height minus the HIGHER of
+        // those two valley floors. The higher one, because that is the
+        // shallowest escape route to higher ground.
+        //
+        // This is the right discriminator for shoulders and ringing, where a
+        // minimum-separation rule is not: separation cannot distinguish a
+        // genuine close doublet from a bump on a flank, prominence can. On
+        // synthetic profiles the ratio prominence/height separates cleanly --
+        // ~1.00 for a fully resolved peak, ~0.50 for an unresolved shoulder,
+        // ~0.23 for a noise spike riding on a flank -- and the ratio is
+        // scale-free, so one threshold works for weak and strong peaks alike.
+        //
+        // Computed on `smoothed`, the same background-corrected array used for
+        // detection above. On the raw profile, noise in the valley sets the
+        // floor and the numbers stop meaning anything.
+        const promFrac = ui.peakProminenceSlider
+            ? (parseFloat(ui.peakProminenceSlider.value) || 0) / 100
+            : 0;
+        let survivingMaxima = localMaxIndices;
+        if (promFrac > 0 && localMaxIndices.length > 1) {
+            // Bound the walk: beyond a few hundred channels the search is only
+            // finding the far side of the pattern, and an unbounded walk makes
+            // this O(n) per peak on a scan with few maxima.
+            const WALK_LIMIT = Math.max(200, Math.ceil(n / 20));
+            const noiseFloor = calculateNoiseLevel(noiseSrc) * 3;
+            survivingMaxima = localMaxIndices.filter(idx => {
+                const h = smoothed[idx];
+                if (!(h > 0)) return false;
+                let left = h;
+                for (let j = idx - 1, steps = 0; j >= scanStart && steps < WALK_LIMIT; j--, steps++) {
+                    if (smoothed[j] > h) break;
+                    if (smoothed[j] < left) left = smoothed[j];
+                }
+                let right = h;
+                for (let j = idx + 1, steps = 0; j <= scanEnd && steps < WALK_LIMIT; j++, steps++) {
+                    if (smoothed[j] > h) break;
+                    if (smoothed[j] < right) right = smoothed[j];
+                }
+                const prominence = h - Math.max(left, right);
+                // Two conditions: statistically real (above the noise), and
+                // actually resolved (a real valley, not a change of slope).
+                return prominence >= noiseFloor && prominence >= promFrac * h;
+            });
+            // Never let the filter empty the list -- an over-tight setting
+            // should degrade the peak list, not silently destroy it and leave
+            // the user with an unexplained "find at least 3 peaks" error.
+            if (survivingMaxima.length < 3) survivingMaxima = localMaxIndices;
+        }
+
+        const candidates = survivingMaxima.filter(idx => tth[idx] >= minTth && tth[idx] <= maxTth && backgroundCorrected[idx] >= adaptiveThreshold)
             .map(idx => ({ idx, tth: tth[idx], height: smoothed[idx], backgroundCorrectedHeight: backgroundCorrected[idx] }));
         
         // ref 5 ou 3 savitzky
@@ -3709,7 +3771,7 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
         document.body.style.cursor = indexing ? 'wait' : 'default';
         
         const controlsToDisable = [ 
-            ui.fileInput, ui.peakThresholdSlider, ui.tthMinSlider, ui.tthMaxSlider, 
+            ui.fileInput, ui.peakThresholdSlider, ui.peakProminenceSlider, ui.tthMinSlider, ui.tthMaxSlider, 
             ui.ballRadiusSlider, ui.smoothingWidthSlider, ui.wavelength, ui.tthError, 
             ui.maxVolume, ui.impurityPeaksInput, ui.refineZeroCheckbox, 
             // ...ui.systemCheckboxes, modif nov 25
@@ -6922,6 +6984,7 @@ const generatePDFReport = async (singleSolution = null) => {
                          : 'N/A' },
             { label: 'Impurity Peaks:', value: ui.impurityPeaksInput.value },
             { label: 'Min Peak (%):', value: ui.peakThresholdValue.textContent },
+            { label: 'Prominence (%):', value: ui.peakProminenceValue ? ui.peakProminenceValue.textContent : '0' },
             { label: 'Refine Zero:', value: ui.refineZeroCheckbox.checked ? 'True' : 'False' },
             { label: '2theta Min (deg):', value: tthMinVal.toFixed(2) },
             { label: '2theta Max (deg):', value: tthMaxVal.toFixed(2) },

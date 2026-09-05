@@ -398,7 +398,8 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 <li>
                     <strong>Detect peaks.</strong>
                     On the <strong>Peaks</strong> tab, adjust the <code>Min peak (%)</code>, <code>Radius (Å⁻¹)</code>, and <code>Smoothing (Å⁻¹)</code>
-                    sliders until the automatically detected peaks match the visual pattern.
+                    sliders until the automatically detected peaks match the visual pattern. If shoulders or
+                    artifacts are picked up as peaks, raise <code>Prominence (%)</code> as well.
                 </li>
                 <li>
                     <strong>Curate the peak list.</strong>
@@ -478,6 +479,12 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                             is supposed to pass underneath, and the background is subtracted from the peaks
                             themselves.</div></li>
                         <li><code>Min peak (%)</code> – peak detection threshold on a logarithmic scale. Peaks below this fraction of the strongest peak are ignored. Reduce to detect weak reflections; increase to suppress noise.</li>
+                        <li><code>Prominence (%)</code> – rejects a detected maximum unless the valley beside it
+                            drops by at least this fraction of the maximum's own height. Answers a different
+                            question from <code>Min peak (%)</code>: that one asks <em>is this tall enough?</em>,
+                            this one asks <em>is this actually resolved?</em> A bump riding on the flank of a
+                            strong peak can easily be tall enough while having almost no prominence.
+                            Default 0, which disables the test. See below for how to choose a value.</li>
                     </ul>
                     <div class="callout-note">
                         <strong>Why Å⁻¹ and not data points?</strong>
@@ -915,6 +922,55 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     Local maxima above the <code>Min peak (%)</code> threshold are identified.
                 </li>
                 <li>
+                    <strong>Prominence filter:</strong>
+                    Optional, and off unless <code>Prominence (%)</code> is greater than zero.
+                    <br><br>
+                    <em>Prominence</em> is a topographic measure: how far you must descend from a maximum
+                    before you can reach any <em>higher</em> maximum. For a local maximum of height $h$:
+                    walk left until the profile rises above $h$ (or the scan ends) and keep the lowest value
+                    seen, call it $L$; walk right the same way for $R$; then the prominence is
+                    $h - \max(L,\,R)$.
+                    The $\max$ matters: you take the <em>higher</em> of the two valley floors, because that is
+                    the shallowest escape route to higher ground.
+                    <br><br>
+                    A maximum is kept only if its prominence exceeds both the noise floor (three times the
+                    robust MAD estimate, so the feature is statistically real) and the fraction of its own
+                    height set by the slider (so the feature is genuinely resolved). The ratio
+                    prominence/height is scale-free, which is why one setting works for weak and strong peaks
+                    alike. It is computed on the same smoothed, background-corrected profile used for
+                    detection — on the raw data, noise in the valley sets the floor and the number stops
+                    meaning anything.
+                    <div class="callout-note">
+                        <strong>Why not simply impose a minimum separation between peaks?</strong>
+                        Because separation cannot distinguish a genuine close doublet from a bump on a flank,
+                        and in a dense low-symmetry pattern the close reflections are often exactly the ones
+                        that make the cell indexable. A distance rule would delete them silently. Prominence
+                        asks the right question — <em>is there a real valley between these two maxima?</em> —
+                        and so can reject a shoulder while keeping a pair that is closer together than the
+                        shoulder was to its parent.
+                    </div>
+                    Measured on synthetic data with known ground truth (six real peaks including a resolved
+                    close pair, plus one shoulder and one noise spike):
+                    <table>
+                        <thead><tr><th>Prominence</th><th>Real peaks kept</th><th>Shoulder</th><th>Resolved close pair</th></tr></thead>
+                        <tbody>
+                            <tr><td>0 % (off)</td><td>6 / 6</td><td>kept</td><td>both kept</td></tr>
+                            <tr><td>25 %</td><td>6 / 6</td><td>kept</td><td>both kept</td></tr>
+                            <tr><td>40 %</td><td>6 / 6</td><td>kept</td><td>both kept</td></tr>
+                            <tr><td>60 %</td><td>6 / 6</td><td><strong>rejected</strong></td><td>both kept</td></tr>
+                            <tr><td>80 %</td><td>6 / 6</td><td>rejected</td><td>both kept</td></tr>
+                        </tbody>
+                    </table>
+                    Two things to read from this. Values below about 50 % do essentially nothing, which is why
+                    the default is 0 rather than a small number that would look active while changing no
+                    result. And the resolved close pair survives even at 80 %, while the shoulder is gone by
+                    60 % — the filter discriminates on shape, not on distance.
+                    <br><br>
+                    As a safeguard the filter never reduces the list below three maxima; if a setting would,
+                    the unfiltered list is restored instead, so an over-tight value degrades the peak list
+                    rather than destroying it.
+                </li>
+                <li>
                     <strong>Position refinement:</strong>
                     For each detected peak, a five-point least-squares quadratic fit (Savitzky–Golay coefficients) is
                     carried out around the local maximum to obtain a sub-step precision position.
@@ -983,6 +1039,12 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <ul>
                 <li>Start from the default slider values and inspect the result visually. Only the peaks shown in the table will be used in the calculations.</li>
                 <li>If weak but real peaks are missed, reduce <code>Min peak (%)</code>. If noise is detected as peaks, increase it.</li>
+                <li>If detection produces shoulders or ringing artifacts rather than genuine reflections, raise
+                    <code>Prominence (%)</code> to <strong>50–60</strong>. Below 50 it has little effect; above
+                    that it removes shoulders while leaving genuinely resolved close pairs intact. Raise
+                    <code>Prominence</code> rather than <code>Min peak (%)</code> for this, since a shoulder on a
+                    strong peak is often taller than a weak but real reflection elsewhere in the pattern —
+                    raising the height threshold would delete the reflection and keep the shoulder.</li>
                 <li>For broad, slowly varying backgrounds, increase <code>Radius</code>. As a rule of thumb it
                     should be several times your widest peak: a typical laboratory peak of 0.10° FWHM at
                     $2\theta = 30$° is about 0.007 Å⁻¹ wide in $Q$, so the 0.050 Å⁻¹ default already sits
@@ -3538,7 +3600,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             </ol>
 
             <div class="footer">
-                <p>Help guide generated with the help of an AI, based on source code analysis. Last revised 27 July 2026.</p>
+                <p>Help guide generated with the help of an AI, based on source code analysis. Last revised 05 September 2026.</p>
             </div>
         </section>
 

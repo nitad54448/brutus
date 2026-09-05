@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Installation Checker</title>
+  <style>
+    body {
+      font-family: monospace;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 20px;
+      line-height: 1.4;
+      max-width: 1100px;
+      margin: auto;
+    }
+    button {
+      font: inherit;
+      padding: 10px 16px;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+    .ok    { color: #4ec9b0; }
+    .bad   { color: #f44747; font-weight: bold; }
+    .info  { color: #569cd6; font-weight: bold; }
+    .warn  { color: #dcdcaa; }
+    .muted { color: #808080; }
+    pre { white-space: pre-wrap; word-wrap: break-word; }
+    #status { margin: 14px 0; }
+    .legend { color: #808080; font-size: 0.9em; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h2>Installation Checker</h2>
+  <p>
+    Press <b>Load main function</b>. The checker fetches the target page, discovers
+    the files it references, follows them recursively, and reports which are absent.
+    Serve this over HTTP — <code>file://</code> will fail everything.
+  </p>
+
+  <input type="text" id="targetFile" value="powder5.html" placeholder="Target file" style="padding: 8px; width: 200px;">
+  <button id="loadBtn" onclick="loadMainFunction()">Load main function</button>
+  <button id="checkBtn" onclick="runCheck()" disabled>Run check again</button>
+
+  <div id="status" class="info">Main function not loaded.</div>
+  <pre id="output"></pre>
+  <div class="legend">
+    [ok] present &nbsp; [X] missing &nbsp; [?] path built at run time, cannot check
+    &nbsp; [--] already seen or external
+  </div>
+
+<script>
+"use strict";
+
+/* ===================================================================
+   WHY THIS FILE IS SHAPED THE WAY IT IS
+
+   The previous version reported files as MISSING that were sitting
+   right there on disk. Three separate causes, all worth naming because
+   each is easy to reintroduce:
+
+   1. IT SCANNED COMMENTS. A header comment reading
+          //  Loading:  browser  script src="js/pawley_linear.js"
+      was matched by the src= pattern and checked as if it were a live
+      reference. Fixed by stripping comments with a character scanner
+      that understands string literals, rather than a regex.
+
+   2. IT RESOLVED EVERY REFERENCE AGAINST THE FILE IT WAS FOUND IN.
+      That is right for importScripts and wrong for everything else.
+      `new Worker('js/refinement_worker.js')` inside js/refinement_-
+      controller.js resolves against the DOCUMENT, not against the
+      script — so the checker looked for js/js/refinement_worker.js and
+      declared it missing. See resolveBase() for the full table.
+
+   3. IT TREATED TEMPLATE LITERALS AS PATHS. `fetch(`${baseDir}/index.json`)`
+      was checked as a literal path containing a dollar sign. Those are
+      now a separate category: not found, but not a failure either,
+      because there is nothing on disk that could satisfy them.
+
+   A fourth issue was hiding underneath: because `new Worker(...)` was
+   not a recognised pattern at all, three workers and everything they
+   pull in — ten more modules and both shaders — were never checked.
+   The report said "4 problems" while silently skipping a third of the
+   application.
+   =================================================================== */
+
+let mainFunctionLoaded = false;
+
+function log(message = "", cls = "") {
+  const out = document.getElementById("output");
+  const span = document.createElement("span");
+  if (cls) span.className = cls;
+  span.textContent = message + "\n";
+  out.appendChild(span);
+}
+
+function clearOutput() {
+  document.getElementById("output").textContent = "";
+}
+
+/* -------------------------------------------------------------------
+   Comment stripping.
+
+   Returns the source with comments removed, plus a parallel mask
+   marking which characters sit INSIDE a string literal. The mask is
+   what stops this, from symmetry_utils.js:
+
+       throw new Error("-- importScripts('crystal.js', ...).");
+
+   being read as a real importScripts call. It is an error message that
+   happens to quote one.
+
+   Backslashes are consumed in pairs in every state, including code.
+   That is what lets a regex literal like /^https?:\/\// survive: the
+   escaped slashes never present as a bare //, so the scanner does not
+   mistake the rest of the line for a comment and delete it.
+   ------------------------------------------------------------------- */
+/* A `/` starts a regex literal only where an expression may begin. After a
+   value — identifier, number, closing bracket — it is division. This is the
+   usual heuristic and it is sufficient here; the cost of getting it wrong is
+   a missed or spurious reference, not a crash.
+
+   Skipping regex literals properly is NOT optional. powder5.html contains
+
+       .replace(/["<>|]+/g, '_')
+
+   and a scanner that does not recognise the regex sees the `"` inside it as
+   the start of a string literal. That string then runs for six thousand
+   characters and swallows three `new Worker(...)` calls, which is how an
+   earlier version of this file silently skipped the Wyckoff worker and every
+   module underneath it. */
+const REGEX_OK_AFTER = /[([{,;:!&|?+\-*%^~=<>]$/;
+const REGEX_OK_KEYWORD = /\b(return|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await)$/;
+
+function regexAllowed(before) {
+  const t = before.replace(/\s+$/, "");
+  if (t === "") return true;
+  if (REGEX_OK_AFTER.test(t)) return true;
+  return REGEX_OK_KEYWORD.test(t);
+}
+
+function stripJsComments(src) {
+  let out = "", i = 0, state = 0;      // 0 code, 1 '..', 2 "..", 3 `..`, 4 //, 5 /*
+  const mask = [];
+  const n = src.length;
+  const push = (ch, inStr) => { out += ch; mask.push(inStr); };
+
+  while (i < n) {
+    const c = src[i], d = src[i + 1];
+
+    if (state === 0) {
+      if (c === "\\") { push(c, false); if (d !== undefined) push(d, false); i += 2; continue; }
+      if (c === "/" && d === "/") { state = 4; i += 2; continue; }
+      if (c === "/" && d === "*") { state = 5; i += 2; continue; }
+      if (c === "/" && regexAllowed(out.slice(-32))) {
+        // Copy the regex literal through verbatim, marked as code. A `/`
+        // inside a [...] character class does not close it.
+        push(c, false); i++;
+        let inClass = false;
+        while (i < n) {
+          const r = src[i];
+          if (r === "\\") { push(r, false); if (src[i + 1] !== undefined) push(src[i + 1], false); i += 2; continue; }
+          if (r === "\n") break;                       // unterminated; bail out
+          push(r, false); i++;
+          if (r === "[") inClass = true;
+          else if (r === "]") inClass = false;
+          else if (r === "/" && !inClass) break;       // closing delimiter
+        }
+        while (i < n && /[a-z]/i.test(src[i])) { push(src[i], false); i++; }   // flags
+        continue;
+      }
+      if (c === "'" || c === '"' || c === "`") {
+        state = c === "'" ? 1 : c === '"' ? 2 : 3;
+        push(c, false); i++; continue;
+      }
+      push(c, false); i++; continue;
+    }
+
+    if (state < 4) {
+      if (c === "\\") { push(c, true); if (d !== undefined) push(d, true); i += 2; continue; }
+      const closer = state === 1 ? "'" : state === 2 ? '"' : "`";
+      if (c === closer) { push(c, false); state = 0; i++; continue; }
+      push(c, true); i++; continue;
+    }
+
+    if (state === 4) { if (c === "\n") { state = 0; push(c, false); } i++; continue; }
+
+    if (c === "*" && d === "/") { state = 0; i += 2; continue; }
+    if (c === "\n") push(c, false);
+    i++;
+  }
+  return { code: out, mask };
+}
+
+const HTML_PATTERNS = [
+  /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi,
+  /<link\b[^>]*?\bhref\s*=\s*["']([^"']+)["']/gi,
+  /<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi,
+  /<iframe\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi,
+  /<audio\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi,
+  /<video\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi,
+  /<source\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi,
+  /<object\b[^>]*?\bdata\s*=\s*["']([^"']+)["']/gi,
+  /<embed\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi
+];
+
+/* `kind` records HOW the reference was written, because that decides
+   what it is relative to and whether the target runs as a worker. */
+const JS_PATTERNS = [
+  { kind: "worker", re: /\bnew\s+(?:Shared)?Worker\s*\(\s*(["'`])([^"'`]+)\1/g },
+  { kind: "worker", re: /\bserviceWorker\s*\.\s*register\s*\(\s*(["'`])([^"'`]+)\1/g },
+  { kind: "fetch",  re: /\bfetch\s*\(\s*(["'`])([^"'`]+)\1/g },
+  { kind: "fetch",  re: /\bimport\s*\(\s*(["'`])([^"'`]+)\1\s*\)/g },
+  { kind: "fetch",  re: /\bimport\s+[^;]*?\sfrom\s*(["'])([^"']+)\1/g },
+  { kind: "fetch",  re: /\b(?:src|href|url)\s*[:=]\s*(["'])([^"']+\.[A-Za-z0-9_-]+)\1/g }
+];
+
+/* Shaders and wasm are loaded through a variable often enough that the
+   literal never appears at the call site:
+
+       const shaderFile = '../swarm_reflection.wgsl';
+       const resp = await fetch(shaderFile);
+
+   so those extensions get a bare literal scan as well. Deliberately NOT
+   extended to .js/.json/.csv: module names appear in error messages,
+   preset tables and download filenames constantly, and every one of
+   those would become a phantom dependency. */
+const BARE_SCAN_EXT = /\.(wgsl|glsl|frag|vert|wasm)$/i;
+const LITERAL_RE = /(["'`])((?:\.\.?\/|\/)?[A-Za-z0-9_./-]+\.[A-Za-z0-9_]+)\1/g;
+
+function classify(ref) {
+  if (!ref || ref.startsWith("#")) return null;
+  if (/^(data|blob|javascript|mailto|about):/i.test(ref)) return null;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(ref)) return "external";
+  if (/\$\{|\+/.test(ref)) return "dynamic";
+  return "local";
+}
+
+function extractReferences(source, isHtml) {
+  const found = new Map();          // ref -> kind
+  const dynamic = new Set();
+  const external = new Set();
+
+  const add = (ref, kind) => {
+    const c = classify(ref);
+    if (c === null) return;
+    if (c === "dynamic") { dynamic.add(ref); return; }
+    if (c === "external") { external.add(ref); return; }
+    const prev = found.get(ref);
+    // A worker reference outranks a plain fetch of the same path: it
+    // changes how the target's own references are resolved.
+    if (prev === undefined || (prev !== "worker" && kind === "worker")) found.set(ref, kind);
+  };
+
+  const scanJs = (js) => {
+    const { code, mask } = stripJsComments(js);
+    const atCallSite = (idx) => !mask[idx];
+
+    for (const { kind, re } of JS_PATTERNS) {
+      for (const m of code.matchAll(re)) {
+        if (atCallSite(m.index)) add(m[2], kind);
+      }
+    }
+    for (const call of code.matchAll(/\bimportScripts\s*\(([^)]*)\)/g)) {
+      if (!atCallSite(call.index)) continue;      // quoted in an error message
+      for (const a of call[1].matchAll(/(["'])([^"']+)\1/g)) add(a[2], "importScripts");
+    }
+    for (const m of code.matchAll(LITERAL_RE)) {
+      if (BARE_SCAN_EXT.test(m[2])) add(m[2], "literal");
+    }
+  };
+
+  if (isHtml) {
+    // Markup is scanned raw (minus HTML comments). It is NOT run through
+    // the JS comment stripper: an apostrophe in ordinary prose would open
+    // a string state and swallow every reference after it.
+    const markup = source.replace(/<!--[\s\S]*?-->/g, "");
+    for (const p of HTML_PATTERNS) {
+      for (const m of markup.matchAll(p)) add(m[1], "markup");
+    }
+    for (const m of source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) scanJs(m[1]);
+  } else {
+    scanJs(source);
+  }
+
+  return { refs: [...found].map(([ref, kind]) => ({ ref, kind })), dynamic: [...dynamic], external: [...external] };
+}
+
+/* -------------------------------------------------------------------
+   WHAT IS A REFERENCE RELATIVE TO?
+
+     <script src>, <link href>       the containing document
+     importScripts('x')              the worker script that is running
+     fetch / new Worker / import()   the base URL of the CONTEXT
+
+   That last line is the one the old checker got wrong. A classic script
+   loaded into a page does not get its own base URL; it inherits the
+   document's. So a fetch() written inside js/foo.js resolves against the
+   HTML page, not against js/. Inside a worker the context base is the
+   worker script's own URL, which is why '../swarm_reflection.wgsl' in
+   js/wyckoff_worker.js correctly reaches the project root.
+   ------------------------------------------------------------------- */
+function resolveBase(kind, fileUrl, contextBase) {
+  if (kind === "markup" || kind === "importScripts") return fileUrl;
+  return contextBase;
+}
+
+function toAbsolute(reference, baseUrl) {
+  try {
+    const url = new URL(reference, baseUrl);
+    if (url.origin !== window.location.origin) return null;
+    if (!["http:", "https:"].includes(url.protocol)) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+async function checkFile(url, fetchContent) {
+  try {
+    let response = await fetch(url, { method: fetchContent ? "GET" : "HEAD", cache: "no-store" });
+    // Some static servers answer HEAD with 405 or 501. Retry once as GET
+    // before believing a negative.
+    if (!response.ok && !fetchContent) {
+      response = await fetch(url, { method: "GET", cache: "no-store" });
+    }
+    if (!response.ok) return { exists: false, status: response.status };
+
+    const content = fetchContent ? await response.text() : null;
+    const header = response.headers.get("content-length");
+    let size = header ? Number(header) : null;
+    // content.length counts UTF-16 code units, not bytes. For a file with
+    // any non-ASCII in it that under-reports, so measure properly.
+    if (size === null && content !== null) size = new TextEncoder().encode(content).length;
+
+    return { exists: true, status: response.status, size, content, url: response.url };
+  } catch (error) {
+    return { exists: false, error: error.message };
+  }
+}
+
+async function loadMainFunction() {
+  const status = document.getElementById("status");
+  const targetPath = document.getElementById("targetFile").value.trim();
+  status.className = "info";
+  status.textContent = "Loading " + targetPath + "...";
+
+  try {
+    window.targetUrl = new URL(targetPath, window.location.href).href;
+    const response = await fetch(window.targetUrl, { cache: "no-store" });
+    if (!response.ok) {
+      status.className = "bad";
+      status.textContent = "Could not load " + targetPath + " (HTTP " + response.status + ").";
+      return;
+    }
+    window.mainSource = await response.text();
+  } catch (error) {
+    status.className = "bad";
+    status.textContent = "Could not load " + targetPath + ": " + error.message +
+                         "  (serving over file:// will do this)";
+    return;
+  }
+
+  mainFunctionLoaded = true;
+  document.getElementById("checkBtn").disabled = false;
+  status.className = "ok";
+  status.textContent = targetPath + " loaded. Dependencies can now be checked.";
+  await runCheck();
+}
+
+async function runCheck() {
+  if (!mainFunctionLoaded) return;
+
+  clearOutput();
+  let missing = 0, unverifiable = 0, present = 0;
+
+  const pad = (d) => "  ".repeat(d) + "  ";
+  const bad   = (m, d) => { missing++; log(pad(d) + "[X] " + m, "bad"); };
+  const ok    = (m, d) => { present++; log(pad(d) + "[ok] " + m, "ok"); };
+  const warn  = (m, d) => log(pad(d) + "[--] " + m, "muted");
+  const unk   = (m, d) => { unverifiable++; log(pad(d) + "[?] " + m, "warn"); };
+
+  log("Installation check (recursive)", "info");
+  log("==============================\n");
+
+  const visited = new Set([window.targetUrl]);
+
+  async function scanNode(sourceText, fileUrl, contextBase, isHtml, depth) {
+    const { refs, dynamic, external } = extractReferences(sourceText, isHtml);
+
+    if (depth === 0 && !refs.length) {
+      log("No local file references were discovered.", "warn");
+      return;
+    }
+
+    for (const d of dynamic) {
+      unk(d + "  (path assembled at run time — check by hand)", depth);
+    }
+    for (const e of external) {
+      warn(e + "  (external)", depth);
+    }
+
+    for (const { ref, kind } of refs) {
+      const base = resolveBase(kind, fileUrl, contextBase);
+      const absolute = toAbsolute(ref, base);
+
+      if (!absolute) { warn(ref + "  (non-local)", depth); continue; }
+      if (visited.has(absolute)) { warn(ref + "  (already checked)", depth); continue; }
+      visited.add(absolute);
+
+      const isText = /\.(js|mjs|html|htm)$/i.test(absolute);
+      const result = await checkFile(absolute, isText);
+
+      if (!result.exists) {
+        // Always print the RESOLVED url. When a reference is resolved
+        // against the wrong base the doubled path is visible instantly
+        // (js/js/foo.js), which is the single most useful thing this
+        // report can tell you.
+        const where = new URL(absolute).pathname;
+        bad(ref + " is MISSING" + (result.status ? " (HTTP " + result.status + ")" : "") +
+            "  -> " + where, depth);
+        continue;
+      }
+
+      ok(ref + (result.size != null ? "  " + result.size.toLocaleString() + " bytes" : "") +
+         (kind === "worker" ? "  [worker]" : ""), depth);
+
+      if (result.content) {
+        const childIsHtml = /\.(html|htm)$/i.test(absolute);
+        // Entering a worker resets the context base to the worker itself.
+        // Everything else inherits the base it was resolved against.
+        const childContext = kind === "worker" ? result.url
+                           : childIsHtml       ? result.url
+                           : contextBase;
+        await scanNode(result.content, result.url, childContext, childIsHtml, depth + 1);
+      }
+    }
+  }
+
+  await scanNode(window.mainSource, window.targetUrl, window.targetUrl, true, 0);
+
+  log("\n----------------------------------------------------------------------");
+  log(present + " present, " + missing + " missing, " + unverifiable + " unverifiable.");
+  if (missing === 0) {
+    log("Every file the scanner could resolve is present.", "ok");
+  } else {
+    log(missing + " missing dependency/dependencies. Check the resolved path on each.", "bad");
+  }
+  if (unverifiable) {
+    log(unverifiable + " reference(s) are built at run time and cannot be checked from source.", "warn");
+  }
+}
+</script>
+</body>
+</html>

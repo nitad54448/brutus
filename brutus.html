@@ -274,6 +274,14 @@
                                     <span id="peak-threshold-value" class="slider-value-display">2.0</span>
                                 </div>
                             </div>
+
+                            <div class="slider-group">
+                                <label class="control-label" title="Rejects a maximum unless the valley beside it drops by at least this fraction of its own height. A fully resolved peak scores near 100%, an unresolved shoulder about 50%, a noise spike on a flank about 25%. Unlike a minimum-separation rule this keeps genuinely resolved close reflections. 0 disables the test (default).">Prom. (%)</label>
+                                <div class="slider-value-track">
+                                    <input type="range" id="peak-prominence-slider" class="custom-slider" min="0" max="90" value="0" step="5">
+                                    <span id="peak-prominence-value" class="slider-value-display">0</span>
+                                </div>
+                            </div>
                             
                             <div class="slider-group">
                                 <label class="control-label" title="Rolling-ball background window, expressed in reciprocal space (Q = 4&#960;sin&#952;/&#955;). Independent of the scan step, so the same value gives the same background on data measured at any resolution.">Radius (&#197;&#8315;&#185;)</label>
@@ -284,7 +292,7 @@
                             </div>
                             
                             <div class="slider-group">
-                                <label class="control-label" title="Moving-average half-width applied before the rolling-ball erosion, in reciprocal space (Q = 4&#960;sin&#952;/&#955;). Same units as Radius, so the two are directly comparable: keep this well below Radius or the smoothing erodes the peaks. 0 disables smoothing.">Smoothing (&#197;&#8315;&#185;)</label>
+                                <label class="control-label" title="Moving-average half-width applied before the rolling-ball erosion, in reciprocal space (Q = 4&#960;sin&#952;/&#955;). Same units as Radius, so the two are directly comparable: keep this well below Radius or the smoothing erodes the peaks. 0 disables smoothing.">Smooth. (&#197;&#8315;&#185;)</label>
                                 <div class="slider-value-track">
                                     <input type="range" id="smoothing-width-slider" class="custom-slider" min="0" max="0.060" value="0.012" step="0.002">
                                     <span id="smoothing-width-value" class="slider-value-display">0.012</span>
@@ -536,7 +544,7 @@
     <div id="status-box"></div>
 
     <script src="main_app.js?v=20260829"></script>
-<div id="app-footer">Brutus, 29 August 2026</div>
+<div id="app-footer">Brutus, 05 Sept 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-swap">Swap hkl</div>
