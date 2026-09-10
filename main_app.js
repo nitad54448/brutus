@@ -539,6 +539,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    let webgpuInitPromise = null;
     async function getWebGPUEngine() {
         // A lost device cannot be revived: its pipelines and buffers are gone.
         // Drop it and build a replacement.
@@ -547,6 +548,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (sharedWebGPUEngine) return sharedWebGPUEngine;
 
+        if (webgpuInitPromise) return webgpuInitPromise;
+        webgpuInitPromise = (async () => {
         const engine = new WebGPUEngine();
         await engine.init();
         engine.onDeviceLost = (info) => {
@@ -560,6 +563,9 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         sharedWebGPUEngine = engine;
         return engine;
+        })();
+        try { return await webgpuInitPromise; }
+        finally { webgpuInitPromise = null; }
     }
 
     // Release the device on navigation rather than relying on GC.
@@ -1037,6 +1043,12 @@ const getOrthogonalityScore = (cell) => {
     // its run was aborted/superseded and should no-op instead of overwriting
     // fresher state. See abortActiveIndexing() and finalizeIndexing().
     let indexingRunToken = 0;
+    let indexingFailures = [];
+    const recordIndexingFailure = (message, token) => {
+        if (token !== indexingRunToken) return;
+        if (!indexingFailures.includes(message)) indexingFailures.push(message);
+        showStatus(`Search incomplete: ${message}`, 'error', 10000);
+    };
     let sortState = { column: 'm20', direction: 'desc' };
     let workerURL = null;    
 
@@ -1101,15 +1113,16 @@ const getOrthogonalityScore = (cell) => {
 let isTableUpdateScheduled = false;
 
 // New function to centralize updates (Throttled with requestAnimationFrame)
-const handleNewSolution = (newSolution) => {
-    if (!newSolution || !newSolution.system) return;
+const handleNewSolution = (newSolution, runToken = indexingRunToken, fitContext = null) => {
+    if (runToken !== indexingRunToken || !newSolution || !newSolution.system) return;
 
     // Stamp the producing run. `solutions` is deliberately NOT cleared between
     // runs, so the array mixes cells found under the current peak set /
     // wavelength with cells found under whatever was configured previously.
     // finalizeIndexing() uses this to avoid re-running space-group analysis on
     // an old solution against a peak list it was never derived from.
-    newSolution._runToken = indexingRunToken;
+    newSolution._runToken = runToken;
+    newSolution._fitContext = fitContext;
 
     // --- CROSS-WORKER DEDUP ---
     // Each refinement worker dedups only against its OWN foundSolutionMap, so
@@ -1128,7 +1141,7 @@ const handleNewSolution = (newSolution) => {
     // undefined _solKey used to match every other undefined _solKey here.
     if (solKey) {
         newSolution._solKey = solKey;
-        const dupIdx = solutions.findIndex(s => s._solKey === solKey);
+        const dupIdx = solutions.findIndex(s => s._solKey === solKey && s._fitContext === fitContext);
         if (dupIdx !== -1) {
             isDuplicate = true;
             if (newSolution.m20 > solutions[dupIdx].m20) {
@@ -1333,311 +1346,150 @@ const setupWorker = () => {
     //   - Resolvers are keyed by batch id. Each postMessage creates one pending entry.
     // ========================================================================
     class RefinementWorkerPool {
-        constructor(size) {
+        constructor(size, onSolution = handleNewSolution, onFailure = console.warn) {
             this.size = Math.max(1, size | 0);
+            this.onSolution = onSolution;
+            this.onFailure = onFailure;
             this.workers = [];
             this.nextBatchId = 1;
-            this.pendingResolvers = new Map(); // batchId -> resolver
+            this.pendingResolvers = new Map();
             this.rrIndex = 0;
             this._initialised = false;
-            this._lastActivity = 0;   // timestamp of the last worker message
-            this._drainWake = null;   // resolver woken when the last batch acks
-            // Retained so a worker respawned mid-run can be brought up to the
-            // same state as its peers. Without it a replacement worker would sit
-            // in the pool uninitialised and reject every batch it was handed.
             this._initPayload = null;
-            // Hard-crash tally, used to stop _spawn() rebuilding a worker that
-            // dies deterministically (a bad worker-logic.js deploy crashes every
-            // replacement the instant it is handed a batch, and refineBatch calls
-            // _spawn() on every batch -- an unbounded spawn/crash loop).
             this._crashCount = 0;
+            this._drainWake = null;
         }
-
-        _now() {
-            return (typeof performance !== 'undefined' && performance.now)
-                ? performance.now() : Date.now();
+        _now() { return performance.now(); }
+        _wake() {
+            if (this._drainWake) { const wake = this._drainWake; this._drainWake = null; wake(); }
         }
-
-
+        _removeWorker(w) {
+            // Invalidate membership before termination, so already-queued events
+            // cannot deliver solutions from abandoned work.
+            this.workers = this.workers.filter(worker => worker !== w);
+            try { w.terminate(); } catch (_) {}
+            for (const id of w.activeBatches) {
+                const resolve = this.pendingResolvers.get(id);
+                this.pendingResolvers.delete(id);
+                if (resolve) resolve();
+            }
+            w.activeBatches.clear();
+            this._wake();
+        }
         _spawn() {
-            // Top the pool back up rather than bailing out whenever it is
-            // non-empty. onerror removes crashed workers from this.workers, and
-            // the old `length > 0` guard meant a pool that lost a worker never
-            // got it back for the rest of the session.
-            if (this.workers.length >= this.size) return; // idempotent
-            // Give up rebuilding after enough crashes that the fault is clearly
-            // the worker script, not one unlucky cell. Logged loudly because
-            // refineBatch()'s empty-pool guard silently resolves after this.
-            if (this._crashCount > this.size * 3) {
-                if (!this._crashGiveUpLogged) {
-                    this._crashGiveUpLogged = true;
-                    console.error('[RefinementWorkerPool] Refusing to respawn: ' +
-                                  `${this._crashCount} worker crashes. Refinement is disabled ` +
-                                  'for this run (check refinement-worker.js / worker-logic.js).');
-                }
-                return;
-            }
-            for (let i = this.workers.length; i < this.size; i++) {
+            if (this._crashCount > this.size * 3) return;
+            while (this.workers.length < this.size) {
                 const w = new Worker('refinement-worker.js' + APP_VERSION_QS);
-                w.activeBatches = new Set(); // Track pending batches on this worker
-                w.onmessage = (e) => this._onMessage(e, w);
-                w.onerror = (err) => {
-                    console.error(`Refinement worker hard crash:`, err.message);
-                    this._crashCount++;
-                    // Prevent infinite hangs by resolving all batches assigned to this crashed worker
-                    for (const id of w.activeBatches) {
-                        const resolve = this.pendingResolvers.get(id);
-                        if (resolve) {
-                            this.pendingResolvers.delete(id);
-                            resolve();
-                        }
-                    }
-                    w.activeBatches.clear();
-
-                    // Remove the dead worker from the pool...
-                    const deadIndex = this.workers.indexOf(w);
-                    if (deadIndex !== -1) {
-                        this.workers.splice(deadIndex, 1);
-                    }
-                    // ...and actually kill it. Dropping the last reference does
-                    // NOT stop a Worker: the thread keeps running, holding its
-                    // ~350 KB copy of worker-logic.js and its dedup map, and it
-                    // can still post messages for batches we just force-resolved.
-                    // Over a long session with repeated crashes that is a real
-                    // leak of both memory and cores.
-                    try { w.terminate(); } catch (_) {}
-                };
-                // A worker created after init() has already run starts blank and
-                // would reject every batch with 'Worker not initialized'. Replay
-                // the init payload so a replacement is immediately usable.
-                if (this._initPayload) w.postMessage(this._initPayload);
+                w.activeBatches = new Set();
+                w.lastActivity = this._now();
                 this.workers.push(w);
+                w.onmessage = e => this._onMessage(e, w);
+                w.onerror = err => {
+                    if (!this.workers.includes(w)) return;
+                    this._crashCount++;
+                    this.onFailure('Refinement worker failed; some candidates were not refined.');
+                    console.error('Refinement worker failed:', err.message);
+                    this._removeWorker(w);
+                };
+                if (this._initPayload) w.postMessage(this._initPayload);
             }
         }
-
-
         _onMessage(e, w) {
             const msg = e.data;
-            if (!msg || !msg.type) return;
-            this._lastActivity = this._now();
+            if (!this._initialised || !this.workers.includes(w) || !msg || !msg.type) return;
+            const id = msg.batchId !== undefined ? msg.batchId : msg.taskId;
+            if (!w.activeBatches.has(id) || !this.pendingResolvers.has(id)) return;
+            w.lastActivity = this._now();
             if (msg.type === 'solutions') {
-                // Batched return path: the worker accumulates accepted cells and
-                // posts them in chunks instead of paying a structured clone per
-                // cell. Kept separate from 'solution' so the single-payload form
-                // below still works for any unbatched producer.
-                const list = msg.payloads;
-                if (Array.isArray(list)) {
-                    for (let i = 0; i < list.length; i++) handleNewSolution(list[i]);
-                }
+                if (Array.isArray(msg.payloads)) msg.payloads.forEach(sol => this.onSolution(sol));
             } else if (msg.type === 'solution') {
-                handleNewSolution(msg.payload);
+                this.onSolution(msg.payload);
             } else if (msg.type === 'cellError' || msg.type === 'batchError') {
-                // Point 2 Fix: Stop dropping error messages
-                const where = (msg.cellIndex !== undefined && msg.cellIndex !== null)
-                    ? ` [cell #${msg.cellIndex}${msg.system ? ' ' + msg.system : ''}]` : '';
-                console.warn(`[RefinementWorkerPool] Error in batch/task ${msg.batchId ?? msg.taskId}${where}:`,
-                             msg.message, msg.cell || '');
+                this.onFailure('Some candidate cells could not be refined.');
+                console.warn(`Refinement batch ${id}:`, msg.message);
             } else if (msg.type === 'done') {
-                const id = (msg.batchId !== undefined) ? msg.batchId : msg.taskId;
-                // The worker caps how many cellError messages it posts per batch,
-                // so this count is the only place the true total shows up.
-                if (msg.errors) {
-                    console.warn(`[RefinementWorkerPool] batch ${id}: ${msg.errors} of ` +
-                                 `${msg.processed} cell(s) failed (only the first few were reported).`);
-                }
-                if (w && w.activeBatches) w.activeBatches.delete(id);
+                if (msg.errors) this.onFailure('Some candidate cells could not be refined.');
+                w.activeBatches.delete(id);
                 const resolve = this.pendingResolvers.get(id);
-                if (resolve) {
-                    this.pendingResolvers.delete(id);
-                    resolve();
-                }
-                // Wake drain() on every ack, not just when the map empties. A
-                // scoped drain (drain(stallMs, sinceId)) can be satisfied while
-                // other callers' batches are still outstanding, and the old
-                // size===0 condition would have made it sit out the 250 ms tick.
-                // drain() re-checks its own predicate on wake, so an early
-                // wake-up is free.
-                if (this._drainWake) {
-                    const wake = this._drainWake;
-                    this._drainWake = null;
-                    wake();
-                }
+                this.pendingResolvers.delete(id);
+                if (resolve) resolve();
+                this._wake();
             }
         }
-
-        // Send per-run constants to every worker. `shared` is built from the
-        // same data the old synchronous refineGpuCell used to rebuild per-cell.
         init(shared) {
-            this._spawn();
-            const payload = {
-                type: 'init',
-                baseParams: shared.baseParams,
-                q_obs: shared.q_obs,
-                original_indices: shared.original_indices,
-                tth_obs_rad: shared.tth_obs_rad,
-                peaks_sorted_by_q: shared.peaks_sorted_by_q,
-                N_FOR_M20: shared.N_FOR_M20,
-                min_m20: shared.min_m20,
-                q_max: shared.q_max,
-                d_min: shared.d_min,
-            };
-            this._initPayload = payload;
-            for (const w of this.workers) {
-                // postMessage structured-clones the payload. For the modest sizes
-                // here (<100 KB total) this is fine.
-                w.postMessage(payload);
-            }
+            this.terminate();
+            this._crashCount = 0;
+            this._initPayload = { type: 'init', ...shared };
             this._initialised = true;
+            this._spawn();
         }
-
         reset() {
-            for (const w of this.workers) {
-                w.postMessage({ type: 'reset' });
-            }
+            for (const w of this.workers) w.postMessage({ type: 'reset' });
         }
-
-        // Split `cells` across workers round-robin and send one 'refineBatch'
-        // message per worker. Returns a Promise that resolves when every worker
-        // has acknowledged its slice.
         refineBatch(cells) {
-            if (!this._initialised || !cells || cells.length === 0) {
+            if (!this._initialised || !cells || !cells.length) return Promise.resolve();
+            this._spawn();
+            if (!this.workers.length) {
+                this.onFailure('Refinement is unavailable; candidate cells were skipped.');
                 return Promise.resolve();
             }
-            // Self-heal. _spawn() used to be reachable only from init(), so a
-            // worker lost to a crash stayed lost for the rest of the run and the
-            // pool silently shrank towards zero -- at which point every batch
-            // was dropped on the floor by the guard above. Topping up here costs
-            // nothing when the pool is full (_spawn is idempotent).
-            this._spawn();
-            if (this.workers.length === 0) return Promise.resolve();
-
-            const n = cells.length;
-            const numWorkers = this.workers.length;
-            // Target chunk size: one chunk per worker if there are enough cells,
-            // otherwise as many chunks as there are cells (one per worker, leftover
-            // workers sit idle for this batch — fine, they'll get the next batch).
-            const chunksToSend = Math.min(numWorkers, n);
-            // How many cells per chunk? We distribute the remainder across the first
-            // few chunks so sizes are within 1 of each other.
-            const base = Math.floor(n / chunksToSend);
-            const extra = n % chunksToSend;
+            const chunks = Math.min(this.workers.length, cells.length);
+            const size = Math.floor(cells.length / chunks), extra = cells.length % chunks;
             const promises = [];
             let offset = 0;
-            for (let c = 0; c < chunksToSend; c++) {
-                const size = base + (c < extra ? 1 : 0);
-                if (size === 0) continue;
-                const slice = cells.slice(offset, offset + size);
-                offset += size;
-                // Re-read the live count every iteration. `numWorkers` was
-                // sampled before the loop, but onerror can splice a dead worker
-                // out while we are still dispatching, which left rrIndex past the
-                // end of the array -- `worker` came back undefined and
-                // .activeBatches threw, aborting the whole batch.
-                const live = this.workers.length;
-                if (live === 0) break;
-                this.rrIndex %= live;
-                const worker = this.workers[this.rrIndex];
-                this.rrIndex = (this.rrIndex + 1) % live;
-                if (!worker) break;
-
+            for (let c = 0; c < chunks; c++) {
+                const n = size + (c < extra ? 1 : 0);
+                const slice = cells.slice(offset, offset + n); offset += n;
+                this.rrIndex %= this.workers.length;
+                const w = this.workers[this.rrIndex++];
                 const batchId = this.nextBatchId++;
-                const p = new Promise((resolve) => {
-                    this.pendingResolvers.set(batchId, resolve);
-                });
-                worker.activeBatches.add(batchId);
-                this._lastActivity = this._now();
-                worker.postMessage({ type: 'refineBatch', cells: slice, batchId });
-                promises.push(p);
-            }
-            return Promise.all(promises);
-        }
-
-        // Id of the next batch that will be created. Callers snapshot this
-        // before dispatching work so they can drain only their own batches
-        // (see drain(stallMs, sinceId)).
-        mark() {
-            return this.nextBatchId;
-        }
-
-        // Convenience wrapper for single-cell callers.
-        refine(cell) {
-            return this.refineBatch([cell]);
-        }
-
-        // Resolve once all currently-outstanding batches have settled.
-        //
-        // Event-driven (woken by the last 'done') with a slow watchdog tick, and
-        // BOUNDED: a worker can die without ever firing onerror -- an OOM kill, a
-        // frozen tab, a browser reclaiming a background process -- and the old
-        // unbounded poll then spun forever, hanging the whole run with the UI
-        // stuck mid-progress. If nothing is heard from any worker for stallMs the
-        // outstanding batches are force-resolved and the run continues with
-        // whatever was found.
-        // `sinceId` (from mark()) scopes the wait to batches this caller
-        // dispatched. Draining the whole pool made one task block on unrelated
-        // work and made the stall watchdog measure pool-wide rather than
-        // caller-relevant activity. Omit it to drain everything, as before.
-        async drain(stallMs = 30000, sinceId = 0) {
-            const outstanding = () => {
-                if (!sinceId) return this.pendingResolvers.size;
-                let n = 0;
-                for (const id of this.pendingResolvers.keys()) if (id >= sinceId) n++;
-                return n;
-            };
-
-            while (outstanding() > 0) {
-                await new Promise(resolve => {
-                    // Clear the tick when a 'done' wakes us first. Without this
-                    // every early wake left a live 250 ms timer behind, so a busy
-                    // drain accumulated one pending timer per acked batch for its
-                    // whole duration.
-                    let tick = 0;
-                    const wake = () => { clearTimeout(tick); resolve(); };
-                    this._drainWake = wake;
-                    tick = setTimeout(wake, 250);   // watchdog tick
-                });
-                this._drainWake = null;
-                const stillOut = outstanding();
-                if (stillOut > 0 && (this._now() - this._lastActivity) > stallMs) {
-                    console.warn(`[RefinementWorkerPool] ${stillOut} batch(es) ` +
-                                 `silent for >${stallMs} ms; force-resolving so the run can finish.`);
-                    for (const [id, resolve] of Array.from(this.pendingResolvers.entries())) {
-                        if (!sinceId || id >= sinceId) {
-                            resolve();
-                            this.pendingResolvers.delete(id);
-                        }
-                    }
-                    for (const w of this.workers) {
-                        if (!w.activeBatches) continue;
-                        for (const id of Array.from(w.activeBatches)) {
-                            if (!sinceId || id >= sinceId) w.activeBatches.delete(id);
-                        }
-                    }
+                promises.push(new Promise(resolve => this.pendingResolvers.set(batchId, resolve)));
+                // New queued work must not reset a busy worker's watchdog clock.
+                if (!w.activeBatches.size) w.lastActivity = this._now();
+                w.activeBatches.add(batchId);
+                try { w.postMessage({ type: 'refineBatch', cells: slice, batchId }); }
+                catch (err) {
+                    this.onFailure('A refinement batch could not be sent.');
+                    this._removeWorker(w);
                     break;
                 }
             }
+            return Promise.all(promises);
         }
-
-        terminate() {
-            for (const w of this.workers) {
-                try { w.terminate(); } catch (_) {}
+        mark() { return this.nextBatchId; }
+        refine(cell) { return this.refineBatch([cell]); }
+        async drain(stallMs = 30000, sinceId = 0) {
+            const outstanding = () => [...this.pendingResolvers.keys()].some(id => id >= sinceId);
+            while (outstanding()) {
+                await new Promise(resolve => {
+                    let tick;
+                    const wake = () => { clearTimeout(tick); resolve(); };
+                    this._drainWake = wake;
+                    tick = setTimeout(wake, 250);
+                });
+                this._drainWake = null;
+                for (const w of [...this.workers]) {
+                    if (![...w.activeBatches].some(id => id >= sinceId)) continue;
+                    if (this._now() - w.lastActivity <= stallMs) continue;
+                    this.onFailure('Refinement timed out; remaining candidates on that worker were abandoned.');
+                    this._removeWorker(w);
+                }
             }
-            this.workers = [];
+        }
+        terminate() {
+            this._initialised = false;
+            for (const w of [...this.workers]) this._removeWorker(w);
             for (const resolve of this.pendingResolvers.values()) resolve();
             this.pendingResolvers.clear();
-            if (this._drainWake) { const wake = this._drainWake; this._drainWake = null; wake(); }
-            this._initialised = false;
-            // Drop the retained payload too: it describes the run we just
-            // killed, and replaying it into a worker spawned for the next run
-            // would seed that run with the previous run's peaks and tolerances.
             this._initPayload = null;
+            this._wake();
         }
     }
 
     // Spawn size: one less than hardware concurrency, to leave a core for UI + GPU
     // driver. Minimum 1.
     const REFINE_POOL_SIZE = Math.max(1, (navigator.hardwareConcurrency || 4) - 2);
-    const refinementPool = new RefinementWorkerPool(REFINE_POOL_SIZE);
+    let refinementPool = new RefinementWorkerPool(REFINE_POOL_SIZE);
     console.log(`[perf] Refinement worker pool: ${REFINE_POOL_SIZE} workers (hardwareConcurrency=${navigator.hardwareConcurrency || 'unknown'})`);
 
     //  systematic absences
@@ -3850,112 +3702,36 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
     };
 
 
-    const applyFinalSieve = (solutions) => {
-
-        // Ensure solutions have strictly positive, finite volumes and figures of merit
-    const validSolutions = solutions.filter(s => 
-        s && 
-        isFinite(s.volume) && s.volume > 0 && 
-        isFinite(s.m20) && s.m20 > 0
-    );
-
-    if (validSolutions.length <= 1) return validSolutions;
-    
-    showStatus('Applying final sieve to results...', 'info', 2000);
-    const symmetryOrder = { 'cubic': 5, 'hexagonal': 4, 'tetragonal': 4, 'orthorhombic': 3, 'monoclinic': 2, 'triclinic': 1 };
-    
-    // 1. Sort by Volume for the duplicate detection algorithm
-    validSolutions.sort((a, b) => a.volume - b.volume);
-    
-    const toKeep = new Array(validSolutions.length).fill(true);
-    
-    for (let i = 0; i < validSolutions.length; i++) {
-        if (!toKeep[i]) continue;
-        for (let j = i + 1; j < validSolutions.length; j++) {
-            if (!toKeep[j]) continue;
-            
-            //  Check Zero Shift Mode, version 16 jan 2026
-            // If one solution has a refined zero shift (property exists) and the other doesn't (undefined),
-            // we consider them DISTINCT models (e.g. 0-DoF shift vs 1-DoF shift).
-            // We skip the comparison, keeping both.
-            const hasZero_i = (validSolutions[i].zero_correction !== undefined && validSolutions[i].zero_correction !== null);
-            const hasZero_j = (validSolutions[j].zero_correction !== undefined && validSolutions[j].zero_correction !== null);
-            
-            if (hasZero_i !== hasZero_j) {
-                continue; 
-            }
-
-            // Use the filtered array for all comparisons
-            const vol_i = validSolutions[i].volume; const vol_j = validSolutions[j].volume;
-            
-            // Break if volumes are different by more than 1% (sorted list)
-            if (vol_j > vol_i * 1.01) break;
-            
-            const sym_i = symmetryOrder[validSolutions[i].system] || 0; 
-            const sym_j = symmetryOrder[validSolutions[j].system] || 0;
-            
-            if (sym_i > sym_j) {
-                toKeep[j] = false; // i has higher symmetry
-            } else if (sym_j > sym_i) {
-                toKeep[i] = false; // j has higher symmetry
-                break;
-            } else { 
-                // Symmetries are equal
-                const m20_i = validSolutions[i].m20;
-                const m20_j = validSolutions[j].m20;
-                
-                const m20_percent_tolerance = 0.02;
-
-                // Check if i is significantly better than j
-                if (m20_i > (m20_j * (1.0 + m20_percent_tolerance))) {
-                    toKeep[j] = false; // i is clearly better
-                
-                // Check if j is significantly better than i
-                } else if (m20_j > (m20_i * (1.0 + m20_percent_tolerance))) {
-                    toKeep[i] = false; // j is clearly better
-                    break;
-                
-                } else {
-                    // M(20) are "equal"
-                    if (validSolutions[i].system === 'monoclinic') {
-                        // Keep conventional setting for Monoclinic
-                        const beta_i = validSolutions[i].beta || 90;
-                        const beta_j = validSolutions[j].beta || 90;
-                        const conventional_i = Math.abs(beta_i - 90);
-                        const conventional_j = Math.abs(beta_j - 90);
-
-                        if (conventional_i <= conventional_j) {
-                             toKeep[j] = false; 
-                        } else {
-                             toKeep[i] = false; 
-                             break;
-                        }
-                    } else {
-                        // For other systems, just prune the one with lower M20 (even if slight)
-                        if (m20_j > m20_i) {
-                            toKeep[i] = false;
-                            break;
-                        } else {
-                            toKeep[j] = false;
-                        }
-                    }
-                }
-            }
+    const applyFinalSieve = (candidates) => {
+        const valid = candidates.filter(s => s && Number.isFinite(s.volume) &&
+            s.volume > 0 && Number.isFinite(s.m20) && s.m20 > 0);
+        // Compare best-first: an equivalent lower-quality cell is discarded,
+        // never a distinct cell merely sharing its volume. Symmetry breaks ties.
+        const symmetryOrder = { cubic: 5, hexagonal: 4, tetragonal: 4,
+            orthorhombic: 3, monoclinic: 2, triclinic: 1 };
+        valid.sort((a, b) => b.m20 - a.m20 ||
+            (symmetryOrder[b.system] || 0) - (symmetryOrder[a.system] || 0));
+        const kept = [];
+        const comparisons = new Map();
+        const comparison = cell => {
+            if (!comparisons.has(cell)) comparisons.set(cell, makeLatticeComparison(cell));
+            return comparisons.get(cell);
+        };
+        for (const candidate of valid) {
+            const duplicate = kept.some(best => {
+                // Merit values from different input data are not comparable.
+                if (best._fitContext !== candidate._fitContext ||
+                    hasRefinedZero(best) !== hasRefinedZero(candidate)) return false;
+                if (Math.abs(best.volume - candidate.volume) >
+                    0.01 * Math.min(best.volume, candidate.volume)) return false;
+                return equivalentLattices(comparison(best), comparison(candidate));
+            });
+            if (!duplicate) kept.push(candidate);
         }
-    }
-    
-    let filteredSolutions = validSolutions.filter((_, index) => toKeep[index]);
-    const numDiscarded = validSolutions.length - filteredSolutions.length;
-    
-    // Sort final list by quality (M20) instead of volume.
-    // Guarded: a non-finite m20 would make the comparator return NaN and leave
-    // the order arbitrary right before the slice(0, 50) below.
-    const rankM20 = (x) => (x && isFinite(x.m20)) ? x.m20 : -Infinity;
-    filteredSolutions.sort((a, b) => rankM20(b) - rankM20(a));
-
-    if (numDiscarded > 0) showStatus(`Sieve discarded ${numDiscarded} redundant solution(s).`, 'success');
-    return filteredSolutions.slice(0, 50);
-};
+        const discarded = valid.length - kept.length;
+        if (discarded) showStatus(`Sieve discarded ${discarded} equivalent solution(s).`, 'success');
+        return kept.slice(0, 50); // Existing final result cap.
+    };
 
 
 const formatWithError = (value, error) => {
@@ -4173,17 +3949,28 @@ let lastThrottleTime = 0;
         return reasons;
     };
 
-const startIndexing = async () => { 
-    // Snapshot the current token; if abortActiveIndexing() runs before this
-    // run's tail reaches finalizeIndexing(), the token will have moved on
-    // and that call will recognize itself as stale (see finalizeIndexing()).
-    const mySessionToken = indexingRunToken;
+const startIndexing = async () => {
+    if (isIndexing) return;
     const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
     if (systemsToSearch.length === 0) {
         showStatus("Please select at least one crystal system to search.", "error");
         return;
     }
 
+    const mySessionToken = ++indexingRunToken;
+    const runStopSignal = { stop: false };
+    gpuStopSignal = runStopSignal;
+    indexingFailures = [];
+    let fitContext = null;
+    const isCurrentRun = () => mySessionToken === indexingRunToken && !runStopSignal.stop;
+    const failRun = message => recordIndexingFailure(message, mySessionToken);
+    const runPool = new RefinementWorkerPool(REFINE_POOL_SIZE,
+        sol => { if (isCurrentRun()) handleNewSolution(sol, mySessionToken, fitContext); }, failRun);
+    refinementPool.terminate();
+    refinementPool = runPool;
+    indexingStartTime = performance.now();
+    setUIState(true); // Lock startup before the first await.
+    try {
     const needsWebGPU = systemsToSearch.includes('monoclinic') || systemsToSearch.includes('triclinic') || systemsToSearch.includes('orthorhombic');
     let webgpuEngine = null;
 
@@ -4191,7 +3978,9 @@ const startIndexing = async () => {
         try {
             // Shared, page-lifetime engine -- not a new GPUDevice per run.
             webgpuEngine = await getWebGPUEngine();
+            if (!isCurrentRun()) return;
         } catch (err) {
+            if (!isCurrentRun()) return;
             console.warn("WebGPU initialization failed:", err.message);
             showStatus("WebGPU failed unexpectedly. GPU searches are disabled.", "error", 8000);
             webGPUSupportsCompute = false; 
@@ -4204,12 +3993,6 @@ const startIndexing = async () => {
                     if (cb.parentElement) cb.parentElement.style.opacity = '0.5';
                 }
             });
-            // NOT setUIState(false): setUIState(true) has not run yet at this
-            // point, so the old call was undoing state that was never applied --
-            // it hid the progress bar, relabelled the Stop button back to
-            // "Generate PDF Report" and re-enabled controls for a run that never
-            // began. Just refresh the start button and bail.
-            updateStartIndexingButtonState();
             return; // Stop indexing
         }
     }
@@ -4235,7 +4018,7 @@ const startIndexing = async () => {
 
     const webgpuSystems = [];
     const workerSystems = [];
-    gpuStopSignal.stop = false;
+
 
 systemsToSearch.forEach(system => {
     if (['orthorhombic', 'monoclinic', 'triclinic'].includes(system)) {
@@ -4308,6 +4091,11 @@ systemsToSearch.forEach(system => {
         min_volume: 20.0
     };
     
+    // Stable data provenance: repeated searches on identical inputs can share
+    // results, but changed peaks/wavelength/tolerance cannot suppress each other.
+    fitContext = JSON.stringify({ peaks: baseParams.peaks, wavelength: baseParams.wavelength,
+        tth_error: baseParams.tth_error, impurity_peaks: baseParams.impurity_peaks });
+
     let currentGpuTaskIndex = 0;
     let currentWorkerTaskIndex = 0;
     const totalTasks = workerSystems.length + webgpuSystems.length;
@@ -4315,7 +4103,7 @@ systemsToSearch.forEach(system => {
     taskTotals = new Array(totalTasks).fill(0);
 
     const updateProgressBar = () => {
-        if (totalTasks === 0) return;
+        if (!isCurrentRun() || totalTasks === 0) return;
         const totalSum = taskProgress.reduce((a, b) => a + b, 0);
         const totalPercentage = totalSum / totalTasks;
         ui.progressBar.style.width = `${Math.min(100, totalPercentage)}%`;
@@ -4324,7 +4112,8 @@ systemsToSearch.forEach(system => {
     if (statusTextElement) statusTextElement.textContent = '[0%] Starting...';
 
     const getGpuProgressCallback = (systemName, absoluteTaskIndex) => {
-        const cb = (chunkProgress, numFound) => { 
+        const cb = (chunkProgress, numFound) => {
+            if (!isCurrentRun()) return; 
             taskProgress[absoluteTaskIndex] = chunkProgress * 100;
             updateProgressBar();
             const totalPercentage = taskProgress.reduce((a, b) => a + b, 0) / totalTasks;
@@ -4379,7 +4168,7 @@ systemsToSearch.forEach(system => {
         const maxTthDeg = maxOfArray(filteredPeaks.map(p => p.tth));
         const d_min = baseParams.wavelength / (2 * Math.sin(maxTthDeg * Math.PI / 360));
         const q_max = 1 / (d_min * d_min);
-        refinementPool.init({
+        runPool.init({
             baseParams,
             q_obs,
             original_indices,
@@ -4390,7 +4179,7 @@ systemsToSearch.forEach(system => {
             q_max,
             d_min,
         });
-        refinementPool.reset();
+        runPool.reset();
     }
 
     // CPU
@@ -4433,6 +4222,7 @@ systemsToSearch.forEach(system => {
                 };
 
                 worker.onmessage = (e) => {
+                    if (!isCurrentRun()) return;
                     const { type, payload } = e.data;
                     if (type === 'trials_completed_batch') {
                         cumulativeTrials += payload;
@@ -4443,7 +4233,10 @@ systemsToSearch.forEach(system => {
                         throttledSetStatusText(message);           
 
                     } else if (type === 'solution') {
-                     handleNewSolution(payload); //new helper, 20 nov
+                     handleNewSolution(payload, mySessionToken, fitContext); //new helper, 20 nov
+                    } else if (type === 'postProcessSummary') {
+                        if (payload && (payload.fatal || payload.solutionErrors || payload.swapErrors))
+                            failRun(`Post-processing for ${system} was incomplete.`);
                     } else if (type === 'searchDiagnostics') {
                         cpuDiagnostics.push(payload);
                     } else if (type === 'progress') {
@@ -4452,7 +4245,7 @@ systemsToSearch.forEach(system => {
                         updateProgressBar();
                     } else if (type === 'done') {
 
-                        if (!gpuStopSignal.stop) {
+                        if (!runStopSignal.stop) {
                             taskProgress[absoluteTaskIndex] = 100;
                             updateProgressBar();
                         }
@@ -4462,7 +4255,9 @@ systemsToSearch.forEach(system => {
                     }
                 };
 
-                worker.onerror = (err) => { 
+                worker.onerror = (err) => {
+            if (!isCurrentRun()) return;
+            failRun(`CPU search for ${system} failed.`); 
             console.error(`Worker error in indexing task ${absoluteTaskIndex}:`, err);
             taskProgress[absoluteTaskIndex] = 100; // Allow queue to continue
             showStatus(`Warning: An indexing task encountered an error and was skipped. Check console for details.`, 'error');
@@ -4495,7 +4290,7 @@ systemsToSearch.forEach(system => {
             K: 3,
             label: 'Orthorhombic',
             shortLabel: 'Ortho',
-            shader: 'ortho_solver.wgsl',
+            shader: 'ortho_solver.wgsl' + APP_VERSION_QS,
             entryPoint: 'main_3p',
             engineMethod: 'runOrthoSolver',
             permutations: 6,
@@ -4511,7 +4306,7 @@ systemsToSearch.forEach(system => {
             K: 4,
             label: 'Monoclinic',
             shortLabel: 'Monoclinic',
-            shader: 'monoclinic_solver.wgsl',
+            shader: 'monoclinic_solver.wgsl' + APP_VERSION_QS,
             entryPoint: 'main_4p',
             engineMethod: 'runMonoclinicSolver',
             permutations: 24,
@@ -4524,7 +4319,7 @@ systemsToSearch.forEach(system => {
             K: 6,
             label: 'Triclinic',
             shortLabel: 'Triclinic',
-            shader: 'triclinic_solver.wgsl',
+            shader: 'triclinic_solver.wgsl' + APP_VERSION_QS,
             entryPoint: 'main',
             engineMethod: 'runTriclinicSolver',
             permutations: 720,
@@ -4669,6 +4464,7 @@ systemsToSearch.forEach(system => {
                 showStatus(`Initializing WebGPU for ${cfg.label.toLowerCase()}...`, 'info');
                 const engine = webgpuEngine;
                 await engine.loadShader(cfg.shader);
+                if (!isCurrentRun()) return;
                 engine.createPipeline(cfg.entryPoint);
 
                 // 1. HKL basis
@@ -4697,15 +4493,16 @@ systemsToSearch.forEach(system => {
                 // Everything this task dispatches gets a batch id >= poolMark,
                 // so the drain below waits on this task's work only rather than
                 // on whatever else happens to be in flight pool-wide.
-                const poolMark = refinementPool.mark();
+                const poolMark = runPool.mark();
                 const handleIntermediateResults = (newCells) => {
+                    if (!isCurrentRun()) return;
                     cellsDispatchedToRefine += newCells.length;
                     const t0 = performance.now();
                     // Send the whole GPU-chunk's worth of cells as a single batched
                     // call to the pool. The pool splits across workers round-robin,
                     // sending at most N messages per batch (N = pool size) regardless
                     // of how many cells are in the chunk.
-                    refinementPool.refineBatch(newCells);
+                    runPool.refineBatch(newCells);
                     dispatchMs += performance.now() - t0;
                 };
 
@@ -4722,7 +4519,7 @@ systemsToSearch.forEach(system => {
                     null,
                     qTolerancesArray,
                     progressCallback,   // pass directly: an arrow wrapper would drop .reportPlan
-                    gpuStopSignal,
+                    runStopSignal,
                     // hklPacking rides in baseParams rather than as another
                     // positional argument -- this list is long enough that
                     // inserting one shifts everything after it, which is exactly
@@ -4732,12 +4529,14 @@ systemsToSearch.forEach(system => {
                     { ...baseParams, hklPacking },
                     handleIntermediateResults
                 );
+                if (!isCurrentRun()) return;
                 const engineMs = performance.now() - tEngineStart;
                 // Wait for the refinement pool to finish processing the backlog of
                 // cells dispatched during the GPU run. If GPU produced cells faster
                 // than workers could refine, drainMs > 0. If workers kept up, it's ~0.
                 const tDrainStart = performance.now();
-                await refinementPool.drain(30000, poolMark);
+                await runPool.drain(30000, poolMark);
+                if (!isCurrentRun()) return;
                 const drainMs = performance.now() - tDrainStart;
                 console.log(`[perf]   engineFn('${cfg.label}') wall time: ${engineMs.toFixed(0)} ms`);
                 console.log(`[perf]   dispatch: ${dispatchMs.toFixed(0)} ms  |  pool-drain: ${drainMs.toFixed(0)} ms  |  cells: ${cellsDispatchedToRefine}  |  workers: ${REFINE_POOL_SIZE}`);
@@ -4746,6 +4545,8 @@ systemsToSearch.forEach(system => {
                     console.log('[perf]   ' + describeGpuDiagnostics(engineResult.diagnostics));
                 }
             } catch (err) {
+                if (!isCurrentRun()) return;
+                failRun(`${cfg.label} GPU search failed: ${err.message}`);
                 console.error(`WebGPU Error (${cfg.label}):`, err);
                 showStatus(`${cfg.shortLabel} GPU Error: ${err.message}`, 'error');
             } finally {
@@ -4771,9 +4572,10 @@ systemsToSearch.forEach(system => {
 
     // final
     await Promise.all(taskPromises);
+    if (!isCurrentRun()) return;
 
     // --- NEW: Send GPU solutions through the post-processing worker ---
-    if (webgpuSystems.length > 0 && solutions.length > 0 && !gpuStopSignal.stop) {
+    if (webgpuSystems.length > 0 && solutions.length > 0 && !runStopSignal.stop) {
         if (statusTextElement) statusTextElement.textContent = 'Post-processing GPU cells...';
         const bestOfSolutionsBefore = solutions.reduce((m, s) => (s && isFinite(s.m20) && s.m20 > m) ? s.m20 : m, 0);
 
@@ -4785,7 +4587,8 @@ systemsToSearch.forEach(system => {
         // run: 2291 ms over 40 parents versus 132 ms over the sieved set, same
         // final cell. `solutions` itself is left intact; this only decides which
         // cells are worth handing to the search.
-        const postParents = applyFinalSieve(solutions);
+        const postParents = applyFinalSieve(solutions.filter(s => s._fitContext === fitContext &&
+            hasRefinedZero(s) === baseParams.refineZero));
 
         // Spend the saving on a deeper search instead of pocketing it. With a
         // handful of genuinely distinct parents the per-parent budget can be
@@ -4822,10 +4625,12 @@ systemsToSearch.forEach(system => {
             const bestOf = (arr) => arr.reduce((m, s) => (s && isFinite(s.m20) && s.m20 > m) ? s.m20 : m, 0);
             const m20Before = bestOf(solutions);
             worker.onmessage = (e) => {
-                if (e.data.type === 'solution') handleNewSolution(e.data.payload);
+                if (!isCurrentRun()) return;
+                if (e.data.type === 'solution') handleNewSolution(e.data.payload, mySessionToken, fitContext);
                 else if (e.data.type === 'postProcessSummary') {
                     const st = e.data.payload || {};
-                    if (st.fatal) console.error('[post-process] ABORTED:', st.fatal, st.stack);
+                    if (st.solutionErrors || st.swapErrors) failRun('Some post-processing candidates failed.');
+                    if (st.fatal) { failRun('Post-processing failed.'); console.error('[post-process] ABORTED:', st.fatal, st.stack); }
                     else console.log(`[post-process] ${st.parents} parents | swap search ran on ` +
                         `${st.swapRan}/${st.swapEligible} | ${st.swapPosted} swap solutions posted | ` +
                         `${st.solutionErrors} solution errors, ${st.swapErrors} swap errors | ` +
@@ -4838,6 +4643,8 @@ systemsToSearch.forEach(system => {
             // transformed and swapped solution looked exactly like a run that
             // simply found nothing better.
             worker.onerror = (err) => {
+                if (!isCurrentRun()) return;
+                failRun('Post-processing failed.');
                 console.error('[post-process] worker crashed:',
                               err && err.message, err && err.filename, err && err.lineno);
                 showStatus('Post-processing failed: ' + ((err && err.message) || 'worker error') +
@@ -4858,7 +4665,21 @@ systemsToSearch.forEach(system => {
     // ------------------------------------------------------------------
 
     await new Promise(resolve => setTimeout(resolve, 250));
-    finalizeIndexing(gpuStopSignal.stop, mySessionToken);
+    if (isCurrentRun()) finalizeIndexing(false, mySessionToken);
+    } catch (err) {
+        if (isCurrentRun()) {
+            failRun(err.message || String(err));
+            runStopSignal.stop = true;
+            activeWorkers.forEach(w => w.terminate());
+            activeWorkers = [];
+            if (resolveWorkerTask) { resolveWorkerTask(); resolveWorkerTask = null; }
+            if (resolvePostProcessTask) { resolvePostProcessTask(); resolvePostProcessTask = null; }
+            finalizeIndexing(false, mySessionToken);
+        }
+    } finally {
+        runPool.terminate();
+        if (mySessionToken === indexingRunToken && isIndexing) setUIState(false);
+    }
 };
 
 
@@ -4922,6 +4743,7 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
         finalStatus = `CPU Trials: ${fmtActual}    Time: ${durationStr}`;
     }
 
+    if (indexingFailures.length) finalStatus += ' | INCOMPLETE: ' + indexingFailures.join(' ');
     lastIndexingStats = finalStatus; 
     
     
@@ -5035,6 +4857,11 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
             for (const r of why) console.log(`[indexing] no solutions — ${r}`);
         }
         ui.solutionsLed.className = 'led-indicator red';
+    }
+    if (indexingFailures.length) {
+        const warning = 'Search incomplete: ' + indexingFailures.join(' ');
+        if (statusTextElement) statusTextElement.textContent = warning;
+        showStatus(warning, 'error', 20000);
     }
 };
  

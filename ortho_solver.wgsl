@@ -261,7 +261,9 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32) -> f32 {
     // how badly. The peak count does: 9 of 10 means nudge the tolerance,
     // 2 of 10 means the cell is nowhere near.
             if (sum_abs_error > max_allowed_total) {
-                atomicMax(&solution_counter[1], peaks_ok);
+                if (peaks_ok > atomicLoad(&solution_counter[1])) {
+                    atomicMax(&solution_counter[1], peaks_ok);
+                }
                 return 999.0;
             }
             peaks_ok = peaks_ok + 1u;
@@ -321,7 +323,9 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32) -> f32 {
             if (norm > min_v) { top_sum = top_sum - min_v + norm; top[min_i] = norm; }
             sum_all += norm;
             if ((sum_all - top_sum) > max_allowed_total) {
-                atomicMax(&solution_counter[1], i);
+                if (i > atomicLoad(&solution_counter[1])) {
+                    atomicMax(&solution_counter[1], i);
+                }
                 return 999.0;
             }
         }

@@ -363,6 +363,7 @@ class WebGPUEngine {
         if (this.deviceLost) throw new Error("WebGPU device was lost; reload the page to restart the GPU engine.");
         if (!this.pipeline) throw new Error("Pipeline not created.");
 
+        const pipeline = this.pipeline;
         const K_VALUE = cfg.K;
 
         // Packing invariants. hkl_basis now holds PRECOMPUTED hkl products, not
@@ -577,7 +578,7 @@ try {
 
                 const commandEncoder = this.device.createCommandEncoder();
                 const passEncoder = commandEncoder.beginComputePass();
-                passEncoder.setPipeline(this.pipeline);
+                passEncoder.setPipeline(pipeline);
                 passEncoder.setBindGroup(0, bindGroup);
                 passEncoder.dispatchWorkgroups(workgroupsX, safeWorkgroupsY, 1);
                 passEncoder.end();
@@ -615,16 +616,17 @@ try {
                 }
 
                 await this.device.queue.onSubmittedWorkDone();
+                if (stopSignal.stop) break;
 
                 // Safely map counter buffer (catching aborts if device is lost or stopped)
                 try {
                     await counterReadBuffer.mapAsync(GPUMapMode.READ);
                 } catch (err) {
-                    console.warn("GPU mapAsync aborted (counter):", err.message);
-                    stoppedEarly = true;
-                    break;
+                    if (stopSignal.stop) { stoppedEarly = true; break; }
+                    throw new Error(`GPU counter readback failed: ${err.message}`);
                 }
 
+                if (stopSignal.stop) { counterReadBuffer.unmap(); break; }
                 const counters = new Uint32Array(counterReadBuffer.getMappedRange());
                 const numSolutions = counters[0];
                 // Snapshot the diagnostics: the mapped range dies at unmap().
@@ -666,11 +668,11 @@ try {
                     try {
                         await resultsReadBuffer.mapAsync(GPUMapMode.READ, byteOffset, bytesToCopy);
                     } catch (err) {
-                        console.warn("GPU mapAsync aborted (results):", err.message);
-                        stoppedEarly = true;
-                        break;
+                        if (stopSignal.stop) { stoppedEarly = true; break; }
+                        throw new Error(`GPU results readback failed: ${err.message}`);
                     }
 
+                    if (stopSignal.stop) { resultsReadBuffer.unmap(); break; }
                     // getMappedRange is relative to the buffer, and the returned
                     // ArrayBuffer starts at byteOffset -- so index from 0 here,
                     // not from solutionsReadCount.

@@ -179,17 +179,17 @@
                 This document is a technical reference for the <strong>Brutus</strong> powder indexing software.
                 It explains the main algorithms, search parameters, and methodology, and is intended for users
                 familiar with powder X-ray diffraction and crystallography. As the name suggests, this is a brute-force method, 
-                the search is exhaustive rather than heuristic, and is not necessarily fast.
+                the initial search enumerates a bounded set of peak/HKL assignments and is not necessarily fast. Filters, candidate limits and optional local searches mean that the complete workflow is not an exhaustive search of all possible cells.
             </p>
 
             <h3>Core Goal</h3>
             <p>
                 The aim of <em>ab initio</em> powder indexing is to determine the unit-cell parameters
                 ($a, b, c, \alpha, \beta, \gamma$) from a list of observed diffraction peak positions ($2\theta$).
-                Brutus performs this task using a symmetry-specific, (almost) exhaustive search algorithm.
+                Brutus performs this task using a symmetry-specific enumeration of selected peak and HKL combinations, followed by filtering, refinement and bounded local searches.
             </p>
             <p>
-                The central assumption is that a small subset of the most intense, low-angle reflections corresponds
+                The central assumption is that a small subset of the low-angle reflections corresponds
                 to simple crystal planes with low-integer Miller indices $(hkl)$. For a given crystal system,
                 the program chooses some observed peaks and solves
                 the resulting system of linear equations.
@@ -197,7 +197,7 @@
 
             <h3>Q-Space Formulation</h3>
             <p>
-                All peak positions are first converted from $2\theta$ to Q-space, where $Q = 1/d^2$.
+                For indexing, peak positions are converted from $2\theta$ to reciprocal squared spacing, written here as $Q = 1/d^2$. The plot’s Q-axis, peak-finder radius/smoothing controls and Kα<sub>2</sub> stripping instead use the scattering vector $Q_{scat}=4\pi\sin\theta/\lambda=2\pi\sqrt{Q}$ (Å⁻¹). These two conventions must not be interchanged.
                 The general quadratic relationship between $Q$, the Miller indices, and the reciprocal cell parameters
                 ($A, B, C, D, E, F$) is:
             </p>
@@ -233,7 +233,7 @@
             </table>
             <p>
                 The solved parameters relate to reciprocal lattice constants. For example, in orthorhombic, the three fitted parameters are $A=1/a^2$, $B=1/b^2$, $C=1/c^2$, giving $a=1/\sqrt{A}$ etc. For monoclinic, the four parameters are $A=1/(a^2\sin^2\beta)$, $B=1/b^2$, $C=1/(c^2\sin^2\beta)$, $D=-2\cos\beta/(ac\sin^2\beta)$, from which $\beta$ is extracted as $\cos\beta = -D/(2\sqrt{AC})$. 
-                For the CPU indexing, more than one system can be selected at a time, the work will be sequantially done for each system. In the case of the GPU, only one system can be selected at a time, this is mainly because each system has specific parameters to set (hkl pools, etc).
+                CPU indexing can search cubic, tetragonal and hexagonal systems in separate background workers concurrently. GPU indexing is used only for orthorhombic, monoclinic and triclinic, and the interface permits only one of these GPU systems at a time. Each GPU system has its own search settings.
             </p>
 
             <h3>Architecture</h3>
@@ -241,8 +241,8 @@
                 Brutus runs entirely in the browser, requiring no installation, and it can be completely run locally in a server. The program is split across several files:
             </p>
             <ul>
-                <li><code>brutus.html</code> — the main application: UI, chart rendering (Chart.js), data file parsing, peak detection, space-group analysis, and PDF report generation.</li>
-                <li><code>main-app.js</code> — the main application JS code</li>
+                <li><code>brutus.html</code> — the application markup, controls and script loading.</li>
+                <li><code>main_app.js</code> — the UI controller, chart rendering (Chart.js), data parsing, peak detection, search coordination, solution sieving, space-group analysis controls and PDF report generation.</li>
                 <li><code>worker-logic.js</code> — shared logic loaded three ways: directly on the main thread (for post-processing and helper maths), as a standalone Web Worker (for the background CPU indexing of cubic/tetragonal/hexagonal), and via <code>importScripts()</code> inside each refinement worker. Contains all crystallographic mathematics: HKL generation, Q-calculation, least-squares solvers, figure-of-merit calculations, error propagation, and the Niggli reduction.</li>
                 <li><code>refinement-worker.js</code> — a thin batch-refinement worker. GPU-found candidate cells are refined (full weighted least-squares, M(20), error propagation) not on the main thread but across a <strong>pool of these workers</strong>, sized to <code>hardwareConcurrency − 2</code> (minimum 1) to leave cores free for the UI and the GPU driver. Candidate cells are streamed to the pool in round-robin batches while the GPU search is still running, so refinement overlaps GPU execution.</li>
                 <li><code>webgpu-engine.js</code> — the GPU-accelerated brute-force search for orthorhombic, monoclinic, and triclinic systems. Manages the WebGPU device, buffers, dispatch chunking, and combinadic bookkeeping; loads the WGSL compute shaders below.</li>
@@ -256,7 +256,7 @@
                     otherwise need to build its extinction classes.</li>
                 <li><code>styles.css</code>, <code>inter-font.css</code>, and the vendored libraries under
                     <code>scripts/</code> (Chart.js, Hammer, the Chart.js zoom plugin, jsPDF).</li>
-                <li><code>ortho_solver.wgsl</code>, <code>monoclinic_solver.wgsl</code>, <code>triclinic_solver.wgsl</code> — the WGSL compute kernels. Each unranks HKL combinations on the fly from a u32 combinadic (combinatorial-number-system) index, solves the per-trial linear system (3×3, 4×4, or 6×6), applies the geometric and figure-of-merit filters, and atomically appends surviving cells to the results buffer. In the triclinic kernel the 6×6 coefficient matrix depends only on the chosen HKL combination, not on the peak-to-HKL assignment, so it is Gauss-eliminated <strong>once</strong> per combination and the stored multipliers are then re-applied to each of the $6! = 720$ permuted right-hand sides. This is arithmetically identical to re-solving the system from scratch each time (the elimination multipliers are a function of the matrix alone), and a singular matrix now abandons the whole combination immediately rather than being re-detected 720 times.</li>
+                <li><code>ortho_solver.wgsl</code>, <code>monoclinic_solver.wgsl</code>, <code>triclinic_solver.wgsl</code> — the WGSL compute kernels. Each unranks HKL combinations on the fly from a u32 combinadic (combinatorial-number-system) index, solves the per-trial linear system (3×3, 4×4, or 6×6), applies the geometric and figure-of-merit filters, and atomically appends surviving cells to the results buffer. Each invocation factors its coefficient matrix once and reuses it across the peak permutations: an explicit 3×3 inverse for orthorhombic, and Gaussian elimination with partial pivoting for monoclinic and triclinic. The latter replay the stored row swaps and multipliers for each right-hand side. Singular combinations are rejected before the permutation loop. The tables contain 6, 24 and 720 permutations respectively; an invocation exits after its first accepted candidate.</li>
             </ul>
 
             <h3 id="build-scripts">Build and maintenance scripts</h3>
@@ -348,8 +348,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
 
             <h4>Verification scripts</h4>
             <p>
-                Two further checks accompany the code rather than the data, and are worth running after
-                touching the areas they cover.
+                The following checks cover different parts of the application. Run the scripts available in your distribution after changing the corresponding code.
             </p>
             <ul>
                 <li><code>node test_sg_ops.mjs</code> &mdash; derives reflection conditions from operators for
@@ -362,6 +361,10 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     packed, and that the engine's parameter list matches what the application passes. Both
                     failures are otherwise invisible: the run completes, every candidate cell is nonsense,
                     and the search reports no solutions with no error anywhere.</li>
+                <li><code>node tests/regression.cjs</code> and <code>node tests/lifecycle.cjs</code>
+                    &mdash; included with the corrected application package. Check lattice equivalence,
+                    solution identity, worker failures, startup isolation and GPU cancellation using a mock
+                    queue. These checks do not replace a browser test on a physical GPU.</li>
             </ul>
 
             <div class="callout-note">
@@ -380,8 +383,10 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 if they have drifted apart. Keep the date in the page footer in step with it — the PDF report
                 reads that footer for its version line.
                 <p style="margin-top:0.75rem">
-                The <code>.wgsl</code> shaders are fetched by bare filename with no <code>?v=</code> at all,
-                so a shader change still needs a hard reload (Ctrl+Shift+R). That is the one remaining gap.
+                Shader URLs also inherit the query string from <code>main_app.js</code>.
+                Deploy the matching HTML, JavaScript and shaders together, change the version when files
+                change, and reload the page. Shader source is cached by URL for the page lifetime;
+                compiled modules and pipelines are cached on the GPU device.
                 </p>
             </div>
         </section>
@@ -669,10 +674,12 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 </li>
                 <li>
                     <strong>Buffer / Candidate (kCells):</strong>
-                    The maximum number of GPU candidates (in thousands) buffered before CPU refinement. If the GPU finds
-                    more valid candidates than this limit, the search stops early ("Buffer Full"). All buffered candidates
-                    are then passed to the CPU for full weighted least-squares refinement, M(20) calculation, and Niggli reduction.
-                    A smaller buffer reduces CPU time after the GPU phase; a larger buffer avoids early termination.
+                    The maximum cumulative number of GPU candidates stored during a run (in thousands).
+                    Candidates are streamed to CPU refinement while the GPU is running. When the capacity
+                    is reached, GPU enumeration ends early and the queued refinement work is drained.
+                    Candidates are retained in GPU arrival order, not ranked by final M(20).
+                    A larger buffer reduces the risk of reaching the cap but increases potential CPU work;
+                    it does not guarantee completion of the full search.
                     <br><em>Default: 50 (i.e. 50,000 candidate cells).</em>
                 </li>
             </ul>
@@ -1072,7 +1079,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
         <section id="indexing-method">
             <h2>Indexing Algorithm and Search Strategy</h2>
             <p>
-                Brutus uses an exhaustive, symmetry-specific trial-and-refine indexing algorithm.
+                Brutus uses a bounded, symmetry-specific trial-and-refine indexing algorithm.
                 For each crystal system, the program generates trial solutions from combinations of low-angle
                 observed peaks and low-index Miller indices, solves the corresponding linear system in reciprocal space,
                 rejects unphysical cells, and then performs a full weighted least-squares refinement on surviving candidates.
@@ -1103,7 +1110,8 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     <strong>Cubic (1 parameter, $k=1$):</strong>
                     Solves a 1×1 system by iterating through the first 12 observed peaks (up to <code>peak_depth=12</code>).
                     For each observed peak $Q_{obs,i}$, the program iterates over all HKLs up to index 40 ($h_\text{max}=40$),
-                    giving approximately $12 \times 150\,000 \approx 1.8\;$million trials.
+                    using $1 \le h \le 40$, $0 \le k \le h$, $0 \le l \le k$:
+                    12,340 HKLs and at most $12 \times 12{,}340 = 148{,}080$ trials.
                     The trial parameter is simply $a = \sqrt{(h^2+k^2+l^2)/Q_{obs,i}}$.
                     This allows detection of cubic cells up to very large $a$ values.
                 </li>
@@ -1213,10 +1221,12 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <ol>
                 <li>
                     <strong>Dispatch chunking (thread budget):</strong>
-                    The HKL-combination dimension is split into chunks so that no single GPU dispatch launches more than
-                    a fixed per-system thread budget: <strong>500,000</strong> trials/dispatch for Orthorhombic and Monoclinic,
-                    and a tighter <strong>50,000</strong> for Triclinic (whose 6×6 solve and 720-permutation inner loop make
-                    each thread far heavier). The engine computes
+                    The HKL-combination dimension is split into chunks using a target of
+                    <strong>500,000</strong> invocations per dispatch for Orthorhombic and Monoclinic,
+                    and <strong>50,000</strong> for Triclinic (whose 6×6 solve and 720-permutation inner loop make
+                    each thread far heavier). These are sizing targets, not hard trial ceilings:
+                    workgroup rounding and the minimum of one Y workgroup can exceed the target, and
+                    each invocation can test several peak permutations. The engine computes
                     <code>hklsPerChunk = safeWorkgroupsY × workgroupSizeY</code>, iterates the full search as
                     <code>ceil(totalHklCombos / hklsPerChunk)</code> sequential dispatches, and yields to the event loop
                     between chunks so the browser tab stays responsive. The yield is a <code>MessageChannel</code> post
@@ -1241,9 +1251,9 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     <strong>Buffer sizing:</strong>
                     At device-request time Brutus asks the adapter for its maximum <code>maxBufferSize</code> and
                     <code>maxStorageBufferBindingSize</code>. The results buffer is then sized to
-                    <code>Buffer/Candidate (kCells) × cell-struct-size</code> (32 bytes/cell for Triclinic, 16 for the others).
-                    All per-run GPU buffers are explicitly destroyed after each run (in a <code>finally</code> block) to
-                    avoid VRAM leaks across repeated searches. The GPU <em>device</em> itself is created once and reused by
+                    <code>Buffer/Candidate (kCells) × 1,000 × cell-struct-size</code> (32 bytes/cell for Triclinic, 16 for the others).
+                    The solver loop releases its per-run GPU buffers in a <code>finally</code> block
+                    when execution completes, fails or is cancelled. The GPU <em>device</em> itself is created once and reused by
                     every search for the lifetime of the page, rather than re-created per run, and is released on page
                     unload. If the browser or driver loses the device mid-search (a driver reset or TDR, or the tab being
                     suspended), Brutus reports it and disables GPU searches until the page is reloaded, since a lost device
@@ -1251,16 +1261,18 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 </li>
                 <li>
                     <strong>Incremental read-back:</strong>
-                    After each dispatch Brutus copies back only the candidate cells written <em>since the previous
-                    dispatch</em>, not the whole results buffer. Reading the full buffer every chunk would re-copy every
+                    The engine reads the candidate counter after each group of up to eight dispatches
+                    (and at the final dispatch). It then copies only the candidate cells written
+                    <em>since the previous read-back</em>, not the whole results buffer. Reading the full buffer every chunk would re-copy every
                     earlier cell over and over, turning read-back into an $O(n^2)$ cost that on a full buffer dominates the
                     run; the incremental copy keeps it linear.
                 </li>
             </ol>
             <blockquote>
                 <strong>What this means for you:</strong>
-                You do not need to configure memory settings. If you see the progress bar moving in many small steps,
-                the safety system is working correctly.
+                The engine manages dispatch sizes automatically. The Buffer/Candidate control sets the
+                candidate capacity. Small progress increments can reflect a large number of dispatches;
+                they do not by themselves indicate a failure.
                 <br><br>
                 <strong>If the search is too slow:</strong> Adjusting internal GPU memory or chunk parameters is not useful.
                 Instead, curate the peak list, lower the <code>HKL Basis Size</code>, or reduce <code>Peaks to Combine</code>.
@@ -1352,13 +1364,10 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 $$ w_i = \frac{1}{\sigma_{Q,i}^2} \propto \frac{1}{\sin^2(2\theta_i)} $$
             </div>
             <p>
-                This scheme gives <strong>high weight to low-angle peaks</strong> (which have small $\sigma_Q$)
-                and <strong>low weight to high-angle peaks</strong> (which have large $\sigma_Q$).
-                This is the <em>opposite</em> of using $w_i = Q_{obs,i}$ (which would over-weight high-angle peaks),
-                and it is particularly important for the zero-point correction: the historical un-weighted approach
-                significantly biased both the cell parameters and the zero shift. A floor of
-                $w_\text{min} = 1/\sin^2(178°)$ prevents weights from blowing up for hypothetical
-                peaks near $0°$ or $180°$.
+                Weights are smallest near $2\theta=90°$ and rise towards both $0°$ and $180°$.
+                The implementation uses $w_i=1/\max[\sin^2(2\theta_i),\sin^2(178°)]$:
+                the floor is on the denominator, which <strong>caps the maximum weight</strong>.
+                This differs from weighting by $Q_{obs,i}$ and matters when fitting the zero shift.
             </p>
             <p>
                 The least-squares normal equations solved are therefore:
@@ -1374,18 +1383,20 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
 
             <h3>Zero-Point Error Refinement (Two-Round Strategy)</h3>
             <p>
-                When <code>Refine Zero-Point Error</code> is enabled, a zero-point parameter $\Delta_{zero}$ (in degrees)
-                is added as an extra column to the design matrix. The physical model is that the true $2\theta$ of a
+                When <code>Refine Zero-Point Error</code> is enabled, an extra design-matrix column
+                fits a zero-shift coefficient in <strong>radians</strong>; the reported $\Delta_{zero}$ is
+                converted to degrees. The physical model is that the true $2\theta$ of a
                 peak is $2\theta_{true} = 2\theta_{obs} - \Delta_{zero}$, which shifts the observed Q as:
             </p>
             <div class="formula-box">
                 $$ Q_{true} = \frac{4\sin^2[(\theta_{obs} - \Delta_{zero}/2)]}{\lambda^2} $$
             </div>
             <p>
-                Linearising gives the zero-error design-matrix column element:
+                With angles in radians, the linear model fits observed Q as cell Q plus the zero-shift
+                contribution. Its positive zero-error design-matrix column is:
             </p>
             <div class="formula-box">
-                $$ \frac{\partial Q}{\partial \Delta_{zero}} \approx \frac{2}{\lambda^2}\sin(2\theta_{obs}) $$
+                $$ H_{zero} = \frac{2}{\lambda^2}\sin(2\theta_{obs}) $$
             </div>
             <p>
                 A <strong>two-round strategy</strong> is used to handle non-trivial zero shifts robustly:
@@ -1394,11 +1405,12 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 <li><strong>Round 1:</strong> Peak assignment is done assuming $\Delta_{zero}=0$. The full weighted LS system
                     (cell + zero) is solved to obtain a first estimate $\Delta_{zero}^{(1)}$.</li>
                 <li><strong>Round 2:</strong> Peak assignment is repeated, this time correcting the observed $Q$ values by
-                    $\Delta_{zero}^{(1)}$. The LS system is solved again on the new peak set. This dramatically improves
-                    robustness when the zero shift is large enough to cause mis-assignments in Round 1.</li>
+                    $\Delta_{zero}^{(1)}$ when its magnitude exceeds $10^{-4}$ degrees. The LS system
+                    is solved again on that pairing. If this second fit fails, the first fit is retained.</li>
             </ol>
             <p>
-                The same two-round strategy is applied to every candidate regardless of its origin: GPU-searched systems
+                With zero refinement disabled, only one pairing/fit is performed and no fitted zero
+                correction is attached. With it enabled, the same up-to-two-round strategy applies regardless of origin: GPU-searched systems
                 (orthorhombic, monoclinic, triclinic) and CPU-searched systems (cubic, tetragonal, hexagonal). GPU
                 candidates are refined in parallel by a pool of dedicated Web Workers (see <a href="#introduction">Architecture</a>).
             </p>
@@ -1420,7 +1432,9 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <h3>Minimum Peaks Required for Acceptance</h3>
             <p>
                 A solution is accepted only if a minimum number of observed peaks can be indexed. These thresholds
-                are hard-coded and slightly exceed the number of free parameters to ensure the fit is over-determined:
+                are hard-coded. The free-parameter column below counts cell parameters only; refining zero
+                adds one parameter, so seven triclinic peaks give a square seven-parameter fit, not an
+                over-determined fit:
             </p>
             <table>
                 <thead><tr><th>System</th><th>Free parameters</th><th>Min indexed peaks</th></tr></thead>
@@ -1602,7 +1616,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
 
             <h4>If you get too many solutions (GPU buffer fills)</h4>
             <p>
-                The GPU buffer is limited (default 50,000). If it fills up, the search stops early ("Buffer Full").
+                The GPU buffer is limited (default 50,000 candidates). If it fills up, GPU enumeration stops early; unvisited combinations remain unsearched.
                 In that case, if there is no solution:
             </p>
             <ol>
@@ -1614,7 +1628,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 </li>
                 <li>
                     <strong>Increase the Buffer size</strong> (e.g. from 50 to 200 kCells) if you suspect the correct
-                    solution is present but ranked below the buffer cut-off. Note that larger buffers mean more CPU
+                    solution may occur in combinations not yet visited when the buffer fills. Note that larger buffers mean more CPU
                     work during post-processing.
                 </li>
                 <li>
@@ -1630,10 +1644,9 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <p>
                 The indexing search usually produces several candidate cells. To keep the live ledger bounded, whenever
                 the in-memory list grows past 500 entries it is sorted by M(20) and pruned back to the best 400. This
-                reservoir is deliberately large: it exists only to cap memory, not to select results, and pruning too
-                early can discard a strong cell that happens to arrive after the list has briefly filled with
-                near-duplicates. Only the leading few dozen rows are rendered in the Solutions table at any moment, so
-                the larger reservoir costs memory but not redraw time. At the end
+                reservoir caps memory by retaining the higher-M(20) candidates, so lower-ranked cells can
+                be discarded before the final sieve. During indexing, at most 50 rows are rendered in the
+                Solutions table. At the end
                 of the run a final de-duplication pass (<code>applyFinalSieve</code>) removes symmetry-equivalent and
                 transformed duplicates, so the displayed set is typically a few tens of distinct cells ranked by M(20).
                 Selecting the correct one requires interpreting figures of merit and checking the refined fit visually.
@@ -1695,8 +1708,9 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
 
             <h3>Least-Squares Refinement and Standard Deviations</h3>
             <p>
-                For each promising candidate, Brutus performs the two-round weighted least-squares refinement
-                described in the <a href="#refinement">Refinement section</a>. The resulting cell parameters are
+                For each promising candidate, Brutus performs the weighted least-squares refinement
+                described in the <a href="#refinement">Refinement section</a>: one pairing/fit with fixed zero,
+                or up to two when zero refinement is enabled. The resulting cell parameters are
                 reported with standard deviations propagated from the covariance matrix.
             </p>
             <p>
@@ -1707,10 +1721,24 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
 
             <h3>Duplicate Suppression</h3>
             <p>
-                To avoid reporting multiple equivalent cells, Brutus generates a canonical "key" for each
-                refined cell: the system name plus the three axis lengths rounded to two decimal places, and
-                (for monoclinic/triclinic) the angles. If a new solution matches an existing key, it replaces
-                the existing entry only if its M(20) is higher.
+                An initial key suppresses repeated refined candidates before the final sieve. Numerical
+                components are rounded to <strong>four decimal places</strong>. Cubic uses its single
+                edge; tetragonal and hexagonal use $a,c$; orthorhombic normalises axis order;
+                monoclinic treats $a,c$ interchangeably and includes $b,\beta$. Triclinic includes
+                <strong>all six ordered cell parameters</strong>, keeping each angle associated with its
+                axes. Volume and angles alone do not identify a triclinic lattice.
+                Within a matching key, the higher-M(20) candidate replaces the lower one.
+            </p>
+            <p>
+                Fixed-zero and fitted-zero models have different keys. On the main thread, merging also
+                requires the same input peak data, wavelength, 2θ tolerance and impurity allowance.
+                Identical-input reruns can share results; a result from changed input data does not replace
+                a current result solely because its stored M(20) is higher. Existing solutions remain
+                available across runs, subject to the reservoir and final result caps.
+            </p>
+            <p>
+                The <a href="#final-sieve">final sieve</a> then checks lattice geometry to merge equivalent
+                axis permutations and basis settings, retaining the better M(20).
             </p>
         </section>
 
@@ -3206,23 +3234,23 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             </p>
             <p>
                 A manual swap is available: move one peak to a neighbouring reflection,
-                or exchange the hkl of the two closest peaks. An automatic swap fishing is implemented on all cells that are retained in the final list.
+                or exchange the hkl of the two closest peaks. An automatic swap search is applied to up to the best 40 eligible parent cells during post-processing.
             </p>
 
             <h4>What is enumerated</h4>
             <p>
-                For <strong>every</strong> observed peak, every calculated line inside the search window is a
-                candidate label. The search then walks the <strong>Cartesian product</strong> of those per-peak
-                candidate sets, so any number of peaks may be relabelled simultaneously.
+                Observed peaks are examined for calculated lines inside the search window. After equivalent
+                design rows are collapsed, at most <strong>four labels per peak</strong> are kept by default.
+                The search walks the Cartesian product for a limited set of variable peaks: eight by
+                default, increased to twelve or sixteen for the smaller GPU parent lists described below.
             </p>
             <p>
                 That product is astronomically large, so it is visited <strong>cheapest-first</strong>: each
                 assignment carries a penalty $\sum_i (\Delta q_i / \mathrm{tol}_i)^2$ measuring how far it
                 departs from the nearest-line labelling, and a priority queue expands states in order of
-                increasing penalty starting from all-nearest. Truncating at any budget therefore leaves the
-                plausible region exhaustively covered rather than sampled. Because cost is set by the fit
-                budget and not by the size of the space, candidate <em>generation</em> is deliberately
-                unrestricted &mdash; capping it would only delete reachable answers without saving time.
+                increasing penalty starting from all-nearest. The fit budget limits how much of this
+                restricted product is visited; it does not guarantee that every plausible relabelling is
+                covered. Multiple rounds re-centre the search on an improved cell.
             </p>
 
             <h4>Two-stage evaluation</h4>
@@ -3289,18 +3317,15 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 0.040&deg; window, so no alternative would ever be found.
             </p>
             <p>
-                The search runs on the <strong>de-duplicated</strong> solution list, not the raw one. The
-                candidates arriving from refinement are overwhelmingly redundant &mdash; a real PbSO<sub>4</sub>
-                run produced 49 solutions that the sieve collapsed to 2, roughly two dozen copies of each
-                distinct lattice &mdash; so relabelling all of them repeats the same work over and over to
-                reach the same answers. Sieving first cut that pass from 2.3&nbsp;s to 0.13&nbsp;s on the same
-                data, and the saving is spent on a deeper search per surviving parent rather than pocketed:
-                with only a handful of genuinely distinct lattices the budget can be several times the default
-                and still cost a fraction of the old pass. Per round it is bounded by a fixed number of cheap fits and a smaller
-                number of full rescores, and at most a few children are posted per parent so that one solution
-                cannot swamp the table. A child is only posted if its M(20) is at least its parent's, so the
-                search can only ever <strong>widen</strong> the solution set &mdash; it never modifies or
-                replaces a solution you already have.
+                Before GPU post-processing, the parent list is restricted to the current input-data
+                context and zero-refinement mode, then passed through the geometry-aware sieve.
+                This avoids repeating work on equivalent settings and avoids refitting older cells against
+                changed data. The budget increases for smaller parent lists: up to 600 cheap fits per
+                round and six rounds for at most eight parents; up to 300 fits and five rounds for at
+                most twenty parents; otherwise the default <code>SWAP_CFG</code> budget applies.
+                Full rescores and posted children are also capped. A child must score at least as well
+                as its parent to be posted; subsequent duplicate selection can replace a lower-quality
+                equivalent already in the table.
             </p>
             <p>
                 The scan needs at least as many indexed peaks as the crystal system has parameters to refine,
@@ -3333,25 +3358,35 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 <em>extinction class</em> of its crystal system and ranks the classes by a log-odds score.
             </p>
 
-            <h3>7. Final De-Duplication (Sieving)</h3>
+            <h3 id="final-sieve">7. Final De-Duplication (Sieving)</h3>
             <p>
-                After all transformations and re-refinements, Brutus applies a final de-duplication step.
-                If two solutions have volumes within 1% of each other:
+                Similar volume is only an initial filter. Two candidates must describe equivalent lattice
+                geometry before either is dropped as a duplicate. For example, orthorhombic
+                $(3,4,5)$ and $(4,3,5)$ describe the same cell and merge; $(4,5,6)$ and $(3,5,8)$
+                have equal volume but different geometry and remain separate.
             </p>
-            <ul>
-                <li>The one with <strong>higher symmetry</strong> is preferred (e.g. orthorhombic beats monoclinic).</li>
-                <li>If their symmetry is identical, the one with <strong>higher M(20)</strong> is kept &mdash;
-                    &ldquo;higher&rdquo; meaning better by more than <strong>2%</strong>, a relative margin
-                    rather than an absolute one, so the comparison behaves the same for a pair scoring 8 and a
-                    pair scoring 80.</li>
-                <li>Within that 2% the two are treated as equal in quality; for monoclinic cells the more
-                    conventional setting (β closer to 90&deg;) is kept, otherwise the first one found.</li>
-                <li>A solution with a <strong>refined zero error</strong> is never de-duplicated against one
-                    without: they are different models (one extra degree of freedom), not two versions of the
-                    same answer, and both are kept for comparison.</li>
-            </ul>
+            <ol>
+                <li><strong>Compare like with like.</strong> Candidates must have the same stored input
+                    context and the same fixed-zero or fitted-zero mode. Their volumes must differ by
+                    no more than 1% of the smaller volume.</li>
+                <li><strong>Check the metric.</strong> The existing Niggli reducer is applied once per
+                    cell, without inferring centering from space-group analysis. The comparison searches
+                    signed axis permutations and neighbouring combinations of the reduced basis vectors
+                    (integer coefficients −1, 0, 1), and accepts only a basis transformation with determinant
+                    +1 or −1. If reduction does not converge, the original metric is used for that check.</li>
+                <li><strong>Allow small numerical differences.</strong> Corresponding edges must agree
+                    within 0.2% of the smaller edge and the three inter-edge angles within 0.15°.
+                    An uncertain or unsuccessful comparison retains the candidate.</li>
+                <li><strong>Keep the higher M(20).</strong> Candidates are compared best-first.
+                    Higher symmetry breaks an exact M(20) tie only. There is no 2% quality tie band and
+                    no preference for a monoclinic β closer to 90° over a better-M(20) equivalent.</li>
+            </ol>
             <p>
-                The final retained set contains at most 50 solutions, ranked by M(20).
+                This conservative check recognises equivalent settings without treating every pair of
+                equal-volume cells as identical. It is not an exhaustive search of every possible basis
+                change when numerical reduction is ambiguous. Distinct zero models or input contexts are
+                kept separate during duplicate testing, but all results remain subject to the existing
+                final cap of <strong>50 solutions</strong>, ranked by M(20).
             </p>
         </section>
 
@@ -3459,10 +3494,11 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     if the GPU buffer is large (e.g. 200 kCells).
                 </li>
                 <li>
-                    Refinement of GPU candidates runs in a pool of background workers. If one of them dies silently
-                    (an out-of-memory kill, a suspended tab), the run does not wait for it forever: after ~30&nbsp;seconds
-                    of no activity from any worker the pool force-completes the outstanding work and the run finishes
-                    with whatever was found, rather than hanging.
+                    After GPU dispatch finishes, the refinement drain watches each worker individually.
+                    A worker with outstanding batches and no valid activity for more than about 30 seconds
+                    is removed and terminated. Its remaining candidates are abandoned, and any late
+                    messages from that worker are ignored. The search is marked <strong>incomplete</strong>;
+                    a timeout does not mean the remaining candidates were successfully refined.
                 </li>
                 <li>
                     If the browser reports that the GPU device was lost, the driver has reset (a TDR) or the tab was
@@ -3470,6 +3506,24 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     HKL Basis Size or fewer peaks to combine.
                 </li>
             </ul>
+
+            <h3>Stopping and restarting a search</h3>
+            <p>
+                Start is locked as soon as startup begins, including GPU initialization. Stop cancels that
+                run and terminates its CPU/refinement workers. A new search has its own cancellation state
+                and refinement pool; late results and callbacks from the stopped run are ignored.
+                GPU commands already submitted may still finish on the device, but their cancelled results
+                do not enter the new run. Existing accepted solutions are retained for review.
+            </p>
+            <h3>What does “Search incomplete” mean?</h3>
+            <p>
+                A worker crash, refinement timeout, candidate-processing error, GPU execution/read-back
+                failure or post-processing error can leave part of the search unprocessed. The application
+                reports this in the status area and includes <code>INCOMPLETE</code> in the saved indexing
+                statistics when it finalizes the run. Solutions already obtained remain available, but
+                the result must not be interpreted as a completed search of the requested space.
+                Review the reported failure before deciding whether to rerun.
+            </p>
 
             <h3>Test Files</h3>
             <ul>
@@ -3600,7 +3654,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             </ol>
 
             <div class="footer">
-                <p>Help guide generated with the help of an AI, based on source code analysis. Last revised 05 September 2026.</p>
+                <p>Help guide generated with the help of an AI, based on source code analysis. Last revised 10 September 2026; aligned with application build 20260910r1.</p>
             </div>
         </section>
 

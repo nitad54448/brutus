@@ -582,7 +582,7 @@ const getVolume = (cell) => {
     }
 };
 
-const getSolutionKey = (cell) => {
+const getCellGeometryKey = (cell) => {
     const P = 4; // Increased from 2 to 4 digits to prevent aggressive deduplication
     const std = standardizeCell(cell);
     switch(std.system) {
@@ -598,10 +598,11 @@ const getSolutionKey = (cell) => {
             // Updated beta to use P instead of hardcoded 2
             return `${std.system}_${ac}_${std.b.toFixed(P)}_${std.beta.toFixed(P)}`; 
         case 'triclinic': 
-            // Updated volume and angles to use P instead of hardcoded 2 and 1
-            const vol = getVolumeTriclinic(std).toFixed(P); 
-            const angles = [std.alpha, std.beta, std.gamma].sort().map(a => a.toFixed(P)).join('_'); 
-            return `${std.system}_${vol}_${angles}`;
+            // Keep lengths paired with their angles. Volume and angles alone
+            // do not identify a triclinic lattice. The final sieve handles
+            // equivalent bases; this hot-path key must not merge distinct cells.
+            return `${std.system}_${[std.a, std.b, std.c, std.alpha, std.beta, std.gamma]
+                .map(v => v.toFixed(P)).join('_')}`;
         default:
             // The switch fell through and the function returned UNDEFINED for
             // any cell whose system it did not recognise (or that had no system
@@ -616,6 +617,64 @@ const getSolutionKey = (cell) => {
 };
     
 
+
+// Fixed-zero and fitted-zero cells are different models even when their
+// rounded dimensions happen to coincide.
+const hasRefinedZero = cell => cell.zero_correction !== undefined && cell.zero_correction !== null;
+const getSolutionKey = cell => {
+    const geometry = getCellGeometryKey(cell);
+    return geometry ? `${geometry}_${hasRefinedZero(cell) ? 'zero-fit' : 'zero-fixed'}` : null;
+};
+
+// Conservative lattice-equivalence check for the final sieve. Reduce each
+// cell once, then explicitly seek a unimodular basis change. No centering is
+// inferred from an absence analysis. Near-equal volumes are only a prefilter.
+// Tolerances: 0.2% in each edge, 0.15 degrees in each inter-edge angle.
+const makeLatticeComparison = cell => {
+    try {
+        const normalized = { ...cell, b: cell.b ?? cell.a, c: cell.c ?? cell.a,
+            alpha: cell.alpha ?? 90, beta: cell.beta ?? 90,
+            gamma: cell.gamma ?? (cell.system === 'hexagonal' ? 120 : 90) };
+        const raw = metricFromCell(normalized);
+        if (!choleskyDecomposition(raw)) return null;
+        const reduced = reduceToNiggliCell(normalized);
+        const G = reduced && reduced.converged ? reduced.metric : raw;
+        const dot = (u, v) => u.reduce((s, x, i) =>
+            s + x * v.reduce((t, y, j) => t + G[i][j] * y, 0), 0);
+        const vectors = [];
+        // Includes signed axis permutations and adjacent reduced-cell boundary
+        // settings (a+b, a-b, etc.). Every accepted mapping has determinant +/-1.
+        for (let h = -1; h <= 1; h++) for (let k = -1; k <= 1; k++)
+            for (let l = -1; l <= 1; l++) {
+                if (!h && !k && !l) continue;
+                const v = [h, k, l];
+                vectors.push({ v, length: Math.sqrt(dot(v, v)) });
+            }
+        return { G, dot, vectors, volume: Math.sqrt(determinant3x3(G)) };
+    } catch (_) { return null; } // Uncertain equivalence retains the candidate.
+};
+const equivalentLattices = (a, b) => {
+    if (!a || !b || Math.abs(a.volume - b.volume) > 0.01 * Math.min(a.volume, b.volume)) return false;
+    const match = (source, target) => {
+        const lengths = target.G.map((row, i) => Math.sqrt(row[i]));
+        const candidates = lengths.map(length => source.vectors.filter(x =>
+            Math.abs(x.length - length) <= 0.002 * Math.min(x.length, length)));
+        if (candidates.some(list => !list.length)) return false;
+        const angle = cosine => Math.acos(Math.max(-1, Math.min(1, cosine))) * DEG;
+        const angleMatches = (u, v, i, j) => Math.abs(
+            angle(source.dot(u.v, v.v) / (u.length * v.length)) -
+            angle(target.G[i][j] / (lengths[i] * lengths[j]))) <= 0.15;
+        for (const u of candidates[0]) for (const v of candidates[1]) {
+            if (!angleMatches(u, v, 0, 1)) continue;
+            for (const w of candidates[2]) {
+                if (Math.abs(determinant3x3([u.v, v.v, w.v])) !== 1) continue;
+                if (angleMatches(u, w, 0, 2) && angleMatches(v, w, 1, 2)) return true;
+            }
+        }
+        return false;
+    };
+    return match(a, b) || match(b, a);
+};
 
 const choleskySolve = (L, b) => {
     const n = L.length;
