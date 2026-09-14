@@ -6186,7 +6186,7 @@ const finalizeIndexing = (stoppedByUser = false, sessionToken = null, runToken =
         const int = fullExperimentalData.intensity;
         for (let i = 0; i < tth.length; i++) {
             if (tth[i] >= tMin && tth[i] <= tMax) {
-                cif += `${tth[i].toFixed(5)} ${Math.round(int[i])}\n`;
+                cif += `${tth[i].toFixed(5)} ${int[i]}\n`;
             }
         }
 
