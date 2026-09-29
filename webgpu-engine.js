@@ -5,6 +5,9 @@ class WebGPUEngine {
     // across indexing runs). The compiled GPUShaderModule and GPUComputePipeline
     // ARE bound to a specific device, so those live on the instance below.
     static _shaderTextCache = new Map();   // url -> Promise<string>
+    // Resolved WGSL text, kept so createPipeline can read the kernel's declared
+    // @workgroup_size (see parseWorkgroupSize and the check in _runSolver).
+    static _shaderSourceCache = new Map(); // url -> string
 
     constructor() {
         this.device = null;
@@ -16,6 +19,7 @@ class WebGPUEngine {
         this._moduleCache = new Map();   // url -> GPUShaderModule
         this._pipelineCache = new Map(); // `${url}::${entryPoint}` -> GPUComputePipeline
         this._currentShaderUrl = null;   // set by loadShader, read by createPipeline
+        this.pipelineWorkgroupSize = null; // {x,y,z} declared by the current pipeline's kernel, or null
 
         // Initialised HERE, not in init(). _runSolver gates on this flag, and an
         // engine whose init() threw (or was never called) used to leave it
@@ -139,9 +143,37 @@ class WebGPUEngine {
             throw err;
         }
 
+        WebGPUEngine._shaderSourceCache.set(url, shaderCode);
         const module = this.device.createShaderModule({ code: shaderCode });
         this._moduleCache.set(url, module);
         this.shaderModule = module;
+    }
+
+    // Reads the @workgroup_size that WGSL `src` declares for `entryPoint`,
+    // resolving `const NAME: u32 = Nu;` identifiers. Returns {x, y, z}, or null
+    // whenever the text cannot be read with confidence -- null skips the check
+    // in _runSolver rather than blocking a run on a parsing quirk.
+    static parseWorkgroupSize(src, entryPoint) {
+        try {
+            if (typeof src !== 'string' || !/^\w+$/.test(entryPoint)) return null;
+            const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+            const fnAt = code.search(new RegExp(`\\bfn\\s+${entryPoint}\\s*\\(`));
+            if (fnAt < 0) return null;
+            const attrs = [...code.slice(0, fnAt).matchAll(/@workgroup_size\s*\(([^)]*)\)/g)];
+            if (!attrs.length) return null;
+            const resolve = (tok) => {
+                tok = tok.trim();
+                const lit = /^(\d+)[ui]?$/.exec(tok);
+                if (lit) return Number(lit[1]);
+                if (!/^[A-Za-z_]\w*$/.test(tok)) return NaN;
+                const m = new RegExp(`\\bconst\\s+${tok}\\s*(?::\\s*[ui]32\\s*)?=\\s*(\\d+)[ui]?\\s*;`).exec(code);
+                return m ? Number(m[1]) : NaN;
+            };
+            const [x, y = 1, z = 1] = attrs[attrs.length - 1][1].split(',').map(resolve);
+            return [x, y, z].every(Number.isInteger) ? { x, y, z } : null;
+        } catch (_) {
+            return null;
+        }
     }
 
     // 3. Create Explicit Bind Group Layout (Fixes "Binding not present" error)
@@ -173,6 +205,11 @@ class WebGPUEngine {
 
     // 4. Create the compute pipeline with Explicit Layout
     createPipeline(entryPoint = "main") {
+        // Record what the kernel declares, for the dispatch-geometry check in
+        // _runSolver. One regex pass over the WGSL; runs on cache hits too.
+        this.pipelineWorkgroupSize = WebGPUEngine.parseWorkgroupSize(
+            WebGPUEngine._shaderSourceCache.get(this._currentShaderUrl), entryPoint);
+
         // Reuse a previously-built pipeline for this (shader, entryPoint) pair.
         // Pipeline compilation is one of the most expensive WebGPU calls, and
         // both the shader url and entry point are fixed per crystal system.
@@ -212,7 +249,17 @@ class WebGPUEngine {
         // Copy data into mapped range
         if(data instanceof Float32Array) new Float32Array(buffer.getMappedRange()).set(data);
         else if(data instanceof Uint32Array) new Uint32Array(buffer.getMappedRange()).set(data);
-        else new Uint8Array(buffer.getMappedRange()).set(new Uint8Array(data.buffer));
+        else {
+            // Honour the view's own window. new Uint8Array(data.buffer) copied the
+            // WHOLE backing store from byte 0, so a subarray -- or any view into a
+            // larger ArrayBuffer -- wrote the wrong bytes, or threw a RangeError
+            // when the backing store is bigger than this buffer. A bare
+            // ArrayBuffer has no .buffer at all and used to copy nothing.
+            const bytes = ArrayBuffer.isView(data)
+                ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+                : new Uint8Array(data);
+            new Uint8Array(buffer.getMappedRange()).set(bytes);
+        }
         
         buffer.unmap();
         return buffer;
@@ -346,8 +393,8 @@ class WebGPUEngine {
             structFloats: 8,                // 8 f32 per cell (a,b,c,alpha,beta,gamma,pad,pad) = 32 bytes
             hklFloats: 8,                   // hkl_basis: vec4(h^2,k^2,l^2,k*l) + vec4(h*l,h*k,0,0)
             peakComboStride: 6,
-            workgroupX: 4,                  // Triclinic: more work per thread -> smaller groups
-            workgroupY: 4,
+            workgroupX: 8,                  // Must match triclinic_solver.wgsl @workgroup_size.
+            workgroupY: 8,                  // Was 4 x 4 = 16 lanes: half/quarter of each SIMD group idle.
             maxThreadsPerDispatch: 50_000,  // Triclinic: TDR protection
             systemName: 'triclinic',
             parseCell: (r, off) => ({
@@ -362,6 +409,19 @@ class WebGPUEngine {
                      progressCallback, stopSignal, baseParams, onIntermediateResults = null) {
         if (this.deviceLost) throw new Error("WebGPU device was lost; reload the page to restart the GPU engine.");
         if (!this.pipeline) throw new Error("Pipeline not created.");
+
+        // The dispatch arithmetic below (workgroupsX, hklsPerChunk) assumes the
+        // kernel's @workgroup_size is cfg.workgroupX x cfg.workgroupY. If a .wgsl
+        // file and this one ever disagree -- an edit to one but not the other, or
+        // a stale cached shader after a deploy -- part of the search space is
+        // silently never dispatched. Refuse to run instead.
+        const wg = this.pipelineWorkgroupSize;
+        if (wg && (wg.x !== cfg.workgroupX || wg.y !== cfg.workgroupY || wg.z !== 1)) {
+            throw new Error(
+                `${cfg.systemName}: the shader declares @workgroup_size(${wg.x}, ${wg.y}, ${wg.z}) ` +
+                `but webgpu-engine.js dispatches for ${cfg.workgroupX} x ${cfg.workgroupY}. ` +
+                `The two files are out of sync -- hard-reload, or bump ?v= in brutus.html.`);
+        }
 
         const pipeline = this.pipeline;
         const K_VALUE = cfg.K;

@@ -89,7 +89,13 @@ struct Config {
 // === Constants ===
 const PI: f32 = 3.1415926535;
 const DEG: f32 = 180.0 / PI;
-const WORKGROUP_SIZE_Y: u32 = 4u;
+// Workgroup is 8 x 8 = 64 invocations. It was 4 x 4 = 16, which fills half an
+// NVIDIA/Apple SIMD group and a quarter of an AMD wave64, so most lanes idled.
+// Workgroup size does not change the work per invocation, and the TDR budget is
+// maxThreadsPerDispatch in webgpu-engine.js, not this. MUST match
+// SYSTEM_CONFIGS.triclinic.workgroupX/Y there (the engine checks, and refuses
+// to run on a mismatch).
+const WORKGROUP_SIZE_Y: u32 = 8u;
 const MAX_Y_WORKGROUPS: u32 = 16383u; 
 const MAX_FOM_PEAKS: u32 = 32u; 
 
@@ -485,6 +491,10 @@ fn validate_fom_avg_diff(p: Vec6) -> f32 {
             }
             peaks_ok = peaks_ok + 1u;
         }
+        // A candidate that kept EVERY peak in budget must be recorded too. This
+        // line was missing here (ortho and mono have it), so the "best candidate
+        // held X/N peaks" diagnostic under-reported exactly when a cell fitted.
+        atomicMax(&solution_counter[1], peaks_ok);
         let avg = sum_abs_error / f32(n_peaks_to_check);
         return avg;
     } 
@@ -572,7 +582,7 @@ fn validate_fom_avg_diff(p: Vec6) -> f32 {
     return avg;
 }
 // === Main Kernel ===
-@compute @workgroup_size(4, WORKGROUP_SIZE_Y, 1)
+@compute @workgroup_size(8, WORKGROUP_SIZE_Y, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>
 ) {

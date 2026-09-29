@@ -177,6 +177,12 @@ function flushSolutions(idField, idValue) {
 // from one that genuinely finished, and suppressed errors are still visible as
 // a number.
 const MAX_CELL_ERRORS_PER_BATCH = 5;
+
+// Heartbeat period. The pool's drain() abandons a worker it has not heard from
+// in 30 s, and a long batch in which no cell is accepted posts nothing until
+// 'done' -- so a slow but healthy worker could be killed and its whole batch
+// dropped. A tiny message every couple of seconds keeps it visibly alive.
+const HEARTBEAT_MS = 2000;
 let batchProcessed = 0;
 let batchErrors = 0;
 let batchErrorsPosted = 0;
@@ -323,8 +329,14 @@ self.onmessage = (e) => {
                     return;
                 }
                 currentBatch = { idField: 'batchId', idValue: batchId };
+                let lastBeat = performance.now();
                 for (let i = 0; i < cells.length; i++) {
                     runOneCell(cells[i], 'batchId', batchId, i);
+                    const now = performance.now();
+                    if (now - lastBeat >= HEARTBEAT_MS) {
+                        lastBeat = now;
+                        self.postMessage({ type: 'heartbeat', batchId, processed: i + 1 });
+                    }
                 }
                 // Solutions must reach the main thread BEFORE the ack that
                 // resolves this batch's promise.

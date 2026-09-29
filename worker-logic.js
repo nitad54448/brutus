@@ -592,7 +592,9 @@ const getCellGeometryKey = (cell) => {
         case 'hexagonal': 
             return `${std.system}_${std.a.toFixed(P)}_${std.c.toFixed(P)}`;
         case 'orthorhombic': 
-            return `${std.system}_${[std.a,std.b,std.c].sort().map(p => p.toFixed(P)).join('_')}`;
+            // Numeric comparator: a bare .sort() orders numbers as STRINGS
+            // ("10.5" < "3.1"). Same rule as the monoclinic branch below.
+            return `${std.system}_${[std.a,std.b,std.c].sort((x, y) => x - y).map(p => p.toFixed(P)).join('_')}`;
         case 'monoclinic': 
             const ac = [std.a, std.c].sort((x, y) => x - y).map(p => p.toFixed(P)).join('_');
             // Updated beta to use P instead of hardcoded 2

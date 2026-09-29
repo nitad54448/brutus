@@ -63,6 +63,13 @@ document.addEventListener('DOMContentLoaded', () => {
         return data;
     };
 
+    // The one rule for the "Strip K-alpha2" control: it is meaningful only while
+    // a K-alpha AVERAGE preset is selected. Custom radiation has no known doublet
+    // and a Ka1 preset has no Ka2 to remove, so stripping either subtracts a line
+    // that is not there. The preset and wavelength handlers already applied this;
+    // setUIState, updateWorkingData and clearLoadedFile now use it too.
+    const ka2StripAllowed = () => getActiveKa2Preset() !== null;
+
     /**
      * Returns the expected 2θ position (deg) of the Ka2 ghost of a parent
      * Ka1 line at parentTthDeg, given the active doublet preset.
@@ -1177,19 +1184,24 @@ const handleNewSolution = (newSolution, runToken = indexingRunToken, fitContext 
         isTableUpdateScheduled = true;
 
         requestAnimationFrame(() => {
-            // Sort solutions based on current UI state
-            sortSolutions();
+            // try/finally: if the sort or the rebuild ever throws, the lock must
+            // still be released -- otherwise isTableUpdateScheduled stays true and
+            // no later solution redraws the table for the rest of the session.
+            try {
+                // Sort solutions based on current UI state
+                sortSolutions();
 
-            // Re-Sync the ledger. Only the leading slice is rendered; row
-            // click-handlers index into displayedSolutions, and the slice
-            // preserves order, so indices stay aligned.
-            displayedSolutions = solutions.slice(0, MAX_DISPLAYED_SOLUTIONS);
+                // Re-Sync the ledger. Only the leading slice is rendered; row
+                // click-handlers index into displayedSolutions, and the slice
+                // preserves order, so indices stay aligned.
+                displayedSolutions = solutions.slice(0, MAX_DISPLAYED_SOLUTIONS);
 
-            // Rebuild the DOM table (now capped at browser refresh rate, ~60Hz)
-            updateSolutionsTable();
-
-            // Release the lock for the next frame
-            isTableUpdateScheduled = false;
+                // Rebuild the DOM table (now capped at browser refresh rate, ~60Hz)
+                updateSolutionsTable();
+            } finally {
+                // Release the lock for the next frame
+                isTableUpdateScheduled = false;
+            }
         });
     }
 };
@@ -1286,10 +1298,10 @@ const clearLoadedFile = () => {
     if (ui.fileInputLabel) ui.fileInputLabel.classList.remove('error');
     if (ui.saveAsButton) ui.saveAsButton.disabled = true;
 
-    // The load path disables Ka2 stripping when a file carries its own
-    // wavelength. Leaving it disabled would strand the control with no file to
-    // justify it.
-    if (ui.stripKa2Checkbox) ui.stripKa2Checkbox.disabled = false;
+    // Re-derive the strip control from the preset instead of force-enabling it:
+    // under a custom or Ka1 preset it stays off (there is no Ka2 to strip), and
+    // choosing an average preset re-enables it as usual.
+    if (ui.stripKa2Checkbox) ui.stripKa2Checkbox.disabled = !ka2StripAllowed();
 
     if (xrdChart) {
             try { xrdChart.resetZoom('none'); } catch (_) { /* no zoom state yet */ }
@@ -1404,6 +1416,10 @@ const setupWorker = () => {
                 if (Array.isArray(msg.payloads)) msg.payloads.forEach(sol => this.onSolution(sol));
             } else if (msg.type === 'solution') {
                 this.onSolution(msg.payload);
+            } else if (msg.type === 'heartbeat') {
+                // Sent every ~2 s while a worker grinds through a long batch.
+                // Its only job is the lastActivity refresh above, which keeps
+                // drain()'s stall watchdog from abandoning a busy worker.
             } else if (msg.type === 'cellError' || msg.type === 'batchError') {
                 this.onFailure('Some candidate cells could not be refined.');
                 console.warn(`Refinement batch ${id}:`, msg.message);
@@ -1629,8 +1645,9 @@ const setupWorker = () => {
             return;
         }
 
-        // Check if stripping is requested and we aren't in custom mode
-        if (ui.stripKa2Checkbox.checked && ui.wavelengthPreset.value !== 'custom') {
+        // Strip only when requested AND the preset has a Ka2 to remove (an
+        // average preset -- never custom or Ka1; see ka2StripAllowed).
+        if (ui.stripKa2Checkbox.checked && ka2StripAllowed()) {
             
             const selection = ui.wavelengthPreset.value;
             const element = selection.split('_')[0]; // "Cu", "Co", etc.
@@ -1727,33 +1744,40 @@ const setupWorker = () => {
                 return { text: out.join('\n') + '\n', ext: 'uxd', mime: 'text/plain' };
             }
             case 'gsas': {
-                // Minimal GSAS ESD (constant-step, ESD format). Header + BANK line.
-                // GSAS uses centidegrees for CONST start/step.
-                const start100 = tth[0] * 100;
-                const step100 = step * 100;
-                const lines = [];
-                const npts = n;
-                const recPerLine = 5; // ESD packs (pos?, no) — here we use "ESD": Y and sigma
-                // ESD format: each value field width 12: intensity then sqrt(I) as esd
+                // GSAS ESD: title, BANK line, then five (Y, sigma) pairs per
+                // record in 10F8.x fields -- intensity FIRST, which is how GSAS,
+                // GSAS-II and FullProf read it. This used to write (sigma, Y) in
+                // 12-character fields to suit this app's old reader, so every
+                // other program took the sigma column for the pattern.
+                //
+                // CONST start/step are centidegrees, now with 6 decimals: with
+                // toFixed(2) a 0.0131303 deg step became 0.0131 deg, a 2-theta
+                // drift of ~0.1 deg over a few thousand points.
+                const f8 = (v) => {                   // right-justified 8-char field
+                    if (!Number.isFinite(v)) v = 0;
+                    for (const dp of [2, 1]) {
+                        const s = v.toFixed(dp);
+                        if (s.length <= 8) return s.padStart(8);
+                    }
+                    const s0 = Math.round(v) + '.';   // Fortran style, e.g. "1234567."
+                    return (s0.length <= 8 ? s0 : v.toExponential(2).toUpperCase()).padStart(8);
+                };
+                const recPerLine = 5;
                 const dataLines = [];
                 let buf = '';
-                let count = 0;
-                // This app's ESD reader takes tokens at index 1,3,5,... as the
-                // intensity, so we write each record as "<esd> <intensity>".
                 for (let i = 0; i < n; i++) {
                     const yi = Math.max(0, intensity[i]);
                     const esd = Math.sqrt(yi > 0 ? yi : 1);
-                    buf += esd.toFixed(2).padStart(12) + yi.toFixed(2).padStart(12);
-                    count++;
-                    if (count === recPerLine) { dataLines.push(buf); buf = ''; count = 0; }
+                    buf += f8(yi) + f8(esd);
+                    if ((i + 1) % recPerLine === 0) { dataLines.push(buf); buf = ''; }
                 }
                 if (buf.length) dataLines.push(buf);
-                lines.push('Exported by Brutus'.padEnd(80));
-                lines.push(
-                    `BANK 1 ${npts} ${Math.ceil(npts / recPerLine)} CONST ` +
-                    `${start100.toFixed(2)} ${step100.toFixed(2)} 0 0 ESD`
-                );
-                for (const dl of dataLines) lines.push(dl);
+                const lines = [
+                    'Exported by Brutus'.padEnd(80),
+                    `BANK 1 ${n} ${dataLines.length} CONST ${(tth[0] * 100).toFixed(6)} ` +
+                        `${(step * 100).toFixed(6)} 0 0 ESD`,
+                    ...dataLines,
+                ];
                 return { text: lines.join('\n') + '\n', ext: 'esd', mime: 'text/plain' };
             }
             case 'xrdml': {
@@ -2269,15 +2293,9 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
                     test: (name) => name.endsWith('.udf') || name.endsWith('.rd') || name.endsWith('.sd'),
                     parser: parsePhilipsUdfFile
                 },
-                { // GSAS ESD/XRA
+                { // GSAS raw data: STD / ESD / FXY / FXYE (the BANK line says which)
                     test: (name, content, firstLine, upper, allLines) => allLines.some(line => line.trim().toUpperCase().startsWith('BANK')),
-                    parser: (content, allLines) => {
-                        const bankLine = allLines.find(line => line.trim().toUpperCase().startsWith('BANK'));
-                        if (bankLine.toUpperCase().includes('STD')) {
-                            return parseGsasXraFile(content);
-                        }
-                        return parseGsasEsdFile(content);
-                    }
+                    parser: (content) => parseGsasFile(content)
                 },
                 { // FullProf free format (start/step/end + N values per line)
                     test: (name, content, firstLine, upper, allLines) => scanFullProfDat(allLines) !== null,
@@ -2412,51 +2430,126 @@ ui.wavelength.addEventListener('input', debouncedWavelengthChange);
         const parseBrukerXmlFile = (xmlString) => { const parser = new DOMParser(); const xmlDoc = parser.parseFromString(xmlString, "application/xml"); if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing Bruker XML file."); } let wavelength = null; const wlNode = xmlDoc.querySelector('usedWavelength'); if (wlNode) { const kAlpha1 = wlNode.getAttribute('kAlpha1'); if (kAlpha1) wavelength = parseFloat(kAlpha1); } const intensityNode = xmlDoc.querySelector("dataPoints > counts"); if (!intensityNode) throw new Error("No <counts> data found in Bruker XML file."); const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number); const startPosNode = xmlDoc.querySelector('startPosition[axis="TwoTheta"]'); const stepSizeNode = xmlDoc.querySelector('increment[axis="TwoTheta"]'); if (!startPosNode || !stepSizeNode) throw new Error("Could not find scan parameters in Bruker XML file."); const startPos = parseFloat(startPosNode.textContent); const stepSize = parseFloat(stepSizeNode.textContent); const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * stepSize); return { tth, intensity, wavelength }; };
         const parseXrdmlFile = (xmlString) => { const parser = new DOMParser(); const xmlDoc = parser.parseFromString(xmlString, "application/xml"); if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing XRDML file."); } let wavelength = null; const kAlpha1Node = xmlDoc.querySelector("kAlpha1"); if (kAlpha1Node?.textContent) wavelength = parseFloat(kAlpha1Node.textContent); const intensityNode = xmlDoc.querySelector("intensities") || xmlDoc.querySelector("counts"); if (!intensityNode) throw new Error("Could not find <intensities> or <counts> in XRDML file."); const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number); const positionsNode = xmlDoc.querySelector('positions[axis="2Theta"]'); if (!positionsNode) throw new Error("Could not find <positions> in XRDML file."); const startPosNode = positionsNode.querySelector("startPosition"); const endPosNode = positionsNode.querySelector("endPosition"); if (!startPosNode || !endPosNode) throw new Error("Could not find start/end positions in XRDML."); const startPos = parseFloat(startPosNode.textContent); const endPos = parseFloat(endPosNode.textContent); if (!isFinite(startPos) || !isFinite(endPos)) throw new Error("XRDML start/end positions are not numeric."); if (intensity.length === 0) throw new Error("XRDML file contains no intensity points."); /* With a single point the old expression divided by zero and produced NaN/Infinity for every 2-theta; emit the single start position instead. */ const step = intensity.length > 1 ? (endPos - startPos) / (intensity.length - 1) : 0; const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * step); return { tth, intensity, wavelength }; };
         const parseRigakuRasFile = (text) => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; let inDataSection = false; let wavelength = null; for (const line of lines) { const upperLine = line.toUpperCase(); if (upperLine.startsWith('*WAVE_LENGTH') || upperLine.startsWith('*MEAS_COND_XG_WAVE_LENGTH')) { const parts = line.trim().split(/\s+/); if (parts.length > 1) { const wl = parseFloat(parts[1]); if (!isNaN(wl)) wavelength = wl; } } if (upperLine.startsWith('*RAS_INT_START')) { inDataSection = true; continue; } if (upperLine.startsWith('*RAS_INT_END')) break; if (inDataSection) { const parts = line.trim().split(/[\s,]+/); if (parts.length >= 2) { const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); } } } } if (tth.length === 0) throw new Error("No data found in RAS file data section."); return { tth, intensity, wavelength }; };
-        const parseGsasEsdFile = (text) => { const lines = text.trim().split(/\r?\n/); let wavelength = null; let startTth, stepSize; let dataStartIndex = -1; lines.forEach((line, index) => { const upperLine = line.toUpperCase(); if (upperLine.includes('WAVELENGTH')) { const match = line.match(/wavelength\s+([0-9.]+)/i); if (match && match[1]) wavelength = parseFloat(match[1]); } if (upperLine.startsWith('BANK')) { const parts = line.trim().split(/\s+/); /* parts[6] is the step size, so a CONST line needs 7 tokens, not 6. With >= 6 a 6-token line made stepSize = parseFloat(undefined) = NaN, and the "=== undefined" guard below let NaN through, turning every 2-theta into start + i*NaN. */ if (parts.length >= 7 && parts[4].toUpperCase() === 'CONST') { const s0 = parseFloat(parts[5]) / 100.0; const ds = parseFloat(parts[6]) / 100.0; /* Reject non-numeric or zero/negative steps here rather than emitting a NaN/constant 2-theta axis downstream. */ if (isFinite(s0) && isFinite(ds) && ds > 0) { startTth = s0; stepSize = ds; dataStartIndex = index + 1; } } } }); if (!isFinite(startTth) || !isFinite(stepSize)) throw new Error("GSAS Parse Error: Could not find a valid 'BANK' line with CONST scan parameters."); if (dataStartIndex !== -1 && lines[dataStartIndex]?.toUpperCase().includes('STD')) dataStartIndex++; if (dataStartIndex === -1 || dataStartIndex >= lines.length) throw new Error("GSAS Parse Error: Found scan parameters but no subsequent data lines."); const intensity = []; for (let i = dataStartIndex; i < lines.length; i++) { const parts = lines[i].trim().split(/\s+/); for (let j = 1; j < parts.length; j += 2) { const val = parseFloat(parts[j]); if (!isNaN(val)) intensity.push(val); } } if (intensity.length === 0) throw new Error("GSAS Parse Error: No intensity data could be parsed."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
-        
-        const parseGsasXraFile = (text) => {
-    const lines = text.trim().split(/\r?\n/);
-    let wavelength = null;
-    let startTth, stepSize;
-    let dataStartIndex = -1;
-    lines.forEach((line, index) => {
-        const upperLine = line.toUpperCase();
-        if (upperLine.includes('WAVELENGTH')) {
-            const match = line.match(/wavelength\s+([0-9.]+)/i);
-            if (match && match[1]) wavelength = parseFloat(match[1]);
-        }
-        if (upperLine.startsWith('BANK')) {
-            const parts = line.trim().split(/\s+/);
-            if (parts.length >= 7 && parts[4].toUpperCase() === 'CONST') {
-                const s0 = parseFloat(parts[5]) / 100.0;
-                const ds = parseFloat(parts[6]) / 100.0;
-                // A non-numeric token yields NaN, which the old "=== undefined"
-                // guard below did not catch. Validate here instead.
-                if (isFinite(s0) && isFinite(ds) && ds > 0) {
-                    startTth = s0;
-                    stepSize = ds;
-                    dataStartIndex = index + 1;
-                }
+        // --- GSAS raw powder data ------------------------------------------
+        //
+        //   line 1   title
+        //   BANK IBANK NCHAN NREC BINTYP BCOEF1 BCOEF2 BCOEF3 BCOEF4 [TYPE]
+        //   records, laid out according to TYPE:
+        //     STD (the default, no TYPE)   10(I2,F6.0)   NCTR, Y
+        //     ESD                          10F8.0        Y, sigma(Y)
+        //     FXY / FXYE                   free format   X, Y [, sigma]
+        //
+        // With BINTYP CONST (or CONS), BCOEF1/BCOEF2 are start and step in
+        // centidegrees; FXY(E) records give X explicitly, also in centidegrees.
+        // Only the first bank is read.
+        //
+        // Replaces two readers that were each wrong in their own way. The ESD one
+        // took tokens 1, 3, 5... -- the SIGMA column -- so a real ESD file loaded
+        // as roughly sqrt(I): peak positions survived, intensities did not. The
+        // STD one took every token, so a non-blank NCTR became a spurious data
+        // point; and a BANK line with no TYPE (i.e. STD) went to the ESD reader.
+        //
+        // Fields are read by COLUMN first, as the format defines them: a large
+        // value can fill its 8 characters and touch its neighbour, which
+        // whitespace splitting cannot undo. Fortran right-justifies numbers, so if
+        // every field parses cleanly in place the layout is confirmed; otherwise
+        // (a free-format file) whitespace tokens are used.
+        const parseGsasFile = (text) => {
+            const lines = text.split(/\r?\n/);
+            const bankAt = lines.findIndex(l => /^\s*BANK\b/i.test(l));
+            if (bankAt < 0) throw new Error("GSAS Parse Error: no BANK line.");
+            const bank = lines[bankAt].trim().split(/\s+/);
+            const binTyp = (bank[4] || '').toUpperCase();
+            if (binTyp !== 'CONST' && binTyp !== 'CONS') {
+                throw new Error(`GSAS Parse Error: BINTYP '${bank[4] || ''}' is not supported (constant-step 2θ data only).`);
             }
-        }
-    });
+            const type = bank.slice(5).map(t => t.toUpperCase())
+                .find(t => ['STD', 'ESD', 'ALT', 'FXY', 'FXYE'].includes(t)) || 'STD';
+            if (type === 'ALT') throw new Error("GSAS Parse Error: ALT (compressed) records are not supported.");
 
-    if (!isFinite(startTth) || !isFinite(stepSize)) throw new Error("GSAS XRA Parse Error: Could not find a valid 'BANK' line with CONST scan parameters.");
-    if (dataStartIndex === -1 || dataStartIndex >= lines.length) throw new Error("GSAS XRA Parse Error: Found scan parameters but no subsequent data lines.");
+            let wavelength = null;
+            for (const l of lines) {
+                const m = /wavelength\s+([0-9.]+)/i.exec(l);
+                if (m && isFinite(parseFloat(m[1]))) wavelength = parseFloat(m[1]);
+            }
 
-    const intensity = [];
-    for (let i = dataStartIndex; i < lines.length; i++) {
-        if (lines[i].trim() === '') continue;
-        const parts = lines[i].trim().split(/\s+/);
-        for (let j = 0; j < parts.length; j++) {
-            const val = parseFloat(parts[j]);
-            if (!isNaN(val)) intensity.push(val);
-        }
-    }
-    if (intensity.length === 0) throw new Error("GSAS XRA Parse Error: No intensity data could be parsed.");
-    const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize);
-    return { tth, intensity, wavelength };
-};
+            // Records: everything after the BANK line up to the next BANK, minus
+            // blank, comment and marker lines (any letter other than an exponent's
+            // d/e means the line is not data).
+            const recs = [];
+            for (let i = bankAt + 1; i < lines.length; i++) {
+                const l = lines[i].replace(/\s+$/, '');
+                if (/^\s*BANK\b/i.test(l)) break;
+                if (l === '' || /^\s*#/.test(l) || /[a-cf-z]/i.test(l)) continue;
+                recs.push(l);
+            }
+            if (recs.length === 0) throw new Error("GSAS Parse Error: no data records after the BANK line.");
+
+            const NUM = /^ *[+-]?(\d+\.?\d*|\.\d+)([eEdD][+-]?\d+)?$/;   // right-justified number
+            const toNum = s => parseFloat(s.trim().replace(/[dD]/, 'e'));
+            const tokens = r => r.trim().split(/\s+/).map(toNum);
+
+            let tth = [], intensity = [];
+            if (type === 'FXY' || type === 'FXYE') {
+                for (const r of recs) {
+                    const t = tokens(r);
+                    if (t.length >= 2 && Number.isFinite(t[0]) && Number.isFinite(t[1])) {
+                        tth.push(t[0] / 100); intensity.push(t[1]);
+                    }
+                }
+            } else {
+                const start = parseFloat(bank[5]) / 100, step = parseFloat(bank[6]) / 100;
+                if (!(Number.isFinite(start) && Number.isFinite(step) && step > 0)) {
+                    throw new Error("GSAS Parse Error: invalid CONST start/step on the BANK line.");
+                }
+                // Column read: `width` characters per record field; pick() returns
+                // the intensity text, or null if the field breaks the layout.
+                const byColumns = (width, pick) => {
+                    const out = [];
+                    for (const r of recs) {
+                        for (let c = 0; c < r.length; c += width) {
+                            const f = r.slice(c, c + width);
+                            if (f.trim() === '') break;          // unused trailing fields
+                            const y = pick(f);
+                            if (y === null) return null;
+                            out.push(toNum(y));
+                        }
+                    }
+                    return out;
+                };
+                if (type === 'ESD') {
+                    // (Y, sigma) pairs, 16 characters each, intensity FIRST.
+                    intensity = byColumns(16, f => {
+                        const y = f.slice(0, 8), e = f.slice(8);
+                        return NUM.test(y) && (e.trim() === '' || NUM.test(e)) ? y : null;
+                    });
+                    if (!intensity) {
+                        // Free format. Files saved by Brutus before this fix hold
+                        // (sigma, Y) in 12-character columns, which the column test
+                        // rejects; read those the old way round so they still load.
+                        const parity = /^\s*Exported by Brutus/i.test(lines[0] || '') ? 1 : 0;
+                        intensity = recs.flatMap(r => tokens(r).filter((_, j) => j % 2 === parity));
+                    }
+                } else {
+                    // STD: NCTR in the first 2 characters of each 8, Y in the other 6.
+                    intensity = byColumns(8, f => {
+                        const nctr = f.slice(0, 2), y = f.slice(2);
+                        return (nctr.trim() === '' || /^ *\d+$/.test(nctr)) && NUM.test(y) ? y : null;
+                    }) || recs.flatMap(tokens);
+                }
+                intensity = intensity.filter(Number.isFinite);
+                tth = intensity.map((_, i) => start + i * step);
+            }
+
+            // NCHAN is the declared point count: drop padding past it, warn if short.
+            const nChan = parseInt(bank[2], 10);
+            if (Number.isInteger(nChan) && nChan > 0) {
+                if (intensity.length > nChan) { intensity = intensity.slice(0, nChan); tth = tth.slice(0, nChan); }
+                else if (intensity.length < nChan) console.warn(`GSAS: BANK declares ${nChan} points, file carries ${intensity.length}.`);
+            }
+            if (intensity.length === 0) throw new Error("GSAS Parse Error: no intensity data could be parsed.");
+            return { tth, intensity, wavelength };
+        };
         
         const parseUxdFile = (text) => { const lines = text.trim().split(/\r?\n/); const intensity = []; let startTth, stepSize, wavelength; let inDataSection = false; for (const line of lines) { const trimmedLine = line.trim(); if (inDataSection) { const parts = trimmedLine.split(/\s+/); parts.forEach(part => { const val = parseFloat(part); if (!isNaN(val)) intensity.push(val); }); } else { if (trimmedLine.toUpperCase().startsWith('_START=')) startTth = parseFloat(trimmedLine.substring(7)); else if (trimmedLine.toUpperCase().startsWith('_STEPSIZE=')) stepSize = parseFloat(trimmedLine.substring(10)); else if (trimmedLine.toUpperCase().startsWith('_WL1=')) wavelength = parseFloat(trimmedLine.substring(5)); else if (trimmedLine.toUpperCase() === '_COUNTS') inDataSection = true; } } if (startTth === undefined || stepSize === undefined) throw new Error("Could not find _START and _STEPSIZE in UXD file."); if (intensity.length === 0) throw new Error("No intensity data found after _COUNTS in UXD file."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
         
@@ -3640,10 +3733,15 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
             ui.ballRadiusSlider, ui.smoothingWidthSlider, ui.wavelength, ui.tthError, 
             ui.maxVolume, ui.impurityPeaksInput, ui.refineZeroCheckbox, 
             // ...ui.systemCheckboxes, modif nov 25
-            ...ui.tabButtons, ui.wavelengthPreset, ui.stripKa2Checkbox 
+            ...ui.tabButtons, ui.wavelengthPreset
         ];
         
         controlsToDisable.forEach(el => { if (el) el.disabled = indexing; });
+        // The strip control follows the PRESET, not just the run state. It used
+        // to be in the list above, so every finished run re-enabled it -- even
+        // under a custom or Ka1 preset, where ticking it strips a Ka2 that is
+        // not there (updateWorkingData only excluded 'custom').
+        if (ui.stripKa2Checkbox) ui.stripKa2Checkbox.disabled = indexing || !ka2StripAllowed();
         
 
         //  Manually handle checkboxes based on GPU support, if WebGPU error disable mono and tric
@@ -3692,9 +3790,7 @@ pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height })
                 ui.tthMinSlider.disabled = false; 
                 ui.tthMaxSlider.disabled = false; 
                 ui.wavelengthPreset.disabled = false;
-                if (ui.wavelengthPreset.value !== 'custom') {
-                    ui.stripKa2Checkbox.disabled = false;
-                }
+                // (The strip control is set once, above, from ka2StripAllowed().)
                 // Wavelength input is always editable once data is loaded.
                 ui.wavelength.disabled = false;
             }
