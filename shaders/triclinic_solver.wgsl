@@ -103,129 +103,48 @@ const MAX_FOM_PEAKS: u32 = 32u;
 const K_VALUE: u32 = 6u; 
 const BINOMIAL_STRIDE: u32 = 7u; // Table stores columns 0..6
 
-// === 6! = 720 Permutations ===
-const PERMUTATIONS_6: array<u32, 4320> = array<u32, 4320>(
-    0u, 1u, 2u, 3u, 4u, 5u, 0u, 1u, 2u, 3u, 5u, 4u, 0u, 1u, 2u, 4u, 3u, 5u, 0u, 1u, 2u, 4u, 5u, 3u, 0u, 1u, 2u, 5u, 3u, 4u, 0u, 1u, 2u, 5u, 4u, 3u, 
-    0u, 1u, 3u, 2u, 4u, 5u, 0u, 1u, 3u, 2u, 5u, 4u, 0u, 1u, 3u, 4u, 2u, 5u, 0u, 1u, 3u, 4u, 5u, 2u, 0u, 1u, 3u, 5u, 2u, 4u, 0u, 1u, 3u, 5u, 4u, 2u, 
-    0u, 1u, 4u, 2u, 3u, 5u, 0u, 1u, 4u, 2u, 5u, 3u, 0u, 1u, 4u, 3u, 2u, 5u, 0u, 1u, 4u, 3u, 5u, 2u, 0u, 1u, 4u, 5u, 2u, 3u, 0u, 1u, 4u, 5u, 3u, 2u, 
-    0u, 1u, 5u, 2u, 3u, 4u, 0u, 1u, 5u, 2u, 4u, 3u, 0u, 1u, 5u, 3u, 2u, 4u, 0u, 1u, 5u, 3u, 4u, 2u, 0u, 1u, 5u, 4u, 2u, 3u, 0u, 1u, 5u, 4u, 3u, 2u, 
-    0u, 2u, 1u, 3u, 4u, 5u, 0u, 2u, 1u, 3u, 5u, 4u, 0u, 2u, 1u, 4u, 3u, 5u, 0u, 2u, 1u, 4u, 5u, 3u, 0u, 2u, 1u, 5u, 3u, 4u, 0u, 2u, 1u, 5u, 4u, 3u, 
-    0u, 2u, 3u, 1u, 4u, 5u, 0u, 2u, 3u, 1u, 5u, 4u, 0u, 2u, 3u, 4u, 1u, 5u, 0u, 2u, 3u, 4u, 5u, 1u, 0u, 2u, 3u, 5u, 1u, 4u, 0u, 2u, 3u, 5u, 4u, 1u, 
-    0u, 2u, 4u, 1u, 3u, 5u, 0u, 2u, 4u, 1u, 5u, 3u, 0u, 2u, 4u, 3u, 1u, 5u, 0u, 2u, 4u, 3u, 5u, 1u, 0u, 2u, 4u, 5u, 1u, 3u, 0u, 2u, 4u, 5u, 3u, 1u, 
-    0u, 2u, 5u, 1u, 3u, 4u, 0u, 2u, 5u, 1u, 4u, 3u, 0u, 2u, 5u, 3u, 1u, 4u, 0u, 2u, 5u, 3u, 4u, 1u, 0u, 2u, 5u, 4u, 1u, 3u, 0u, 2u, 5u, 4u, 3u, 1u, 
-    0u, 3u, 1u, 2u, 4u, 5u, 0u, 3u, 1u, 2u, 5u, 4u, 0u, 3u, 1u, 4u, 2u, 5u, 0u, 3u, 1u, 4u, 5u, 2u, 0u, 3u, 1u, 5u, 2u, 4u, 0u, 3u, 1u, 5u, 4u, 2u, 
-    0u, 3u, 2u, 1u, 4u, 5u, 0u, 3u, 2u, 1u, 5u, 4u, 0u, 3u, 2u, 4u, 1u, 5u, 0u, 3u, 2u, 4u, 5u, 1u, 0u, 3u, 2u, 5u, 1u, 4u, 0u, 3u, 2u, 5u, 4u, 1u, 
-    0u, 3u, 4u, 1u, 2u, 5u, 0u, 3u, 4u, 1u, 5u, 2u, 0u, 3u, 4u, 2u, 1u, 5u, 0u, 3u, 4u, 2u, 5u, 1u, 0u, 3u, 4u, 5u, 1u, 2u, 0u, 3u, 4u, 5u, 2u, 1u, 
-    0u, 3u, 5u, 1u, 2u, 4u, 0u, 3u, 5u, 1u, 4u, 2u, 0u, 3u, 5u, 2u, 1u, 4u, 0u, 3u, 5u, 2u, 4u, 1u, 0u, 3u, 5u, 4u, 1u, 2u, 0u, 3u, 5u, 4u, 2u, 1u, 
-    0u, 4u, 1u, 2u, 3u, 5u, 0u, 4u, 1u, 2u, 5u, 3u, 0u, 4u, 1u, 3u, 2u, 5u, 0u, 4u, 1u, 3u, 5u, 2u, 0u, 4u, 1u, 5u, 2u, 3u, 0u, 4u, 1u, 5u, 3u, 2u, 
-    0u, 4u, 2u, 1u, 3u, 5u, 0u, 4u, 2u, 1u, 5u, 3u, 0u, 4u, 2u, 3u, 1u, 5u, 0u, 4u, 2u, 3u, 5u, 1u, 0u, 4u, 2u, 5u, 1u, 3u, 0u, 4u, 2u, 5u, 3u, 1u, 
-    0u, 4u, 3u, 1u, 2u, 5u, 0u, 4u, 3u, 1u, 5u, 2u, 0u, 4u, 3u, 2u, 1u, 5u, 0u, 4u, 3u, 2u, 5u, 1u, 0u, 4u, 3u, 5u, 1u, 2u, 0u, 4u, 3u, 5u, 2u, 1u, 
-    0u, 4u, 5u, 1u, 2u, 3u, 0u, 4u, 5u, 1u, 3u, 2u, 0u, 4u, 5u, 2u, 1u, 3u, 0u, 4u, 5u, 2u, 3u, 1u, 0u, 4u, 5u, 3u, 1u, 2u, 0u, 4u, 5u, 3u, 2u, 1u, 
-    0u, 5u, 1u, 2u, 3u, 4u, 0u, 5u, 1u, 2u, 4u, 3u, 0u, 5u, 1u, 3u, 2u, 4u, 0u, 5u, 1u, 3u, 4u, 2u, 0u, 5u, 1u, 4u, 2u, 3u, 0u, 5u, 1u, 4u, 3u, 2u, 
-    0u, 5u, 2u, 1u, 3u, 4u, 0u, 5u, 2u, 1u, 4u, 3u, 0u, 5u, 2u, 3u, 1u, 4u, 0u, 5u, 2u, 3u, 4u, 1u, 0u, 5u, 2u, 4u, 1u, 3u, 0u, 5u, 2u, 4u, 3u, 1u, 
-    0u, 5u, 3u, 1u, 2u, 4u, 0u, 5u, 3u, 1u, 4u, 2u, 0u, 5u, 3u, 2u, 1u, 4u, 0u, 5u, 3u, 2u, 4u, 1u, 0u, 5u, 3u, 4u, 1u, 2u, 0u, 5u, 3u, 4u, 2u, 1u, 
-    0u, 5u, 4u, 1u, 2u, 3u, 0u, 5u, 4u, 1u, 3u, 2u, 0u, 5u, 4u, 2u, 1u, 3u, 0u, 5u, 4u, 2u, 3u, 1u, 0u, 5u, 4u, 3u, 1u, 2u, 0u, 5u, 4u, 3u, 2u, 1u, 
-    1u, 0u, 2u, 3u, 4u, 5u, 1u, 0u, 2u, 3u, 5u, 4u, 1u, 0u, 2u, 4u, 3u, 5u, 1u, 0u, 2u, 4u, 5u, 3u, 1u, 0u, 2u, 5u, 3u, 4u, 1u, 0u, 2u, 5u, 4u, 3u, 
-    1u, 0u, 3u, 2u, 4u, 5u, 1u, 0u, 3u, 2u, 5u, 4u, 1u, 0u, 3u, 4u, 2u, 5u, 1u, 0u, 3u, 4u, 5u, 2u, 1u, 0u, 3u, 5u, 2u, 4u, 1u, 0u, 3u, 5u, 4u, 2u, 
-    1u, 0u, 4u, 2u, 3u, 5u, 1u, 0u, 4u, 2u, 5u, 3u, 1u, 0u, 4u, 3u, 2u, 5u, 1u, 0u, 4u, 3u, 5u, 2u, 1u, 0u, 4u, 5u, 2u, 3u, 1u, 0u, 4u, 5u, 3u, 2u, 
-    1u, 0u, 5u, 2u, 3u, 4u, 1u, 0u, 5u, 2u, 4u, 3u, 1u, 0u, 5u, 3u, 2u, 4u, 1u, 0u, 5u, 3u, 4u, 2u, 1u, 0u, 5u, 4u, 2u, 3u, 1u, 0u, 5u, 4u, 3u, 2u, 
-    1u, 2u, 0u, 3u, 4u, 5u, 1u, 2u, 0u, 3u, 5u, 4u, 1u, 2u, 0u, 4u, 3u, 5u, 1u, 2u, 0u, 4u, 5u, 3u, 1u, 2u, 0u, 5u, 3u, 4u, 1u, 2u, 0u, 5u, 4u, 3u, 
-    1u, 2u, 3u, 0u, 4u, 5u, 1u, 2u, 3u, 0u, 5u, 4u, 1u, 2u, 3u, 4u, 0u, 5u, 1u, 2u, 3u, 4u, 5u, 0u, 1u, 2u, 3u, 5u, 0u, 4u, 1u, 2u, 3u, 5u, 4u, 0u, 
-    1u, 2u, 4u, 0u, 3u, 5u, 1u, 2u, 4u, 0u, 5u, 3u, 1u, 2u, 4u, 3u, 0u, 5u, 1u, 2u, 4u, 3u, 5u, 0u, 1u, 2u, 4u, 5u, 0u, 3u, 1u, 2u, 4u, 5u, 3u, 0u, 
-    1u, 2u, 5u, 0u, 3u, 4u, 1u, 2u, 5u, 0u, 4u, 3u, 1u, 2u, 5u, 3u, 0u, 4u, 1u, 2u, 5u, 3u, 4u, 0u, 1u, 2u, 5u, 4u, 0u, 3u, 1u, 2u, 5u, 4u, 3u, 0u, 
-    1u, 3u, 0u, 2u, 4u, 5u, 1u, 3u, 0u, 2u, 5u, 4u, 1u, 3u, 0u, 4u, 2u, 5u, 1u, 3u, 0u, 4u, 5u, 2u, 1u, 3u, 0u, 5u, 2u, 4u, 1u, 3u, 0u, 5u, 4u, 2u, 
-    1u, 3u, 2u, 0u, 4u, 5u, 1u, 3u, 2u, 0u, 5u, 4u, 1u, 3u, 2u, 4u, 0u, 5u, 1u, 3u, 2u, 4u, 5u, 0u, 1u, 3u, 2u, 5u, 0u, 4u, 1u, 3u, 2u, 5u, 4u, 0u, 
-    1u, 3u, 4u, 0u, 2u, 5u, 1u, 3u, 4u, 0u, 5u, 2u, 1u, 3u, 4u, 2u, 0u, 5u, 1u, 3u, 4u, 2u, 5u, 0u, 1u, 3u, 4u, 5u, 0u, 2u, 1u, 3u, 4u, 5u, 2u, 0u, 
-    1u, 3u, 5u, 0u, 2u, 4u, 1u, 3u, 5u, 0u, 4u, 2u, 1u, 3u, 5u, 2u, 0u, 4u, 1u, 3u, 5u, 2u, 4u, 0u, 1u, 3u, 5u, 4u, 0u, 2u, 1u, 3u, 5u, 4u, 2u, 0u, 
-    1u, 4u, 0u, 2u, 3u, 5u, 1u, 4u, 0u, 2u, 5u, 3u, 1u, 4u, 0u, 3u, 2u, 5u, 1u, 4u, 0u, 3u, 5u, 2u, 1u, 4u, 0u, 5u, 2u, 3u, 1u, 4u, 0u, 5u, 3u, 2u, 
-    1u, 4u, 2u, 0u, 3u, 5u, 1u, 4u, 2u, 0u, 5u, 3u, 1u, 4u, 2u, 3u, 0u, 5u, 1u, 4u, 2u, 3u, 5u, 0u, 1u, 4u, 2u, 5u, 0u, 3u, 1u, 4u, 2u, 5u, 3u, 0u, 
-    1u, 4u, 3u, 0u, 2u, 5u, 1u, 4u, 3u, 0u, 5u, 2u, 1u, 4u, 3u, 2u, 0u, 5u, 1u, 4u, 3u, 2u, 5u, 0u, 1u, 4u, 3u, 5u, 0u, 2u, 1u, 4u, 3u, 5u, 2u, 0u, 
-    1u, 4u, 5u, 0u, 2u, 3u, 1u, 4u, 5u, 0u, 3u, 2u, 1u, 4u, 5u, 2u, 0u, 3u, 1u, 4u, 5u, 2u, 3u, 0u, 1u, 4u, 5u, 3u, 0u, 2u, 1u, 4u, 5u, 3u, 2u, 0u, 
-    1u, 5u, 0u, 2u, 3u, 4u, 1u, 5u, 0u, 2u, 4u, 3u, 1u, 5u, 0u, 3u, 2u, 4u, 1u, 5u, 0u, 3u, 4u, 2u, 1u, 5u, 0u, 4u, 2u, 3u, 1u, 5u, 0u, 4u, 3u, 2u, 
-    1u, 5u, 2u, 0u, 3u, 4u, 1u, 5u, 2u, 0u, 4u, 3u, 1u, 5u, 2u, 3u, 0u, 4u, 1u, 5u, 2u, 3u, 4u, 0u, 1u, 5u, 2u, 4u, 0u, 3u, 1u, 5u, 2u, 4u, 3u, 0u, 
-    1u, 5u, 3u, 0u, 2u, 4u, 1u, 5u, 3u, 0u, 4u, 2u, 1u, 5u, 3u, 2u, 0u, 4u, 1u, 5u, 3u, 2u, 4u, 0u, 1u, 5u, 3u, 4u, 0u, 2u, 1u, 5u, 3u, 4u, 2u, 0u, 
-    1u, 5u, 4u, 0u, 2u, 3u, 1u, 5u, 4u, 0u, 3u, 2u, 1u, 5u, 4u, 2u, 0u, 3u, 1u, 5u, 4u, 2u, 3u, 0u, 1u, 5u, 4u, 3u, 0u, 2u, 1u, 5u, 4u, 3u, 2u, 0u, 
-    2u, 0u, 1u, 3u, 4u, 5u, 2u, 0u, 1u, 3u, 5u, 4u, 2u, 0u, 1u, 4u, 3u, 5u, 2u, 0u, 1u, 4u, 5u, 3u, 2u, 0u, 1u, 5u, 3u, 4u, 2u, 0u, 1u, 5u, 4u, 3u, 
-    2u, 0u, 3u, 1u, 4u, 5u, 2u, 0u, 3u, 1u, 5u, 4u, 2u, 0u, 3u, 4u, 1u, 5u, 2u, 0u, 3u, 4u, 5u, 1u, 2u, 0u, 3u, 5u, 1u, 4u, 2u, 0u, 3u, 5u, 4u, 1u, 
-    2u, 0u, 4u, 1u, 3u, 5u, 2u, 0u, 4u, 1u, 5u, 3u, 2u, 0u, 4u, 3u, 1u, 5u, 2u, 0u, 4u, 3u, 5u, 1u, 2u, 0u, 4u, 5u, 1u, 3u, 2u, 0u, 4u, 5u, 3u, 1u, 
-    2u, 0u, 5u, 1u, 3u, 4u, 2u, 0u, 5u, 1u, 4u, 3u, 2u, 0u, 5u, 3u, 1u, 4u, 2u, 0u, 5u, 3u, 4u, 1u, 2u, 0u, 5u, 4u, 1u, 3u, 2u, 0u, 5u, 4u, 3u, 1u, 
-    2u, 1u, 0u, 3u, 4u, 5u, 2u, 1u, 0u, 3u, 5u, 4u, 2u, 1u, 0u, 4u, 3u, 5u, 2u, 1u, 0u, 4u, 5u, 3u, 2u, 1u, 0u, 5u, 3u, 4u, 2u, 1u, 0u, 5u, 4u, 3u, 
-    2u, 1u, 3u, 0u, 4u, 5u, 2u, 1u, 3u, 0u, 5u, 4u, 2u, 1u, 3u, 4u, 0u, 5u, 2u, 1u, 3u, 4u, 5u, 0u, 2u, 1u, 3u, 5u, 0u, 4u, 2u, 1u, 3u, 5u, 4u, 0u, 
-    2u, 1u, 4u, 0u, 3u, 5u, 2u, 1u, 4u, 0u, 5u, 3u, 2u, 1u, 4u, 3u, 0u, 5u, 2u, 1u, 4u, 3u, 5u, 0u, 2u, 1u, 4u, 5u, 0u, 3u, 2u, 1u, 4u, 5u, 3u, 0u, 
-    2u, 1u, 5u, 0u, 3u, 4u, 2u, 1u, 5u, 0u, 4u, 3u, 2u, 1u, 5u, 3u, 0u, 4u, 2u, 1u, 5u, 3u, 4u, 0u, 2u, 1u, 5u, 4u, 0u, 3u, 2u, 1u, 5u, 4u, 3u, 0u, 
-    2u, 3u, 0u, 1u, 4u, 5u, 2u, 3u, 0u, 1u, 5u, 4u, 2u, 3u, 0u, 4u, 1u, 5u, 2u, 3u, 0u, 4u, 5u, 1u, 2u, 3u, 0u, 5u, 1u, 4u, 2u, 3u, 0u, 5u, 4u, 1u, 
-    2u, 3u, 1u, 0u, 4u, 5u, 2u, 3u, 1u, 0u, 5u, 4u, 2u, 3u, 1u, 4u, 0u, 5u, 2u, 3u, 1u, 4u, 5u, 0u, 2u, 3u, 1u, 5u, 0u, 4u, 2u, 3u, 1u, 5u, 4u, 0u, 
-    2u, 3u, 4u, 0u, 1u, 5u, 2u, 3u, 4u, 0u, 5u, 1u, 2u, 3u, 4u, 1u, 0u, 5u, 2u, 3u, 4u, 1u, 5u, 0u, 2u, 3u, 4u, 5u, 0u, 1u, 2u, 3u, 4u, 5u, 1u, 0u, 
-    2u, 3u, 5u, 0u, 1u, 4u, 2u, 3u, 5u, 0u, 4u, 1u, 2u, 3u, 5u, 1u, 0u, 4u, 2u, 3u, 5u, 1u, 4u, 0u, 2u, 3u, 5u, 4u, 0u, 1u, 2u, 3u, 5u, 4u, 1u, 0u, 
-    2u, 4u, 0u, 1u, 3u, 5u, 2u, 4u, 0u, 1u, 5u, 3u, 2u, 4u, 0u, 3u, 1u, 5u, 2u, 4u, 0u, 3u, 5u, 1u, 2u, 4u, 0u, 5u, 1u, 3u, 2u, 4u, 0u, 5u, 3u, 1u, 
-    2u, 4u, 1u, 0u, 3u, 5u, 2u, 4u, 1u, 0u, 5u, 3u, 2u, 4u, 1u, 3u, 0u, 5u, 2u, 4u, 1u, 3u, 5u, 0u, 2u, 4u, 1u, 5u, 0u, 3u, 2u, 4u, 1u, 5u, 3u, 0u, 
-    2u, 4u, 3u, 0u, 1u, 5u, 2u, 4u, 3u, 0u, 5u, 1u, 2u, 4u, 3u, 1u, 0u, 5u, 2u, 4u, 3u, 1u, 5u, 0u, 2u, 4u, 3u, 5u, 0u, 1u, 2u, 4u, 3u, 5u, 1u, 0u, 
-    2u, 4u, 5u, 0u, 1u, 3u, 2u, 4u, 5u, 0u, 3u, 1u, 2u, 4u, 5u, 1u, 0u, 3u, 2u, 4u, 5u, 1u, 3u, 0u, 2u, 4u, 5u, 3u, 0u, 1u, 2u, 4u, 5u, 3u, 1u, 0u, 
-    2u, 5u, 0u, 1u, 3u, 4u, 2u, 5u, 0u, 1u, 4u, 3u, 2u, 5u, 0u, 3u, 1u, 4u, 2u, 5u, 0u, 3u, 4u, 1u, 2u, 5u, 0u, 4u, 1u, 3u, 2u, 5u, 0u, 4u, 3u, 1u, 
-    2u, 5u, 1u, 0u, 3u, 4u, 2u, 5u, 1u, 0u, 4u, 3u, 2u, 5u, 1u, 3u, 0u, 4u, 2u, 5u, 1u, 3u, 4u, 0u, 2u, 5u, 1u, 4u, 0u, 3u, 2u, 5u, 1u, 4u, 3u, 0u, 
-    2u, 5u, 3u, 0u, 1u, 4u, 2u, 5u, 3u, 0u, 4u, 1u, 2u, 5u, 3u, 1u, 0u, 4u, 2u, 5u, 3u, 1u, 4u, 0u, 2u, 5u, 3u, 4u, 0u, 1u, 2u, 5u, 3u, 4u, 1u, 0u, 
-    2u, 5u, 4u, 0u, 1u, 3u, 2u, 5u, 4u, 0u, 3u, 1u, 2u, 5u, 4u, 1u, 0u, 3u, 2u, 5u, 4u, 1u, 3u, 0u, 2u, 5u, 4u, 3u, 0u, 1u, 2u, 5u, 4u, 3u, 1u, 0u, 
-    3u, 0u, 1u, 2u, 4u, 5u, 3u, 0u, 1u, 2u, 5u, 4u, 3u, 0u, 1u, 4u, 2u, 5u, 3u, 0u, 1u, 4u, 5u, 2u, 3u, 0u, 1u, 5u, 2u, 4u, 3u, 0u, 1u, 5u, 4u, 2u, 
-    3u, 0u, 2u, 1u, 4u, 5u, 3u, 0u, 2u, 1u, 5u, 4u, 3u, 0u, 2u, 4u, 1u, 5u, 3u, 0u, 2u, 4u, 5u, 1u, 3u, 0u, 2u, 5u, 1u, 4u, 3u, 0u, 2u, 5u, 4u, 1u, 
-    3u, 0u, 4u, 1u, 2u, 5u, 3u, 0u, 4u, 1u, 5u, 2u, 3u, 0u, 4u, 2u, 1u, 5u, 3u, 0u, 4u, 2u, 5u, 1u, 3u, 0u, 4u, 5u, 1u, 2u, 3u, 0u, 4u, 5u, 2u, 1u, 
-    3u, 0u, 5u, 1u, 2u, 4u, 3u, 0u, 5u, 1u, 4u, 2u, 3u, 0u, 5u, 2u, 1u, 4u, 3u, 0u, 5u, 2u, 4u, 1u, 3u, 0u, 5u, 4u, 1u, 2u, 3u, 0u, 5u, 4u, 2u, 1u, 
-    3u, 1u, 0u, 2u, 4u, 5u, 3u, 1u, 0u, 2u, 5u, 4u, 3u, 1u, 0u, 4u, 2u, 5u, 3u, 1u, 0u, 4u, 5u, 2u, 3u, 1u, 0u, 5u, 2u, 4u, 3u, 1u, 0u, 5u, 4u, 2u, 
-    3u, 1u, 2u, 0u, 4u, 5u, 3u, 1u, 2u, 0u, 5u, 4u, 3u, 1u, 2u, 4u, 0u, 5u, 3u, 1u, 2u, 4u, 5u, 0u, 3u, 1u, 2u, 5u, 0u, 4u, 3u, 1u, 2u, 5u, 4u, 0u, 
-    3u, 1u, 4u, 0u, 2u, 5u, 3u, 1u, 4u, 0u, 5u, 2u, 3u, 1u, 4u, 2u, 0u, 5u, 3u, 1u, 4u, 2u, 5u, 0u, 3u, 1u, 4u, 5u, 0u, 2u, 3u, 1u, 4u, 5u, 2u, 0u, 
-    3u, 1u, 5u, 0u, 2u, 4u, 3u, 1u, 5u, 0u, 4u, 2u, 3u, 1u, 5u, 2u, 0u, 4u, 3u, 1u, 5u, 2u, 4u, 0u, 3u, 1u, 5u, 4u, 0u, 2u, 3u, 1u, 5u, 4u, 2u, 0u, 
-    3u, 2u, 0u, 1u, 4u, 5u, 3u, 2u, 0u, 1u, 5u, 4u, 3u, 2u, 0u, 4u, 1u, 5u, 3u, 2u, 0u, 4u, 5u, 1u, 3u, 2u, 0u, 5u, 1u, 4u, 3u, 2u, 0u, 5u, 4u, 1u, 
-    3u, 2u, 1u, 0u, 4u, 5u, 3u, 2u, 1u, 0u, 5u, 4u, 3u, 2u, 1u, 4u, 0u, 5u, 3u, 2u, 1u, 4u, 5u, 0u, 3u, 2u, 1u, 5u, 0u, 4u, 3u, 2u, 1u, 5u, 4u, 0u, 
-    3u, 2u, 4u, 0u, 1u, 5u, 3u, 2u, 4u, 0u, 5u, 1u, 3u, 2u, 4u, 1u, 0u, 5u, 3u, 2u, 4u, 1u, 5u, 0u, 3u, 2u, 4u, 5u, 0u, 1u, 3u, 2u, 4u, 5u, 1u, 0u, 
-    3u, 2u, 5u, 0u, 1u, 4u, 3u, 2u, 5u, 0u, 4u, 1u, 3u, 2u, 5u, 1u, 0u, 4u, 3u, 2u, 5u, 1u, 4u, 0u, 3u, 2u, 5u, 4u, 0u, 1u, 3u, 2u, 5u, 4u, 1u, 0u, 
-    3u, 4u, 0u, 1u, 2u, 5u, 3u, 4u, 0u, 1u, 5u, 2u, 3u, 4u, 0u, 2u, 1u, 5u, 3u, 4u, 0u, 2u, 5u, 1u, 3u, 4u, 0u, 5u, 1u, 2u, 3u, 4u, 0u, 5u, 2u, 1u, 
-    3u, 4u, 1u, 0u, 2u, 5u, 3u, 4u, 1u, 0u, 5u, 2u, 3u, 4u, 1u, 2u, 0u, 5u, 3u, 4u, 1u, 2u, 5u, 0u, 3u, 4u, 1u, 5u, 0u, 2u, 3u, 4u, 1u, 5u, 2u, 0u, 
-    3u, 4u, 2u, 0u, 1u, 5u, 3u, 4u, 2u, 0u, 5u, 1u, 3u, 4u, 2u, 1u, 0u, 5u, 3u, 4u, 2u, 1u, 5u, 0u, 3u, 4u, 2u, 5u, 0u, 1u, 3u, 4u, 2u, 5u, 1u, 0u, 
-    3u, 4u, 5u, 0u, 1u, 2u, 3u, 4u, 5u, 0u, 2u, 1u, 3u, 4u, 5u, 1u, 0u, 2u, 3u, 4u, 5u, 1u, 2u, 0u, 3u, 4u, 5u, 2u, 0u, 1u, 3u, 4u, 5u, 2u, 1u, 0u, 
-    3u, 5u, 0u, 1u, 2u, 4u, 3u, 5u, 0u, 1u, 4u, 2u, 3u, 5u, 0u, 2u, 1u, 4u, 3u, 5u, 0u, 2u, 4u, 1u, 3u, 5u, 0u, 4u, 1u, 2u, 3u, 5u, 0u, 4u, 2u, 1u, 
-    3u, 5u, 1u, 0u, 2u, 4u, 3u, 5u, 1u, 0u, 4u, 2u, 3u, 5u, 1u, 2u, 0u, 4u, 3u, 5u, 1u, 2u, 4u, 0u, 3u, 5u, 1u, 4u, 0u, 2u, 3u, 5u, 1u, 4u, 2u, 0u, 
-    3u, 5u, 2u, 0u, 1u, 4u, 3u, 5u, 2u, 0u, 4u, 1u, 3u, 5u, 2u, 1u, 0u, 4u, 3u, 5u, 2u, 1u, 4u, 0u, 3u, 5u, 2u, 4u, 0u, 1u, 3u, 5u, 2u, 4u, 1u, 0u, 
-    3u, 5u, 4u, 0u, 1u, 2u, 3u, 5u, 4u, 0u, 2u, 1u, 3u, 5u, 4u, 1u, 0u, 2u, 3u, 5u, 4u, 1u, 2u, 0u, 3u, 5u, 4u, 2u, 0u, 1u, 3u, 5u, 4u, 2u, 1u, 0u, 
-    4u, 0u, 1u, 2u, 3u, 5u, 4u, 0u, 1u, 2u, 5u, 3u, 4u, 0u, 1u, 3u, 2u, 5u, 4u, 0u, 1u, 3u, 5u, 2u, 4u, 0u, 1u, 5u, 2u, 3u, 4u, 0u, 1u, 5u, 3u, 2u, 
-    4u, 0u, 2u, 1u, 3u, 5u, 4u, 0u, 2u, 1u, 5u, 3u, 4u, 0u, 2u, 3u, 1u, 5u, 4u, 0u, 2u, 3u, 5u, 1u, 4u, 0u, 2u, 5u, 1u, 3u, 4u, 0u, 2u, 5u, 3u, 1u, 
-    4u, 0u, 3u, 1u, 2u, 5u, 4u, 0u, 3u, 1u, 5u, 2u, 4u, 0u, 3u, 2u, 1u, 5u, 4u, 0u, 3u, 2u, 5u, 1u, 4u, 0u, 3u, 5u, 1u, 2u, 4u, 0u, 3u, 5u, 2u, 1u, 
-    4u, 0u, 5u, 1u, 2u, 3u, 4u, 0u, 5u, 1u, 3u, 2u, 4u, 0u, 5u, 2u, 1u, 3u, 4u, 0u, 5u, 2u, 3u, 1u, 4u, 0u, 5u, 3u, 1u, 2u, 4u, 0u, 5u, 3u, 2u, 1u, 
-    4u, 1u, 0u, 2u, 3u, 5u, 4u, 1u, 0u, 2u, 5u, 3u, 4u, 1u, 0u, 3u, 2u, 5u, 4u, 1u, 0u, 3u, 5u, 2u, 4u, 1u, 0u, 5u, 2u, 3u, 4u, 1u, 0u, 5u, 3u, 2u, 
-    4u, 1u, 2u, 0u, 3u, 5u, 4u, 1u, 2u, 0u, 5u, 3u, 4u, 1u, 2u, 3u, 0u, 5u, 4u, 1u, 2u, 3u, 5u, 0u, 4u, 1u, 2u, 5u, 0u, 3u, 4u, 1u, 2u, 5u, 3u, 0u, 
-    4u, 1u, 3u, 0u, 2u, 5u, 4u, 1u, 3u, 0u, 5u, 2u, 4u, 1u, 3u, 2u, 0u, 5u, 4u, 1u, 3u, 2u, 5u, 0u, 4u, 1u, 3u, 5u, 0u, 2u, 4u, 1u, 3u, 5u, 2u, 0u, 
-    4u, 1u, 5u, 0u, 2u, 3u, 4u, 1u, 5u, 0u, 3u, 2u, 4u, 1u, 5u, 2u, 0u, 3u, 4u, 1u, 5u, 2u, 3u, 0u, 4u, 1u, 5u, 3u, 0u, 2u, 4u, 1u, 5u, 3u, 2u, 0u, 
-    4u, 2u, 0u, 1u, 3u, 5u, 4u, 2u, 0u, 1u, 5u, 3u, 4u, 2u, 0u, 3u, 1u, 5u, 4u, 2u, 0u, 3u, 5u, 1u, 4u, 2u, 0u, 5u, 1u, 3u, 4u, 2u, 0u, 5u, 3u, 1u, 
-    4u, 2u, 1u, 0u, 3u, 5u, 4u, 2u, 1u, 0u, 5u, 3u, 4u, 2u, 1u, 3u, 0u, 5u, 4u, 2u, 1u, 3u, 5u, 0u, 4u, 2u, 1u, 5u, 0u, 3u, 4u, 2u, 1u, 5u, 3u, 0u, 
-    4u, 2u, 3u, 0u, 1u, 5u, 4u, 2u, 3u, 0u, 5u, 1u, 4u, 2u, 3u, 1u, 0u, 5u, 4u, 2u, 3u, 1u, 5u, 0u, 4u, 2u, 3u, 5u, 0u, 1u, 4u, 2u, 3u, 5u, 1u, 0u, 
-    4u, 2u, 5u, 0u, 1u, 3u, 4u, 2u, 5u, 0u, 3u, 1u, 4u, 2u, 5u, 1u, 0u, 3u, 4u, 2u, 5u, 1u, 3u, 0u, 4u, 2u, 5u, 3u, 0u, 1u, 4u, 2u, 5u, 3u, 1u, 0u, 
-    4u, 3u, 0u, 1u, 2u, 5u, 4u, 3u, 0u, 1u, 5u, 2u, 4u, 3u, 0u, 2u, 1u, 5u, 4u, 3u, 0u, 2u, 5u, 1u, 4u, 3u, 0u, 5u, 1u, 2u, 4u, 3u, 0u, 5u, 2u, 1u, 
-    4u, 3u, 1u, 0u, 2u, 5u, 4u, 3u, 1u, 0u, 5u, 2u, 4u, 3u, 1u, 2u, 0u, 5u, 4u, 3u, 1u, 2u, 5u, 0u, 4u, 3u, 1u, 5u, 0u, 2u, 4u, 3u, 1u, 5u, 2u, 0u, 
-    4u, 3u, 2u, 0u, 1u, 5u, 4u, 3u, 2u, 0u, 5u, 1u, 4u, 3u, 2u, 1u, 0u, 5u, 4u, 3u, 2u, 1u, 5u, 0u, 4u, 3u, 2u, 5u, 0u, 1u, 4u, 3u, 2u, 5u, 1u, 0u, 
-    4u, 3u, 5u, 0u, 1u, 2u, 4u, 3u, 5u, 0u, 2u, 1u, 4u, 3u, 5u, 1u, 0u, 2u, 4u, 3u, 5u, 1u, 2u, 0u, 4u, 3u, 5u, 2u, 0u, 1u, 4u, 3u, 5u, 2u, 1u, 0u, 
-    4u, 5u, 0u, 1u, 2u, 3u, 4u, 5u, 0u, 1u, 3u, 2u, 4u, 5u, 0u, 2u, 1u, 3u, 4u, 5u, 0u, 2u, 3u, 1u, 4u, 5u, 0u, 3u, 1u, 2u, 4u, 5u, 0u, 3u, 2u, 1u, 
-    4u, 5u, 1u, 0u, 2u, 3u, 4u, 5u, 1u, 0u, 3u, 2u, 4u, 5u, 1u, 2u, 0u, 3u, 4u, 5u, 1u, 2u, 3u, 0u, 4u, 5u, 1u, 3u, 0u, 2u, 4u, 5u, 1u, 3u, 2u, 0u, 
-    4u, 5u, 2u, 0u, 1u, 3u, 4u, 5u, 2u, 0u, 3u, 1u, 4u, 5u, 2u, 1u, 0u, 3u, 4u, 5u, 2u, 1u, 3u, 0u, 4u, 5u, 2u, 3u, 0u, 1u, 4u, 5u, 2u, 3u, 1u, 0u, 
-    4u, 5u, 3u, 0u, 1u, 2u, 4u, 5u, 3u, 0u, 2u, 1u, 4u, 5u, 3u, 1u, 0u, 2u, 4u, 5u, 3u, 1u, 2u, 0u, 4u, 5u, 3u, 2u, 0u, 1u, 4u, 5u, 3u, 2u, 1u, 0u, 
-    5u, 0u, 1u, 2u, 3u, 4u, 5u, 0u, 1u, 2u, 4u, 3u, 5u, 0u, 1u, 3u, 2u, 4u, 5u, 0u, 1u, 3u, 4u, 2u, 5u, 0u, 1u, 4u, 2u, 3u, 5u, 0u, 1u, 4u, 3u, 2u, 
-    5u, 0u, 2u, 1u, 3u, 4u, 5u, 0u, 2u, 1u, 4u, 3u, 5u, 0u, 2u, 3u, 1u, 4u, 5u, 0u, 2u, 3u, 4u, 1u, 5u, 0u, 2u, 4u, 1u, 3u, 5u, 0u, 2u, 4u, 3u, 1u, 
-    5u, 0u, 3u, 1u, 2u, 4u, 5u, 0u, 3u, 1u, 4u, 2u, 5u, 0u, 3u, 2u, 1u, 4u, 5u, 0u, 3u, 2u, 4u, 1u, 5u, 0u, 3u, 4u, 1u, 2u, 5u, 0u, 3u, 4u, 2u, 1u, 
-    5u, 0u, 4u, 1u, 2u, 3u, 5u, 0u, 4u, 1u, 3u, 2u, 5u, 0u, 4u, 2u, 1u, 3u, 5u, 0u, 4u, 2u, 3u, 1u, 5u, 0u, 4u, 3u, 1u, 2u, 5u, 0u, 4u, 3u, 2u, 1u, 
-    5u, 1u, 0u, 2u, 3u, 4u, 5u, 1u, 0u, 2u, 4u, 3u, 5u, 1u, 0u, 3u, 2u, 4u, 5u, 1u, 0u, 3u, 4u, 2u, 5u, 1u, 0u, 4u, 2u, 3u, 5u, 1u, 0u, 4u, 3u, 2u, 
-    5u, 1u, 2u, 0u, 3u, 4u, 5u, 1u, 2u, 0u, 4u, 3u, 5u, 1u, 2u, 3u, 0u, 4u, 5u, 1u, 2u, 3u, 4u, 0u, 5u, 1u, 2u, 4u, 0u, 3u, 5u, 1u, 2u, 4u, 3u, 0u, 
-    5u, 1u, 3u, 0u, 2u, 4u, 5u, 1u, 3u, 0u, 4u, 2u, 5u, 1u, 3u, 2u, 0u, 4u, 5u, 1u, 3u, 2u, 4u, 0u, 5u, 1u, 3u, 4u, 0u, 2u, 5u, 1u, 3u, 4u, 2u, 0u, 
-    5u, 1u, 4u, 0u, 2u, 3u, 5u, 1u, 4u, 0u, 3u, 2u, 5u, 1u, 4u, 2u, 0u, 3u, 5u, 1u, 4u, 2u, 3u, 0u, 5u, 1u, 4u, 3u, 0u, 2u, 5u, 1u, 4u, 3u, 2u, 0u, 
-    5u, 2u, 0u, 1u, 3u, 4u, 5u, 2u, 0u, 1u, 4u, 3u, 5u, 2u, 0u, 3u, 1u, 4u, 5u, 2u, 0u, 3u, 4u, 1u, 5u, 2u, 0u, 4u, 1u, 3u, 5u, 2u, 0u, 4u, 3u, 1u, 
-    5u, 2u, 1u, 0u, 3u, 4u, 5u, 2u, 1u, 0u, 4u, 3u, 5u, 2u, 1u, 3u, 0u, 4u, 5u, 2u, 1u, 3u, 4u, 0u, 5u, 2u, 1u, 4u, 0u, 3u, 5u, 2u, 1u, 4u, 3u, 0u, 
-    5u, 2u, 3u, 0u, 1u, 4u, 5u, 2u, 3u, 0u, 4u, 1u, 5u, 2u, 3u, 1u, 0u, 4u, 5u, 2u, 3u, 1u, 4u, 0u, 5u, 2u, 3u, 4u, 0u, 1u, 5u, 2u, 3u, 4u, 1u, 0u, 
-    5u, 2u, 4u, 0u, 1u, 3u, 5u, 2u, 4u, 0u, 3u, 1u, 5u, 2u, 4u, 1u, 0u, 3u, 5u, 2u, 4u, 1u, 3u, 0u, 5u, 2u, 4u, 3u, 0u, 1u, 5u, 2u, 4u, 3u, 1u, 0u, 
-    5u, 3u, 0u, 1u, 2u, 4u, 5u, 3u, 0u, 1u, 4u, 2u, 5u, 3u, 0u, 2u, 1u, 4u, 5u, 3u, 0u, 2u, 4u, 1u, 5u, 3u, 0u, 4u, 1u, 2u, 5u, 3u, 0u, 4u, 2u, 1u, 
-    5u, 3u, 1u, 0u, 2u, 4u, 5u, 3u, 1u, 0u, 4u, 2u, 5u, 3u, 1u, 2u, 0u, 4u, 5u, 3u, 1u, 2u, 4u, 0u, 5u, 3u, 1u, 4u, 0u, 2u, 5u, 3u, 1u, 4u, 2u, 0u, 
-    5u, 3u, 2u, 0u, 1u, 4u, 5u, 3u, 2u, 0u, 4u, 1u, 5u, 3u, 2u, 1u, 0u, 4u, 5u, 3u, 2u, 1u, 4u, 0u, 5u, 3u, 2u, 4u, 0u, 1u, 5u, 3u, 2u, 4u, 1u, 0u, 
-    5u, 3u, 4u, 0u, 1u, 2u, 5u, 3u, 4u, 0u, 2u, 1u, 5u, 3u, 4u, 1u, 0u, 2u, 5u, 3u, 4u, 1u, 2u, 0u, 5u, 3u, 4u, 2u, 0u, 1u, 5u, 3u, 4u, 2u, 1u, 0u, 
-    5u, 4u, 0u, 1u, 2u, 3u, 5u, 4u, 0u, 1u, 3u, 2u, 5u, 4u, 0u, 2u, 1u, 3u, 5u, 4u, 0u, 2u, 3u, 1u, 5u, 4u, 0u, 3u, 1u, 2u, 5u, 4u, 0u, 3u, 2u, 1u, 
-    5u, 4u, 1u, 0u, 2u, 3u, 5u, 4u, 1u, 0u, 3u, 2u, 5u, 4u, 1u, 2u, 0u, 3u, 5u, 4u, 1u, 2u, 3u, 0u, 5u, 4u, 1u, 3u, 0u, 2u, 5u, 4u, 1u, 3u, 2u, 0u, 
-    5u, 4u, 2u, 0u, 1u, 3u, 5u, 4u, 2u, 0u, 3u, 1u, 5u, 4u, 2u, 1u, 0u, 3u, 5u, 4u, 2u, 1u, 3u, 0u, 5u, 4u, 2u, 3u, 0u, 1u, 5u, 4u, 2u, 3u, 1u, 0u, 
-    5u, 4u, 3u, 0u, 1u, 2u, 5u, 4u, 3u, 0u, 2u, 1u, 5u, 4u, 3u, 1u, 0u, 2u, 5u, 4u, 3u, 1u, 2u, 0u, 5u, 4u, 3u, 2u, 0u, 1u, 5u, 4u, 3u, 2u, 1u, 0u
-);
+// === 6! = 720 permutations, generated in place ===
+//
+// The permutations used to come from a 4320-entry `const` table indexed with a
+// runtime value. How a backend lowers that is not specified: some put it in
+// constant memory, others materialise the whole 17 KB array per invocation in
+// private/scratch memory, which costs far more than the solve it feeds. The
+// table was plain lexicographic order, so the standard next-permutation step
+// reproduces it EXACTLY -- same order, same first accepted permutation, same
+// candidate cells -- with a 6-entry private array and a few compares per step.
+//
+// Advances p to the next permutation in lexicographic order. Returns false
+// after the last one (5 4 3 2 1 0), leaving p unspecified.
+fn next_permutation6(p: ptr<function, array<u32, 6>>) -> bool {
+    // Rightmost ascent: largest i with p[i] < p[i+1].
+    var i: i32 = 4;
+    loop {
+        if (i < 0) { return false; }
+        if ((*p)[i] < (*p)[i + 1]) { break; }
+        i = i - 1;
+    }
+    // Rightmost element larger than p[i] (the suffix is non-increasing).
+    var j: i32 = 5;
+    loop {
+        if ((*p)[j] > (*p)[i]) { break; }
+        j = j - 1;
+    }
+    let t = (*p)[i];
+    (*p)[i] = (*p)[j];
+    (*p)[j] = t;
+    // Reverse the suffix after i so it becomes the smallest arrangement.
+    var lo: i32 = i + 1;
+    var hi: i32 = 5;
+    loop {
+        if (lo >= hi) { break; }
+        let u = (*p)[lo];
+        (*p)[lo] = (*p)[hi];
+        (*p)[hi] = u;
+        lo = lo + 1;
+        hi = hi - 1;
+    }
+    return true;
+}
 
 // === Helper Functions ===
 
@@ -640,35 +559,34 @@ fn main(
     var lu_piv: array<u32, 6>;
     if (!factor6x6(M, &U_lu, &lu_facs, &lu_piv)) { return; }
 
-    // 6. Loop over all 720 permutations
-    for(var p_idx: u32 = 0u; p_idx < 720u; p_idx = p_idx + 1u) {
-        let perm_offset = p_idx * 6u;
+    // 6. Loop over all 720 permutations, in lexicographic order.
+    var perm = array<u32, 6>(0u, 1u, 2u, 3u, 4u, 5u);
+    loop {
         let q_perm = Vec6(
-             q_base[PERMUTATIONS_6[perm_offset + 0u]], 
-             q_base[PERMUTATIONS_6[perm_offset + 1u]], 
-             q_base[PERMUTATIONS_6[perm_offset + 2u]],
-             q_base[PERMUTATIONS_6[perm_offset + 3u]],
-             q_base[PERMUTATIONS_6[perm_offset + 4u]],
-             q_base[PERMUTATIONS_6[perm_offset + 5u]]
+             q_base[perm[0]],
+             q_base[perm[1]],
+             q_base[perm[2]],
+             q_base[perm[3]],
+             q_base[perm[4]],
+             q_base[perm[5]]
         );
-         
+
         let fit_params = substitute6x6(&U_lu, &lu_facs, &lu_piv, q_perm);
         let cell = extractCell(fit_params);
-         
-        if (cell.a > 0.0) { 
+
+        if (cell.a > 0.0) {
             let avg_err = validate_fom_avg_diff(fit_params);
-            
+
             if (avg_err < config.f_params.w) {
                 // Atomic Add to Global Counter
                 let idx = atomicAdd(&solution_counter[0], 1u);
-                
+
                 if (idx < config.u_params2.z) {
                     results_list[idx] = cell;
                 }
-                // Debug log removed (was: writes to debug_log[] on every accepted cell,
-                // never read back on the JS side). Same cleanup as ortho had.
                 break; // Stop checking permutations for this combo
             }
         }
-    } 
+        if (!next_permutation6(&perm)) { break; }
+    }
 }

@@ -61,8 +61,12 @@ something behaves the way it does.
 
 ## Quick start
 
-1. **Load a data file.** Two-column text (`.xy`, `.csv`, `.txt`), or `.xrdml`,
-   `.brml`, `.ras`, `.uxd`, `.udf`, `.esd`, `.xra`.
+1. **Load a data file.** Two-column text (`.xy`, `.csv`, `.txt`; a header line
+   such as `Wavelength 0.79764` is picked up), `.xrdml`, Bruker RawData `.xml`
+   (the XML inside a `.brml`, unzipped), `.ras`, `.uxd`, `.udf`, GSAS (`.gsa`,
+   `.esd`, `.std`, `.xra`), FullProf `.dat` and pdCIF. When the file records its
+   radiation, the matching preset is selected: a Kα doublet gives the Kα-average
+   preset (and Kα₂ stripping), a monochromated Kα1 line the Kα1 preset.
 2. **Detect peaks.** Adjust `Min peak (%)`, `Radius (pts)` and `Points` until
    the marks match what you see.
 3. **Curate the peak list.** This is the step that decides whether indexing
@@ -197,11 +201,11 @@ to different indices, and applying it would be wrong.
 |---|---|
 | `brutus.html` | the application |
 | `brutus_help.html` | full technical documentation |
-| `main_app.js` | UI, chart, file parsing, orchestration |
-| `worker-logic.js` | the crystallography: HKL generation, least squares, figures of merit, Niggli reduction, space-group analysis. Loaded three ways — main thread, CPU index worker, and inside each refinement worker |
-| `webgpu-engine.js` | WebGPU device, buffers, dispatch chunking, combinadics |
-| `refinement-worker.js` | batch refinement; a pool of these runs alongside the GPU search |
-| `*_solver.wgsl` | the three compute kernels |
+| `js/core/`, `js/data/`, `js/parsers/`, `js/peaks/`, `js/chart/`, `js/dialogs/`, `js/report/`, `js/indexing/`, `js/main.js` | the UI: state, file readers, peak picking, chart, dialogs, exports and report, and the indexing orchestration (`js/indexing/run.js`) |
+| `js/crystallography/` | the crystallography: HKL generation, least squares, figures of merit, Niggli reduction, space-group analysis. The same files run on the main thread and in both workers; `manifest.js` lists them in load order |
+| `js/workers/` | `index-worker.js` (CPU cubic/tetragonal/hexagonal search and post-processing) and `refinement-worker.js` (batch refinement; a pool of these runs alongside the GPU search) |
+| `js/gpu/` | `webgpu-engine.js` (device, buffers, dispatch chunking, combinadics) plus the GPU parameter controls |
+| `shaders/*.wgsl` | the three compute kernels |
 | `sg_ops.json` | the space-group database |
 | `styles.css`, `inter-font.css`, `Inter-Variable.ttf`, `tex-svg.js`, `scripts/` | styling, fonts, MathJax, and the vendored libraries |
 
@@ -213,21 +217,27 @@ to different indices, and applying it would be wrong.
 | `check_sg_ops.mjs` | validates the database against the application |
 | `bump_version.py` | stamps one cache-busting `?v=` across `brutus.html` |
 | `test_sg_ops.mjs` | derives reflection conditions from the shipping operator code and checks them against the International Tables |
-| `check_pipeline.mjs` | verifies `main_app.js`, the engine and the shaders still agree on how the HKL basis is packed |
+| `check_pipeline.mjs` | verifies the app (`js/indexing/run.js`), the engine and the shaders still agree on how the HKL basis is packed |
+| `check_load_order.mjs` | checks that the scripts in `brutus.html` and the worker manifest load in a safe order (nothing runs before what it uses is defined) and that the two lists agree. Needs `npm install --no-save typescript` |
+| `regression_test.mjs` | Node regression tests of the crystallography code: known cubic, tetragonal, hexagonal and orthorhombic cells, Niggli reduction, and error propagation against Monte Carlo (about three minutes) |
 
-The last two are worth running after touching the code they cover, because both
-failures are otherwise invisible: the run completes, every candidate cell is
-nonsense, and you get no solutions and no error.
+`test_sg_ops.mjs` and `check_pipeline.mjs` are worth running after touching the
+code they cover, because both failures are otherwise invisible: the run
+completes, every candidate cell is nonsense, and you get no solutions and no
+error. Run `check_load_order.mjs` after moving code between files or adding a
+script: the scripts share one global scope, and a name used before the script
+that defines it has run fails only when that code path executes.
 
 ### A note on the browser cache
 
-`worker-logic.js` is fetched under three different URLs, and each is a separate
-cache entry. A partial version bump can leave the main thread and the workers
-running *different builds of the same file*, which does not present as a caching
-problem — it presents as the results table and the PDF report disagreeing. Run
-`python bump_version.py` after any change; it sets every `?v=` together and
-warns if they have drifted apart. The `.wgsl` shaders are still fetched
-unversioned, so a shader change also requires a hard reload .
+The page, the two workers and the GPU shaders must all come from the same build:
+if the browser serves an old crystallography file to the workers while the page
+runs a new one, the result is not an obvious caching error but, for example, a
+results table and a PDF report that disagree. Every URL therefore carries the
+same `?v=`: the `<script>` tags in `brutus.html`, and -- through
+`js/core/version.js` -- the workers, the shaders and `sg_ops.json`. Run
+`python bump_version.py` after any change; it sets every tag together and warns
+if they have drifted apart.
 
 ---
 
@@ -257,4 +267,4 @@ Licensed under a
   <img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-nc-nd/4.0/88x31.png" />
 </a>
 
-*Last updated: 29 August 2026.*
+*Last updated: 6 October 2026.*

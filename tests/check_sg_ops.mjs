@@ -2,8 +2,8 @@
 //
 // build_sg_db.py --check validates the file against ITSELF (operators vs
 // conditions). This validates it against the APP: the loader gates in
-// main_app.js, every field worker-logic.js dereferences, and an actual
-// extinction-class build through the shipping code.
+// js/core/sg-database.js, every field the crystallography code dereferences,
+// and an actual extinction-class build through the shipping code.
 //
 //   node check_sg_ops.mjs [sg_ops.json]
 //
@@ -32,7 +32,7 @@ console.log(`${FILE}: ${Object.keys(db.space_groups || {}).length} space groups,
             `${db.setting_count ?? '?'} settings, ${(db.rotations||[]).length} rotations, ` +
             `${Object.keys(db.zone_defs||{}).length} zone labels\n`);
 
-// 1. main_app.js loader gates, replicated exactly
+// 1. js/core/sg-database.js loader gates, replicated exactly
 const gates = [
   ["has space_groups", !!db.space_groups],
   ["has rotations",    !!db.rotations],
@@ -40,7 +40,7 @@ const gates = [
 ];
 for (const [n,v] of gates) console.log(`  ${v?'ok  ':'FAIL'} loader gate: ${n}`);
 
-// 2. every field worker-logic.js dereferences
+// 2. every field the crystallography code dereferences
 const need = { group: ['number','standard_symbol','crystal_system','point_group',
                        'centrosymmetric','settings'],
                setting: ['symbol','hall','centering','t_den','ops','conditions'] };
@@ -52,13 +52,18 @@ for (const g of Object.values(db.space_groups)) {
 console.log(`  ${miss.length?'FAIL':'ok  '} every field the app reads is present` +
             (miss.length?`: missing ${[...new Set(miss)].join(', ')}`:''));
 
-// 3. run it through the real worker-logic.js
+// 3. run it through the real crystallography scripts, in manifest order
 const ctx = { console:{log(){},warn(){},error(){}}, self:{}, performance:{now:()=>Date.now()},
               postMessage(){}, addEventListener(){}, setTimeout, clearTimeout, Date, Math, JSON,
               Uint8Array, Int32Array, Float64Array, Float32Array, Map, Set, WeakMap,
               Object, Array, Number, String, isFinite, parseInt, parseFloat };
 ctx.globalThis = ctx; vm.createContext(ctx);
-try { vm.runInContext(readFileSync('./worker-logic.js','utf8'), ctx, {filename:'w'}); } catch(e){}
+const manifest = readFileSync('./js/crystallography/manifest.js', 'utf8');
+const logicFiles = [...manifest.matchAll(/^\s*'([^']+\.js)',\s*$/gm)].map(m => './js/crystallography/' + m[1]);
+for (const f of logicFiles) {
+  try { vm.runInContext(readFileSync(f, 'utf8'), ctx, { filename: f }); }
+  catch (e) { console.log(`  FAIL could not evaluate ${f}: ${e.message}`); }
+}
 console.log(`  ${ctx.sgEnsureDatabase(db)?'ok  ':'FAIL'} sgEnsureDatabase() installs it`);
 
 let total = 0;
@@ -79,7 +84,7 @@ console.log(`  ${total>0?'ok  ':'FAIL'} classes build (${total} across all syste
 //    placed, which hides exactly the drops this check exists to find.
 console.log('\n  coverage — settings reachable through sgExtinctionClasses:');
 for (const fn of ['sgSystemMatches','sgSettingAxesMatch','settingCenteringAllowed','sgOpsCompile'])
-  if (typeof ctx[fn] !== 'function') { console.log(`  !! ${fn} missing from worker-logic.js`); }
+  if (typeof ctx[fn] !== 'function') { console.log(`  !! ${fn} missing from the crystallography scripts`); }
 
 let eligible = 0;
 const dropped = {};

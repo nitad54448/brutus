@@ -11,8 +11,70 @@
     <script src="scripts/hammer.min.js"></script>
     <script src="scripts/chartjs-plugin-zoom.min.js"></script>
     <script src="scripts/jspdf.umd.min.js"></script>
-    <script src="worker-logic.js?v=20260929"></script>
-    <script src="webgpu-engine.js?v=20260929"></script>
+    <!-- Crystallography: the same files run in both workers, which load them
+         through js/crystallography/manifest.js. Keep the two lists in step
+         (check_load_order.mjs compares them). -->
+    <script src="js/crystallography/metric.js?v=20261006" defer></script>
+    <script src="js/crystallography/hkl.js?v=20261006" defer></script>
+    <script src="js/crystallography/cell.js?v=20261006" defer></script>
+    <script src="js/crystallography/fit.js?v=20261006" defer></script>
+    <script src="js/crystallography/refine.js?v=20261006" defer></script>
+    <script src="js/crystallography/transforms.js?v=20261006" defer></script>
+    <script src="js/crystallography/monte-carlo.js?v=20261006" defer></script>
+    <script src="js/crystallography/niggli.js?v=20261006" defer></script>
+    <script src="js/crystallography/absences.js?v=20261006" defer></script>
+    <script src="js/crystallography/centering.js?v=20261006" defer></script>
+    <script src="js/crystallography/sg-ranking.js?v=20261006" defer></script>
+    <script src="js/crystallography/swap-search.js?v=20261006" defer></script>
+    <script src="js/crystallography/sg-ops.js?v=20261006" defer></script>
+    <script src="js/crystallography/sg-context.js?v=20261006" defer></script>
+    <script src="js/crystallography/sg-score.js?v=20261006" defer></script>
+    <script src="js/gpu/webgpu-engine.js?v=20261006" defer></script>
+    <!-- Application. Classic scripts, run in this order once the document is
+         parsed (defer); they share one global scope, so a name defined in one
+         is visible to the ones after it. js/main.js runs last. -->
+    <script src="js/core/version.js?v=20261006" defer></script>
+    <script src="js/core/utils.js?v=20261006" defer></script>
+    <script src="js/core/ui.js?v=20261006" defer></script>
+    <script src="js/core/state.js?v=20261006" defer></script>
+    <script src="js/core/inputs.js?v=20261006" defer></script>
+    <script src="js/data/wavelength.js?v=20261006" defer></script>
+    <script src="js/core/sg-database.js?v=20261006" defer></script>
+    <script src="js/gpu/gpu-setup.js?v=20261006" defer></script>
+    <script src="js/indexing/solutions.js?v=20261006" defer></script>
+    <script src="js/peaks/peak-controls.js?v=20261006" defer></script>
+    <script src="js/data/session.js?v=20261006" defer></script>
+    <script src="js/indexing/worker-pool.js?v=20261006" defer></script>
+    <script src="js/data/kalpha2-strip.js?v=20261006" defer></script>
+    <script src="js/data/export.js?v=20261006" defer></script>
+    <script src="js/chart/help-panel.js?v=20261006" defer></script>
+    <script src="js/parsers/fullprof.js?v=20261006" defer></script>
+    <script src="js/parsers/generic.js?v=20261006" defer></script>
+    <script src="js/parsers/xml-utils.js?v=20261006" defer></script>
+    <script src="js/parsers/bruker-xml.js?v=20261006" defer></script>
+    <script src="js/parsers/xrdml.js?v=20261006" defer></script>
+    <script src="js/parsers/rigaku-ras.js?v=20261006" defer></script>
+    <script src="js/parsers/gsas.js?v=20261006" defer></script>
+    <script src="js/parsers/uxd.js?v=20261006" defer></script>
+    <script src="js/parsers/philips-udf.js?v=20261006" defer></script>
+    <script src="js/parsers/pdcif.js?v=20261006" defer></script>
+    <script src="js/parsers/detect.js?v=20261006" defer></script>
+    <script src="js/data/file-load.js?v=20261006" defer></script>
+    <script src="js/peaks/peak-finder.js?v=20261006" defer></script>
+    <script src="js/peaks/peak-table.js?v=20261006" defer></script>
+    <script src="js/gpu/gpu-limits.js?v=20261006" defer></script>
+    <script src="js/indexing/diagnostics.js?v=20261006" defer></script>
+    <script src="js/indexing/run.js?v=20261006" defer></script>
+    <script src="js/dialogs/context-menu.js?v=20261006" defer></script>
+    <script src="js/dialogs/swap-hkl.js?v=20261006" defer></script>
+    <script src="js/dialogs/refine-mc.js?v=20261006" defer></script>
+    <script src="js/dialogs/space-group-mc.js?v=20261006" defer></script>
+    <script src="js/report/pdcif-export.js?v=20261006" defer></script>
+    <script src="js/report/pdf-report.js?v=20261006" defer></script>
+    <script src="js/chart/axes.js?v=20261006" defer></script>
+    <script src="js/chart/chart.js?v=20261006" defer></script>
+    <script src="js/chart/interaction.js?v=20261006" defer></script>
+    <script src="js/main.js?v=20261006" defer></script>
     <link href="inter-font.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
     <style>
@@ -491,7 +553,7 @@
     <p>All trial cells are refined, scored (M(20)), and analyzed for space groups. For a full breakdown, <a href="brutus_help.html" target="_blank" style="color: #6495ED;">read the technical guide.</a></p>
     <hr>
     <h4>Supported File Formats:</h4>
-    <p>Generic 2-column (2&theta; intensity), .xrdml, .xml, .ras, .uxd, .udf, GSAS .esd. Data, either raw or K& stripped, can be saved in various formats.</p>
+    <p>Generic 2-column (2&theta;, intensity; a "Wavelength" header line is read), .xrdml, Bruker RawData .xml, .ras, .uxd, .udf, GSAS (.gsa, .esd, .std, .xra), FullProf .dat and pdCIF. Data, raw or K&alpha;<sub>2</sub>-stripped, can be saved in several formats.</p>
     <hr>
     <h4>Chart Interaction:</h4>
     <p><b>Zoom:</b> Use the mouse wheel, or select an area. Right-click to reset zoom.</p>
@@ -543,8 +605,7 @@
 
     <div id="status-box"></div>
 
-    <script src="main_app.js?v=20260929"></script>
-<div id="app-footer">Brutus, 29 Sept 2026</div>
+<div id="app-footer">Brutus, 6 Oct 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-swap">Swap hkl</div>

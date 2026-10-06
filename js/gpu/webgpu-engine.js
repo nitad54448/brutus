@@ -1,4 +1,4 @@
-// webgpu-engine.js
+// js/gpu/webgpu-engine.js
 class WebGPUEngine {
     // Fetched WGSL source is plain text and does not depend on the GPUDevice, so
     // it is cached at class level and survives across engine instances (i.e.
@@ -32,6 +32,12 @@ class WebGPUEngine {
         // device is lost. Without it a driver reset / TDR / tab suspension is
         // only visible in the console: the UI just watches the run quietly fail.
         this.onDeviceLost = null;
+
+        // First uncaptured GPU error since the last run started. WebGPU reports
+        // validation/OOM failures asynchronously and never throws for them, so
+        // without this a broken dispatch looks like a run that found nothing.
+        // _runSolver checks it at every sync point.
+        this.uncapturedError = null;
     }
 
     // 1. Initialize WebGPU
@@ -39,8 +45,11 @@ class WebGPUEngine {
         if (!navigator.gpu) {
             throw new Error("WebGPU not supported on this browser.");
         }
-        this.adapter = await navigator.gpu.requestAdapter(); 
-        if (!this.adapter) { 
+        // Ask for the discrete GPU on dual-GPU machines; fall back to whatever
+        // the browser offers when that request is not honoured.
+        this.adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })
+                    || await navigator.gpu.requestAdapter();
+        if (!this.adapter) {
             throw new Error("No compatible GPUAdapter found.");
         }
         this.device = await this.adapter.requestDevice({
@@ -56,6 +65,12 @@ class WebGPUEngine {
         // than one clear message. The cached modules/pipelines belong to THIS
         // device, so they have to go with it.
         this.deviceLost = false;
+        this.device.addEventListener('uncapturederror', (event) => {
+            const err = event && event.error;
+            const msg = (err && err.message) || String(err || 'unknown GPU error');
+            if (!this.uncapturedError) this.uncapturedError = msg;
+            console.error('WebGPU uncaptured error:', msg);
+        });
         this.device.lost.then((info) => {
             this.deviceLost = true;
             this._moduleCache.clear();
@@ -145,6 +160,19 @@ class WebGPUEngine {
 
         WebGPUEngine._shaderSourceCache.set(url, shaderCode);
         const module = this.device.createShaderModule({ code: shaderCode });
+
+        // A WGSL error does not throw: createShaderModule returns an invalid
+        // module, every later call that uses it fails validation, and the run
+        // ends with "no solutions". Read the compiler messages and fail loudly.
+        if (typeof module.getCompilationInfo === 'function') {
+            const info = await module.getCompilationInfo();
+            const errors = info.messages.filter(m => m.type === 'error');
+            if (errors.length) {
+                const shown = errors.slice(0, 5)
+                    .map(m => `  line ${m.lineNum}:${m.linePos} ${m.message}`).join('\n');
+                throw new Error(`Shader ${url} failed to compile:\n${shown}`);
+            }
+        }
         this._moduleCache.set(url, module);
         this.shaderModule = module;
     }
@@ -204,7 +232,12 @@ class WebGPUEngine {
     }
 
     // 4. Create the compute pipeline with Explicit Layout
-    createPipeline(entryPoint = "main") {
+    //
+    // Async on purpose: createComputePipelineAsync REJECTS on a pipeline error
+    // (bad entry point, layout mismatch, resource limits), where the sync form
+    // hands back an invalid pipeline and the failure only surfaces later as a
+    // console-only validation error. Callers must await it.
+    async createPipeline(entryPoint = "main") {
         // Record what the kernel declares, for the dispatch-geometry check in
         // _runSolver. One regex pass over the WGSL; runs on cache hits too.
         this.pipelineWorkgroupSize = WebGPUEngine.parseWorkgroupSize(
@@ -225,14 +258,23 @@ class WebGPUEngine {
         const pipelineLayout = this.device.createPipelineLayout({
             bindGroupLayouts: [this.bindGroupLayout]
         });
-
-        this.pipeline = this.device.createComputePipeline({
+        const descriptor = {
             layout: pipelineLayout, // Use explicit layout instead of 'auto'
             compute: {
                 module: this.shaderModule,
                 entryPoint: entryPoint,
             },
-        });
+        };
+
+        if (typeof this.device.createComputePipelineAsync === 'function') {
+            try {
+                this.pipeline = await this.device.createComputePipelineAsync(descriptor);
+            } catch (err) {
+                throw new Error(`Compute pipeline '${entryPoint}' could not be created: ${err.message || err}`);
+            }
+        } else {
+            this.pipeline = this.device.createComputePipeline(descriptor);
+        }
         this._pipelineCache.set(cacheKey, this.pipeline);
         return this.pipeline;
     }
@@ -428,7 +470,7 @@ class WebGPUEngine {
 
         // Packing invariants. hkl_basis now holds PRECOMPUTED hkl products, not
         // raw indices: `cfg.hklFloats` f32 per reflection (4 for ortho/mono,
-        // 8 for triclinic — see HKL_PACKERS in main_app.js and the binding
+        // 8 for triclinic — see HKL_PACKERS in js/indexing/run.js and the binding
         // comments in the shaders). peak_combos is `peakComboStride` u32 per
         // combo. If either array is ever built with a length that isn't a whole
         // number of records, n_hkls / numPeakCombos silently go fractional and
@@ -443,56 +485,91 @@ class WebGPUEngine {
         // [h,k,l,pad] form is invisible to every check above: the dispatch
         // succeeds, every candidate cell is nonsense, the FoM rejects all of
         // them, and the run reports no solutions with no error anywhere. That
-        // is not a hypothetical -- it is what happens when main_app.js and this
+        // is not a hypothetical -- it is what happens when js/indexing/run.js and this
         // file drift apart. buildHklBasis stamps what it produced; refuse
         // anything else.
         if (baseParams.hklPacking !== 'products/v1') {
             throw new Error(
                 `hkl basis packing mismatch: expected 'products/v1', got ` +
                 `${baseParams.hklPacking === undefined ? 'nothing' : `'${baseParams.hklPacking}'`}. ` +
-                `main_app.js buildHklBasis() and webgpu-engine.js are out of sync — ` +
+                `buildHklBasis() (js/indexing/run.js) and webgpu-engine.js are out of sync — ` +
                 `the shaders need precomputed hkl products, not raw indices.`);
         }
         if (peakCombos.length % cfg.peakComboStride !== 0) {
             throw new Error(`peakCombos length ${peakCombos.length} is not a multiple of stride ${cfg.peakComboStride} for system ${cfg.systemName}.`);
         }
 
+        // Everything from here to the allocations is plain arithmetic and
+        // validation. It runs BEFORE any GPU buffer exists, so a rejected
+        // configuration (u32 overflow, X-dimension limit, oversized candidate
+        // buffer) can no longer leave buffers behind.
         const n_hkls = hklBasisArray.length / hklFloats;
         const binomialData = this.generateBinomialTable(n_hkls, K_VALUE);
-        const binomialBuffer = this.createBuffer(binomialData, GPUBufferUsage.STORAGE);
         const totalHklCombos = binomialData[n_hkls * (K_VALUE + 1) + K_VALUE];
 
         const maxSolutions = baseParams.max_solutions || 20000;
         const solutionStructSize = cfg.structFloats * 4; // bytes per cell
+        const resultsBytes = maxSolutions * solutionStructSize;
+        const devLimits = this.device.limits || {};
+        const maxBindingBytes = Math.min(devLimits.maxStorageBufferBindingSize || Infinity,
+                                         devLimits.maxBufferSize || Infinity);
+        if (resultsBytes > maxBindingBytes) {
+            throw new Error(
+                `${cfg.systemName}: a ${maxSolutions.toLocaleString()}-cell candidate buffer needs ` +
+                `${(resultsBytes / 1048576).toFixed(1)} MB, over this device's ` +
+                `${(maxBindingBytes / 1048576).toFixed(0)} MB storage-binding limit. Lower "Candidates".`);
+        }
 
-        const qObsBuffer = this.createBuffer(qObsArray, GPUBufferUsage.STORAGE);
-        const hklBasisBuffer = this.createBuffer(hklBasisArray, GPUBufferUsage.STORAGE);
-        const peakCombosBuffer = this.createBuffer(peakCombos, GPUBufferUsage.STORAGE);
-        const qTolerancesBuffer = this.createBuffer(qTolerancesArray, GPUBufferUsage.STORAGE);
+        const numPeakCombos = peakCombos.length / cfg.peakComboStride;
+        const maxHklPerDispatch = Math.floor(cfg.maxThreadsPerDispatch / Math.max(1, numPeakCombos));
+        let safeWorkgroupsY = Math.ceil(maxHklPerDispatch / cfg.workgroupY);
+        safeWorkgroupsY = Math.max(1, Math.min(safeWorkgroupsY, 16383));
+        const hklsPerChunk = safeWorkgroupsY * cfg.workgroupY;
+        // Clamp X against the device's per-dimension dispatch limit. Y is
+        // already clamped to 16383 above; X never was, and it grows as
+        // C(n_peaks, K): triclinic at 30 peaks is C(30,6)/4 = 148,443, well past
+        // the 65,535 WebGPU default. That is a hard dispatchWorkgroups validation
+        // error, not a slow run. The UI clamps "Peaks to Combine", but only this
+        // code can see the device limit, so it is enforced here as well.
+        // Throwing (rather than clamping) is deliberate: a clamped X would
+        // silently drop peak combinations from the search.
+        const maxWgPerDim = (this.device.limits &&
+                             this.device.limits.maxComputeWorkgroupsPerDimension) || 65535;
+        const workgroupsX = Math.ceil(numPeakCombos / cfg.workgroupX);
+        if (workgroupsX > maxWgPerDim) {
+            throw new Error(
+                `${cfg.systemName}: ${numPeakCombos.toLocaleString()} peak combinations need ` +
+                `${workgroupsX.toLocaleString()} workgroups in X, over this device's limit of ` +
+                `${maxWgPerDim.toLocaleString()}. Lower "Peaks to Combine".`);
+        }
+        const totalChunks = Math.ceil(totalHklCombos / hklsPerChunk);
 
-        // 32 bytes, not 4: slot 0 is the solution count as before, slots 1-3 are
-        // run diagnostics (see the binding comment in the shaders). Slot 2 is an
-        // atomicMin, so it must start at u32 MAX -- WebGPU zero-fills new
-        // buffers, and a min seeded at 0 would stay 0 forever and report every
-        // run as having produced a zero-volume cell.
-        const counterBuffer = this.createStorageBuffer(32);
-        const counterInit = new Uint32Array(8);
-        counterInit[2] = 0xFFFFFFFF;
-        this.device.queue.writeBuffer(counterBuffer, 0, counterInit);
-        const resultsBuffer = this.createStorageBuffer(maxSolutions * solutionStructSize);
-        const counterReadBuffer = this.createReadBuffer(32);
-        const resultsReadBuffer = this.createReadBuffer(maxSolutions * solutionStructSize);
-
-        // (debugCounterBuffer / debugLogBuffer removed along with bindings 7 and 8.)
+        // Chunk-count blow-up guard. hklsPerChunk shrinks as numPeakCombos grows
+        // (maxThreadsPerDispatch is a fixed budget), so raising "Peaks to
+        // Combine" quietly multiplies the number of dispatches. Triclinic at 20
+        // peaks gives C(20,6)=38760 combos -> maxHklPerDispatch=1 -> 4 hkls per
+        // chunk -> ~1e9 chunks for C(123,6): a run that never ends, with no
+        // error and a progress bar that looks merely slow. Report the geometry
+        // so the caller can warn before committing.
+        if (typeof progressCallback === 'function' && progressCallback.reportPlan) {
+            try {
+                progressCallback.reportPlan({
+                    totalChunks, hklsPerChunk, numPeakCombos, totalHklCombos,
+                    system: cfg.systemName,
+                });
+            } catch (_) {}
+        }
+        if (totalChunks > 200000) {
+            console.warn(
+                `[WebGPUEngine] ${cfg.systemName}: ${totalChunks.toLocaleString()} dispatches ` +
+                `(${hklsPerChunk} hkl/chunk x ${numPeakCombos} peak combos). This will be very slow. ` +
+                `Reduce "Peaks to Combine" or "HKL Basis Size".`);
+        }
 
         // 64, not 48: Config gained a fourth vec4<f32> holding the physical
         // limits (min_axis, max_axis, min_volume) that extractCell* used to
-        // hard-code while main_app.js kept its own copy of the same numbers.
+        // hard-code while the app kept its own copy of the same numbers.
         const configBufferSize = 64;
-        const configBuffer = this.device.createBuffer({
-            size: configBufferSize,
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-        });
         const configData = new ArrayBuffer(configBufferSize);
         const configViewU32 = new Uint32Array(configData);
         const configViewF32 = new Float32Array(configData);
@@ -529,69 +606,6 @@ class WebGPUEngine {
         configViewF32[14] = minVolume;
         configViewF32[15] = 0;
 
-        this.device.queue.writeBuffer(configBuffer, 0, configData);
-
-        const bindGroup = this.device.createBindGroup({
-            layout: this.bindGroupLayout,
-            entries: [
-                { binding: 0, resource: { buffer: qObsBuffer } },
-                { binding: 1, resource: { buffer: hklBasisBuffer } },
-                { binding: 2, resource: { buffer: peakCombosBuffer } },
-                { binding: 3, resource: { buffer: binomialBuffer } },
-                { binding: 4, resource: { buffer: counterBuffer } },
-                { binding: 5, resource: { buffer: resultsBuffer } },
-                { binding: 6, resource: { buffer: configBuffer } },
-                { binding: 7, resource: { buffer: qTolerancesBuffer } },
-            ],
-        });
-
-        const numPeakCombos = peakCombos.length / cfg.peakComboStride;
-        const maxHklPerDispatch = Math.floor(cfg.maxThreadsPerDispatch / Math.max(1, numPeakCombos));
-        let safeWorkgroupsY = Math.ceil(maxHklPerDispatch / cfg.workgroupY);
-        safeWorkgroupsY = Math.max(1, Math.min(safeWorkgroupsY, 16383));
-        const hklsPerChunk = safeWorkgroupsY * cfg.workgroupY;
-        // Clamp X against the device's per-dimension dispatch limit. Y is
-        // already clamped to 16383 above; X never was, and it grows as
-        // C(n_peaks, K): triclinic at 30 peaks is C(30,6)/4 = 148,443, well past
-        // the 65,535 WebGPU default. That is a hard dispatchWorkgroups validation
-        // error, not a slow run. The UI's max="20" does not bind -- a number
-        // input reports whatever was typed, and main_app.js reads it with a raw
-        // parseInt -- so the limit has to be enforced somewhere that can see the
-        // device. Throwing (rather than clamping) is deliberate: a clamped X
-        // would silently drop peak combinations from the search.
-        const maxWgPerDim = (this.device.limits &&
-                             this.device.limits.maxComputeWorkgroupsPerDimension) || 65535;
-        const workgroupsX = Math.ceil(numPeakCombos / cfg.workgroupX);
-        if (workgroupsX > maxWgPerDim) {
-            throw new Error(
-                `${cfg.systemName}: ${numPeakCombos.toLocaleString()} peak combinations need ` +
-                `${workgroupsX.toLocaleString()} workgroups in X, over this device's limit of ` +
-                `${maxWgPerDim.toLocaleString()}. Lower "Peaks to Combine".`);
-        }
-        const totalChunks = Math.ceil(totalHklCombos / hklsPerChunk);
-
-        // Chunk-count blow-up guard. hklsPerChunk shrinks as numPeakCombos grows
-        // (maxThreadsPerDispatch is a fixed budget), so raising "Peaks to
-        // Combine" quietly multiplies the number of dispatches. Triclinic at 20
-        // peaks gives C(20,6)=38760 combos -> maxHklPerDispatch=1 -> 4 hkls per
-        // chunk -> ~1e9 chunks for C(123,6): a run that never ends, with no
-        // error and a progress bar that looks merely slow. Report the geometry
-        // so the caller can warn before committing.
-        if (typeof progressCallback === 'function' && progressCallback.reportPlan) {
-            try {
-                progressCallback.reportPlan({
-                    totalChunks, hklsPerChunk, numPeakCombos, totalHklCombos,
-                    system: cfg.systemName,
-                });
-            } catch (_) {}
-        }
-        if (totalChunks > 200000) {
-            console.warn(
-                `[WebGPUEngine] ${cfg.systemName}: ${totalChunks.toLocaleString()} dispatches ` +
-                `(${hklsPerChunk} hkl/chunk x ${numPeakCombos} peak combos). This will be very slow. ` +
-                `Reduce "Peaks to Combine" or "HKL Basis Size".`);
-        }
-
         let solutionsReadCount = 0;
         let stoppedEarly = false;
         let lastYield = performance.now();
@@ -603,10 +617,68 @@ class WebGPUEngine {
         // whether or not the run succeeded.
         const diag = { peaksInBudget: 0, volMin: 0xFFFFFFFF, volMax: 0 };
 
-        // Byte alignment for copyBufferToBuffer: WebGPU requires size to be a multiple of 4.
-        // One cell is already a multiple of 4 bytes (4 or 8 f32s), so any count*structSize is safe.
+        // GPU resources. Each buffer is registered in `owned` the moment it is
+        // created and the finally block destroys exactly that list, so a throw
+        // at ANY point -- during allocation included -- releases what was made.
+        const owned = [];
+        const own = (buffer) => { owned.push(buffer); return buffer; };
+        let openErrorScopes = 0;
+        this.uncapturedError = null;
 
-try {
+        try {
+            // Allocation and bind-group errors are reported asynchronously by
+            // WebGPU and never throw. Scope them, so a size over the device
+            // limits becomes an exception here rather than a run that quietly
+            // finds nothing.
+            this.device.pushErrorScope('out-of-memory'); openErrorScopes++;
+            this.device.pushErrorScope('validation'); openErrorScopes++;
+
+            const binomialBuffer = own(this.createBuffer(binomialData, GPUBufferUsage.STORAGE));
+            const qObsBuffer = own(this.createBuffer(qObsArray, GPUBufferUsage.STORAGE));
+            const hklBasisBuffer = own(this.createBuffer(hklBasisArray, GPUBufferUsage.STORAGE));
+            const peakCombosBuffer = own(this.createBuffer(peakCombos, GPUBufferUsage.STORAGE));
+            const qTolerancesBuffer = own(this.createBuffer(qTolerancesArray, GPUBufferUsage.STORAGE));
+
+            // 32 bytes, not 4: slot 0 is the solution count as before, slots 1-3 are
+            // run diagnostics (see the binding comment in the shaders). Slot 2 is an
+            // atomicMin, so it must start at u32 MAX -- WebGPU zero-fills new
+            // buffers, and a min seeded at 0 would stay 0 forever and report every
+            // run as having produced a zero-volume cell.
+            const counterBuffer = own(this.createStorageBuffer(32));
+            const counterInit = new Uint32Array(8);
+            counterInit[2] = 0xFFFFFFFF;
+            this.device.queue.writeBuffer(counterBuffer, 0, counterInit);
+            const resultsBuffer = own(this.createStorageBuffer(resultsBytes));
+            const counterReadBuffer = own(this.createReadBuffer(32));
+            const resultsReadBuffer = own(this.createReadBuffer(resultsBytes));
+
+            const configBuffer = own(this.device.createBuffer({
+                size: configBufferSize,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+            }));
+            this.device.queue.writeBuffer(configBuffer, 0, configData);
+
+            const bindGroup = this.device.createBindGroup({
+                layout: this.bindGroupLayout,
+                entries: [
+                    { binding: 0, resource: { buffer: qObsBuffer } },
+                    { binding: 1, resource: { buffer: hklBasisBuffer } },
+                    { binding: 2, resource: { buffer: peakCombosBuffer } },
+                    { binding: 3, resource: { buffer: binomialBuffer } },
+                    { binding: 4, resource: { buffer: counterBuffer } },
+                    { binding: 5, resource: { buffer: resultsBuffer } },
+                    { binding: 6, resource: { buffer: configBuffer } },
+                    { binding: 7, resource: { buffer: qTolerancesBuffer } },
+                ],
+            });
+
+            const validationError = await this.device.popErrorScope(); openErrorScopes--;
+            const memoryError = await this.device.popErrorScope(); openErrorScopes--;
+            const setupError = validationError || memoryError;
+            if (setupError) {
+                throw new Error(`${cfg.systemName}: GPU setup failed: ${setupError.message}`);
+            }
+
             for (let i = 0; i < totalChunks; i++) {
                 if (stopSignal.stop) break;
                 // Yield at most once per frame instead of once per chunk, via an
@@ -676,6 +748,9 @@ try {
                 }
 
                 await this.device.queue.onSubmittedWorkDone();
+                if (this.uncapturedError) {
+                    throw new Error(`${cfg.systemName}: GPU error during the run: ${this.uncapturedError}`);
+                }
                 if (stopSignal.stop) break;
 
                 // Safely map counter buffer (catching aborts if device is lost or stopped)
@@ -762,10 +837,16 @@ try {
                 if (numSolutions >= maxSolutions) { stoppedEarly = true; break; }
             }
         } finally {
+            // Keep the device's error-scope stack balanced even when a throw
+            // skipped the pops above; a leaked scope would swallow later errors.
+            while (openErrorScopes > 0) {
+                openErrorScopes--;
+                this.device.popErrorScope().catch(() => {});
+            }
             // Guaranteed cleanup: prevents VRAM leaks even if an error or abort occurs above
-            qObsBuffer.destroy(); hklBasisBuffer.destroy(); peakCombosBuffer.destroy(); binomialBuffer.destroy();
-            counterBuffer.destroy(); resultsBuffer.destroy(); counterReadBuffer.destroy(); resultsReadBuffer.destroy();
-            configBuffer.destroy(); qTolerancesBuffer.destroy();
+            for (const buffer of owned) {
+                try { buffer.destroy(); } catch (_) { /* already gone with the device */ }
+            }
         }
 
         // Cells are delivered incrementally through onIntermediateResults; there
@@ -793,8 +874,8 @@ try {
         };
     }
 
-    // Backward-compatible entry points. brutus.html's makeGpuTask references these by name
-    // (cfg.engineMethod in GPU_SYSTEM_CONFIG), so we preserve them.
+    // Per-system entry points. makeGpuTask (js/indexing/gpu-search.js) calls these by
+    // name through cfg.engineMethod in GPU_SYSTEM_CONFIG.
     runOrthoSolver(...args) {
         return this._runSolver(WebGPUEngine.SYSTEM_CONFIGS.orthorhombic, ...args);
     }

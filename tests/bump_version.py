@@ -2,36 +2,29 @@
 """Stamp one cache-busting version across every ?v= in brutus.html.
 
 WHY THIS EXISTS
-The version lives in more places than is obvious, and getting it half-right is
-worse than not bumping at all -- you end up with a new main_app.js talking to a
-worker-logic.js the browser cached last week, which fails in ways that look like
-data problems.
+The page and the two workers run the same crystallography scripts. If the
+browser serves them from different builds (a new page script talking to a
+crystallography file cached last week) the failures look like data problems,
+not like a stale cache. One version, stamped everywhere, prevents that.
 
-WHERE THE VERSION IS ACTUALLY USED
+WHERE THE VERSION IS USED
 
-  brutus.html   <script src="worker-logic.js?v=...">    main-thread copy
-                <script src="webgpu-engine.js?v=...">   main-thread copy
-                <script src="main_app.js?v=...">        main-thread copy, AND
-                                                        the source of truth for
-                                                        everything below
+  brutus.html    every <script src="js/...?v=..."> tag. The page loads all of
+                 its own code through these tags.
 
-  main_app.js   reads its OWN ?v= off the script tag at runtime (APP_VERSION_QS)
-                and appends it to:
-                  - the CPU index worker      new Worker('worker-logic.js?v=')
-                  - the refinement workers    new Worker('refinement-worker.js?v=')
-                  - the space group database  fetch('sg_ops.json?v=')
+  js/core/version.js
+                 reads its OWN ?v= at runtime (APP_VERSION_QS) and appends it to
+                 every URL the app builds itself:
+                   - the CPU index worker     js/workers/index-worker.js?v=
+                   - the refinement workers   js/workers/refinement-worker.js?v=
+                   - the GPU shaders          shaders/*.wgsl?v=
+                   - the space-group database sg_ops.json?v=
+                 Both workers forward their own ?v= to the crystallography files
+                 they import (js/crystallography/manifest.js).
 
-  refinement-worker.js  forwards the same ?v= to its importScripts('worker-logic.js')
-
-So the three tags in brutus.html are the only thing to edit, and the main_app.js
-one propagates to four more places by itself. That is why they must all match:
-if main_app.js carries an older ?v= than worker-logic.js, the workers load the
-OLD worker-logic while the main thread has the new one.
-
-Note that the .wgsl shaders are fetched by bare filename with no ?v= at all, so
-a shader change still needs a hard reload (Ctrl+Shift+R). Adding a version there
-means touching SYSTEM_CONFIGS.shader and loadShader's cache key; left alone for
-now, but it is the remaining gap.
+So the tags in brutus.html are the only thing to edit, and they must all
+match: if js/core/version.js carried an older ?v= than the crystallography
+tags, the workers would load an older build than the page.
 
 Usage:
     python3 bump_version.py                 # today, e.g. 20260827
@@ -73,17 +66,17 @@ def main():
         mark = "" if cur == version else "  <-- will change"
         if cur != version:
             stale.append(name)
-        print(f"   {name:26s} v={cur}{mark}")
+        print(f"   {name:40s} v={cur}{mark}")
 
     versions = {cur for _p, _n, cur, _q in found}
     if len(versions) > 1:
         print(f"\n   !! tags disagree: {sorted(versions)}")
-        print("      main_app.js's value is the one the workers inherit, so a")
+        print("      js/core/version.js's value is the one the workers inherit, so a")
         print("      mismatch means the workers run a different build.")
 
-    has_main = any(n.endswith("main_app.js") for _p, n, _c, _q in found)
+    has_main = any(n.endswith("js/core/version.js") for _p, n, _c, _q in found)
     if not has_main:
-        print("\n   !! no versioned main_app.js tag -- APP_VERSION_QS will come back")
+        print("\n   !! no versioned js/core/version.js tag -- APP_VERSION_QS will come back")
         print("      empty and the workers will never be cache-busted.")
 
     if args.check:
@@ -98,8 +91,6 @@ def main():
     with open(args.html, "w", encoding="utf-8", newline="") as f:
         f.write(out)
     print(f"\nSet all script tags to v={version}.")
-    print("Shaders (.wgsl) are still fetched unversioned -- hard reload "
-          "(Ctrl+Shift+R) after a shader change.")
     return 0
 
 

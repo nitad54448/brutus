@@ -1,5 +1,5 @@
-// Does what main_app.js packs match what the engine and shaders expect?
-// Extracts the real buildHklBasis from main_app.js rather than a copy.
+// Does what the app packs match what the engine and shaders expect?
+// Extracts the real HKL_PACKERS from js/indexing/run.js rather than a copy.
 import { readFileSync } from 'fs';
 
 // Normalise line endings before any pattern matching. The shipped files are
@@ -7,13 +7,13 @@ import { readFileSync } from 'fs';
 // which made this report a false FAIL on every field it extracts. A checker
 // that cries wolf gets ignored, which is worse than not having it.
 const read = (f) => readFileSync(f, 'utf8').replace(/\r\n/g, '\n');
-const app = read('./main_app.js');
-const eng = read('./webgpu-engine.js');
+const app = read('./js/indexing/run.js');
+const eng = read('./js/gpu/webgpu-engine.js');
 
 // pull HKL_PACKERS + HKL_PACKING straight out of the app source
 const i0 = app.indexOf("const HKL_PACKING = 'products/v1';");
 const i1 = app.indexOf('};', app.indexOf('triclinic: { floats: 8')) + 2;
-if (i0 < 0 || i1 < 2) { console.log('FAIL: could not locate HKL_PACKERS in main_app.js'); process.exit(1); }
+if (i0 < 0 || i1 < 2) { console.log('FAIL: could not locate HKL_PACKERS in js/indexing/run.js'); process.exit(1); }
 const { HKL_PACKERS, HKL_PACKING } = new Function(app.slice(i0, i1) + '\nreturn {HKL_PACKERS, HKL_PACKING};')();
 
 // engine's declared stride per system
@@ -31,9 +31,9 @@ for (const sys of Object.keys(HKL_PACKERS)) {
 
 // what the shaders index
 const shaderExpect = {
-  orthorhombic: ['ortho_solver.wgsl',  ['hkl_basis[j].xyz', 'hkl_basis[hkl_indices[0]].xyz']],
-  monoclinic:   ['monoclinic_solver.wgsl', ['dot(abcd, hkl_basis[j])', 'hkl_basis[hkl_indices[0]]']],
-  triclinic:    ['triclinic_solver.wgsl',  ['hkl_basis[j * 2u]', 'hkl_basis[hkl_indices[i] * 2u]']],
+  orthorhombic: ['shaders/ortho_solver.wgsl',  ['hkl_basis[j].xyz', 'hkl_basis[hkl_indices[0]].xyz']],
+  monoclinic:   ['shaders/monoclinic_solver.wgsl', ['dot(abcd, hkl_basis[j])', 'hkl_basis[hkl_indices[0]]']],
+  triclinic:    ['shaders/triclinic_solver.wgsl',  ['hkl_basis[j * 2u]', 'hkl_basis[hkl_indices[i] * 2u]']],
 };
 console.log('\nshader indexing');
 for (const [sys, [file, needles]] of Object.entries(shaderExpect)) {
@@ -68,7 +68,7 @@ ok = ok && triOK;
 // --- argument order at the engine call site --------------------------------
 // A long positional list is easy to shift by one, and a shift is invisible:
 // everything is an array or a callback, so nothing type-checks and the run just
-// produces nothing. Compare the names main_app passes against the names the
+// produces nothing. Compare the names the app passes against the names the
 // engine declares.
 console.log('\nengine call site');
 const sigM = /async _runSolver\(cfg,\s*([^)]*)\)\s*\{/s.exec(eng);

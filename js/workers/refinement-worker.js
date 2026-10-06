@@ -1,4 +1,4 @@
-// refinement-worker.js
+// js/workers/refinement-worker.js
 //
 // Each refinement worker is a stateless-ish CPU refinement engine.
 //
@@ -16,20 +16,15 @@
 //   4. Main thread may call { type: 'reset' } between runs to clear per-worker
 //      state (mainly the worker's own foundSolutionMap).
 //
-// The worker imports worker-logic.js which defines refineAndTestSolution and friends.
-self.IS_REFINEMENT_WORKER = true;
-
-// The pool spawns us as 'refinement-worker.js?v=YYYYMMDD'. Importing
-// 'worker-logic.js' bare meant the 350 KB logic file was fetched on its own
-// cache key: a deploy that bumped the version string got a fresh shim paired
-// with whatever worker-logic.js the HTTP cache still held. Inherit the query
-// string so both halves are always versioned together. Falls back to no query
-// (e.g. a blob: worker URL), which is the old behaviour.
-(function importWorkerLogic() {
-    let q = '';
-    try { q = (self.location && self.location.search) || ''; } catch (_) { q = ''; }
-    importScripts('worker-logic.js' + q);
-})();
+// The crystallography scripts (js/crystallography/, listed in manifest.js)
+// define refineAndTestSolution and friends. They are imported with this
+// worker's own ?v=, so the pool -- which spawns us as
+// js/workers/refinement-worker.js?v=YYYYMMDD -- always gets code from the same
+// build as the page. (The CPU-search message handler that used to share
+// worker-logic.js now lives in index-worker.js, so no IS_REFINEMENT_WORKER
+// guard is needed any more.)
+importScripts('../crystallography/manifest.js' + ((self.location && self.location.search) || ''));
+importBrutusCrystallography();
 
 // Per-worker state, initialised by the 'init' message
 let state = null;
@@ -166,7 +161,7 @@ function flushSolutions(idField, idValue) {
 //
 // Two things depend on this. First, an error CAP: runOneCell used to post one
 // 'cellError' per failing cell, and the main thread console.warn'd each one. A
-// systematic failure -- a stale worker-logic.js, bad baseParams, a degenerate
+// systematic failure -- a stale crystallography script, bad baseParams, a degenerate
 // peak list -- makes every cell in the slice throw, so a 5000-cell batch became
 // 5000 structured clones and 5000 console writes. That costs far more than the
 // refinement it replaced and is enough to wedge the tab. Post the first few,
@@ -278,7 +273,7 @@ self.onmessage = (e) => {
                 if (typeof refineAndTestSolution !== 'function') {
                     self.postMessage({
                         type: 'cellError',
-                        message: 'worker-logic.js loaded but refineAndTestSolution is not defined ' +
+                        message: 'crystallography scripts loaded but refineAndTestSolution is not defined ' +
                                  '(version mismatch or truncated response) — this worker cannot refine'
                     });
                 }
@@ -394,7 +389,7 @@ self.onmessage = (e) => {
 // --- Last-resort acks ------------------------------------------------------
 //
 // Everything above is wrapped in try/catch, so the only way to throw past it is
-// to throw outside the onmessage frame: a compile/eval error in worker-logic.js
+// to throw outside the onmessage frame: a compile/eval error in a crystallography script
 // during importScripts, a rejected promise from anything that ever goes async,
 // or a stack overflow unwinding oddly. The main thread's pool does force-resolve
 // those batches, but only after the 30 s stall watchdog, and only by declaring

@@ -242,10 +242,11 @@
             </p>
             <ul>
                 <li><code>brutus.html</code> — the application markup, controls and script loading.</li>
-                <li><code>main_app.js</code> — the UI controller, chart rendering (Chart.js), data parsing, peak detection, search coordination, solution sieving, space-group analysis controls and PDF report generation.</li>
-                <li><code>worker-logic.js</code> — shared logic loaded three ways: directly on the main thread (for post-processing and helper maths), as a standalone Web Worker (for the background CPU indexing of cubic/tetragonal/hexagonal), and via <code>importScripts()</code> inside each refinement worker. Contains all crystallographic mathematics: HKL generation, Q-calculation, least-squares solvers, figure-of-merit calculations, error propagation, and the Niggli reduction.</li>
-                <li><code>refinement-worker.js</code> — a thin batch-refinement worker. GPU-found candidate cells are refined (full weighted least-squares, M(20), error propagation) not on the main thread but across a <strong>pool of these workers</strong>, sized to <code>hardwareConcurrency − 2</code> (minimum 1) to leave cores free for the UI and the GPU driver. Candidate cells are streamed to the pool in round-robin batches while the GPU search is still running, so refinement overlaps GPU execution.</li>
-                <li><code>webgpu-engine.js</code> — the GPU-accelerated brute-force search for orthorhombic, monoclinic, and triclinic systems. Manages the WebGPU device, buffers, dispatch chunking, and combinadic bookkeeping; loads the WGSL compute shaders below.</li>
+                <li><code>js/</code> (UI) — the user interface as a set of small classic scripts loaded in order by <code>brutus.html</code>: <code>js/core/</code> (state, status, input reading), <code>js/data/</code> (file loading, radiation presets, Kα2 stripping, export), <code>js/parsers/</code> (one reader per file format), <code>js/peaks/</code> (background, smoothing, peak picking, the peak table), <code>js/chart/</code> (Chart.js rendering and interaction), <code>js/indexing/</code> (search coordination, solution sieving, the results table), <code>js/dialogs/</code> (Refine MC, Swap hkl, Space Group MC), <code>js/report/</code> (pdCIF and PDF report) and <code>js/main.js</code> (startup).</li>
+                <li><code>js/crystallography/</code> — all crystallographic mathematics: HKL generation, Q-calculation, least-squares solvers, figure-of-merit calculations, error propagation, Niggli reduction and the space-group analysis. The same files are loaded three ways: on the main thread (post-processing and helper maths), in the CPU index worker, and in each refinement worker; <code>manifest.js</code> lists them in load order for the workers.</li>
+                <li><code>js/workers/index-worker.js</code> — the background CPU indexing of cubic/tetragonal/hexagonal cells, and the post-processing pass over GPU solutions.</li>
+                <li><code>js/workers/refinement-worker.js</code> — a thin batch-refinement worker. GPU-found candidate cells are refined (full weighted least-squares, M(20), error propagation) not on the main thread but across a <strong>pool of these workers</strong>, sized to <code>hardwareConcurrency − 2</code> (minimum 1, at most 12) to leave cores free for the UI and the GPU driver. The pool lives for the whole page and is re-initialised for each run. Candidate cells are streamed to the pool in round-robin batches while the GPU search is still running, so refinement overlaps GPU execution.</li>
+                <li><code>js/gpu/webgpu-engine.js</code> — the GPU-accelerated brute-force search for orthorhombic, monoclinic, and triclinic systems. Manages the WebGPU device, buffers, dispatch chunking, and combinadic bookkeeping; loads the WGSL compute shaders in <code>shaders/</code>.</li>
                 <li><code>sg_ops.json</code> &mdash; the space-group database: all <strong>530 settings</strong>
                     of the 230 groups, each carrying its full set of <strong>symmetry operators</strong>
                     together with the zone definitions and the printed reflection conditions. Generated
@@ -311,7 +312,7 @@
             <pre><code>node check_sg_ops.mjs sg_ops.json</code></pre>
             <p>
                 Where <code>--check</code> validates the file against <em>itself</em>, this validates it
-                against the <em>application</em>. It loads the real <code>worker-logic.js</code>, replays the
+                against the <em>application</em>. It loads the real crystallography scripts (<code>js/crystallography/</code>), replays the
                 loader's gates, confirms every field the code dereferences is present, and builds the
                 extinction classes for each crystal system. It then reports <strong>reachability</strong>:
                 how many settings can actually be used, and why any cannot.
@@ -353,11 +354,11 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <ul>
                 <li><code>node test_sg_ops.mjs</code> &mdash; derives reflection conditions from operators for
                     ten space groups and checks them against the International Tables, using the operator
-                    core inside the shipping <code>worker-logic.js</code> rather than a copy of it. Covers
+                    core inside the shipping crystallography scripts rather than a copy of it. Covers
                     screw axes, every glide, all centrings, the 4n d-glide conditions, and the trigonal and
                     hexagonal zone families that a label-matching test gets wrong.</li>
-                <li><code>node check_pipeline.mjs</code> &mdash; confirms that <code>main_app.js</code>,
-                    <code>webgpu-engine.js</code> and the three shaders still agree on how the HKL basis is
+                <li><code>node check_pipeline.mjs</code> &mdash; confirms that <code>js/indexing/run.js</code>,
+                    <code>js/gpu/webgpu-engine.js</code> and the three shaders still agree on how the HKL basis is
                     packed, and that the engine's parameter list matches what the application passes. Both
                     failures are otherwise invisible: the run completes, every candidate cell is nonsense,
                     and the search reports no solutions with no error anywhere.</li>
@@ -365,25 +366,34 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     &mdash; included with the corrected application package. Check lattice equivalence,
                     solution identity, worker failures, startup isolation and GPU cancellation using a mock
                     queue. These checks do not replace a browser test on a physical GPU.</li>
+                <li><code>node check_load_order.mjs</code> &mdash; the UI and crystallography scripts share
+                    one global scope and run in the order <code>brutus.html</code> (and, in the workers,
+                    <code>js/crystallography/manifest.js</code>) lists them. This checks that nothing which runs
+                    while the scripts load uses a name defined by a later script, that the two lists agree, and
+                    that no file is left unloaded. Needs <code>npm install --no-save typescript</code>.</li>
+                <li><code>node regression_test.mjs</code> &mdash; Node tests of the crystallography code
+                    with synthetic data of known answer: cubic, tetragonal and hexagonal searches through the
+                    real CPU worker, refinement of a perturbed orthorhombic cell, Niggli reduction, and error
+                    propagation compared with a Monte-Carlo estimate.</li>
             </ul>
 
             <div class="callout-note">
                 <strong>Versioning and the browser cache.</strong> The <code>?v=</code> query string on the
                 <code>&lt;script&gt;</code> tags in <code>brutus.html</code> exists only to force browsers to
                 re-fetch a file that has changed. Its value is arbitrary — a date is merely readable — and
-                only the fact that it <em>changed</em> matters. Note that <code>worker-logic.js</code> is
+                only the fact that it <em>changed</em> matters. Note that the crystallography scripts are
                 loaded three ways (see above) and each way is a separate cache entry, so a partial bump can
                 leave the main thread and the workers running <strong>different builds of the same file</strong>.
                 That does not present as a caching problem: it presents as results that disagree between the
                 table and the report. The worker URLs are therefore derived at runtime from the query string
-                on the <code>main_app.js</code> tag, so bumping that single value in <code>brutus.html</code>
-                busts the whole chain &mdash; and so does the fetch of <code>sg_ops.json</code>, which would
+                on the <code>js/core/version.js</code> tag, so the value <code>bump_version.py</code> stamps
+                into <code>brutus.html</code> busts the whole chain &mdash; and so does the fetch of <code>sg_ops.json</code>, which would
                 otherwise be cached across a database rebuild and fail the operator check while the file on
                 disk was perfectly correct. <code>bump_version.py</code> sets all of them together and warns
                 if they have drifted apart. Keep the date in the page footer in step with it — the PDF report
                 reads that footer for its version line.
                 <p style="margin-top:0.75rem">
-                Shader URLs also inherit the query string from <code>main_app.js</code>.
+                Shader URLs also inherit the query string from <code>js/core/version.js</code>.
                 Deploy the matching HTML, JavaScript and shaders together, change the version when files
                 change, and reload the page. Shader source is cached by URL for the page lifetime;
                 compiled modules and pipelines are cached on the GPU device.
@@ -1330,7 +1340,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <p>
                 Every candidate cell passing the GPU (or CPU) filters is subjected to a full weighted least-squares
                 refinement before being scored and reported. This section details the weighting scheme, zero-point
-                correction, and error propagation implemented in <code>worker-logic.js</code>.
+                correction, and error propagation implemented in <code>js/crystallography/</code> (<code>refine.js</code>, <code>fit.js</code>).
             </p>
 
             <h3>Q-Space Tolerance</h3>
@@ -3335,7 +3345,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             </p>
             <div class="callout-note">
                 <strong>Tuning.</strong> All limits live in the <code>SWAP_CFG</code> object in
-                <code>worker-logic.js</code>: window width, alternatives kept per peak, peaks allowed to vary
+                <code>js/crystallography/swap-search.js</code>: window width, alternatives kept per peak, peaks allowed to vary
                 at once, fits per round, number of rounds, and how many parent solutions are searched. Setting
                 <code>DEBUG: true</code> prints one line per parent to the worker console &mdash; rounds run,
                 fits spent, lines indexed before and after, and M(20) before and after &mdash; which is the
