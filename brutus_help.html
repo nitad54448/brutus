@@ -4,7 +4,8 @@
      <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Brutus Indexing - Technical Guide</title>
-    <link href="inter-font.css" rel="stylesheet">
+    <!-- MathJax is loaded from a public CDN so this standalone help file does
+         not depend on unbundled local assets (tex-svg.js). -->
      <script>
         MathJax = {
           tex: {
@@ -15,7 +16,8 @@
           }
         };
     </script>
-    <script type="text/javascript" id="MathJax-script" async src="tex-svg.js"></script>
+    <script id="MathJax-script" async
+            src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
     <style>
         :root {
             --dark-bg: #111827;
@@ -140,11 +142,6 @@
         ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #aaa; }
     </style>
-    <!-- Shared application stylesheet, loaded LAST so its tokens/rules win any
-         collision with the docs styles above (per "full share" decision). The
-         block above is retained for docs-only vars/rules that styles.css does
-         not define (e.g. --content-bg, --code-bg, TOC and formula-box layout). -->
-    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <aside id="left-panel">
