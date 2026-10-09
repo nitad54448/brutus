@@ -50,13 +50,27 @@ alias Mat6x6 = array<f32, 36>; // Flat 6x6 matrix, row-major
 //   [2] smallest cell volume, A^3, among cells that passed
 //       the AXIS test -- recorded BEFORE the volume gate   atomicMin, init MAX
 //   [3] largest such volume                                atomicMax, init 0
-//   [4..7] reserved
+//   [4] first HKL-combination index left incomplete
+//       because the candidate buffer was full          atomicMin, init MAX
+//   [5..7] reserved
 //
 // The writes sit only on already-filtered paths: [2]/[3] fire after the axis
 // test, [1] once per FoM call. Nothing touches an atomic on the hot reject path
 // where most trials die.
 @group(0) @binding(4) var<storage, read_write> solution_counter: array<atomic<u32>, 8>;
 @group(0) @binding(5) var<storage, read_write> results_list: array<RawSolution>;
+
+// Slot [4]: the smallest HKL-combination index whose work was NOT completed
+// because the candidate buffer was already full (a thread that early-outed, or
+// an accepted cell that found no free slot). Every index below it was searched
+// in full, so it is an exact lower bound on how far a truncated search got;
+// the engine turns it into the "Trials: done / total" figure. Only touched
+// once the buffer is full, never on the normal hot path.
+fn mark_incomplete(hkl_linear_idx: u32) {
+    if (hkl_linear_idx < atomicLoad(&solution_counter[4])) {
+        atomicMin(&solution_counter[4], hkl_linear_idx);
+    }
+}
 
 
 
@@ -506,7 +520,10 @@ fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>
 ) {
     // Fix: config.u_params2.z (max_solutions)
-    if (atomicLoad(&solution_counter[0]) >= config.u_params2.z) { return; }
+    if (atomicLoad(&solution_counter[0]) >= config.u_params2.z) {
+        mark_incomplete(config.u_params1.x + global_id.y);
+        return;
+    }
     
     // 1. Calculate Global Indices
     let peak_combo_idx: u32 = global_id.x;
@@ -583,6 +600,8 @@ fn main(
 
                 if (idx < config.u_params2.z) {
                     results_list[idx] = cell;
+                } else {
+                    mark_incomplete(hkl_linear_idx);
                 }
                 break; // Stop checking permutations for this combo
             }

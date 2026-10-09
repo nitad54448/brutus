@@ -186,6 +186,8 @@ const updateSolutionsTable = () => {
         // applied, so a derived cell is never mistaken for an independent hit.
         const nSwaps = (sol.manualSwaps || []).length;
         let sysCell = sol.system.substring(0,4);
+        // A hexagonal cell that is an R lattice (M20 counted on R lines only).
+        if (sol.lattice === 'R') sysCell += ` <span class="sol-badge" title="Rhombohedral (R) lattice in hexagonal axes: lines with -h+k+l and h-k+l both non-multiples of 3 are absent, and M20 counts only the R lines">R</span>`;
         if (nSwaps > 0) {
             sysCell += `<br><span class="sol-badge swap" title="${(sol.manualSwaps||[]).map(x=>x.from+'->'+x.to+' @ '+x.tth.toFixed(3)).join('; ')}">swap&times;${nSwaps}</span>`;
         }

@@ -31,6 +31,9 @@ for (const sys of Object.keys(HKL_PACKERS)) {
 
 // what the shaders index
 const shaderExpect = {
+  cubic:        ['shaders/highsym_solver.wgsl', ['dot(x, hkl_basis[j].xy)', 'hkl_basis[hkl_idx].x', 'fn main_cubic(']],
+  tetragonal:   ['shaders/highsym_solver.wgsl', ['dot(x, hkl_basis[j].xy)', 'hkl_basis[hkl_indices.x].xy', 'fn main_tetragonal(']],
+  hexagonal:    ['shaders/highsym_solver.wgsl', ['dot(x, hkl_basis[j].xy)', 'hkl_basis[hkl_indices.x].xy', 'fn main_hexagonal(']],
   orthorhombic: ['shaders/ortho_solver.wgsl',  ['hkl_basis[j].xyz', 'hkl_basis[hkl_indices[0]].xyz']],
   monoclinic:   ['shaders/monoclinic_solver.wgsl', ['dot(abcd, hkl_basis[j])', 'hkl_basis[hkl_indices[0]]']],
   triclinic:    ['shaders/triclinic_solver.wgsl',  ['hkl_basis[j * 2u]', 'hkl_basis[hkl_indices[i] * 2u]']],
@@ -64,6 +67,27 @@ const want = [4,9,16,12,8,6,0,0];
 const triOK = want.every((v,i)=>t[i]===v);
 console.log(`  triclinic == (h2,k2,l2,kl,hl,hk,0,0): ${triOK}`);
 ok = ok && triOK;
+// The high-symmetry packers carry the two quadratic forms of each system.
+const hsWant = { cubic: [29,0,0,0], tetragonal: [13,16,0,0], hexagonal: [19,16,0,0] };
+for (const [sys, w] of Object.entries(hsWant)) {
+  const b = new Float32Array(4); HKL_PACKERS[sys].pack(b, 0, 2, 3, 4);
+  const good = w.every((v,i) => b[i] === v);
+  console.log(`  ${sys.padEnd(13)} == expected quadratic form: ${good}`);
+  ok = ok && good;
+}
+
+// Every system the UI offers needs a packer, an engine config and a kernel.
+const setup = read('./js/gpu/gpu-setup.js');
+const order = /const SEARCH_ORDER = \[([^\]]*)\]/.exec(setup);
+if (!order) { console.log('FAIL: SEARCH_ORDER not found in js/gpu/gpu-setup.js'); ok = false; }
+else {
+  const systems = [...order[1].matchAll(/'(\w+)'/g)].map(m => m[1]);
+  console.log('\nsearch order: ' + systems.join(' > '));
+  for (const sys of systems) {
+    const has = !!HKL_PACKERS[sys] && strides[sys] !== undefined && !!shaderExpect[sys];
+    if (!has) { console.log(`  ${sys}: missing packer, engine config or shader check`); ok = false; }
+  }
+}
 
 // --- argument order at the engine call site --------------------------------
 // A long positional list is easy to shift by one, and a shift is invisible:

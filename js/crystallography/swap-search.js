@@ -132,6 +132,9 @@ function _swapCheapFit(labels, ctx) {
     const cell = extractCellFromFit(fit.solution, system);
     if (!cell) return null;
     cell.system = system;
+    // Relabelled children of an R cell are R cells: their FoM must be counted
+    // on the same R line list as the parent's, or no swap could ever beat it.
+    if (ctx.lattice === 'R' && system === 'hexagonal') cell.lattice = 'R';
     if (refineZero) cell.zero_correction = fit.solution[fit.solution.length - 1] * DEG;
     else if (ctx.z) cell.zero_correction = ctx.z;
 
@@ -321,7 +324,7 @@ function _swapRound(sol, data, state, cfg) {
         fits++;
         const cell = _swapCheapFit(labels, {
             lines, system, refineZero, rhs, wts, zcol, nAll, need,
-            maxVolume: max_volume, z, qc, qL,
+            maxVolume: max_volume, z, qc, qL, lattice: sol.lattice,
         });
         if (!cell) continue;
 

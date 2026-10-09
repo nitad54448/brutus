@@ -407,7 +407,45 @@ class WebGPUEngine {
     //
     // Previously these three methods were ~100 lines each with ~5 small differences. Now
     // they are thin wrappers around `_runSolver(cfg, ...)`.
+    //
+    // The three high-symmetry systems (9 Oct 2026) share one module,
+    // shaders/highsym_solver.wgsl, through three entry points. Their result
+    // struct is 4 f32 (a, c, 0, 0). R lattices are found by the hexagonal
+    // search, in hexagonal axes, as everywhere else in the program.
     static SYSTEM_CONFIGS = {
+        cubic: {
+            K: 1,
+            structFloats: 4,                // (a, a, 0, 0)
+            hklFloats: 4,                   // hkl_basis: vec4(h^2+k^2+l^2, 0, 0, 0)
+            peakComboStride: 1,
+            workgroupX: 8,
+            workgroupY: 8,
+            maxThreadsPerDispatch: 500_000,
+            systemName: 'cubic',
+            parseCell: (r, off) => ({ a: r[off+0], system: 'cubic' }),
+        },
+        tetragonal: {
+            K: 2,
+            structFloats: 4,                // (a, c, 0, 0)
+            hklFloats: 4,                   // hkl_basis: vec4(h^2+k^2, l^2, 0, 0)
+            peakComboStride: 2,
+            workgroupX: 8,
+            workgroupY: 8,
+            maxThreadsPerDispatch: 500_000,
+            systemName: 'tetragonal',
+            parseCell: (r, off) => ({ a: r[off+0], c: r[off+1], system: 'tetragonal' }),
+        },
+        hexagonal: {
+            K: 2,
+            structFloats: 4,                // (a, c, 0, 0)
+            hklFloats: 4,                   // hkl_basis: vec4(h^2+hk+k^2, l^2, 0, 0)
+            peakComboStride: 2,
+            workgroupX: 8,
+            workgroupY: 8,
+            maxThreadsPerDispatch: 500_000,
+            systemName: 'hexagonal',
+            parseCell: (r, off) => ({ a: r[off+0], c: r[off+1], system: 'hexagonal' }),
+        },
         orthorhombic: {
             K: 3,
             structFloats: 4,                // 4 f32 per cell (a, b, c, pad) = 16 bytes
@@ -503,9 +541,27 @@ class WebGPUEngine {
         // validation. It runs BEFORE any GPU buffer exists, so a rejected
         // configuration (u32 overflow, X-dimension limit, oversized candidate
         // buffer) can no longer leave buffers behind.
+        // Two counts, which differ only for the high-symmetry systems:
+        //   n_hkls    reflections in the buffer = the list the FoM scores
+        //             against (config n_hkl_for_fom);
+        //   n_search  the leading part of it whose K-combinations are
+        //             enumerated (config n_basis_total).
+        // baseParams.n_hkl_search rides in baseParams, like hklPacking, so the
+        // positional argument list is unchanged. Absent -> the whole buffer,
+        // which is exactly the previous behaviour.
         const n_hkls = hklBasisArray.length / hklFloats;
-        const binomialData = this.generateBinomialTable(n_hkls, K_VALUE);
-        const totalHklCombos = binomialData[n_hkls * (K_VALUE + 1) + K_VALUE];
+        const n_search = (Number.isInteger(baseParams.n_hkl_search) && baseParams.n_hkl_search > 0)
+            ? baseParams.n_hkl_search : n_hkls;
+        if (n_search > n_hkls) {
+            throw new Error(`${cfg.systemName}: search basis (${n_search}) is larger than the ` +
+                            `uploaded hkl list (${n_hkls}).`);
+        }
+        if (n_search < K_VALUE) {
+            throw new Error(`${cfg.systemName}: a ${K_VALUE}-reflection solve needs at least ` +
+                            `${K_VALUE} basis reflections, got ${n_search}.`);
+        }
+        const binomialData = this.generateBinomialTable(n_search, K_VALUE);
+        const totalHklCombos = binomialData[n_search * (K_VALUE + 1) + K_VALUE];
 
         const maxSolutions = baseParams.max_solutions || 20000;
         const solutionStructSize = cfg.structFloats * 4; // bytes per cell
@@ -586,8 +642,8 @@ class WebGPUEngine {
         // there were twice as many reflections as there are — a FoM loop running
         // off the end of the basis and a combinadic space sized against the
         // wrong n. Both fields are reflection COUNTS.
-        configViewU32[3] = n_hkls;   // n_hkl_for_fom
-        configViewU32[4] = n_hkls;   // n_basis_total
+        configViewU32[3] = n_hkls;   // n_hkl_for_fom (whole uploaded list)
+        configViewU32[4] = n_search; // n_basis_total (combinadic search basis)
         configViewU32[5] = totalHklCombos;
         configViewU32[6] = maxSolutions;                         // FIXED: use resolved maxSolutions, not raw baseParams.max_solutions
         configViewU32[7] = 0;
@@ -608,6 +664,18 @@ class WebGPUEngine {
 
         let solutionsReadCount = 0;
         let stoppedEarly = false;
+        // First HKL-combination index the shaders could NOT finish because the
+        // candidate buffer was full (counter slot [4], atomicMin). Every index
+        // below it was searched in full, so for a truncated run the fraction
+        // of the search actually done is firstIncomplete / totalHklCombos.
+        let firstIncomplete = 0xFFFFFFFF;
+        // End of the HKL-combination range dispatched so far. A run that stops
+        // on a full buffer never dispatches the chunks after the sync point, and
+        // nothing in them is marked by the shaders -- so the searched part is
+        // min(firstIncomplete, dispatchedEnd), not firstIncomplete alone. (With
+        // firstIncomplete alone, a buffer that filled exactly at a sync point,
+        // with no thread turned away, read as 100% searched.)
+        let dispatchedEnd = 0;
         let lastYield = performance.now();
         // Last counter value actually read back; used for progress on the chunks
         // that no longer stall for a readback (see CHUNKS_PER_SYNC below).
@@ -647,6 +715,7 @@ class WebGPUEngine {
             const counterBuffer = own(this.createStorageBuffer(32));
             const counterInit = new Uint32Array(8);
             counterInit[2] = 0xFFFFFFFF;
+            counterInit[4] = 0xFFFFFFFF;   // slot 4 is an atomicMin as well
             this.device.queue.writeBuffer(counterBuffer, 0, counterInit);
             const resultsBuffer = own(this.createStorageBuffer(resultsBytes));
             const counterReadBuffer = own(this.createReadBuffer(32));
@@ -691,6 +760,7 @@ class WebGPUEngine {
                 }
 
                 configViewU32[0] = i * hklsPerChunk;
+                dispatchedEnd = Math.min(totalHklCombos, (i + 1) * hklsPerChunk);
                 // Write the WHOLE 64-byte struct, even though only z_offset (the
                 // first u32) changes from chunk to chunk.
                 //
@@ -768,6 +838,7 @@ class WebGPUEngine {
                 diag.peaksInBudget = counters[1];
                 diag.volMin = counters[2];
                 diag.volMax = counters[3];
+                firstIncomplete = counters[4];
                 counterReadBuffer.unmap();
                 lastKnownSolutions = numSolutions;
 
@@ -856,6 +927,13 @@ class WebGPUEngine {
         return {
             cellsEmitted: solutionsReadCount,
             stoppedEarly,
+            // Fraction of the HKL-combination space searched completely: 1 for
+            // a run that finished, firstIncomplete / totalHklCombos for one
+            // cut short by a full candidate buffer (exact lower bound). Not
+            // meaningful after a user Stop.
+            searchedFraction: stoppedEarly
+                ? Math.min(1, Math.min(firstIncomplete, dispatchedEnd, totalHklCombos) / Math.max(1, totalHklCombos))
+                : 1,
             diagnostics: {
                 system: cfg.systemName,
                 // Most peaks any candidate kept inside the FoM error budget,
@@ -874,8 +952,17 @@ class WebGPUEngine {
         };
     }
 
-    // Per-system entry points. makeGpuTask (js/indexing/gpu-search.js) calls these by
+    // Per-system entry points. runGpuSystem (js/indexing/run.js) calls these by
     // name through cfg.engineMethod in GPU_SYSTEM_CONFIG.
+    runCubicSolver(...args) {
+        return this._runSolver(WebGPUEngine.SYSTEM_CONFIGS.cubic, ...args);
+    }
+    runTetragonalSolver(...args) {
+        return this._runSolver(WebGPUEngine.SYSTEM_CONFIGS.tetragonal, ...args);
+    }
+    runHexagonalSolver(...args) {
+        return this._runSolver(WebGPUEngine.SYSTEM_CONFIGS.hexagonal, ...args);
+    }
     runOrthoSolver(...args) {
         return this._runSolver(WebGPUEngine.SYSTEM_CONFIGS.orthorhombic, ...args);
     }

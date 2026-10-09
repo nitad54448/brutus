@@ -14,67 +14,67 @@
     <!-- Crystallography: the same files run in both workers, which load them
          through js/crystallography/manifest.js. Keep the two lists in step
          (check_load_order.mjs compares them). -->
-    <script src="js/crystallography/metric.js?v=20261006" defer></script>
-    <script src="js/crystallography/hkl.js?v=20261006" defer></script>
-    <script src="js/crystallography/cell.js?v=20261006" defer></script>
-    <script src="js/crystallography/fit.js?v=20261006" defer></script>
-    <script src="js/crystallography/refine.js?v=20261006" defer></script>
-    <script src="js/crystallography/transforms.js?v=20261006" defer></script>
-    <script src="js/crystallography/monte-carlo.js?v=20261006" defer></script>
-    <script src="js/crystallography/niggli.js?v=20261006" defer></script>
-    <script src="js/crystallography/absences.js?v=20261006" defer></script>
-    <script src="js/crystallography/centering.js?v=20261006" defer></script>
-    <script src="js/crystallography/sg-ranking.js?v=20261006" defer></script>
-    <script src="js/crystallography/swap-search.js?v=20261006" defer></script>
-    <script src="js/crystallography/sg-ops.js?v=20261006" defer></script>
-    <script src="js/crystallography/sg-context.js?v=20261006" defer></script>
-    <script src="js/crystallography/sg-score.js?v=20261006" defer></script>
-    <script src="js/gpu/webgpu-engine.js?v=20261006" defer></script>
+    <script src="js/crystallography/metric.js?v=20261010" defer></script>
+    <script src="js/crystallography/hkl.js?v=20261010" defer></script>
+    <script src="js/crystallography/cell.js?v=20261010" defer></script>
+    <script src="js/crystallography/fit.js?v=20261010" defer></script>
+    <script src="js/crystallography/refine.js?v=20261010" defer></script>
+    <script src="js/crystallography/transforms.js?v=20261010" defer></script>
+    <script src="js/crystallography/monte-carlo.js?v=20261010" defer></script>
+    <script src="js/crystallography/niggli.js?v=20261010" defer></script>
+    <script src="js/crystallography/absences.js?v=20261010" defer></script>
+    <script src="js/crystallography/centering.js?v=20261010" defer></script>
+    <script src="js/crystallography/sg-ranking.js?v=20261010" defer></script>
+    <script src="js/crystallography/swap-search.js?v=20261010" defer></script>
+    <script src="js/crystallography/sg-ops.js?v=20261010" defer></script>
+    <script src="js/crystallography/sg-context.js?v=20261010" defer></script>
+    <script src="js/crystallography/sg-score.js?v=20261010" defer></script>
+    <script src="js/gpu/webgpu-engine.js?v=20261010" defer></script>
     <!-- Application. Classic scripts, run in this order once the document is
          parsed (defer); they share one global scope, so a name defined in one
          is visible to the ones after it. js/main.js runs last. -->
-    <script src="js/core/version.js?v=20261006" defer></script>
-    <script src="js/core/utils.js?v=20261006" defer></script>
-    <script src="js/core/ui.js?v=20261006" defer></script>
-    <script src="js/core/state.js?v=20261006" defer></script>
-    <script src="js/core/inputs.js?v=20261006" defer></script>
-    <script src="js/data/wavelength.js?v=20261006" defer></script>
-    <script src="js/core/sg-database.js?v=20261006" defer></script>
-    <script src="js/gpu/gpu-setup.js?v=20261006" defer></script>
-    <script src="js/indexing/solutions.js?v=20261006" defer></script>
-    <script src="js/peaks/peak-controls.js?v=20261006" defer></script>
-    <script src="js/data/session.js?v=20261006" defer></script>
-    <script src="js/indexing/worker-pool.js?v=20261006" defer></script>
-    <script src="js/data/kalpha2-strip.js?v=20261006" defer></script>
-    <script src="js/data/export.js?v=20261006" defer></script>
-    <script src="js/chart/help-panel.js?v=20261006" defer></script>
-    <script src="js/parsers/fullprof.js?v=20261006" defer></script>
-    <script src="js/parsers/generic.js?v=20261006" defer></script>
-    <script src="js/parsers/xml-utils.js?v=20261006" defer></script>
-    <script src="js/parsers/bruker-xml.js?v=20261006" defer></script>
-    <script src="js/parsers/xrdml.js?v=20261006" defer></script>
-    <script src="js/parsers/rigaku-ras.js?v=20261006" defer></script>
-    <script src="js/parsers/gsas.js?v=20261006" defer></script>
-    <script src="js/parsers/uxd.js?v=20261006" defer></script>
-    <script src="js/parsers/philips-udf.js?v=20261006" defer></script>
-    <script src="js/parsers/pdcif.js?v=20261006" defer></script>
-    <script src="js/parsers/detect.js?v=20261006" defer></script>
-    <script src="js/data/file-load.js?v=20261006" defer></script>
-    <script src="js/peaks/peak-finder.js?v=20261006" defer></script>
-    <script src="js/peaks/peak-table.js?v=20261006" defer></script>
-    <script src="js/gpu/gpu-limits.js?v=20261006" defer></script>
-    <script src="js/indexing/diagnostics.js?v=20261006" defer></script>
-    <script src="js/indexing/run.js?v=20261006" defer></script>
-    <script src="js/dialogs/context-menu.js?v=20261006" defer></script>
-    <script src="js/dialogs/swap-hkl.js?v=20261006" defer></script>
-    <script src="js/dialogs/refine-mc.js?v=20261006" defer></script>
-    <script src="js/dialogs/space-group-mc.js?v=20261006" defer></script>
-    <script src="js/report/pdcif-export.js?v=20261006" defer></script>
-    <script src="js/report/pdf-report.js?v=20261006" defer></script>
-    <script src="js/chart/axes.js?v=20261006" defer></script>
-    <script src="js/chart/chart.js?v=20261006" defer></script>
-    <script src="js/chart/interaction.js?v=20261006" defer></script>
-    <script src="js/main.js?v=20261006" defer></script>
+    <script src="js/core/version.js?v=20261010" defer></script>
+    <script src="js/core/utils.js?v=20261010" defer></script>
+    <script src="js/core/ui.js?v=20261010" defer></script>
+    <script src="js/core/state.js?v=20261010" defer></script>
+    <script src="js/core/inputs.js?v=20261010" defer></script>
+    <script src="js/data/wavelength.js?v=20261010" defer></script>
+    <script src="js/core/sg-database.js?v=20261010" defer></script>
+    <script src="js/gpu/gpu-setup.js?v=20261010" defer></script>
+    <script src="js/indexing/solutions.js?v=20261010" defer></script>
+    <script src="js/peaks/peak-controls.js?v=20261010" defer></script>
+    <script src="js/data/session.js?v=20261010" defer></script>
+    <script src="js/indexing/worker-pool.js?v=20261010" defer></script>
+    <script src="js/data/kalpha2-strip.js?v=20261010" defer></script>
+    <script src="js/data/export.js?v=20261010" defer></script>
+    <script src="js/chart/help-panel.js?v=20261010" defer></script>
+    <script src="js/parsers/fullprof.js?v=20261010" defer></script>
+    <script src="js/parsers/generic.js?v=20261010" defer></script>
+    <script src="js/parsers/xml-utils.js?v=20261010" defer></script>
+    <script src="js/parsers/bruker-xml.js?v=20261010" defer></script>
+    <script src="js/parsers/xrdml.js?v=20261010" defer></script>
+    <script src="js/parsers/rigaku-ras.js?v=20261010" defer></script>
+    <script src="js/parsers/gsas.js?v=20261010" defer></script>
+    <script src="js/parsers/uxd.js?v=20261010" defer></script>
+    <script src="js/parsers/philips-udf.js?v=20261010" defer></script>
+    <script src="js/parsers/pdcif.js?v=20261010" defer></script>
+    <script src="js/parsers/detect.js?v=20261010" defer></script>
+    <script src="js/data/file-load.js?v=20261010" defer></script>
+    <script src="js/peaks/peak-finder.js?v=20261010" defer></script>
+    <script src="js/peaks/peak-table.js?v=20261010" defer></script>
+    <script src="js/gpu/gpu-limits.js?v=20261010" defer></script>
+    <script src="js/indexing/diagnostics.js?v=20261010" defer></script>
+    <script src="js/indexing/run.js?v=20261010" defer></script>
+    <script src="js/dialogs/context-menu.js?v=20261010" defer></script>
+    <script src="js/dialogs/swap-hkl.js?v=20261010" defer></script>
+    <script src="js/dialogs/refine-mc.js?v=20261010" defer></script>
+    <script src="js/dialogs/space-group-mc.js?v=20261010" defer></script>
+    <script src="js/report/pdcif-export.js?v=20261010" defer></script>
+    <script src="js/report/pdf-report.js?v=20261010" defer></script>
+    <script src="js/chart/axes.js?v=20261010" defer></script>
+    <script src="js/chart/chart.js?v=20261010" defer></script>
+    <script src="js/chart/interaction.js?v=20261010" defer></script>
+    <script src="js/main.js?v=20261010" defer></script>
     <link href="inter-font.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
     <style>
@@ -460,45 +460,49 @@
         </label>
     </div>
 
-<label class="control-label" style="margin-top: 1.5rem; margin-bottom: 1rem;">Crystal Systems to Search:</label>
+<label class="control-label" style="margin-top: 1.5rem; margin-bottom: 1rem;" title="Every checked system is searched on the GPU, one after the other, highest symmetry first: cubic, hexagonal, tetragonal, orthorhombic, monoclinic, triclinic. Rhombohedral (R) lattices are found by the hexagonal search, in hexagonal axes. Without WebGPU, cubic, tetragonal and hexagonal fall back to the CPU.">Crystal Systems to Search:</label>
+    <!-- Left column: one or two unknowns; right column: three or more.
+         Triclinic is off by default (rare, and by far the slowest).
+         Rhombohedral lattices are found by the hexagonal search. -->
     <div class="parameter-grid">
-        <label class="checkbox-label system-cpu"><input type="checkbox" class="system-checkbox" value="cubic"> <span>Cubic</span></label>
-        <label class="checkbox-label system-gpu"><input type="checkbox" class="system-checkbox" value="orthorhombic"> <span>Orthorhombic</span></label>
+        <label class="checkbox-label system-gpu"><input type="checkbox" class="system-checkbox" value="cubic" checked> <span>Cubic</span></label>
+        <label class="checkbox-label system-gpu"><input type="checkbox" class="system-checkbox" value="orthorhombic" checked> <span>Orthorhombic</span></label>
 
-        <label class="checkbox-label system-cpu"><input type="checkbox" class="system-checkbox" value="tetragonal"> <span>Tetragonal</span></label>
-        <label class="checkbox-label system-gpu"><input type="checkbox" class="system-checkbox" value="monoclinic"> <span>Monoclinic</span></label>
+        <label class="checkbox-label system-gpu"><input type="checkbox" class="system-checkbox" value="hexagonal" checked> <span>Hexagonal</span></label>
+        <label class="checkbox-label system-gpu"><input type="checkbox" class="system-checkbox" value="monoclinic" checked> <span>Monoclinic</span></label>
 
-        <label class="checkbox-label system-cpu"><input type="checkbox" class="system-checkbox" value="hexagonal"> <span>Hexagonal</span></label>
+        <label class="checkbox-label system-gpu"><input type="checkbox" class="system-checkbox" value="tetragonal" checked> <span>Tetragonal</span></label>
         <label class="checkbox-label system-gpu"><input type="checkbox" class="system-checkbox" value="triclinic"> <span>Triclinic</span></label>
     </div>
 
     <div id="gpu-params-container" class="control-group hidden" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--light-bg);">
-        <label class="control-label" style="margin-bottom: 1rem;">GPU Search Parameters:</label>
+        <label class="control-label" style="margin-bottom: 1rem;">GPU Search Parameters (all systems):</label>
         <div class="parameter-grid">
             <div>
-                <!-- min/max are set per crystal system by applyHklBasisLimits()
-                     in main_app.js: the usable ceiling is min(generated basis
-                     list, u32 combinadic cap) and differs per system
-                     (ortho 2196, mono 568, tri 123). The old fixed max="600"
-                     was wrong for all three. -->
-                <label for="gpu-hkl-triplets" class="control-label">HKL Basis Size</label>
-                <input type="number" id="gpu-hkl-triplets" value="80" min="10" max="2196" step="5" class="control-input">
+                <!-- Percent of each system's maximum usable basis (hklBasisMax
+                     in js/gpu/gpu-setup.js), PER UNKNOWN cell parameter:
+                     at 5, cubic uses 5%, hexagonal 10%, orthorhombic 15%,
+                     monoclinic 20%, triclinic 30%. -->
+                <label for="gpu-hkl-percent" class="control-label" title="HKL basis searched, in percent of each system's maximum, per unknown cell parameter. The search basis is (number of unknowns) x this value %: at 5, cubic 5%, tetragonal/hexagonal 10%, orthorhombic 15%, monoclinic 20%, triclinic 30%. Typical range 2 to 12.">HKL Basis (% / unknown)</label>
+                <input type="number" id="gpu-hkl-percent" value="5" min="1" max="16" step="0.5" class="control-input">
             </div>
             <div>
-                <label for="gpu-peaks-count" class="control-label">Peaks to Combine</label>
-                <input type="number" id="gpu-peaks-count" value="7" min="4" max="20" step="1" class="control-input">
+                <label for="gpu-depth" class="control-label" title="Peaks combined per system. Orthorhombic, monoclinic, triclinic: number of unknowns + Depth (Depth 3: 6, 7, 9). Cubic, hexagonal, tetragonal: 3 x (unknowns + Depth), cheap with 1-2 unknowns (Depth 3: 12 and 15). Capped by the number of peaks available.">Depth (extra peaks)</label>
+                <input type="number" id="gpu-depth" value="3" min="0" max="12" step="1" class="control-input">
             </div>
         </div>
         <div class="parameter-grid" style="margin-top: 0.75rem;">
             <div>
                 <label for="gpu-fom-threshold" class="control-label">FoM Tolerance</label>
-                <input type="number" id="gpu-fom-threshold" value="1.5" min="0.10" max="5.0" step="0.1" class="control-input">
+                <input type="number" id="gpu-fom-threshold" value="1.25" min="0.10" max="5.0" step="0.1" class="control-input">
             </div>
             <div>
                 <label for="gpu-buffer-size" class="control-label">Candidates (kCells)</label>
-                <input type="number" id="gpu-buffer-size" value="50" min="1" max="500" step="1" class="control-input">
+                <input type="number" id="gpu-buffer-size" value="100" min="1" max="500" step="1" class="control-input">
             </div>
         </div>
+        <!-- Per-system plan, filled by updateGpuStatusText() -->
+        <div id="gpu-plan" style="margin-top: 0.75rem; font-size: 0.75rem; line-height: 1.45; color: var(--text-dark); white-space: pre-line; font-variant-numeric: tabular-nums;"></div>
     </div>
 </div>
 
@@ -534,7 +538,8 @@
                 <div id="progress-bar-container" class="hidden" style="width: 100%; background-color: var(--light-bg); border-radius: 9999px; height: 0.625rem; margin-bottom: 0.5rem;">
                     <div id="progress-bar" style="background-color: var(--primary-accent); height: 0.625rem; border-radius: 9999px; width: 0%; transition: width 0.2s;"></div>
                 </div>
-                <p id="status-text" style="text-align: center; font-size: 0.8rem; color: var(--text-dark); margin: 0 0 0.5rem 0; height: 1.2em;"></p>
+                <!-- min-height, not height: a fixed 1.2em let a two-line warning run underneath the Start / Report buttons. Grows to 3 lines, then scrolls. -->
+                <p id="status-text" style="text-align: center; font-size: 0.8rem; line-height: 1.3; color: var(--text-dark); margin: 0 0 0.5rem 0; min-height: 1.3em; max-height: 3.9em; overflow-y: auto; overflow-wrap: anywhere;"></p>
                 <div style="display: flex; gap: 0.5rem;">
                     <button id="start-indexing-button" class="btn btn-primary btn-like flex-1" disabled>Find Peaks to Start</button>
                     <button id="report-button" class="btn btn-secondary btn-like flex-1" disabled>Generate PDF Report</button>
@@ -549,7 +554,7 @@
                 <button type="button" id="help-icon-btn" class="help-icon" aria-label="Help and usage information" aria-expanded="false">?</button>
                 <div class="tooltip-content" id="help-tooltip">
     <h4>Brutus - Powder XRD Indexing</h4>
-    <p>This program uses a system-specific, exhaustive search to find potential unit cells based on the first 20 peaks. For Ortho, Monoclinic and Triclinic searches, a GPU is required and activate in the browser.</p>
+    <p>This program uses a system-specific, exhaustive GPU search to find potential unit cells based on the first 20 peaks. The checked crystal systems are searched one after the other, highest symmetry first; rhombohedral (R) lattices are found by the hexagonal search and reported in hexagonal axes. WebGPU must be available and active in the browser; without it only cubic, tetragonal and hexagonal can be searched (on the CPU).</p>
     <p>All trial cells are refined, scored (M(20)), and analyzed for space groups. For a full breakdown, <a href="brutus_help.html" target="_blank" style="color: #6495ED;">read the technical guide.</a></p>
     <hr>
     <h4>Supported File Formats:</h4>
@@ -605,7 +610,7 @@
 
     <div id="status-box"></div>
 
-<div id="app-footer">Brutus, 6 Oct 2026</div>
+<div id="app-footer">Brutus, 10 Oct 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-swap">Swap hkl</div>

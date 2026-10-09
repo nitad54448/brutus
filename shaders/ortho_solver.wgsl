@@ -48,13 +48,27 @@ alias Vec3 = vec3<f32>;
 //   [2] smallest cell volume, A^3, among cells that passed
 //       the AXIS test -- recorded BEFORE the volume gate   atomicMin, init MAX
 //   [3] largest such volume                                atomicMax, init 0
-//   [4..7] reserved
+//   [4] first HKL-combination index left incomplete
+//       because the candidate buffer was full          atomicMin, init MAX
+//   [5..7] reserved
 //
 // The writes sit only on already-filtered paths: [2]/[3] fire after the axis
 // test, [1] once per FoM call. Nothing touches an atomic on the hot reject path
 // where most trials die.
 @group(0) @binding(4) var<storage, read_write> solution_counter: array<atomic<u32>, 8>;
 @group(0) @binding(5) var<storage, read_write> results_list: array<RawOrthoSolution>;
+
+// Slot [4]: the smallest HKL-combination index whose work was NOT completed
+// because the candidate buffer was already full (a thread that early-outed, or
+// an accepted cell that found no free slot). Every index below it was searched
+// in full, so it is an exact lower bound on how far a truncated search got;
+// the engine turns it into the "Trials: done / total" figure. Only touched
+// once the buffer is full, never on the normal hot path.
+fn mark_incomplete(hkl_linear_idx: u32) {
+    if (hkl_linear_idx < atomicLoad(&solution_counter[4])) {
+        atomicMin(&solution_counter[4], hkl_linear_idx);
+    }
+}
 
 // --- ALIGNED CONFIG STRUCT (16-byte alignment) ---
 struct Config { 
@@ -357,7 +371,10 @@ fn validate_fom_avg_diff(A: f32, B: f32, C: f32) -> f32 {
 fn main_3p(
     @builtin(global_invocation_id) global_id: vec3<u32>
 ) { 
-    if (atomicLoad(&solution_counter[0]) >= config.u_params2.z) { return; }
+    if (atomicLoad(&solution_counter[0]) >= config.u_params2.z) {
+        mark_incomplete(config.u_params1.x + global_id.y);
+        return;
+    }
 
     // 1. Calculate Indices
     let peak_combo_idx: u32 = global_id.x;
@@ -418,6 +435,8 @@ fn main_3p(
                 let idx = atomicAdd(&solution_counter[0], 1u);
                 if (idx < config.u_params2.z) {
                     results_list[idx] = cell;
+                } else {
+                    mark_incomplete(hkl_linear_idx);
                 }
                 break; 
             }

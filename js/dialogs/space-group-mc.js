@@ -274,7 +274,10 @@ document.getElementById('ctx-sg').addEventListener('click', () => {
         return;
     }
 
-    sgParent = parent;
+    // Without the R flag: every hypothesis is tested against the FULL
+    // hexagonal lattice, so the R-forbidden lines are there to be found empty
+    // (see latticeLineFilter in js/crystallography/hkl.js).
+    sgParent = withoutLattice(parent);
     sgRows = [];
     sgSelectedSig = null;
     sgSelectedMemberIdx = 0;

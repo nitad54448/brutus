@@ -53,8 +53,9 @@ const ui = {
     tabPanels: document.querySelectorAll('.tab-content-panel'),
     // New GPU Param UI Elements 
     gpuParamsContainer: document.getElementById('gpu-params-container'),
-    gpuHklTriplets: document.getElementById('gpu-hkl-triplets'),
-    gpuPeaksCount: document.getElementById('gpu-peaks-count'),
+    gpuHklPercent: document.getElementById('gpu-hkl-percent'),
+    gpuDepth: document.getElementById('gpu-depth'),
+    gpuPlan: document.getElementById('gpu-plan'),
     gpuFomThreshold: document.getElementById('gpu-fom-threshold'),
     gpuBufferSize: document.getElementById('gpu-buffer-size'),
     progressBar: document.getElementById('progress-bar'),
@@ -113,6 +114,9 @@ const setUIState = (indexing) => {
         ui.fileInput, ui.peakThresholdSlider, ui.peakProminenceSlider, ui.tthMinSlider, ui.tthMaxSlider, 
         ui.ballRadiusSlider, ui.smoothingWidthSlider, ui.wavelength, ui.tthError, 
         ui.maxVolume, ui.impurityPeaksInput, ui.refineZeroCheckbox, 
+        // GPU search settings: locked for the run, since each system is
+        // planned when its turn comes (the run also plans from a snapshot).
+        ui.gpuHklPercent, ui.gpuDepth, ui.gpuFomThreshold, ui.gpuBufferSize,
         // ...ui.systemCheckboxes, modif nov 25
         ...ui.tabButtons, ui.wavelengthPreset
     ];
@@ -125,25 +129,20 @@ const setUIState = (indexing) => {
     if (ui.stripKa2Checkbox) ui.stripKa2Checkbox.disabled = indexing || !ka2StripAllowed();
     
 
-    //  Manually handle checkboxes based on GPU support, if WebGPU error disable mono and tric
+    //  Manually handle checkboxes based on GPU support: without WebGPU only
+    //  the systems with a CPU fallback (cubic, tetragonal, hexagonal) stay
+    //  usable; see SEARCH_SYSTEMS in js/gpu/gpu-setup.js.
     ui.systemCheckboxes.forEach(cb => {
         if (indexing) {
             // When indexing starts, disable all
             cb.disabled = true; 
         } else {
             // When indexing stops, re-enable based on GPU support
-            if (webGPUSupportsCompute) {
-                cb.disabled = false; // Re-enable all
+            if (webGPUSupportsCompute || !isGpuOnlySystem(cb.value)) {
+                cb.disabled = false;
             } else {
-                // Only re-enable non-GPU ones
-                
-                if (cb.value === 'monoclinic' || cb.value === 'triclinic' || cb.value === 'orthorhombic') {
-                
-                    cb.disabled = true; 
-                    cb.checked = false; 
-                } else {
-                    cb.disabled = false;
-                }
+                cb.disabled = true; 
+                cb.checked = false; 
             }
         }
     });
@@ -161,6 +160,7 @@ const setUIState = (indexing) => {
         ui.progressBar.style.width = '0%';
     } else {
         updateStartIndexingButtonState(); 
+        toggleGpuParamsVisibility();
         ui.reportButton.textContent = 'Generate PDF Report'; 
         ui.reportButton.disabled = (solutions.length === 0);
         ui.progressBarContainer.classList.add('hidden'); 

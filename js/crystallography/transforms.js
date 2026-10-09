@@ -142,7 +142,9 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
             const k_div = gcdOfList(indexedPeaks.map(p => Math.abs(p.k)).filter(k => k > 0));
             const l_div = gcdOfList(indexedPeaks.map(p => Math.abs(p.l)).filter(l => l > 0));
             if (h_div > 1 || k_div > 1 || l_div > 1) {
-                const candCell = { ...sol, a: sol.a/h_div, b: (sol.b??sol.a)/k_div, c:(sol.c??sol.a)/l_div };
+                // A sub-cell is a different lattice: it does not inherit the
+                // parent's R flag (refinement probes R again by itself).
+                const candCell = { ...withoutLattice(sol), a: sol.a/h_div, b: (sol.b??sol.a)/k_div, c:(sol.c??sol.a)/l_div };
                 const newSystem = getSymmetry(candCell.a, candCell.b, candCell.c, candCell.alpha, candCell.beta, candCell.gamma);
                 if (allowedSystems.includes(newSystem)) refineAndTestSolution({ ...candCell, system: newSystem });
             }

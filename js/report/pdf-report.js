@@ -166,7 +166,12 @@ try {
     yPos += 7;
           
     doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text('Systems Searched:', margin, yPos);
-    const systems = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value.charAt(0).toUpperCase() + cb.value.slice(1));
+    // The systems the last run actually searched (in search order), not the
+    // checkboxes as they are now: they may have been changed since the run,
+    // and would then disagree with the per-system table further down.
+    const systems = (Array.isArray(lastSystemSearchStats) && lastSystemSearchStats.length)
+        ? lastSystemSearchStats.map(r => r.label)
+        : Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value.charAt(0).toUpperCase() + cb.value.slice(1));
     const systemsText = systems.join(', ');
     doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(systemsText, margin + labelWidth, yPos);
     yPos += 8;
@@ -181,8 +186,26 @@ try {
             .replace(/\s+/g, ' ');
 
         doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
-        doc.text(cleanedStats, margin, yPos);
-        yPos += 7; 
+        // Wrapped: a TRUNCATED or INCOMPLETE suffix makes the line longer
+        // than the page, and jsPDF does not wrap on its own.
+        const statLines = doc.splitTextToSize(cleanedStats, pdfWidth - 2 * margin);
+        doc.text(statLines, margin, yPos);
+        yPos += 7 + 4 * (statLines.length - 1); 
+    }
+
+    // Per-system breakdown of the last run: basis, peaks, trials searched /
+    // planned, candidates refined, time. Fixed-width rows in the data font
+    // (Courier), so the columns line up without a table layout.
+    if (Array.isArray(lastSystemSearchStats) && lastSystemSearchStats.length) {
+        const rows = formatSystemSearchStats(lastSystemSearchStats);
+        doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.SMALL);
+        rows.forEach((row, i) => {
+            if (yPos > 280) { doc.addPage(); yPos = 20; }
+            doc.setFont(FONT.DATA, i === 0 ? 'bold' : 'normal');
+            doc.text(row, margin, yPos);
+            yPos += 3.5;
+        });
+        yPos += 4;
     }
           
     doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
@@ -207,7 +230,7 @@ try {
              case 'monoclinic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}, beta=${formatWithError(sol.beta, p.s_beta)}`; break;
              case 'triclinic': 
                 paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`;
-                doc.text(sol.system.substring(0,4), margin, yPos);
+                doc.text(sol.system.substring(0,4) + (sol.lattice === 'R' ? ' R' : ''), margin, yPos);
                 doc.text(sol.m20.toFixed(2), margin + 15, yPos);
                 doc.text((sol.fN_20 || 0).toFixed(2), margin + 30, yPos);
                 doc.text(sol.volume.toFixed(2), margin + 45, yPos);
@@ -218,7 +241,7 @@ try {
                 yPos += 5;
                 return; 
         }
-        doc.text(sol.system.substring(0,4), margin, yPos);
+        doc.text(sol.system.substring(0,4) + (sol.lattice === 'R' ? ' R' : ''), margin, yPos);
         doc.text(sol.m20.toFixed(2), margin + 15, yPos);
         doc.text((sol.fN_20 || 0).toFixed(2), margin + 30, yPos);
         doc.text(sol.volume.toFixed(2), margin + 45, yPos);
@@ -335,7 +358,7 @@ try {
         doc.addPage(); yPos = 20;
         
         doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1); 
-        doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}`, margin, yPos); 
+        doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}${sol.lattice === 'R' ? ' (R lattice, hexagonal axes)' : ''}`, margin, yPos); 
         yPos += 8; 
         
         doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); 

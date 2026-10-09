@@ -5,7 +5,7 @@
 // top-level names are shared with the other app scripts.
 
 const UINT32_MAX = 4294967295n; // 2^32 - 1 (BigInt)
-// Helper: BigInt combinations to prevent JS precision loss ? 
+// Helper: BigInt combinations to prevent JS precision loss ?
 const bigCombinations = (n, k) => {
     if (k < 0 || k > n) return 0n;
     if (k === 0 || k === n) return 1n;
@@ -21,144 +21,137 @@ const bigCombinations = (n, k) => {
 // ~2e6 is not going to finish in any session a person will sit through.
 const CHUNK_COUNT_WARN_LIMIT = 100000;
 const CHUNK_COUNT_HARD_LIMIT = 2000000;
+// Dispatch geometry for one planned search. Must mirror
+// WebGPUEngine.SYSTEM_CONFIGS / _runSolver: every system now dispatches
+// 8 x 8 workgroups; triclinic keeps its smaller thread budget (TDR guard).
+const estimateGpuChunks = (plan) => {
+    const totalHklCombos = bigCombinations(plan.nHkl, plan.K);
+    const numPeakCombos = combinations(Math.max(plan.nPeaks, plan.K), plan.K);
+    const threadBudget = (plan.K === 6) ? 50000 : 500000;
+    const wgY = 8;
+    const maxHklPerDispatch = Math.floor(threadBudget / Math.max(1, numPeakCombos));
+    const wgCount = Math.max(1, Math.min(Math.ceil(maxHklPerDispatch / wgY), 16383));
+    const hklsPerChunk = wgCount * wgY;
+    return { totalHklCombos, numPeakCombos, hklsPerChunk,
+             estChunks: Number(totalHklCombos) / hklsPerChunk };
+};
+// Pre-flight check over EVERY checked system (they are no longer mutually
+// exclusive). The first system that would never finish blocks the Start
+// button and is named; slow-but-feasible ones only warn.
 const checkGpuLimits = () => {
     // If WebGPU isn't even available, don't block (CPU fallback logic handles it)
     if (!webGPUSupportsCompute) return true;
 
-    let n_hkl = 0;
-    let k_val = 0;
-    let activeSystem = "";
+    const warnings = [];
+    // Plan with the peaks actually available: a search can never combine
+    // more peaks than there are, and planning with the nominal count blocked
+    // or warned about searches that would in fact be small.
+    const available = countIndexablePeaks() || Infinity;
+    for (const system of checkedSystems()) {
+        const plan = planGpuSearch(system, available);
+        if (!plan) continue;
+        const label = plan.cfg.label;
+        const { totalHklCombos, numPeakCombos, hklsPerChunk, estChunks } = estimateGpuChunks(plan);
 
-    // 1. Identify Active System & Parameters
-    if (triCheckbox && triCheckbox.checked) {
-        n_hkl = parseInt(ui.gpuHklTriplets.value, 10) || 40;
-        k_val = 6;
-        activeSystem = "Triclinic";
-    } else if (monoCheckbox && monoCheckbox.checked) {
-        n_hkl = parseInt(ui.gpuHklTriplets.value, 10) || 80;
-        k_val = 4;
-        activeSystem = "Monoclinic";
-    } else if (orthoCheckbox && orthoCheckbox.checked) {
-        n_hkl = parseInt(ui.gpuHklTriplets.value, 10) || 300;
-        k_val = 3;
-        activeSystem = "Orthorhombic";
-    } else {
-        return true; // No GPU system selected
-    }
-
-    // 2. Calculate Shader Loop Size (The dangerous number)
-    const totalHklCombos = bigCombinations(n_hkl, k_val);
-
-    // 2b. Dispatch-count estimate.
-    //
-    // hklsPerChunk in the engine is derived from a FIXED thread budget
-    // divided by the number of peak combinations, so raising "Peaks to
-    // Combine" shrinks the chunk and multiplies the number of dispatches.
-    // Triclinic at the UI-allowed maximum of 20 peaks gives C(20,6)=38760
-    // combos, which collapses the chunk to 4 hkls and demands ~1e9
-    // dispatches for C(123,6): a run that never finishes, with no error and
-    // a progress bar that merely looks slow. Warn while it is still cheap.
-    const n_peaks_ui = parseInt(ui.gpuPeaksCount.value, 10) || 0;
-    const numPeakCombos = combinations(Math.max(n_peaks_ui, k_val), k_val);
-    // Must mirror WebGPUEngine.SYSTEM_CONFIGS.
-    const threadBudget = (k_val === 6) ? 50000 : 500000;
-    const wgY = (k_val === 6) ? 4 : 8;
-    const maxHklPerDispatch = Math.floor(threadBudget / Math.max(1, numPeakCombos));
-    const wgCount = Math.max(1, Math.min(Math.ceil(maxHklPerDispatch / wgY), 16383));
-    const hklsPerChunk = wgCount * wgY;
-    const estChunks = Number(totalHklCombos) / hklsPerChunk;
-
-    if (estChunks > CHUNK_COUNT_HARD_LIMIT) {
-        ui.startIndexingButton.disabled = true;
-        ui.startIndexingButton.textContent = "Start (**** Too Slow)";
-        ui.startIndexingButton.style.backgroundColor = "var(--error-red)";
-        ui.startIndexingButton.style.borderColor = "var(--error-red)";
-        if (statusTextElement) {
-            statusTextElement.textContent =
-                `Error: ${activeSystem} needs ~${Math.round(estChunks).toLocaleString('en-US')} GPU dispatches ` +
+        // The X dimension is one workgroup per 8 peak combinations and the
+        // engine refuses anything over the device limit (65,535 by default).
+        // Block here, where it can still be fixed, rather than at run time.
+        if (Math.ceil(numPeakCombos / 8) > 65535) {
+            blockStartButton("Start (**** Too Many Peaks)",
+                `Error: ${label} combines ${plan.nPeaks} peaks (${numPeakCombos.toLocaleString('en-US')} ` +
+                `combinations), over the GPU dispatch limit. Lower "Depth".`);
+            return false;
+        }
+        // Hklsperchunk shrinks as the peak-combination count grows (fixed
+        // thread budget), so raising Depth multiplies the number of dispatches.
+        if (estChunks > CHUNK_COUNT_HARD_LIMIT) {
+            blockStartButton("Start (**** Too Slow)",
+                `Error: ${label} needs ~${Math.round(estChunks).toLocaleString('en-US')} GPU dispatches ` +
                 `(only ${hklsPerChunk} HKL per dispatch at ${numPeakCombos} peak combinations). ` +
-                `Reduce "Peaks to Combine" or "HKL Basis Size".`;
+                `Reduce "Depth" or "HKL Basis".`);
+            return false;
         }
-        return false;
+        // Cannot trigger with the current lists (hklBasisMax already applies
+        // the u32 cap), kept as a guard should a list ever grow.
+        if (totalHklCombos > UINT32_MAX) {
+            blockStartButton("Start (**** Too Large)",
+                `Error: ${label} HKL combos (${totalHklCombos.toLocaleString('en-US')}) exceeds GPU limit ` +
+                `(4.29 Billion). Reduce HKL Basis.`);
+            return false;
+        }
+        if (estChunks > CHUNK_COUNT_WARN_LIMIT) {
+            warnings.push(`${label} ~${Math.round(estChunks).toLocaleString('en-US')} dispatches`);
+        }
     }
-    if (estChunks > CHUNK_COUNT_WARN_LIMIT && statusTextElement) {
+    if (warnings.length && statusTextElement) {
         statusTextElement.textContent =
-            `Warning: ${activeSystem} will issue ~${Math.round(estChunks).toLocaleString('en-US')} GPU dispatches. ` +
-            `Lowering "Peaks to Combine" would speed this up substantially.`;
+            `Warning: slow GPU search (${warnings.join(', ')}). Lower "Depth" to speed up.`;
     }
-
-    // 3. Check against Hardware Limit (u32)
-    if (totalHklCombos > UINT32_MAX) {
-        //  LIMIT EXCEEDED: BLOCK UI ?
-        ui.startIndexingButton.disabled = true;
-        ui.startIndexingButton.textContent = "Start (**** Too Large)";
-        ui.startIndexingButton.style.backgroundColor = "var(--error-red)";
-        ui.startIndexingButton.style.borderColor = "var(--error-red)";
-        
-        if (document.getElementById('status-text')) {
-            const fmt = totalHklCombos.toLocaleString('en-US');
-            document.getElementById('status-text').textContent = 
-                `Error: ${activeSystem} HKL combos (${fmt}) exceeds GPU limit (4.29 Billion). Reduce HKL Basis.`;
-        }
-        return false; // Invalid
-    } 
-    
-    // 4. Valid State
     return true;
+};
+const blockStartButton = (label, message) => {
+    ui.startIndexingButton.disabled = true;
+    ui.startIndexingButton.textContent = label;
+    ui.startIndexingButton.style.backgroundColor = "var(--error-red)";
+    ui.startIndexingButton.style.borderColor = "var(--error-red)";
+    if (statusTextElement) statusTextElement.textContent = message;
 };
 // update
 const updateStartIndexingButtonState = () => {
+    // A run in progress owns the button (setUIState); checkbox or parameter
+    // edits made meanwhile must not re-enable Start under it.
+    if (isIndexing) return;
+    // The per-system plan depends on how many peaks there are; refresh it
+    // whenever the peak list (or anything else feeding this) changes.
+    updateGpuStatusText();
+
     // Step 1: Check Peaks
     const tthMin = parseFloat(ui.tthMinSlider.value) || -Infinity;
     const tthMax = parseFloat(ui.tthMaxSlider.value) || Infinity;
     const validPeaks = pickedPeaks.filter(p => p.tth >= tthMin && p.tth <= tthMax && !p.ka2Suspect);
-    
-    let minRequired = 4;
-    if (ui.gpuParamsContainer && !ui.gpuParamsContainer.classList.contains('hidden')) {
-        minRequired = parseInt(ui.gpuPeaksCount.value, 10) || 7;
-    }
+
+    // The smallest search that can still post a cell decides the floor: a
+    // system short of peaks is skipped on its own at run time, it does not
+    // block the others. With no system checked the old floor of 4 stands.
+    const systems = checkedSystems();
+    const minRequired = systems.length
+        ? Math.min(...systems.map(s => MIN_PEAKS_FOR_SYSTEM[s] || 4))
+        : 4;
     const needed = minRequired - validPeaks.length;
-    
-    if (needed > 0) { 
+
+    if (needed > 0) {
         // Not enough peaks
-        ui.startIndexingButton.disabled = true; 
-        ui.startIndexingButton.textContent = `Need ${needed} more peak${needed > 1 ? 's' : ''}`; 
-        ui.startIndexingButton.style.backgroundColor = ""; 
+        ui.startIndexingButton.disabled = true;
+        ui.startIndexingButton.textContent = `Need ${needed} more peak${needed > 1 ? 's' : ''}`;
+        ui.startIndexingButton.style.backgroundColor = "";
         ui.startIndexingButton.style.borderColor = "";
-        if (document.getElementById('status-text')) document.getElementById('status-text').textContent = "";
-    } else { 
+        if (statusTextElement) statusTextElement.textContent = "";
+    } else {
         // Step 2: Peaks are good, now Check GPU Safety
+        // Clear any previously-set pre-flight message first: a warning left
+        // on screen after the parameter was fixed reads as a live error.
+        if (statusTextElement && (statusTextElement.textContent.includes("exceeds GPU limit") ||
+                                  statusTextElement.textContent.includes("GPU dispatch") ||
+                                  statusTextElement.textContent.includes("slow GPU search"))) {
+            statusTextElement.textContent = "";
+        }
         const gpuSafe = checkGpuLimits();
-        
+
         if (gpuSafe) {
             // Safe to run
-            ui.startIndexingButton.disabled = false; 
-            ui.startIndexingButton.textContent = 'Start Indexing'; 
-            ui.startIndexingButton.style.backgroundColor = ""; 
+            ui.startIndexingButton.disabled = false;
+            ui.startIndexingButton.textContent = 'Start Indexing';
+            ui.startIndexingButton.style.backgroundColor = "";
             ui.startIndexingButton.style.borderColor = "";
-            
-            // Clear any previously-set pre-flight message. checkGpuLimits
-            // can now emit a dispatch-count warning as well as the u32 one,
-            // and a warning left on screen after the parameter was fixed
-            // reads as a live error.
-            const statusEl = document.getElementById('status-text');
-            if (statusEl && (statusEl.textContent.includes("exceeds GPU limit") ||
-                             statusEl.textContent.includes("GPU dispatches"))) {
-                statusEl.textContent = "";
-            }
         }
         // If gpuSafe is false, checkGpuLimits already set the button to Red/****
     }
 };
 // Attach listeners
-ui.gpuHklTriplets.addEventListener('input', updateStartIndexingButtonState);
-ui.gpuPeaksCount.addEventListener('input', updateStartIndexingButtonState);
-ui.systemCheckboxes.forEach(cb => cb.addEventListener('change', updateStartIndexingButtonState));
+ui.gpuHklPercent.addEventListener('input', updateStartIndexingButtonState);
+ui.gpuDepth.addEventListener('input', updateStartIndexingButtonState);
+// (System checkboxes: gpu-setup.js registers one listener that calls both
+// toggleGpuParamsVisibility and updateStartIndexingButtonState.)
 // Also run on init
-// Size the HKL input to whichever GPU system is already checked, so the
-// limit is correct before the user touches anything.
-for (const s of ['orthorhombic', 'monoclinic', 'triclinic']) {
-    const cb = document.querySelector(`.system-checkbox[value="${s}"]`);
-    if (cb && cb.checked) { applyHklBasisLimits(s); break; }
-}
+toggleGpuParamsVisibility();
 updateStartIndexingButtonState();

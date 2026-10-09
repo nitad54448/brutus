@@ -69,11 +69,17 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
         const sgNumber = sg.number;
         for (const setting of sg.settings) {
             const centering = setting.symbol.charAt(0);
-            // Same filter detectExtinctions() applies to its candidate pool.
+            // Same filters detectExtinctions() and sgExtinctionClasses() apply.
+            // The axes test was missing here: the rhombohedral-axes settings of
+            // the seven R groups (hall "P 3*", conditions written for indices
+            // this program never produces, mostly none at all) were ranked as
+            // hexagonal candidates, so every R group was listed through a
+            // duplicate that forbids nothing.
+            if (!sgSettingAxesMatch(setting, system)) { continue; }
             if (!settingCenteringAllowed(setting.symbol, allowedCenterings)) { continue; }
             
             const rules = setting.conditions || {};
-            const violations = countViolations(indexed_hkls, setting);
+            const violations = countViolations(indexed_hkls, setting, system);
             
             // Cutoff remains on HARD violations only
             if (violations.hardCount <= maxViolations) {
@@ -155,6 +161,7 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
                 validSettings.push({
                     number: sgNumber,
                     symbol: setting.symbol,
+                    settingId: setting.setting_id,
                     standardSymbol: sg.standard_symbol,
                     pointGroup: sg.point_group,
                     centrosymmetric: sg.centrosymmetric,
@@ -256,7 +263,22 @@ const satisfiesCondition = (h, k, l, condStr) => {
 // in the detail line the report shows. If no printed condition matches -- which
 // happens when the absence follows from a condition the tables leave implied --
 // the detail says so rather than inventing one.
-function countViolations(indexed_hkls, setting) {
+// `system` makes the test a question about the LINE, as Space Group MC asks it
+// (sgOpsAllowedFn): a powder line is forbidden only if every reflection on it
+// is -- its whole metric orbit, plus any other reflection the generator merged
+// into it (reflection.coincident). Testing the one representative hkl the
+// generator kept was wrong whenever that representative is forbidden while a
+// partner on the same line is allowed:
+//   - R groups in hexagonal axes: (h,k,l) and (k,h,l) share a line but fall
+//     under different obverse conditions (-h+k+l vs h-k+l); every true R
+//     group was rejected on its own pattern;
+//   - Laue classes below the holohedry (m-3: Pa-3, Ia-3): 320 is forbidden by
+//     hk0: h=2n, 230 is not;
+//   - exact metric coincidences (cubic 221/300 at N = 9): P-43n, Pm-3n,
+//     Pn-3n, F-43c, Fm-3c, Fd-3c, I-43d, Ia-3d all collected hard violations
+//     on patterns that obey them exactly.
+// Without `system` (an older caller) the representative test is kept.
+function countViolations(indexed_hkls, setting, system) {
     let hardCount = 0;
     let softCount = 0;
     const detailsHard = [];
@@ -267,7 +289,14 @@ function countViolations(indexed_hkls, setting) {
                      details: [], detailsHard: [], detailsSoft: [] };
     const printed = sgSettingConditions(setting);
 
-    const hklViolatesRules = (h, k, l) => sgOpsAbsent(h, k, l, C);
+    const allowedFn = system ? sgOpsAllowedFn(setting, system) : null;
+    const hklViolatesRules = allowedFn
+        ? (h, k, l, coincident) => {
+            if (allowedFn(h, k, l)) return false;
+            if (coincident) for (const c of coincident) if (allowedFn(c.h, c.k, c.l)) return false;
+            return true;
+        }
+        : (h, k, l) => sgOpsAbsent(h, k, l, C);
 
     // Which printed condition explains this absence? Presentation only.
     const nameFor = (h, k, l) => {
@@ -302,7 +331,7 @@ function countViolations(indexed_hkls, setting) {
             if (refl.lowIntensity) tags.push('weak');
             return tags.length > 0 ? ` [${tags.join(', ')}]` : '';
         };
-        if (sgOpsAbsent(h, k, l, C)) {
+        if (hklViolatesRules(h, k, l, reflection.coincident)) {
             isViolation = true;
             const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
             violationDetail = `(${h},${k},${l})${tth_string} violates ${nameFor(h, k, l)}${softTagFor(reflection)}`;
@@ -315,7 +344,7 @@ function countViolations(indexed_hkls, setting) {
         // group: the peak could equally well be assigned to the allowed
         // alternative. Treat such cases as soft so a single near-tolerance
         // peak can't kill an otherwise excellent space group.
-        if (isViolation && hasCompetingAllowedAlt(reflection, alt => !hklViolatesRules(alt.h, alt.k, alt.l))) {
+        if (isViolation && hasCompetingAllowedAlt(reflection, alt => !hklViolatesRules(alt.h, alt.k, alt.l, alt.coincident))) {
             const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
             violationDetail = `(${h},${k},${l})${tth_string} ambiguous (allowed alt within tol)`;
             softCount++;

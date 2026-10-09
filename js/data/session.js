@@ -33,6 +33,10 @@ gpuTotalTrials = 0;
 indexingStartTime = 0;
 lastDurationStr = '';
 lastIndexingStats = '';
+// The per-run GPU figures (js/indexing/run.js) belong to the old file too.
+lastGpuRunSettings = null;
+lastTruncatedSystems = [];
+lastSystemSearchStats = [];
 
 updatePeakTable();
 updateSolutionsTable();

@@ -193,6 +193,10 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
                 if (refineZero) {
                     refined_cell.zero_correction = fitResult_with_zero_final.solution[fitResult_with_zero_final.solution.length - 1] * DEG;
                 }
+                // An R cell stays R: its pairing above already used the R
+                // lines (generateHKL_for_worker honours the flag), and its
+                // M(20) below must count only R lines too.
+                if (system === 'hexagonal' && initialParams.lattice === 'R') refined_cell.lattice = 'R';
                 refined_cell.volume = getVolume(refined_cell);
                 
                 // q_only fast path: a sorted, deduped Float64Array straight out of
@@ -223,13 +227,40 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
                 }
                 if (final_m20 <= min_m20) bump('lowM20');
 
-                if (final_m20 > min_m20) {
-                    const peaks_for_merit_all_refined = [];
-                    for (let i = 0; i < n_all; i++) {
-                        const original_peak = peaks_sorted_by_q[i]; const corrected_tth_deg = original_peak.tth - (refined_cell.zero_correction || 0);
-                        const corrected_tth_rad = corrected_tth_deg * RAD; const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
-                        peaks_for_merit_all_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
+                const peaks_for_merit_all_refined = [];
+                for (let i = 0; i < n_all; i++) {
+                    const original_peak = peaks_sorted_by_q[i]; const corrected_tth_deg = original_peak.tth - (refined_cell.zero_correction || 0);
+                    const corrected_tth_rad = corrected_tth_deg * RAD; const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
+                    peaks_for_merit_all_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
+                }
+
+                // --- R-lattice probe (hexagonal cells only) -------------------
+                // Is this hexagonal cell really an R lattice? It is if the R line
+                // list (about half of the lines) indexes every peak the full
+                // hexagonal list indexes -- in the first n_20 AND in all peaks, so
+                // the impurity allowance can never be spent on a genuine non-R
+                // line. Then refine it again as R: same peaks, about half the
+                // calculated lines, so a ~2x higher M(20), which now ranks the R
+                // cell where it belongs. Both versions share a solution key, so
+                // the dedupe keeps the R one (higher M20) and, being refined
+                // first, the P one is not posted at all. Runs before the M20
+                // threshold on purpose: an R lattice can fail 2.0 on the P list
+                // and pass comfortably on its own. P M20 = 0 means too many peaks
+                // are unindexed already; R lines (a subset) cannot do better.
+                if (system === 'hexagonal' && refined_cell.lattice !== 'R' && final_m20 > 0) {
+                    const q_R = generateQArray_for_worker({ ...refined_cell, lattice: 'R' }, q_max, wavelength);
+                    if (q_R.length > 0 &&
+                        countIndexedPeaks(q_R, peaks_for_merit_20_refined, local_get_q_tolerance) ===
+                            countIndexedPeaks(q_calc_sorted_refined, peaks_for_merit_20_refined, local_get_q_tolerance) &&
+                        countIndexedPeaks(q_R, peaks_for_merit_all_refined, local_get_q_tolerance) ===
+                            countIndexedPeaks(q_calc_sorted_refined, peaks_for_merit_all_refined, local_get_q_tolerance)) {
+                        if (diag) diag.rLatticeProbes = (diag.rLatticeProbes || 0) + 1;
+                        refineAndTestSolution({ a: refined_cell.a, c: refined_cell.c, system: 'hexagonal', lattice: 'R' },
+                                              data, state, postMessage_func);
                     }
+                }
+
+                if (final_m20 > min_m20) {
                     const { m20: final_m_all, fN: final_fN_all } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_all_refined, impurity_peaks, local_get_q_tolerance, wavelength);
                     
                     refined_cell.m20 = final_m20; refined_cell.fN_20 = final_fN_20; refined_cell.n_20 = n_20;

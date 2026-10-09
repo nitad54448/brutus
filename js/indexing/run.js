@@ -1,17 +1,156 @@
 // js/indexing/run.js
-// Indexing runs: startIndexing (CPU and GPU searches, refinement), finalizeIndexing
-// and stopping a run.
+// Indexing runs: startIndexing (GPU searches, CPU fallback, refinement),
+// finalizeIndexing and stopping a run.
 //
 // Classic script, loaded in order by brutus.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
+// What the last run searched with, for the final status line and the report.
+// null when the run did not use the GPU (CPU fallback only).
+let lastGpuRunSettings = null;
+// Systems whose GPU search stopped because the candidate buffer filled, as
+// { label, fraction } with the fraction of the search space actually visited.
+// Reported in the final status line and the PDF report.
+let lastTruncatedSystems = [];
+// One row per checked system, in search order, for the PDF report and the
+// console: basis size, peaks combined, trials searched / planned, candidates
+// sent to refinement, time, and a note (truncated, skipped, stopped...).
+// `done` is filled in by finalizeIndexing from the same taskProgress the
+// overall "Trials:" line uses, so the rows always add up to it.
+let lastSystemSearchStats = [];
+// "12%", "3.4%", "0.0089%": enough digits that a search cut off near its start
+// does not read as 0.
+// Fixed-width text rows (for the Courier font of the PDF report and the
+// console): header first, then one line per system.
+const formatSystemSearchStats = (rows) => {
+    const n = (v) => (v === null || v === undefined) ? '-' : Math.round(v).toLocaleString('en-US');
+    const out = ['System         HKL  Peaks          Searched / Planned trials      Cand.    Time  Note'];
+    for (const r of rows) {
+        const pct = (r.total && r.total > 0) ? ` (${fmtSearchedPercent(Math.min(1, r.done / r.total))})` : '';
+        const trials = (r.total === null && r.mode === 'CPU')
+            ? `${n(r.done)} (CPU)`
+            : `${n(r.done)} / ${n(r.total)}${pct}`;
+        const time = (r.timeMs === null) ? '-' : (r.timeMs >= 60000
+            ? `${Math.floor(r.timeMs / 60000)}m${String(Math.round(r.timeMs % 60000 / 1000)).padStart(2, '0')}s`
+            : `${(r.timeMs / 1000).toFixed(1)}s`);
+        out.push(r.label.padEnd(13) + n(r.nHkl).padStart(5) + n(r.nPeaks).padStart(7) + '  ' +
+                 trials.padStart(37) + n(r.candidates).padStart(10) + time.padStart(8) +
+                 (r.note ? '  ' + r.note : ''));
+    }
+    return out;
+};
+const fmtSearchedPercent = (fraction) => {
+    const pct = fraction * 100;
+    if (pct >= 10 || pct === 0) return pct.toFixed(0) + '%';
+    if (pct >= 1) return pct.toFixed(1) + '%';
+    return pct.toPrecision(2) + '%';
+};
+
+// How each system's hkl basis is packed for the GPU.
+//
+// The shaders do not receive raw [h,k,l,pad]; they receive the PRODUCTS they
+// actually consume. Both the matrix rows and the FoM inner loop want them, and
+// the FoM used to recompute them for every candidate cell against every basis
+// reflection -- which is where nearly all GPU time went. Computing them once
+// here removes those multiplies from the innermost loop and turns scalar loads
+// into one 16-byte vector load.
+//
+// This is not an approximation: the indices are small, so every product is a
+// small integer, exactly representable in f32. The shader gets bit-for-bit
+// what it used to compute.
+//
+//   cubic          vec4(h^2+k^2+l^2, 0, 0, 0)          highsym_solver.wgsl
+//   tetragonal     vec4(h^2+k^2, l^2, 0, 0)            highsym_solver.wgsl
+//   hexagonal      vec4(h^2+hk+k^2, l^2, 0, 0)         highsym_solver.wgsl
+//   orthorhombic   vec4(h^2, k^2, l^2, 0)              ortho_solver.wgsl
+//   monoclinic     vec4(h^2, k^2, l^2, hl)             monoclinic_solver.wgsl
+//   triclinic      2 x vec4: (h^2,k^2,l^2,kl), (hl,hk,0,0)   triclinic_solver.wgsl
+//
+// The engine reads the stride from cfg.hklFloats. Keep this table in sync
+// with the @binding(1) comments in the .wgsl files.
+//
+// HKL_PACKING is stamped onto the returned array and re-checked by the
+// engine. Raw indices and packed products have the SAME stride for most
+// systems, so a mismatch is otherwise invisible: the run completes and
+// silently finds nothing. That is exactly the bug this tag exists to catch.
+const HKL_PACKING = 'products/v1';
+
+const HKL_PACKERS = {
+    cubic: { floats: 4, pack: (o, i, h, k, l) => {
+        const b = i * 4;
+        o[b] = h * h + k * k + l * l; o[b + 1] = 0; o[b + 2] = 0; o[b + 3] = 0;
+    } },
+    tetragonal: { floats: 4, pack: (o, i, h, k, l) => {
+        const b = i * 4;
+        o[b] = h * h + k * k; o[b + 1] = l * l; o[b + 2] = 0; o[b + 3] = 0;
+    } },
+    hexagonal: { floats: 4, pack: (o, i, h, k, l) => {
+        const b = i * 4;
+        o[b] = h * h + h * k + k * k; o[b + 1] = l * l; o[b + 2] = 0; o[b + 3] = 0;
+    } },
+    orthorhombic: { floats: 4, pack: (o, i, h, k, l) => {
+        const b = i * 4;
+        o[b] = h * h; o[b + 1] = k * k; o[b + 2] = l * l; o[b + 3] = 0;
+    } },
+    monoclinic: { floats: 4, pack: (o, i, h, k, l) => {
+        const b = i * 4;
+        o[b] = h * h; o[b + 1] = k * k; o[b + 2] = l * l; o[b + 3] = h * l;
+    } },
+    triclinic: { floats: 8, pack: (o, i, h, k, l) => {
+        const b = i * 8;
+        o[b] = h * h; o[b + 1] = k * k; o[b + 2] = l * l; o[b + 3] = k * l;
+        o[b + 4] = h * l; o[b + 5] = h * k; o[b + 6] = 0; o[b + 7] = 0;
+    } },
+};
+
+// Build the HKL basis array.
+//   n_hkl_for_basis  reflections whose K-combinations are searched
+//   splitSpecial     axial HKLs (two of h,k,l are 0) are moved to the front of
+//                    the list before truncation (ortho, mono)
+//   fomFullList      upload the WHOLE list, so the GPU FoM scores against all
+//                    of it while the search still uses only the first
+//                    n_hkl_for_basis (high-symmetry systems; see
+//                    highsym_solver.wgsl). Otherwise only the search basis
+//                    is uploaded and both counts are the same, as before.
+const buildHklBasis = (system, n_hkl_for_basis, splitSpecial, fomFullList = false) => {
+    const hkl_full = get_hkl_search_list(system);
+    let ordered;
+    if (splitSpecial) {
+        const special = [];
+        const regular = [];
+        for (const hkl of hkl_full) {
+            const [h, k, l] = hkl;
+            if ((k === 0 && l === 0) || (h === 0 && l === 0) || (h === 0 && k === 0)) {
+                special.push(hkl);
+            } else {
+                regular.push(hkl);
+            }
+        }
+        ordered = [...special, ...regular];
+    } else {
+        ordered = hkl_full;
+    }
+    const nSearch = Math.max(0, Math.min(n_hkl_for_basis, ordered.length));
+    const hkl_basis_raw = fomFullList ? ordered : ordered.slice(0, nSearch);
+    const packer = HKL_PACKERS[system];
+    if (!packer) throw new Error(`No HKL packer registered for system '${system}'.`);
+    const hklBasisArray = new Float32Array(hkl_basis_raw.length * packer.floats);
+    hkl_basis_raw.forEach((hkl, i) => { packer.pack(hklBasisArray, i, hkl[0], hkl[1], hkl[2]); });
+    return { nSearch, hkl_basis_raw, hklBasisArray, hklFloats: packer.floats, hklPacking: HKL_PACKING };
+};
+
 const startIndexing = async () => {
 if (isIndexing) return;
-const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
+// Canonical order (SEARCH_ORDER, highest symmetry first), whatever the order
+// of the checkboxes in the markup: it is the order the GPU searches run in.
+const checkedValues = new Set(Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value));
+const systemsToSearch = SEARCH_ORDER.filter(s => checkedValues.has(s));
 if (systemsToSearch.length === 0) {
     showStatus("Please select at least one crystal system to search.", "error");
     return;
 }
+// The systems the post-processing transforms may produce.
+const allowedSystems = systemsToSearch;
 
 const mySessionToken = ++indexingRunToken;
 const runStopSignal = { stop: false };
@@ -27,10 +166,12 @@ runPool.setHandlers(
 indexingStartTime = performance.now();
 setUIState(true); // Lock startup before the first await.
 try {
-const needsWebGPU = systemsToSearch.includes('monoclinic') || systemsToSearch.includes('triclinic') || systemsToSearch.includes('orthorhombic');
 let webgpuEngine = null;
 
-if (needsWebGPU) {
+// Every system can run on the GPU now. Try the engine whenever WebGPU is
+// believed usable; if it is not, fall back to the CPU worker for the systems
+// that have a CPU search (cubic, tetragonal, hexagonal) instead of stopping.
+if (webGPUSupportsCompute) {
     try {
         // Shared, page-lifetime engine -- not a new GPUDevice per run.
         webgpuEngine = await getWebGPUEngine();
@@ -38,18 +179,11 @@ if (needsWebGPU) {
     } catch (err) {
         if (!isCurrentRun()) return;
         console.warn("WebGPU initialization failed:", err.message);
-        showStatus("WebGPU failed unexpectedly. GPU searches are disabled.", "error", 8000);
-        webGPUSupportsCompute = false; 
+        showStatus("WebGPU failed unexpectedly. GPU-only systems are disabled; " +
+                   "cubic, tetragonal and hexagonal run on the CPU.", "error", 8000);
         releaseWebGPUEngine();
-        // Disable all GPU checkboxes
-        [orthoCheckbox, monoCheckbox, triCheckbox].forEach(cb => {
-            if (cb) {
-                cb.checked = false;
-                cb.disabled = true;
-                if (cb.parentElement) cb.parentElement.style.opacity = '0.5';
-            }
-        });
-        return; // Stop indexing
+        webgpuEngine = null;
+        disableGpuOnlySystems();
     }
 }
 
@@ -64,7 +198,7 @@ const filteredPeaks = pickedPeaks.filter(
     p => p.tth >= tthMinVal && p.tth <= tthMaxVal && !p.ka2Suspect
 );
 
-if (filteredPeaks.length < 3) { 
+if (filteredPeaks.length < 3) {
     showStatus("Please find at least 3 peaks in the selected range.", 'error');
     return;
 }
@@ -74,29 +208,19 @@ cpuDiagnostics = [];
 
 const webgpuSystems = [];
 const workerSystems = [];
-
-
-systemsToSearch.forEach(system => {
-if (['orthorhombic', 'monoclinic', 'triclinic'].includes(system)) {
+const skippedSystems = [];
+for (const system of systemsToSearch) {
     if (webgpuEngine && webGPUSupportsCompute) {
         webgpuSystems.push(system);
+    } else if (SEARCH_SYSTEMS[system] && SEARCH_SYSTEMS[system].cpuFallback) {
+        workerSystems.push(system);
     } else {
-        // GPU unavailable: Do NOT push to workerSystems. 
-        // Just skip it or warn.
-        console.warn(`Skipping ${system} - GPU unavailable and CPU fallback disabled.`);
-        showStatus(`Skipping ${system} (GPU required)`, "error", 4000);
+        skippedSystems.push(system);
     }
-} else {
-    // Cubic, Tetragonal, Hexagonal go to CPU
-    workerSystems.push(system);
 }
-});
-
-
-if (needsWebGPU && webgpuSystems.length === 0) {
-    ui.systemCheckboxes.forEach(cb => {
-        if (['monoclinic', 'triclinic', 'orthorhombic'].includes(cb.value)) cb.checked = false;
-    });
+if (skippedSystems.length) {
+    console.warn(`Skipping ${skippedSystems.join(', ')} - GPU unavailable and no CPU search for them.`);
+    showStatus(`Skipping ${skippedSystems.map(s => SEARCH_SYSTEMS[s].label).join(', ')} (GPU required)`, "error", 4000);
 }
 
 if (workerSystems.length === 0 && webgpuSystems.length === 0) {
@@ -112,20 +236,35 @@ ui.tabPanels.forEach(panel => panel.classList.remove('active'));
 document.querySelector('.tab-btn[data-tab="solutions"]').classList.add('active');
 document.getElementById('solutions-tab-content').classList.add('active');
 
-   // solutions = []; 
+   // solutions = [];
    // displayedSolutions = [];
-selectedSolution = null; 
-currentHklList = []; 
+selectedSolution = null;
+currentHklList = [];
 activeWorkers = [];
-//foundSolutionMap.clear(); 
-updateSolutionsTable(); 
+//foundSolutionMap.clear();
+updateSolutionsTable();
 updateAllMarkers();
 showStatus(`Indexing started...`, 'info');
 
 cumulativeTrials = 0;
 gpuTotalTrials = 0;
 indexingStartTime = performance.now();
-
+lastTruncatedSystems = [];
+lastSystemSearchStats = systemsToSearch.map(s => ({
+    system: s, label: SEARCH_SYSTEMS[s].label,
+    mode: webgpuSystems.includes(s) ? 'GPU' : (workerSystems.includes(s) ? 'CPU' : null),
+    taskIndex: -1, nHkl: null, nPeaks: null, total: null, done: 0,
+    candidates: null, timeMs: null, truncated: null,
+    note: skippedSystems.includes(s) ? 'skipped (GPU required)' : '',
+}));
+const systemStat = (s) => lastSystemSearchStats.find(e => e.system === s) || {};
+// One snapshot of the GPU settings for the whole run: every system is planned
+// from it (runGpuSystem), and the final status line reports it. The boxes are
+// locked while the run lasts as well (setUIState).
+const runGpuSettings = readGpuSearchSettings();
+lastGpuRunSettings = webgpuSystems.length
+    ? { ...runGpuSettings, fom: getFomThreshold(), candidates: getCandidateCells() }
+    : null;
 
 const baseParams = {
     peaks: filteredPeaks,
@@ -136,8 +275,7 @@ const baseParams = {
     refineZero: !!ui.refineZeroCheckbox.checked,
     fom_threshold: getFomThreshold(),
     max_solutions: getCandidateCells(),
-    gpu_peaks_count: getGpuPeaksCount(),
-    // Physical plausibility limits. extractCell* in all three shaders used
+    // Physical plausibility limits. extractCell* in all the shaders used
     // to hard-code 2.0 / 50.0 / 20.0 while refineAndTestSolution kept its
     // own copies of the same three numbers; the shader side now reads them
     // from here (config.f_params2) so there is one place to change them.
@@ -152,10 +290,9 @@ const baseParams = {
 fitContext = JSON.stringify({ peaks: baseParams.peaks, wavelength: baseParams.wavelength,
     tth_error: baseParams.tth_error, impurity_peaks: baseParams.impurity_peaks });
 
-let currentGpuTaskIndex = 0;
 let currentWorkerTaskIndex = 0;
 const totalTasks = workerSystems.length + webgpuSystems.length;
-taskProgress = new Array(totalTasks).fill(0); 
+taskProgress = new Array(totalTasks).fill(0);
 taskTotals = new Array(totalTasks).fill(0);
 
 const updateProgressBar = () => {
@@ -169,7 +306,7 @@ if (statusTextElement) statusTextElement.textContent = '[0%] Starting...';
 
 const getGpuProgressCallback = (systemName, absoluteTaskIndex) => {
     const cb = (chunkProgress, numFound) => {
-        if (!isCurrentRun()) return; 
+        if (!isCurrentRun()) return;
         taskProgress[absoluteTaskIndex] = chunkProgress * 100;
         updateProgressBar();
         const totalPercentage = taskProgress.reduce((a, b) => a + b, 0) / totalTasks;
@@ -178,16 +315,14 @@ const getGpuProgressCallback = (systemName, absoluteTaskIndex) => {
     };
     // The engine calls this once, before the chunk loop, with the dispatch
     // geometry it actually resolved. checkGpuLimits() estimates the same
-    // numbers ahead of time, but this is the ground truth and covers the
-    // case where the basis was capped by the u32 guard after the pre-flight
-    // check ran.
+    // numbers ahead of time, but this is the ground truth.
     cb.reportPlan = (plan) => {
         console.log(`[perf] GPU plan (${plan.system}): ${plan.totalChunks.toLocaleString()} dispatches, ` +
                     `${plan.hklsPerChunk} hkl/chunk, ${plan.numPeakCombos} peak combos`);
         if (plan.totalChunks > CHUNK_COUNT_WARN_LIMIT) {
             showStatus(
                 `${systemName}: ~${plan.totalChunks.toLocaleString()} GPU dispatches queued — this run will be slow. ` +
-                `Press Stop and lower "Peaks to Combine" to speed it up.`, 'error', 10000);
+                `Press Stop and lower "Depth" to speed it up.`, 'error', 10000);
         }
     };
     return cb;
@@ -195,15 +330,15 @@ const getGpuProgressCallback = (systemName, absoluteTaskIndex) => {
 
 const taskPromises = [];
 
-// GPU 
+// GPU
 let qTolerancesArray, qObsArray;
 if (webgpuSystems.length > 0) {
     const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(filteredPeaks, baseParams.wavelength);
     // 32, not 20: the WGSL solvers cap the FoM loop at MAX_FOM_PEAKS and
     // index q_tolerances[i] for i < min(finalFomCount, MAX_FOM_PEAKS). With
-    // MAX_FOM_PEAKS unified to 32 across all three shaders, a 20-length
+    // MAX_FOM_PEAKS unified to 32 across all the shaders, a 20-length
     // buffer was read out of bounds whenever finalFomCount (= max(10,
-    // gpuPeaksCount)) exceeded 20. Sizing to 32 covers every system; the
+    // peaks combined)) exceeded 20. Sizing to 32 covers every system; the
     // shader's own min() still caps the actual number of peaks read.
     const n_peaks_for_fom = Math.min(q_obs.length, 32);
     qTolerancesArray = new Float32Array(n_peaks_for_fom);
@@ -238,7 +373,7 @@ if (webgpuSystems.length > 0) {
     runPool.reset();
 }
 
-// CPU
+// CPU (fallback only: cubic / tetragonal / hexagonal without WebGPU)
 if (workerSystems.length > 0) {
     const workerTask = new Promise((resolve) => {
         resolveWorkerTask = resolve;
@@ -253,6 +388,8 @@ if (workerSystems.length > 0) {
             currentWorkerTaskIndex++;
 
             taskTotals[absoluteTaskIndex] = 0;
+            const stat = systemStat(system);
+            stat.taskIndex = absoluteTaskIndex;
 
             const worker = new Worker(workerURL);
             activeWorkers.push(worker);
@@ -282,11 +419,12 @@ if (workerSystems.length > 0) {
                 const { type, payload } = e.data;
                 if (type === 'trials_completed_batch') {
                     cumulativeTrials += payload;
+                    stat.done += payload;
                     const elapsedTimeSeconds = (performance.now() - indexingStartTime) / 1000;
                     const trialsPerSecond = (elapsedTimeSeconds > 0.1) ? cumulativeTrials / elapsedTimeSeconds : 0;
                     const totalPercentage = taskProgress.reduce((a, b) => a + b, 0) / totalTasks;
                     const message = `[${totalPercentage.toFixed(0)}%] Trials: ${cumulativeTrials.toLocaleString()} (${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
-                    throttledSetStatusText(message);           
+                    throttledSetStatusText(message);
 
                 } else if (type === 'solution') {
                  handleNewSolution(payload, mySessionToken, fitContext); //new helper, 20 nov
@@ -296,8 +434,8 @@ if (workerSystems.length > 0) {
                 } else if (type === 'searchDiagnostics') {
                     cpuDiagnostics.push(payload);
                 } else if (type === 'progress') {
-                             
-                    taskProgress[absoluteTaskIndex] = payload; 
+
+                    taskProgress[absoluteTaskIndex] = payload;
                     updateProgressBar();
                 } else if (type === 'done') {
 
@@ -306,6 +444,7 @@ if (workerSystems.length > 0) {
                         updateProgressBar();
                     }
 
+                    stat.timeMs = performance.now() - workerT0;
                     console.log(`[perf] CPU worker '${system}': ${(performance.now() - workerT0).toFixed(0)} ms`);
                     settleWorker();
                 }
@@ -313,7 +452,7 @@ if (workerSystems.length > 0) {
 
             worker.onerror = (err) => {
         if (!isCurrentRun()) return;
-        failRun(`CPU search for ${system} failed.`); 
+        failRun(`CPU search for ${system} failed.`);
         console.error(`Worker error in indexing task ${absoluteTaskIndex}:`, err);
         taskProgress[absoluteTaskIndex] = 100; // Allow queue to continue
         showStatus(`Warning: An indexing task encountered an error and was skipped. Check console for details.`, 'error');
@@ -323,139 +462,28 @@ if (workerSystems.length > 0) {
                 console.error(`Worker for ${system} crashed:`, err.message);
                 settleWorker();
             };
-            worker.postMessage({ ...baseParams, systemToSearch: system, allowedSystems: systemsToSearch });
+            worker.postMessage({ ...baseParams, systemToSearch: system, allowedSystems });
         });
     });
     taskPromises.push(workerTask);
 }
 
 
-// Unified GPU task factory (replaces the previous three near-identical task blocks
-// for orthorhombic, monoclinic, and triclinic searches).
+// Per-system GPU configuration: which kernel runs the search. Everything
+// else about a system (K, permutations, labels, basis options) lives in
+// SEARCH_SYSTEMS (js/gpu/gpu-setup.js), shared with the pre-flight checks.
 //
-// The three systems differ only in:
-//  - K (number of peaks per trial)
-//  - the shader file and entry point
-//  - the engine method that runs the solver
-//  - the permutation multiplier used for the "total trials" estimate
-//  - a default for n_peaks_for_combo and n_hkl_for_basis
-//  - whether HKL basis is split into special (axial) and regular HKLs (ortho, mono do, tri doesn't)
-//  - the display label for status messages
+// The three high-symmetry systems share shaders/highsym_solver.wgsl through
+// three entry points; ortho, mono and tri keep their own solvers.
+const HIGHSYM_SHADER = 'shaders/highsym_solver.wgsl' + APP_VERSION_QS;
 const GPU_SYSTEM_CONFIG = {
-    orthorhombic: {
-        K: 3,
-        label: 'Orthorhombic',
-        shortLabel: 'Ortho',
-        shader: 'shaders/ortho_solver.wgsl' + APP_VERSION_QS,
-        entryPoint: 'main_3p',
-        engineMethod: 'runOrthoSolver',
-        permutations: 6,
-        defaultPeaks: 7,
-        defaultHkl: 300,
-        // min(basis supply, u32 combinadic cap). See HKL_U32_CAPS above --
-        // this is a single source of truth shared with the UI input's max,
-        // so the box can never offer a value the solver will silently clamp.
-        maxHkl: hklBasisMax('orthorhombic'),   // 2196: the generated list runs out before the u32 cap (2954)
-        splitSpecialHkls: true,
-    },
-    monoclinic: {
-        K: 4,
-        label: 'Monoclinic',
-        shortLabel: 'Monoclinic',
-        shader: 'shaders/monoclinic_solver.wgsl' + APP_VERSION_QS,
-        entryPoint: 'main_4p',
-        engineMethod: 'runMonoclinicSolver',
-        permutations: 24,
-        defaultPeaks: 7,
-        defaultHkl: 100,
-        maxHkl: hklBasisMax('monoclinic'),     // 568: C(568,4) < 2^32 < C(569,4), u32 binds before the 612-strong list
-        splitSpecialHkls: true,
-    },
-    triclinic: {
-        K: 6,
-        label: 'Triclinic',
-        shortLabel: 'Triclinic',
-        shader: 'shaders/triclinic_solver.wgsl' + APP_VERSION_QS,
-        entryPoint: 'main',
-        engineMethod: 'runTriclinicSolver',
-        permutations: 720,
-        defaultPeaks: 8,
-        defaultHkl: 40,
-        maxHkl: hklBasisMax('triclinic'),      // 123: C(123,6) < 2^32 < C(124,6), u32 binds far below the 665-strong list
-        splitSpecialHkls: false,
-    },
+    cubic:        { shader: HIGHSYM_SHADER, entryPoint: 'main_cubic',        engineMethod: 'runCubicSolver' },
+    hexagonal:    { shader: HIGHSYM_SHADER, entryPoint: 'main_hexagonal',    engineMethod: 'runHexagonalSolver' },
+    tetragonal:   { shader: HIGHSYM_SHADER, entryPoint: 'main_tetragonal',   engineMethod: 'runTetragonalSolver' },
+    orthorhombic: { shader: 'shaders/ortho_solver.wgsl' + APP_VERSION_QS,      entryPoint: 'main_3p', engineMethod: 'runOrthoSolver' },
+    monoclinic:   { shader: 'shaders/monoclinic_solver.wgsl' + APP_VERSION_QS, entryPoint: 'main_4p', engineMethod: 'runMonoclinicSolver' },
+    triclinic:    { shader: 'shaders/triclinic_solver.wgsl' + APP_VERSION_QS,  entryPoint: 'main',    engineMethod: 'runTriclinicSolver' },
 };
-
-// How each system's hkl basis is packed for the GPU.
-//
-// The shaders no longer receive raw [h,k,l,pad]; they receive the PRODUCTS
-// they actually consume. Both the matrix rows and the FoM inner loop want
-// h^2/k^2/l^2 (and h*l, or k*l/h*l/h*k), and the FoM recomputed them for
-// every candidate cell against every basis reflection -- which is where
-// nearly all GPU time went. Computing them once here removes 3 (ortho),
-// 4 (mono) or 6 (triclinic) multiplies from the innermost loop and turns
-// three scalar loads into one 16-byte vector load.
-//
-// This is not an approximation: |h|,|k|,|l| <= 12 so every product is a
-// small integer, exactly representable in f32. The shader gets bit-for-bit
-// what it used to compute.
-//
-// Ortho and mono keep the old 16-byte stride, so their buffers are the same
-// size as before. Triclinic needs six products and so uses two vec4s
-// (32 bytes); the engine reads the stride from cfg.hklFloats and the shader
-// indexes hkl_basis[i*2] / hkl_basis[i*2+1]. Keep these three in sync with
-// the @binding(1) comments in the .wgsl files.
-//
-// HKL_PACKING is stamped onto the returned array and re-checked by the
-// engine. Raw indices and packed products have the SAME stride for ortho
-// and mono, so a mismatch is otherwise invisible: the run completes and
-// silently finds nothing. That is exactly the bug this tag exists to catch.
-const HKL_PACKING = 'products/v1';
-
-const HKL_PACKERS = {
-    orthorhombic: { floats: 4, pack: (o, i, h, k, l) => {
-        const b = i * 4;
-        o[b] = h * h; o[b + 1] = k * k; o[b + 2] = l * l; o[b + 3] = 0;
-    } },
-    monoclinic: { floats: 4, pack: (o, i, h, k, l) => {
-        const b = i * 4;
-        o[b] = h * h; o[b + 1] = k * k; o[b + 2] = l * l; o[b + 3] = h * l;
-    } },
-    triclinic: { floats: 8, pack: (o, i, h, k, l) => {
-        const b = i * 8;
-        o[b] = h * h; o[b + 1] = k * k; o[b + 2] = l * l; o[b + 3] = k * l;
-        o[b + 4] = h * l; o[b + 5] = h * k; o[b + 6] = 0; o[b + 7] = 0;
-    } },
-};
-
-// Build the HKL basis array. If splitSpecial is true, axial HKLs (two of h,k,l are 0)
-// are placed at the front of the list before truncation to n_hkl_for_basis.
-const buildHklBasis = (system, n_hkl_for_basis, splitSpecial) => {
-    const hkl_full = get_hkl_search_list(system);
-    let ordered;
-    if (splitSpecial) {
-        const special = [];
-        const regular = [];
-        for (const hkl of hkl_full) {
-            const [h, k, l] = hkl;
-            if ((k === 0 && l === 0) || (h === 0 && l === 0) || (h === 0 && k === 0)) {
-                special.push(hkl);
-            } else {
-                regular.push(hkl);
-            }
-        }
-        ordered = [...special, ...regular];
-    } else {
-        ordered = hkl_full;
-    }
-    const hkl_basis_raw = ordered.slice(0, n_hkl_for_basis);
-    const packer = HKL_PACKERS[system];
-    if (!packer) throw new Error(`No HKL packer registered for system '${system}'.`);
-    const hklBasisArray = new Float32Array(hkl_basis_raw.length * packer.floats);
-    hkl_basis_raw.forEach((hkl, i) => { packer.pack(hklBasisArray, i, hkl[0], hkl[1], hkl[2]); });
-    return { hkl_basis_raw, hklBasisArray, hklFloats: packer.floats, hklPacking: HKL_PACKING };
-};
-
 
 // Build the peak-combo flat Uint32Array using the already-present createCombinationGenerator.
 // Previously these were hand-written nested for-loops (3, 4, and 6 levels deep).
@@ -470,167 +498,171 @@ const buildPeakCombos = (max_p, K) => {
     return peakCombos;
 };
 
-// Create a GPU task for a given system. Returns an async function that can be
-// invoked to run the task. Returns null if the system isn't configured.
-const makeGpuTask = (system, absoluteTaskIndex) => {
+// One GPU search. Run strictly one system at a time (see the loop below): the
+// engine holds a single current pipeline, and loadShader/createPipeline for
+// the next system would otherwise replace it under a search still running --
+// which the old Promise.all launch of all three GPU tasks did.
+const runGpuSystem = async (system, absoluteTaskIndex) => {
+    const sys = SEARCH_SYSTEMS[system];
     const cfg = GPU_SYSTEM_CONFIG[system];
-    if (!cfg) return null;
+    if (!sys || !cfg) return;
+    const K_VALUE = sys.K;
 
-    return async () => {
-        const K_VALUE = cfg.K;
-        // Clamp to the input's own max attribute, not just its floor. A
-        // number input's `value` is whatever was typed -- `max` is a
-        // validation hint, not an enforced bound -- and this figure drives
-        // C(n_peaks, K) peak combinations, hence the X dispatch dimension
-        // and the size of the peakCombos buffer. At 30 peaks triclinic asks
-        // for 148k workgroups in X (limit 65,535) and a 14 MB buffer; at 50
-        // it asks for 381 MB. Reading the max from the element keeps one
-        // source of truth with the markup.
-        const peaksMax = parseInt(ui.gpuPeaksCount.max, 10) || 20;
-        const n_peaks_for_combo = Math.min(peaksMax,
-            Math.max(K_VALUE, parseInt(ui.gpuPeaksCount.value, 10) || cfg.defaultPeaks));
-        let n_hkl_for_basis = Math.max(K_VALUE * 2, parseInt(ui.gpuHklTriplets.value, 10) || cfg.defaultHkl);
+    // Basis size and peak count come from the two global settings (HKL
+    // basis % per unknown, Depth); planGpuSearch is the same function the
+    // parameter panel and the pre-flight check use, so what was shown is
+    // what runs. The basis is already capped at hklBasisMax (supply and
+    // u32 combinadic limit), so no run-time clamp is needed.
+    const plan = planGpuSearch(system, qObsArray.length, runGpuSettings);
+    const minPeaks = Math.max(K_VALUE, MIN_PEAKS_FOR_SYSTEM[system] || K_VALUE);
+    const stat = systemStat(system);
+    if (filteredPeaks.length < minPeaks || plan.nPeaks < K_VALUE) {
+        stat.note = `skipped (needs ${minPeaks} peaks)`;
+        showStatus(`${sys.label} search requires at least ${minPeaks} peaks. Skipping.`, "error");
+        taskProgress[absoluteTaskIndex] = 100;
+        updateProgressBar();
+        return;
+    }
 
-        // --- u32 combinadic guard ---------------------------------------
-        // The WGSL solvers unrank HKL K-combinations with a u32 linear index
-        // and a u32 binomial_table (get_combinadic_indices). Once C(n_hkl, K)
-        // reaches 2^32, both the linear index AND the unranking binomials
-        // overflow, silently corrupting the search (truncated bound + wrong
-        // HKL triplets). cfg.maxHkl is the largest basis size that keeps the
-        // whole combination space u32-addressable (ortho 2954 / mono 568 /
-        // tri 123). Widening the JS binomial table would NOT help: the shader
-        // is u32 end-to-end.
-        const maxHklForU32 = cfg.maxHkl;
-        if (n_hkl_for_basis > maxHklForU32) {
-            showStatus(`${cfg.label}: HKL basis capped at ${maxHklForU32} (GPU ${K_VALUE}-peak u32 combination limit).`, 'error', 6000);
-            n_hkl_for_basis = maxHklForU32;
+    const tGpuStart = performance.now();
+    let cellsDispatchedToRefine = 0;
+    try {
+        showStatus(`GPU search: ${sys.label.toLowerCase()}...`, 'info');
+        const engine = webgpuEngine;
+        await engine.loadShader(cfg.shader);
+        if (!isCurrentRun()) return;
+        await engine.createPipeline(cfg.entryPoint);
+        if (!isCurrentRun()) return;
+
+        // 1. HKL basis (+ the full FoM list for the high-symmetry systems)
+        const { nSearch, hklBasisArray, hklPacking } =
+            buildHklBasis(system, plan.nHkl, sys.splitSpecialHkls, sys.fomFullList);
+
+        // 2. Peak combinations, over the lowest-angle plan.nPeaks peaks
+        // (peakFactor x (K + Depth): 3x for the systems with 1-2 unknowns)
+        const max_p = plan.nPeaks;
+        const peakCombos = buildPeakCombos(max_p, K_VALUE);
+        if (peakCombos.length === 0) throw new Error(`Not enough peaks to generate ${K_VALUE}-peak combinations.`);
+
+        // 3. Stats
+        const totalHklCombos = combinations(nSearch, K_VALUE);
+        const taskTotalTrials = totalHklCombos * combinations(max_p, K_VALUE) * sys.permutations;
+        gpuTotalTrials += taskTotalTrials;
+        taskTotals[absoluteTaskIndex] = taskTotalTrials;
+        Object.assign(stat, { taskIndex: absoluteTaskIndex, nHkl: nSearch, nPeaks: max_p, total: taskTotalTrials });
+        console.log(`[perf] GPU task '${sys.label}': ${nSearch} hkl (${plan.percent.toFixed(1)}% of ${plan.max}), ` +
+                    `${max_p} peaks, ${taskTotalTrials.toLocaleString()} trials`);
+
+        // 4. Execution
+        const progressCallback = getGpuProgressCallback(sys.shortLabel, absoluteTaskIndex);
+        let dispatchMs = 0;
+        const handleIntermediateResults = (newCells) => {
+            if (!isCurrentRun()) return;
+            cellsDispatchedToRefine += newCells.length;
+            const t0 = performance.now();
+            // Send the whole GPU-chunk's worth of cells as a single batched
+            // call to the pool. The pool splits across workers round-robin,
+            // sending at most N messages per batch (N = pool size) regardless
+            // of how many cells are in the chunk.
+            runPool.refineBatch(newCells);
+            dispatchMs += performance.now() - t0;
+        };
+
+        const engineFn = engine[cfg.engineMethod];
+        if (typeof engineFn !== 'function') {
+            throw new Error(`Engine missing method ${cfg.engineMethod}`);
         }
-        // ----------------------------------------------------------------
-
-        if (filteredPeaks.length < K_VALUE) {
-            showStatus(`${cfg.label} search requires at least ${K_VALUE} peaks. Skipping.`, "error");
+        const tEngineStart = performance.now();
+        const engineResult = await engineFn.call(
+            engine,
+            qObsArray,
+            hklBasisArray,
+            peakCombos,
+            null,
+            qTolerancesArray,
+            progressCallback,   // pass directly: an arrow wrapper would drop .reportPlan
+            runStopSignal,
+            // hklPacking, n_hkl_search and gpu_peaks_count ride in baseParams
+            // rather than as more positional arguments -- this list is long
+            // enough that inserting one shifts everything after it. Spread
+            // rather than stored on baseParams, so the values report what was
+            // ACTUALLY built for this system. gpu_peaks_count sets how many
+            // peaks the GPU FoM scores (max(10, it)): K + Depth, NOT the 3x
+            // combination count of the high-symmetry systems, so that their
+            // extra seed peaks do not also make the FoM stricter.
+            { ...baseParams, hklPacking, n_hkl_search: nSearch, gpu_peaks_count: plan.fomPeaks },
+            handleIntermediateResults
+        );
+        if (!isCurrentRun()) return;
+        const engineMs = performance.now() - tEngineStart;
+        console.log(`[perf]   engineFn('${sys.label}') wall time: ${engineMs.toFixed(0)} ms  |  ` +
+                    `dispatch: ${dispatchMs.toFixed(0)} ms  |  cells: ${cellsDispatchedToRefine}`);
+        // taskProgress drives BOTH the progress bar and the "Trials: done /
+        // total" line in finalizeIndexing. A run cut short by a full
+        // candidate buffer must therefore record the fraction it actually
+        // searched -- setting 100 here made a truncated search report every
+        // trial as done. searchedFraction comes from the shaders' first
+        // incomplete HKL-combination index: an exact lower bound.
+        if (engineResult?.stoppedEarly && !runStopSignal.stop) {
+            const fraction = Number.isFinite(engineResult.searchedFraction) ? engineResult.searchedFraction : 0;
+            taskProgress[absoluteTaskIndex] = fraction * 100;
+            lastTruncatedSystems.push({ label: sys.label, fraction });
+            stat.truncated = fraction;
+            console.warn(`[perf]   ${sys.label}: candidate buffer full (${baseParams.max_solutions}) after ` +
+                         `${fmtSearchedPercent(fraction)} of the search -- the rest was not visited.`);
+            showStatus(`${sys.label}: candidate limit reached after ${fmtSearchedPercent(fraction)} of the search. ` +
+                       `Lower FoM Tolerance or raise Candidates.`, 'error', 8000);
+        } else {
             taskProgress[absoluteTaskIndex] = 100;
-            updateProgressBar();
-            return;
         }
-
-        const tGpuStart = performance.now();
-        let cellsDispatchedToRefine = 0;
-        try {
-            showStatus(`Initializing WebGPU for ${cfg.label.toLowerCase()}...`, 'info');
-            const engine = webgpuEngine;
-            await engine.loadShader(cfg.shader);
-            if (!isCurrentRun()) return;
-            await engine.createPipeline(cfg.entryPoint);
-
-            // 1. HKL basis
-            const { hkl_basis_raw, hklBasisArray, hklPacking } = buildHklBasis(system, n_hkl_for_basis, cfg.splitSpecialHkls);
-
-            // 2. Peak combinations
-            const max_p = Math.min(n_peaks_for_combo, qObsArray.length);
-            if (max_p < K_VALUE) throw new Error(`Not enough peaks (${max_p}) for ${K_VALUE}-peak solve.`);
-            const peakCombos = buildPeakCombos(max_p, K_VALUE);
-            if (peakCombos.length === 0) throw new Error(`Not enough peaks to generate ${K_VALUE}-peak combinations.`);
-
-            // 3. Stats
-            const num_hkls = hkl_basis_raw.length;
-            const totalHklCombos = combinations(num_hkls, K_VALUE);
-            const taskTotalTrials = totalHklCombos * combinations(max_p, K_VALUE) * cfg.permutations;
-            gpuTotalTrials += taskTotalTrials;
-            taskTotals[absoluteTaskIndex] = taskTotalTrials;
-
-            // 4. Execution
-            const progressCallback = getGpuProgressCallback(cfg.shortLabel, absoluteTaskIndex);
-            // Main-thread dispatch is near-instant now (just postMessage), but we
-            // still need to wait for the worker pool to drain before moving on.
-            // The main metric is `drainMs` below (how long after GPU finishes
-            // that workers are still chewing through the backlog).
-            let dispatchMs = 0;
-            // Everything this task dispatches gets a batch id >= poolMark,
-            // so the drain below waits on this task's work only rather than
-            // on whatever else happens to be in flight pool-wide.
-            const poolMark = runPool.mark();
-            const handleIntermediateResults = (newCells) => {
-                if (!isCurrentRun()) return;
-                cellsDispatchedToRefine += newCells.length;
-                const t0 = performance.now();
-                // Send the whole GPU-chunk's worth of cells as a single batched
-                // call to the pool. The pool splits across workers round-robin,
-                // sending at most N messages per batch (N = pool size) regardless
-                // of how many cells are in the chunk.
-                runPool.refineBatch(newCells);
-                dispatchMs += performance.now() - t0;
-            };
-
-            const engineFn = engine[cfg.engineMethod];
-            if (typeof engineFn !== 'function') {
-                throw new Error(`Engine missing method ${cfg.engineMethod}`);
-            }
-            const tEngineStart = performance.now();
-            const engineResult = await engineFn.call(
-                engine,
-                qObsArray,
-                hklBasisArray,
-                peakCombos,
-                null,
-                qTolerancesArray,
-                progressCallback,   // pass directly: an arrow wrapper would drop .reportPlan
-                runStopSignal,
-                // hklPacking rides in baseParams rather than as another
-                // positional argument -- this list is long enough that
-                // inserting one shifts everything after it, which is exactly
-                // the mistake the tag exists to catch. Spread rather than
-                // stored on baseParams at construction, so the tag reports
-                // what buildHklBasis ACTUALLY produced for this run.
-                { ...baseParams, hklPacking },
-                handleIntermediateResults
-            );
-            if (!isCurrentRun()) return;
-            const engineMs = performance.now() - tEngineStart;
-            // Wait for the refinement pool to finish processing the backlog of
-            // cells dispatched during the GPU run. If GPU produced cells faster
-            // than workers could refine, drainMs > 0. If workers kept up, it's ~0.
-            const tDrainStart = performance.now();
-            await runPool.drain(30000, poolMark);
-            if (!isCurrentRun()) return;
-            const drainMs = performance.now() - tDrainStart;
-            console.log(`[perf]   engineFn('${cfg.label}') wall time: ${engineMs.toFixed(0)} ms`);
-            console.log(`[perf]   dispatch: ${dispatchMs.toFixed(0)} ms  |  pool-drain: ${drainMs.toFixed(0)} ms  |  cells: ${cellsDispatchedToRefine}  |  workers: ${REFINE_POOL_SIZE}`);
-            if (engineResult?.diagnostics) {
-                gpuDiagnostics.push(engineResult.diagnostics);
-                console.log('[perf]   ' + describeGpuDiagnostics(engineResult.diagnostics));
-            }
-        } catch (err) {
-            if (!isCurrentRun()) return;
-            failRun(`${cfg.label} GPU search failed: ${err.message}`);
-            console.error(`WebGPU Error (${cfg.label}):`, err);
-            showStatus(`${cfg.shortLabel} GPU Error: ${err.message}`, 'error');
-        } finally {
-            const tGpuEnd = performance.now();
-            console.log(`[perf] GPU task '${cfg.label}': ${(tGpuEnd - tGpuStart).toFixed(0)} ms (${cellsDispatchedToRefine} candidate cells refined on CPU)`);
-            updateProgressBar();
+        updateProgressBar();
+        if (engineResult?.diagnostics) {
+            gpuDiagnostics.push(engineResult.diagnostics);
+            console.log('[perf]   ' + describeGpuDiagnostics(engineResult.diagnostics));
         }
-    };
+    } catch (err) {
+        if (!isCurrentRun()) return;
+        stat.note = 'failed';
+        failRun(`${sys.label} GPU search failed: ${err.message}`);
+        console.error(`WebGPU Error (${sys.label}):`, err);
+        showStatus(`${sys.shortLabel} GPU Error: ${err.message}`, 'error');
+    } finally {
+        const tGpuEnd = performance.now();
+        stat.candidates = cellsDispatchedToRefine;
+        stat.timeMs = tGpuEnd - tGpuStart;
+        console.log(`[perf] GPU task '${sys.label}': ${(tGpuEnd - tGpuStart).toFixed(0)} ms (${cellsDispatchedToRefine} candidate cells sent to refinement)`);
+        updateProgressBar();
+    }
 };
 
-// Launch one GPU task per selected low-symmetry system.
-// Iterate in a canonical order (ortho, mono, tri) regardless of the checkbox order,
-// so task indices remain deterministic and match the prior behavior.
-const GPU_ORDER = ['orthorhombic', 'monoclinic', 'triclinic'];
-for (const system of GPU_ORDER) {
-    if (!webgpuSystems.includes(system)) continue;
-    if (!GPU_SYSTEM_CONFIG[system]) continue;
-    const absoluteTaskIndex = currentWorkerTaskIndex + currentGpuTaskIndex;
-    currentGpuTaskIndex++;
-    const taskFn = makeGpuTask(system, absoluteTaskIndex);
-    if (taskFn) taskPromises.push(taskFn());
+// GPU systems run SEQUENTIALLY in SEARCH_ORDER (highest symmetry first).
+// Refinement of one system's candidates on the CPU pool overlaps the GPU
+// search of the next; the pool is drained once, after the last system.
+if (webgpuSystems.length > 0) {
+    const gpuSequence = (async () => {
+        const poolMark = runPool.mark();
+        for (let t = 0; t < webgpuSystems.length; t++) {
+            if (!isCurrentRun()) return;
+            await runGpuSystem(webgpuSystems[t], currentWorkerTaskIndex + t);
+        }
+        if (!isCurrentRun()) return;
+        // Wait for the refinement pool to finish processing the backlog of
+        // cells dispatched during the GPU runs. If the GPU produced cells
+        // faster than the workers could refine them, drainMs > 0.
+        if (statusTextElement) statusTextElement.textContent = 'Refining candidate cells...';
+        const tDrainStart = performance.now();
+        await runPool.drain(30000, poolMark);
+        if (!isCurrentRun()) return;
+        console.log(`[perf] pool-drain after the last GPU system: ${(performance.now() - tDrainStart).toFixed(0)} ms  |  workers: ${REFINE_POOL_SIZE}`);
+    })();
+    taskPromises.push(gpuSequence);
 }
 
 // final
 await Promise.all(taskPromises);
 if (!isCurrentRun()) return;
 
-// --- NEW: Send GPU solutions through the post-processing worker ---
+// --- Send GPU solutions through the post-processing worker ---
 if (webgpuSystems.length > 0 && solutions.length > 0 && !runStopSignal.stop) {
     if (statusTextElement) statusTextElement.textContent = 'Post-processing GPU cells...';
     const bestOfSolutionsBefore = solutions.reduce((m, s) => (s && isFinite(s.m20) && s.m20 > m) ? s.m20 : m, 0);
@@ -657,7 +689,7 @@ if (webgpuSystems.length > 0 && solutions.length > 0 && !runStopSignal.stop) {
             : {};   // many distinct lattices: fall back to the defaults
     console.log(`[post-process] ${solutions.length} solutions -> ${nP} distinct parents ` +
                 `(budget: ${swapCfg.MAX_FITS || 'default'} fits/round)`);
-    await new Promise(resolve => {
+    if (nP > 0) await new Promise(resolve => {
         const worker = new Worker(workerURL);
         // Register with activeWorkers, like every other worker. Without this
         // abortActiveIndexing() cannot reach it, so pressing Stop during
@@ -678,8 +710,6 @@ if (webgpuSystems.length > 0 && solutions.length > 0 && !runStopSignal.stop) {
             resolve();
         };
         resolvePostProcessTask = settlePostProcess;
-        const bestOf = (arr) => arr.reduce((m, s) => (s && isFinite(s.m20) && s.m20 > m) ? s.m20 : m, 0);
-        const m20Before = bestOf(solutions);
         worker.onmessage = (e) => {
             if (!isCurrentRun()) return;
             if (e.data.type === 'solution') handleNewSolution(e.data.payload, mySessionToken, fitContext);
@@ -707,14 +737,15 @@ if (webgpuSystems.length > 0 && solutions.length > 0 && !runStopSignal.stop) {
                        ' - results are pre-post-processing only.', 'error', 10000);
             settlePostProcess();
         };
-        worker.postMessage({ 
-            ...baseParams, 
-            systemToSearch: 'post_process', 
-            gpuSolutions: postParents, 
-            allowedSystems: systemsToSearch,
+        worker.postMessage({
+            ...baseParams,
+            systemToSearch: 'post_process',
+            gpuSolutions: postParents,
+            allowedSystems,
             swapCfg
         });
     });
+    if (!isCurrentRun()) return;
     console.log(`[post-process] main thread: best M20 ${bestOfSolutionsBefore.toFixed(2)} -> ` +
                 `${solutions.reduce((m, s) => (s && isFinite(s.m20) && s.m20 > m) ? s.m20 : m, 0).toFixed(2)}`);
 }
@@ -781,22 +812,43 @@ const totalMaxTrials = totalCpuTrials + gpuTotalTrials;
 const fmtActual = totalActualTrials.toLocaleString('en-US', {maximumFractionDigits: 0});
 const fmtMax = totalMaxTrials.toLocaleString('en-US', {maximumFractionDigits: 0});
 
-const isGpuRun = (orthoCheckbox && orthoCheckbox.checked) || 
-                 (monoCheckbox && monoCheckbox.checked) || 
-                 (triCheckbox && triCheckbox.checked);
+// What the run ACTUALLY used (captured when it started), not what the boxes
+// say now: the user may have edited them while the search ran.
+const gpuSettings = lastGpuRunSettings;
 
 // 4. Construct Report String
 let finalStatus = "";
-if (isGpuRun) {
-    const hklSize = ui.gpuHklTriplets.value;
-    const peaksComb = ui.gpuPeaksCount.value;
+if (gpuSettings) {
     // Format: Trials: Actual / Max
-    finalStatus = `Trials: ${fmtActual} / ${fmtMax}    Time: ${durationStr}    HKL: ${hklSize}    Peaks: ${peaksComb}`;
+    finalStatus = `Trials: ${fmtActual} / ${fmtMax}    Time: ${durationStr}    ` +
+                  `HKL: ${gpuSettings.perUnknown}%/unknown    Depth: ${gpuSettings.depth}    ` +
+                  `FoM: ${gpuSettings.fom}    Cand.: ${Math.round(gpuSettings.candidates / 1000)}k`;
 } else {
     finalStatus = `CPU Trials: ${fmtActual}    Time: ${durationStr}`;
 }
 
+// A full candidate buffer ends a system's search early. The trial count above
+// already reflects it; name the systems too, since "done < total" alone does
+// not say why.
+if (gpuSettings && lastTruncatedSystems.length) {
+    finalStatus += ' | TRUNCATED (candidate buffer full): ' +
+        lastTruncatedSystems.map(t => `${t.label} at ${fmtSearchedPercent(t.fraction)}`).join(', ');
+}
 if (indexingFailures.length) finalStatus += ' | INCOMPLETE: ' + indexingFailures.join(' ');
+
+// Per-system rows. GPU rows take `done` from taskTotals x taskProgress, the
+// very numbers summed into the line above, so the rows add up to it.
+for (const st of lastSystemSearchStats) {
+    if (st.mode === 'GPU' && st.taskIndex >= 0 && taskTotals[st.taskIndex]) {
+        st.done = taskTotals[st.taskIndex] * ((taskProgress[st.taskIndex] || 0) / 100);
+    }
+    if (!st.note && st.truncated !== null) st.note = `truncated at ${fmtSearchedPercent(st.truncated)} (buffer full)`;
+    if (!st.note && st.mode === 'GPU' && st.total === null) st.note = stoppedByUser ? 'not reached (stopped)' : 'not run';
+    if (!st.note && stoppedByUser && st.total !== null && st.done < st.total) st.note = 'stopped';
+}
+if (lastSystemSearchStats.length) {
+    console.log('[indexing] per system:\n' + formatSystemSearchStats(lastSystemSearchStats).join('\n'));
+}
 lastIndexingStats = finalStatus; 
 
 

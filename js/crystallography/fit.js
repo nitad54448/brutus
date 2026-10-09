@@ -74,6 +74,19 @@ const countLE = (arr, target) => {
     }
     return lo;
 };
+// How many of `peaks` lie within their tolerance of some calculated line --
+// exactly the indexing test calculateFiguresOfMerit applies. Used by the R
+// lattice probe in refineAndTestSolution to check that the R line list loses
+// no peak the full hexagonal list indexes.
+const countIndexedPeaks = (q_calc_sorted, peaks, get_q_tolerance_func) => {
+    if (!q_calc_sorted || q_calc_sorted.length === 0) return 0;
+    let n = 0;
+    for (const p of peaks) {
+        const q_c = q_calc_sorted[binarySearchClosest(q_calc_sorted, p.q)];
+        if (Math.abs(p.q - q_c) < get_q_tolerance_func(p.original_index)) n++;
+    }
+    return n;
+};
 const calculateFiguresOfMerit = (q_calc_sorted, peaks_for_merit, impurity_peaks, get_q_tolerance_func, wavelength) => {
     if (!q_calc_sorted || q_calc_sorted.length === 0) return { m20: 0, fN: 0 };
     const N = peaks_for_merit.length; if (N === 0) return { m20: 0, fN: 0 };
@@ -350,20 +363,62 @@ const get_hkl_search_list = (system) => {
                     if (!(h===0 && k===0 && l===0))
                         hkls.push([h,k,l]);
     } else if (system === 'tetragonal' || system === 'hexagonal') {
-        const max_h = 8;
-        for (let h = 0; h <= max_h; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= max_h; l++) {
-            if (h === 0 && k === 0 && l === 0) continue; hkls.push([h, k, l]);
+        // GPU basis for the 2-parameter uniaxial systems (9 Oct 2026).
+        //
+        // q depends on (h,k,l) only through S and l, with S = h^2+k^2
+        // (tetragonal) or S = h^2+hk+k^2 (hexagonal). Two hkl sharing (S, l)
+        // give the SAME row of the 2x2 system and the same FoM line, so
+        // every duplicate only multiplies identical trials. The old list
+        // (h,k,l <= 8, no dedup) was unused; the CPU search it shadowed tried
+        // ~1180 hkl with duplicates. This keeps one representative per
+        // (S, l).
+        //
+        // S <= 144 is COMPLETE: h >= k >= 0 gives S >= h^2, so h <= 12 reaches
+        // every representable S up to 144 and nothing is missing below the
+        // cut. l runs deeper (24) because a long c axis is the usual way a
+        // uniaxial cell runs out of basis: the solve only uses the low-index
+        // front of the list, but the FoM on the GPU scores against the WHOLE
+        // list (see GPU_SEARCH_SYSTEMS.fomFullList), so deep 00l / hkl lines
+        // must be there for a c ~ 40 A cell to pass the FoM at all.
+        const hex = system === 'hexagonal';
+        const max_h = 12, max_l = 24, max_S = 144;
+        const seen = new Set();
+        for (let h = 0; h <= max_h; h++) for (let k = 0; k <= h; k++) {
+            const S = hex ? h * h + h * k + k * k : h * h + k * k;
+            if (S > max_S) continue;
+            for (let l = 0; l <= max_l; l++) {
+                if (h === 0 && k === 0 && l === 0) continue;
+                const key = S * 64 + l;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                hkls.push([h, k, l]);
+            }
         }
+        // Sort on the metric form for a = c (hexagonal carries the 4/3), so
+        // truncating to the first N keeps the lines a near-isometric cell
+        // would show first.
+        const sKey = (t) => (hex ? (4 / 3) * (t[0] * t[0] + t[0] * t[1] + t[1] * t[1])
+                                 : t[0] * t[0] + t[1] * t[1]) + t[2] * t[2];
+        hkls.sort((a, b) => sKey(a) - sKey(b));
+        return hkl_search_list_cache[system] = hkls;
     } else if (system === 'cubic') {
-        const max_h = 8;
+        // One representative per N = h^2+k^2+l^2: cubic q = N/a^2, so hkl
+        // sharing N are the same trial and the same line. Complete up to
+        // N = 900 (h <= 30 reaches every representable N <= 900). Values of
+        // the form 4^a(8b+7) cannot occur and are absent by construction.
+        const max_h = 30, max_N = 900;
+        const seen = new Set();
         for (let h = 0; h <= max_h; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= k; l++) {
-            if (h === 0 && k === 0 && l === 0) continue; hkls.push([h, k, l]);
+            const N = h * h + k * k + l * l;
+            if (N === 0 || N > max_N || seen.has(N)) continue;
+            seen.add(N);
+            hkls.push([h, k, l]);
         }
     }
-    
-    // Q-sort (h^2+k^2+l^2) is applied to all systems
+
+    // Q-sort (h^2+k^2+l^2) is applied to the remaining systems
     hkls.sort((a,b) => (a[0]*a[0]+a[1]*a[1]+a[2]*a[2])-(b[0]*b[0]+b[1]*b[1]+b[2]*b[2]));
-    
+
     return hkl_search_list_cache[system] = hkls;
 };
 function getSortedPeaks(peaks, wavelength) {

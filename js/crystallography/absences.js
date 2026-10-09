@@ -23,7 +23,10 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
         console.warn("Space group database has no operator table (rebuild with sg_pack.py)");
         return fallbackResult;
     }
-    const all_calc_hkls = generateHKL_for_analysis(solution, wavelength, tthMax);
+    // The FULL lattice, never the R-filtered one: the analysis detects R
+    // centring precisely by finding the R-forbidden lines empty (see
+    // latticeLineFilter in hkl.js). The R list is only what is displayed.
+    const all_calc_hkls = generateHKL_for_analysis(withoutLattice(solution), wavelength, tthMax);
 
     if (all_calc_hkls.length === 0) {
     fallbackResult.hklList = [];
@@ -132,12 +135,15 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
             // into the other.
             const altHkls = all_calc_hkls
                 .filter(hkl => Math.abs(hkl.tth - bestMatch.hkl.tth) < overlapWindow)
-                .map(hkl => ({ h: hkl.h, k: hkl.k, l: hkl.l, tth: hkl.tth }));
+                .map(hkl => ({ h: hkl.h, k: hkl.k, l: hkl.l, tth: hkl.tth, coincident: hkl.coincident || [] }));
             const peakHeight = (typeof peak.height === 'number' && isFinite(peak.height)) ? peak.height : null;
             const isLowIntensity = (peakHeight !== null) && (peakHeight < lowIntensityThresholdAt(peak.tth));
             indexed_hkls.push({
                 h: bestMatch.hkl.h, k: bestMatch.hkl.k, l: bestMatch.hkl.l,
                 tth: peak.tth, calc_tth: bestMatch.hkl.tth,
+                // Other reflections on exactly this line (see the generator):
+                // a group forbids the LINE only if it forbids all of them.
+                coincident: bestMatch.hkl.coincident || [],
                 ka2Suspect: !!peak.ka2Suspect,
                 altHkls: altHkls,
                 tol: tthError,
@@ -255,8 +261,16 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
         ((a.hardViolations || 0) - (b.hardViolations || 0)) ||
         ((b.number || 0) - (a.number || 0)) ||
         String(a.symbol || '').localeCompare(String(b.symbol || '')));
-    const SG_LIST_CAP = 40;
-    const compatibleSettings = compatibleSorted.slice(0, SG_LIST_CAP);
+    // The cap must never cut a setting with no hard violation: those are the
+    // compatible ones, and with the list sorted by DESCENDING space-group
+    // number a fixed cap of 40 always dropped the low-numbered ones -- F222,
+    // Fmm2, Ccc2, Aba2, I4, I41 ... were absent from the list on patterns
+    // that obey them exactly. Every zero-violation setting is kept (up to a
+    // generous ceiling against a pathological, evidence-free pattern); the
+    // settings WITH violations fill the rest up to the old 40.
+    const SG_LIST_CAP = 40, SG_LIST_CEILING = 150;
+    const nClean = compatibleSorted.filter(s => !(s.hardViolations > 0)).length;
+    const compatibleSettings = compatibleSorted.slice(0, Math.min(SG_LIST_CEILING, Math.max(SG_LIST_CAP, nClean)));
 
     return {
         centering: centeringResult.description,
@@ -270,7 +284,8 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
         centeringViolationsSoft: centeringResult.violationsSoft,
         centeringViolationDetails: centeringResult.violationDetails,
         ambiguousHkls: ambiguousHkls,
-        hklList: all_calc_hkls,
+        // Displayed list (report hkl table): an R cell shows its R lines.
+        hklList: latticeLineFilter(solution) ? generateHKL_for_analysis(solution, wavelength, tthMax) : all_calc_hkls,
         usedKa2SoftScoring: anyKa2Suspects
     };
 }
@@ -469,6 +484,7 @@ const system = solution.system;
     const cell = extractCellFromFit(fit.solution, system);
     if (!cell) return { error: 'fit did not yield a valid cell' };
     cell.system = system;
+    if (latticeLineFilter(solution)) cell.lattice = solution.lattice;   // an R parent gives an R child
     if (refineZero) cell.zero_correction = fit.solution[fit.solution.length - 1] * DEG;
     else if (zero) cell.zero_correction = zero;   // carry the parent's fixed zero
     cell.volume = getVolume(cell);

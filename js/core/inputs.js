@@ -71,9 +71,15 @@ function readNumberInput(el, { integer = false, fallback = NaN } = {}) {
 function getWavelength()     { return readNumberInput(ui.wavelength, { fallback: 1.54184 }); }
 function getTthError()       { return readNumberInput(ui.tthError, { fallback: 0.04 }); }
 function getMaxVolume()      { return readNumberInput(ui.maxVolume, { fallback: 2000 }); }
-function getFomThreshold()   { return readNumberInput(ui.gpuFomThreshold, { fallback: 1.5 }); }
-function getGpuPeaksCount()  { return readNumberInput(ui.gpuPeaksCount, { integer: true, fallback: 7 }); }
-function getCandidateCells() { return readNumberInput(ui.gpuBufferSize, { integer: true, fallback: 50 }) * 1000; }
+function getFomThreshold()   { return readNumberInput(ui.gpuFomThreshold, { fallback: 1.25 }); }
+// The two global GPU search settings (9 Oct 2026); planGpuSearch() in
+// js/gpu/gpu-setup.js turns them into each system's basis size and peak count.
+//   HKL basis: percent of the system's maximum basis PER UNKNOWN cell
+//              parameter (cubic x1 ... triclinic x6).
+//   Depth:     peaks combined = number of unknowns + Depth.
+function getHklPercentPerUnknown() { return readNumberInput(ui.gpuHklPercent, { fallback: 5 }); }
+function getSearchDepth()    { return readNumberInput(ui.gpuDepth, { integer: true, fallback: 3 }); }
+function getCandidateCells() { return readNumberInput(ui.gpuBufferSize, { integer: true, fallback: 100 }) * 1000; }
 // Blur-time validation: rewrite the field with exactly the value the run
 // will use (readNumberInput), so what the user sees is what is searched.
 const inputsToValidate = [
@@ -81,8 +87,8 @@ const inputsToValidate = [
     { id: 'max-volume', el: ui.maxVolume },
     { id: 'tth-error', el: ui.tthError },
     { id: 'impurity-peaks', el: ui.impurityPeaksInput, integer: true },
-    { id: 'gpu-hkl-triplets', el: ui.gpuHklTriplets, integer: true },
-    { id: 'gpu-peaks-count', el: ui.gpuPeaksCount, integer: true },
+    { id: 'gpu-hkl-percent', el: ui.gpuHklPercent },
+    { id: 'gpu-depth', el: ui.gpuDepth, integer: true },
     { id: 'gpu-fom-threshold', el: ui.gpuFomThreshold },
     { id: 'gpu-buffer-size', el: ui.gpuBufferSize, integer: true },
 ];

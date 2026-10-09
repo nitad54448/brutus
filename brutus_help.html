@@ -230,7 +230,8 @@
             </table>
             <p>
                 The solved parameters relate to reciprocal lattice constants. For example, in orthorhombic, the three fitted parameters are $A=1/a^2$, $B=1/b^2$, $C=1/c^2$, giving $a=1/\sqrt{A}$ etc. For monoclinic, the four parameters are $A=1/(a^2\sin^2\beta)$, $B=1/b^2$, $C=1/(c^2\sin^2\beta)$, $D=-2\cos\beta/(ac\sin^2\beta)$, from which $\beta$ is extracted as $\cos\beta = -D/(2\sqrt{AC})$. 
-                CPU indexing can search cubic, tetragonal and hexagonal systems in separate background workers concurrently. GPU indexing is used only for orthorhombic, monoclinic and triclinic, and the interface permits only one of these GPU systems at a time. Each GPU system has its own search settings.
+                Rhombohedral (R) lattices have no system of their own: every R lattice is indexed by its hexagonal triple cell, so the hexagonal search finds it, and refinement and the space-group analysis (R centring) treat it in hexagonal axes; the refinement flags it as R so that its M(20) counts only R lines (see <a href="#r-lattice">R lattices in hexagonal axes</a>).
+                Since 9 October 2026 <strong>all six systems are searched on the GPU</strong> (cubic, hexagonal, tetragonal, orthorhombic, monoclinic, triclinic). Any combination may be checked; the checked systems run <strong>one after the other, highest symmetry first</strong>, and they share two global search settings (<code>HKL Basis (% / unknown)</code> and <code>Depth</code>) instead of per-system values. Without WebGPU, cubic, tetragonal and hexagonal fall back to the former CPU search in a background worker; the other systems are then unavailable.
             </p>
 
             <h3>Architecture</h3>
@@ -241,9 +242,9 @@
                 <li><code>brutus.html</code> — the application markup, controls and script loading.</li>
                 <li><code>js/</code> (UI) — the user interface as a set of small classic scripts loaded in order by <code>brutus.html</code>: <code>js/core/</code> (state, status, input reading), <code>js/data/</code> (file loading, radiation presets, Kα2 stripping, export), <code>js/parsers/</code> (one reader per file format), <code>js/peaks/</code> (background, smoothing, peak picking, the peak table), <code>js/chart/</code> (Chart.js rendering and interaction), <code>js/indexing/</code> (search coordination, solution sieving, the results table), <code>js/dialogs/</code> (Refine MC, Swap hkl, Space Group MC), <code>js/report/</code> (pdCIF and PDF report) and <code>js/main.js</code> (startup).</li>
                 <li><code>js/crystallography/</code> — all crystallographic mathematics: HKL generation, Q-calculation, least-squares solvers, figure-of-merit calculations, error propagation, Niggli reduction and the space-group analysis. The same files are loaded three ways: on the main thread (post-processing and helper maths), in the CPU index worker, and in each refinement worker; <code>manifest.js</code> lists them in load order for the workers.</li>
-                <li><code>js/workers/index-worker.js</code> — the background CPU indexing of cubic/tetragonal/hexagonal cells, and the post-processing pass over GPU solutions.</li>
+                <li><code>js/workers/index-worker.js</code> — the post-processing pass over GPU solutions, and the CPU fallback search of cubic/tetragonal/hexagonal cells used only when WebGPU is unavailable.</li>
                 <li><code>js/workers/refinement-worker.js</code> — a thin batch-refinement worker. GPU-found candidate cells are refined (full weighted least-squares, M(20), error propagation) not on the main thread but across a <strong>pool of these workers</strong>, sized to <code>hardwareConcurrency − 2</code> (minimum 1, at most 12) to leave cores free for the UI and the GPU driver. The pool lives for the whole page and is re-initialised for each run. Candidate cells are streamed to the pool in round-robin batches while the GPU search is still running, so refinement overlaps GPU execution.</li>
-                <li><code>js/gpu/webgpu-engine.js</code> — the GPU-accelerated brute-force search for orthorhombic, monoclinic, and triclinic systems. Manages the WebGPU device, buffers, dispatch chunking, and combinadic bookkeeping; loads the WGSL compute shaders in <code>shaders/</code>.</li>
+                <li><code>js/gpu/webgpu-engine.js</code> — the GPU-accelerated brute-force search for all six systems. Manages the WebGPU device, buffers, dispatch chunking, and combinadic bookkeeping; loads the WGSL compute shaders in <code>shaders/</code>. <code>js/gpu/gpu-setup.js</code> holds the per-system table (<code>SEARCH_SYSTEMS</code>, <code>SEARCH_ORDER</code>) and turns the two global settings into each system's basis size and peak count; <code>js/indexing/run.js</code> runs the checked systems in sequence.</li>
                 <li><code>sg_ops.json</code> &mdash; the space-group database: all <strong>530 settings</strong>
                     of the 230 groups, each carrying its full set of <strong>symmetry operators</strong>
                     together with the zone definitions and the printed reflection conditions. Generated
@@ -254,7 +255,8 @@
                     otherwise need to build its extinction classes.</li>
                 <li><code>styles.css</code>, <code>inter-font.css</code>, and the vendored libraries under
                     <code>scripts/</code> (Chart.js, Hammer, the Chart.js zoom plugin, jsPDF).</li>
-                <li><code>ortho_solver.wgsl</code>, <code>monoclinic_solver.wgsl</code>, <code>triclinic_solver.wgsl</code> — the WGSL compute kernels. Each unranks HKL combinations on the fly from a u32 combinadic (combinatorial-number-system) index, solves the per-trial linear system (3×3, 4×4, or 6×6), applies the geometric and figure-of-merit filters, and atomically appends surviving cells to the results buffer. Each invocation factors its coefficient matrix once and reuses it across the peak permutations: an explicit 3×3 inverse for orthorhombic, and Gaussian elimination with partial pivoting for monoclinic and triclinic. The latter replay the stored row swaps and multipliers for each right-hand side. Singular combinations are rejected before the permutation loop. The tables contain 6, 24 and 720 permutations respectively; an invocation exits after its first accepted candidate.</li>
+                <li><code>highsym_solver.wgsl</code> — one module with three entry points (<code>main_cubic</code>, <code>main_tetragonal</code>, <code>main_hexagonal</code>) for the systems with one or two unknowns. The 1×1 or 2×2 system is solved exactly (the 2×2 determinant of integer index products is an exact integer, so singular pairs are rejected without a tolerance), and both assignments of the two peaks are tried.</li>
+                <li><code>ortho_solver.wgsl</code>, <code>monoclinic_solver.wgsl</code>, <code>triclinic_solver.wgsl</code> — the WGSL compute kernels for the low-symmetry systems. Each unranks HKL combinations on the fly from a u32 combinadic (combinatorial-number-system) index, solves the per-trial linear system (3×3, 4×4, or 6×6), applies the geometric and figure-of-merit filters, and atomically appends surviving cells to the results buffer. Each invocation factors its coefficient matrix once and reuses it across the peak permutations: an explicit 3×3 inverse for orthorhombic, and Gaussian elimination with partial pivoting for monoclinic and triclinic. The latter replay the stored row swaps and multipliers for each right-hand side. Singular combinations are rejected before the permutation loop. The tables contain 6, 24 and 720 permutations respectively; an invocation exits after its first accepted candidate.</li>
             </ul>
 
             <h3 id="build-scripts">Build and maintenance scripts</h3>
@@ -355,8 +357,10 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     screw axes, every glide, all centrings, the 4n d-glide conditions, and the trigonal and
                     hexagonal zone families that a label-matching test gets wrong.</li>
                 <li><code>node check_pipeline.mjs</code> &mdash; confirms that <code>js/indexing/run.js</code>,
-                    <code>js/gpu/webgpu-engine.js</code> and the three shaders still agree on how the HKL basis is
-                    packed, and that the engine's parameter list matches what the application passes. Both
+                    <code>js/gpu/webgpu-engine.js</code> and the four shaders still agree on how the HKL basis is
+                    packed for each of the six systems, that every system in <code>SEARCH_ORDER</code> has a packer,
+                    an engine configuration and a kernel, and that the engine's parameter list matches what the
+                    application passes. Both
                     failures are otherwise invisible: the run completes, every candidate cell is nonsense,
                     and the search reports no solutions with no error anywhere.</li>
                 <li><code>node tests/regression.cjs</code> and <code>node tests/lifecycle.cjs</code>
@@ -370,7 +374,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     that no file is left unloaded. Needs <code>npm install --no-save typescript</code>.</li>
                 <li><code>node regression_test.mjs</code> &mdash; Node tests of the crystallography code
                     with synthetic data of known answer: cubic, tetragonal and hexagonal searches through the
-                    real CPU worker, refinement of a perturbed orthorhombic cell, Niggli reduction, and error
+                    real CPU (fallback) worker, refinement of a perturbed orthorhombic cell, Niggli reduction, and error
                     propagation compared with a Monte-Carlo estimate.</li>
             </ul>
 
@@ -432,21 +436,23 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                         <li>Set a chemically reasonable <code>Max Volume (Å³)</code> to limit the search space.</li>
                         <li>Set <code>2θ Error (°)</code> according to your data quality (e.g. ≈0.02° for synchrotron, ≈0.05° for a typical lab diffractometer).</li>
                         <li>Leave <strong>Refine Zero-Point Error</strong> enabled unless you have a specific reason to turn it off.</li>
-                        <li>Select the crystal systems to search. Enabling Orthorhombic, Monoclinic, or Triclinic activates GPU-accelerated searches. If these systems are disabled, it is likely that the GPU acceleration is not activated in the browser. See the Troubleshooting section.</li>
+                        <li>Select the crystal systems to search. By default all are checked except Triclinic (rarer, and by far the slowest). All checked systems are searched in one run, highest symmetry first; rhombohedral (R) lattices are found by the Hexagonal search. If Orthorhombic, Monoclinic and Triclinic are greyed out, GPU acceleration is not active in the browser. See the Troubleshooting section.</li>
                     </ul>
                 </li>
                 <li>
                     <strong>(Optional) Tune GPU Parameters.</strong>
-                    If searching Orthorhombic, Monoclinic, or Triclinic, a new field <strong>GPU Search Parameters</strong> appears.
+                    The panel <strong>GPU Search Parameters</strong> applies to every checked system.
                     <ul>
-                        <li><code>HKL Basis Size</code>: Number of simple HKLs to use for the search (Defaults: Ortho 300, Mono 100, Tri 40).</li>
-                        <li><code>Peaks to Combine</code>: Number of observed peaks used to form combinations (Defaults: Ortho 7, Mono 7, Tri 9).</li>
+                        <li><code>HKL Basis (% / unknown)</code>: size of the HKL basis, as a percentage of each system's maximum, per unknown cell parameter (default 5: cubic 5%, tetragonal/hexagonal 10%, orthorhombic 15%, monoclinic 20%, triclinic 30%).</li>
+                        <li><code>Depth</code>: extra peaks combined beyond the number of unknowns. Orthorhombic, monoclinic, triclinic use unknowns + Depth peaks (default 3: 6, 7, 9); cubic, hexagonal and tetragonal use three times as many, 3 &times; (unknowns + Depth) (default: cubic 12, the others 15), which costs almost nothing with one or two unknowns.</li>
+                        <li>The lines under the panel list, for each checked system, the basis size (with the percentage actually used), the number of peaks (capped by the peaks you have picked) and the number of trials.</li>
+                        <li>The four GPU parameters are locked while a run is in progress; each run uses the values it started with.</li>
                         <li>Leave these at their defaults unless you have trouble finding a solution.</li>
                     </ul>
                 </li>
                 <li>
                     <strong>Start indexing.</strong>
-                    Click <code>Start Indexing</code>. Progress is shown on the main progress bar. If the number of GPU buffers is too large, a warning will appear. 
+                    Click <code>Start Indexing</code>. Progress is shown on the main progress bar and the status line names the system being searched. If a search would need too many GPU dispatches, a warning will appear. 
                 </li>
                 <li>
                     <strong>Inspect solutions.</strong>
@@ -607,7 +613,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                         <li>On the <strong>CPU</strong>, during M(20)/M(N) scoring, over the first
                             $N$ peaks used for the merit figure.</li>
                         <li>On the <strong>GPU</strong>, during the figure-of-merit pre-filter, over the
-                            $\min(\max(N_{peaks}, 10),\, 32)$ peaks described under
+                            $\min(\max(k + \text{Depth}, 10),\, 32)$ peaks described under
                             <a href="#indexing-method">Two-Stage GPU Filtering</a> — which is generally
                             <em>not</em> the same count as the CPU stage.</li>
                     </ul>
@@ -634,64 +640,117 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 </li>
                 <li>
                     <strong>Crystal systems to search:</strong>
-                    Checkboxes for Cubic, Tetragonal, Hexagonal <span class="tag-cpu">CPU</span>,
-                    and Orthorhombic, Monoclinic, Triclinic <span class="tag-gpu">GPU</span>.
-                    CPU systems run in a Web Worker (background thread) and are fast.
-                    GPU systems offload to the WebGPU API for massively parallel evaluation.
+                    Checkboxes for Cubic, Hexagonal, Tetragonal, Orthorhombic, Monoclinic and Triclinic,
+                    all searched on the GPU <span class="tag-gpu">GPU</span>. The systems are not mutually exclusive:
+                    every checked system is searched in the same run, sequentially, in the order
+                    cubic &rarr; hexagonal &rarr; tetragonal &rarr; orthorhombic &rarr; monoclinic &rarr; triclinic
+                    (decreasing Laue-group order). Candidate cells of one system are refined on the CPU while the GPU
+                    already searches the next. Defaults: all checked except Triclinic.
+                    <strong>Rhombohedral (R) lattices</strong> are found by the Hexagonal search and reported, refined
+                    and analysed in <strong>hexagonal axes</strong> (system &ldquo;hexagonal&rdquo;, R centring). Such a
+                    cell carries an <strong>R</strong> badge in the solutions table, and its M(20) counts only the lines
+                    an R lattice allows (see <a href="#r-lattice">R lattices in hexagonal axes</a>).
+                    Without WebGPU, Cubic, Tetragonal and Hexagonal fall back to the CPU search <span class="tag-cpu">CPU</span>
+                    and the other three are disabled.
                 </li>
             </ul>
 
             <h4 style="margin-top: 2em;">GPU Search Parameters</h4>
             <p>
-                When <code>Orthorhombic</code>, <code>Monoclinic</code>, or <code>Triclinic</code> is selected,
-                a dedicated panel appears with four parameters controlling the scope, speed, and memory usage of the GPU search.
+                When at least one system is checked (and WebGPU is available), a panel appears with four parameters
+                controlling the scope, speed, and memory usage of the GPU search. The same four values apply to every
+                system; the first two are converted into per-system values, which are listed under the panel.
             </p>
             <ul>
                 <li>
-                    <strong>HKL Basis Size ($N_{hkl}$):</strong>
-                    Defines the size of the pool of theoretical Miller index triplets (HKLs) used to construct trial matrices.
+                    <strong>HKL Basis (% / unknown) &rarr; $N_{hkl}$:</strong>
+                    Sets, for every system, the size $N_{hkl}$ of the pool of theoretical Miller index triplets (HKLs)
+                    used to construct trial matrices:
+                    $$ N_{hkl} = \mathrm{round}\big(N_{max} \times \min(100,\; k \times \text{value}) / 100\big) $$
+                    where $k$ is the number of unknown cell parameters and $N_{max}$ the system's maximum usable basis
+                    (table below), with a floor of $\max(10, 2k)$. For orthorhombic and monoclinic the floor is 76: the 36 axial reflections, which are always placed first (see <a href="#indexing-method">Axial front-loading</a>), plus at least 40 mixed ones. Without it a low setting gave monoclinic a basis made almost entirely of axials, which cannot determine $\beta$ (at 1 %/unknown it could not produce any cell). The value can be set from 1 to 16 (typically 2&ndash;12).
+                    At the default of 5 the old hand-tuned defaults are reproduced: orthorhombic 15% (329), monoclinic 20%
+                    (114), triclinic 30% (37).
                     Brutus generates a candidate list of simple HKLs and sorts it by $h^2+k^2+l^2$. For
                     <strong>orthorhombic and monoclinic</strong> the list is then re-ordered so that all <em>axial</em>
                     reflections — (h00), (0k0), (00l), i.e. two indices zero — are moved to the front before the list is
                     truncated to $N_{hkl}$ (see <a href="#indexing-method">Axial front-loading</a> below for why). For
                     <strong>triclinic</strong> no re-ordering is applied; the first $N_{hkl}$ by magnitude are taken directly.
+                    The four high-symmetry systems use de-duplicated lists ordered by their own quadratic form (see
+                    <a href="#indexing-method">High-symmetry searches</a>).
                     Increasing $N_{hkl}$ allows finding cells with larger unit-cell edges or complex centering, but increases
                     the number of HKL combinations factorially.
-                    <br><em>Defaults: 300 (Ortho), 100 (Mono), 40 (Tri). Per-system hard ceilings (u32 limit): 2954 / 568 / 123.</em>
+                    <table>
+                        <thead><tr><th>System</th><th>$k$</th><th>$N_{max}$</th><th>$N_{hkl}$ at 5</th><th>Peaks at Depth 3</th><th>Trials at defaults</th></tr></thead>
+                        <tbody>
+                            <tr><td>Cubic</td><td>1</td><td>752</td><td>38</td><td>12</td><td>456</td></tr>
+                            <tr><td>Hexagonal</td><td>2</td><td>1,249</td><td>125</td><td>15</td><td>1,627,500</td></tr>
+                            <tr><td>Tetragonal</td><td>2</td><td>1,474</td><td>147</td><td>15</td><td>2,253,510</td></tr>
+                            <tr><td>Orthorhombic</td><td>3</td><td>2,196</td><td>329</td><td>6</td><td>&approx; 706 Million</td></tr>
+                            <tr><td>Monoclinic</td><td>4</td><td>568</td><td>114</td><td>7</td><td>&approx; 5.6 Billion</td></tr>
+                            <tr><td>Triclinic</td><td>6</td><td>123</td><td>37</td><td>9</td><td>&approx; 140 Billion</td></tr>
+                        </tbody>
+                    </table>
+                    <em>$N_{max}$ is the smaller of the generated list length and the u32 combinadic ceiling (2954 / 568 / 123 for orthorhombic / monoclinic / triclinic), so no setting can request a basis the solver would have to clamp.</em>
                 </li>
                 <li>
-                    <strong>Peaks to Combine ($N_{peaks}$):</strong>
+                    <strong>Depth &rarr; $N_{peaks}$:</strong>
                     Controls how many observed peaks (starting from the lowest-angle) are considered when generating the
-                    solving tuple. The solver needs exactly $k$ peaks ($k=3$ for Ortho, 4 for Mono, 6 for Tri).
-                    Setting $N_{peaks} > k$ (e.g. 7 for Monoclinic) causes the program to test every possible subgroup
-                    of $k$ peaks from those $N_{peaks}$ peaks. This provides robustness against impurities: if one
-                    low-angle peak is from an impurity, at least one combination will skip it.
-                    <br><em>Defaults: 7 (Ortho), 7 (Mono), 9 (Tri).</em>
+                    solving tuple:
+                    $$ N_{peaks} = f \times (k + \text{Depth}), \qquad f = 1 \text{ (ortho, mono, tri)}, \quad f = 3 \text{ (cubic, tetragonal, hexagonal)} $$
+                    capped by the number of peaks available. The solver needs exactly $k$ peaks ($k=1$ cubic,
+                    2 tetragonal/hexagonal, 3 orthorhombic, 4 monoclinic, 6 triclinic), and the program tests
+                    every possible subgroup of $k$ peaks from those $N_{peaks}$ peaks. This provides robustness against
+                    impurities: if one low-angle peak is from an impurity, at least one combination will skip it. For
+                    example Depth = 2 gives 6 peaks for monoclinic, 9 for cubic and 12 for tetragonal.
+                    <br>The factor 3 for the systems with one or two unknowns costs almost nothing (at most
+                    $C(15,2) = 105$ peak pairs at the default) and is needed when the first lines all belong to one
+                    zone: a long $c$ axis gives a run of $00l$ lines, a long $a$ axis a run of $hk0$ lines, and no pair of
+                    lines from one zone can determine the other parameter. Tetragonal $a = 3.8$, $c = 45$&nbsp;Å (first six
+                    lines $003$&ndash;$008$) is found with 15 peaks but not with 5. The GPU figure of merit is still scored on
+                    $\max(10, k + \text{Depth})$ peaks, so the extra seed peaks do not make it stricter.
+                    <br><em>Default: 3 (range 0&ndash;12). A system with fewer peaks in the window than its minimum
+                    (4 cubic, 5 tetragonal/hexagonal, 6 orthorhombic, 7 monoclinic/triclinic) is skipped
+                    with a message; the others still run.</em>
                 </li>
                 <li>
                     <strong>FoM Tolerance:</strong>
                     The "Fail-Fast" threshold for the GPU's internal pre-filter. On the GPU, after solving a trial cell,
-                    the mean normalised $Q$ residual is computed over the first $\min(\max(N_{peaks}, 10),\, 32)$ observed
+                    the mean normalised $Q$ residual is computed over the first $\min(\max(k + \text{Depth}, 10),\, 32)$ observed
                     peaks (the upper limit is the shader's <code>MAX_FOM_PEAKS = 32</code>). If this exceeds
                     <code>FoM Tolerance</code> (each residual already divided by that peak's Q tolerance, itself derived from
                     the user's 2θ Error), the cell is discarded before being sent to the CPU. A value of 1.0 means the trial
                     must match on average to within your stated error; a larger value (e.g. 3) is more permissive and will
                     pass more candidates (including valid ones with large zero-shifts) to CPU refinement.
-                    <br><em>Default: 1.5</em>
+                    <br><em>Default: 1.25</em>
                 </li>
                 <li>
                     <strong>Buffer / Candidate (kCells):</strong>
-                    The maximum cumulative number of GPU candidates stored during a run (in thousands).
+                    The maximum cumulative number of GPU candidates stored during the search of <em>one system</em> (in
+                    thousands); every system in the sequence starts with an empty buffer.
                     Candidates are streamed to CPU refinement while the GPU is running. When the capacity
-                    is reached, GPU enumeration ends early and the queued refinement work is drained.
+                    is reached, GPU enumeration of that system ends early (a status message says so) and the run moves on
+                    to the next system. The final <em>Trials: done / total</em> line (also printed in the PDF report)
+                    then counts only the part actually searched (it also lists the HKL, Depth, FoM and Candidates
+                    values the run used) and ends with
+                    <code>TRUNCATED (candidate buffer full): Monoclinic at 12%</code>. The percentage is exact as a lower
+                    bound: the shaders record the first HKL combination they could not finish, and everything before it
+                    was searched completely.
+                    <br><br>
+                    The PDF report (Indexing Solutions Summary) lists the systems the last run searched (not the
+                    checkboxes as they are when the report is made) and adds one row per system: HKL basis size, peaks
+                    combined, trials searched / planned with the percentage, candidate cells sent to refinement, time,
+                    and a note (<em>truncated at 12% (buffer full)</em>, <em>stopped</em>, <em>not reached</em>,
+                    <em>skipped (needs 7 peaks)</em>, <em>skipped (GPU required)</em>). The same table is printed in the
+                    browser console at the end of each run.
                     Candidates are retained in GPU arrival order, not ranked by final M(20).
                     A larger buffer reduces the risk of reaching the cap but increases potential CPU work;
                     it does not guarantee completion of the full search.
-                    <br><em>Default: 50 (i.e. 50,000 candidate cells).</em>
+                    <br><em>Default: 100 (i.e. 100,000 candidate cells per system). The GPU memory cost is small (16 bytes per cell, 32 for triclinic, held twice); the real cost of a larger value is the CPU refinement of every candidate, paid only by systems that actually fill the buffer.</em>
                 </li>
             </ul>
             <div class="callout-note">
-                <strong>Note:</strong> The status text at the bottom of the panel updates in real-time as you adjust these values, showing the total estimated number of cells to be tested. Ensure this number remains reasonable (e.g. under 500 Billion for a result within a few minutes). For a regular GPU card (e.g. Nvidia T1000, 8 GB) the effective search speed is typically in the range of tens of millions of cells per second.
+                <strong>Note:</strong> The lines at the bottom of the panel update in real-time as you adjust these values or the peak list, showing for each checked system the basis size (and the percentage of the maximum actually used, which differs from the requested one when the minimum basis applies), the peak count (capped by the peaks picked) and the estimated number of cells to be tested. The pre-flight warnings use the same capped figures. Ensure this number remains reasonable (e.g. under 500 Billion for a result within a few minutes). For a regular GPU card (e.g. Nvidia T1000, 8 GB) the effective search speed is typically in the range of tens of millions of cells per second.
             </div>
 
  
@@ -1106,42 +1165,68 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 square system that is solved exactly (or in the over-determined case, by weighted least-squares).
             </p>
 
-            <h3 style="margin-top: 2em;">CPU Searches (High Symmetry) <span class="tag-cpu">CPU</span></h3>
+            <h3 style="margin-top: 2em;">Search Order</h3>
             <p>
-                High-symmetry systems have fewer degrees of freedom ($k \leq 2$) and are solved on the CPU in
-                a background Web Worker. Recent updates have significantly expanded the search scope to ensure
-                large unit cells are not missed.
+                All checked systems are searched on the GPU in a single run, one system at a time, in decreasing
+                order of symmetry: <strong>cubic &rarr; hexagonal &rarr; tetragonal &rarr;
+                orthorhombic &rarr; monoclinic &rarr; triclinic</strong>. The engine holds one current compute pipeline,
+                so the searches are strictly sequential; the CPU refinement pool, however, keeps refining the
+                candidates of one system while the GPU searches the next, and is drained once after the last system.
+                The post-processing pass (Niggli reduction, transformations, swap search) then runs once over the
+                de-duplicated solutions of all systems.
+            </p>
+
+            <h3 style="margin-top: 2em;">High-Symmetry Searches (k &le; 2) <span class="tag-gpu">GPU</span></h3>
+            <p>
+                Cubic, tetragonal and hexagonal cells are searched by <code>highsym_solver.wgsl</code>.
+                Each trial solves a 1&times;1 or 2&times;2 system exactly and passes the same geometric and
+                figure-of-merit filters as the low-symmetry solvers; only surviving cells are refined on the CPU.
+                (Before October 2026 these systems ran on the CPU, which refined <em>every</em> trial; a tetragonal
+                search took minutes there and takes seconds on the GPU.)
             </p>
             <ul>
                 <li>
-                    <strong>Cubic (1 parameter, $k=1$):</strong>
-                    Solves a 1×1 system by iterating through the first 12 observed peaks (up to <code>peak_depth=12</code>).
-                    For each observed peak $Q_{obs,i}$, the program iterates over all HKLs up to index 40 ($h_\text{max}=40$),
-                    using $1 \le h \le 40$, $0 \le k \le h$, $0 \le l \le k$:
-                    12,340 HKLs and at most $12 \times 12{,}340 = 148{,}080$ trials.
-                    The trial parameter is simply $a = \sqrt{(h^2+k^2+l^2)/Q_{obs,i}}$.
-                    This allows detection of cubic cells up to very large $a$ values.
+                    <strong>Cubic ($k=1$):</strong> $Q = A\,N$ with $N = h^2+k^2+l^2$, so $a = \sqrt{N/Q_{obs}}$.
+                    hkl sharing the same $N$ give the same trial, so the list keeps one representative per $N$:
+                    all representable $N \le 900$ (752 values; numbers of the form $4^a(8b+7)$ cannot occur).
                 </li>
                 <li>
-                    <strong>Tetragonal &amp; Hexagonal (2 parameters, $k=2$):</strong>
-                    Solves a 2×2 system using pairs of peaks $(i, j)$ from the first 12 observed peaks.
-                    For each pair, all HKL combinations $(hkl_1, hkl_2)$ up to index 12 are tried ($h_\text{max}=12$).
-                    The 2×2 linear system is solved analytically (Cramer's rule).
-                    Total trials: $\binom{12}{2} \times |HKLs|^2 \approx 66 \times 1.4\,M \approx 92\;$million combinations.
-                    <br><br>
-                    Typical runs complete in 1–3 seconds. However, dense patterns (e.g. apatite-type structures)
-                    can take substantially longer — sometimes a minute or more — because a large fraction of candidate
-                    cells survive the initial filter and must be individually refined. If indexing appears stuck on a
-                    Hexagonal or Tetragonal file, it is almost certainly still making progress; the trials-per-second
-                    counter in the status bar confirms this.
+                    <strong>Tetragonal &amp; Hexagonal ($k=2$):</strong> $Q = A\,S + C\,l^2$ with $S = h^2+k^2$
+                    (tetragonal, $A = 1/a^2$) or $S = h^2+hk+k^2$ (hexagonal, $A = 4/(3a^2)$), and $C = 1/c^2$.
+                    One representative per $(S, l)$ is kept, complete for $S \le 144$ and $l \le 24$ (1,474 and 1,249
+                    entries), ordered by the quadratic form for $a = c$. Pairs of two $hk0$ or two $00l$ lines are
+                    singular and skipped.
+                </li>
+                <li>
+                    <strong>Rhombohedral (R) lattices</strong> are found by the hexagonal search: an R lattice is a
+                    hexagonal lattice with two-thirds of the reflections absent ($-h+k+l = 3n$ obverse, $h-k+l = 3n$
+                    reverse), so its observed lines are all hexagonal lines of the triple cell. Refinement and the
+                    space-group analysis (R centring) work in these hexagonal axes, and the refinement recognises the
+                    R lattice by itself (see <a href="#r-lattice">R lattices in hexagonal axes</a>). Tested on corundum
+                    ($c/a \approx 2.73$) and Bi<sub>2</sub>Te<sub>3</sub> ($c/a \approx 7$) at default settings.
                 </li>
             </ul>
-
-            <h3 style="margin-top: 2.5em;">GPU-Accelerated Searches (Low Symmetry) <span class="tag-gpu">GPU</span></h3>
             <p>
-                For Orthorhombic, Monoclinic, and Triclinic systems, the combinatorial explosion makes CPU searching
-                impractical. Brutus offloads these tasks to the WebGPU API, allowing billions of trial cells to be
-                evaluated in minutes.
+                <strong>Full-list figure of merit.</strong> For these three systems the GPU uploads the whole hkl list,
+                not only the search basis: the combinations are taken from the first $N_{hkl}$ entries, but the
+                figure-of-merit pre-filter scores each trial cell against all of them. With one or two unknowns the
+                number of trials is small, so this costs little, and it prevents a correct cell with a long axis from
+                failing the pre-filter merely because its deep lines were truncated away. The low-symmetry systems
+                keep scoring against the search basis only.
+            </p>
+            <p>
+                <strong>CPU fallback.</strong> When WebGPU is unavailable, cubic, tetragonal and hexagonal are searched
+                as before in a background worker: cubic over the first 12 peaks and all hkl with $h \le 40$, tetragonal and
+                hexagonal over all pairs of the first 12 peaks and hkl to index 12 (&approx; 92 million trials, every one
+                refined), with a trials-per-second counter in the status bar. Orthorhombic, monoclinic and
+                triclinic have no CPU search.
+            </p>
+
+            <h3 style="margin-top: 2.5em;">Low-Symmetry Searches <span class="tag-gpu">GPU</span></h3>
+            <p>
+                For Orthorhombic, Monoclinic, and Triclinic systems the combinatorial explosion is largest: the
+                WebGPU API allows billions of trial cells to be evaluated in minutes. The search space formulas
+                below apply to all six systems.
             </p>
 
             <h4>The Combinatorial Search Space</h4>
@@ -1155,33 +1240,36 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <ul>
                 <li>$C(N_{peaks}, k)$ — the number of ways to choose $k$ peaks from the pool of $N_{peaks}$ low-angle observed peaks.</li>
                 <li>$C(N_{hkl}, k)$ — the number of ways to choose $k$ HKL triplets from the $N_{hkl}$ basis.</li>
-                <li>$k!$ — the number of permutations (assignments of the chosen HKLs to the chosen peaks). Ortho: $3!=6$; Mono: $4!=24$; Tri: $6!=720$.</li>
+                <li>$k!$ — the number of permutations (assignments of the chosen HKLs to the chosen peaks). Cubic: 1; tetragonal/hexagonal: 2; Ortho: $3!=6$; Mono: $4!=24$; Tri: $6!=720$.</li>
             </ul>
 
             <h4>System Specifics</h4>
             <table>
                 <thead>
-                    <tr><th>System</th><th>$k$</th><th>Default $N_{hkl}$</th><th>Default $N_{peaks}$</th><th>Estimated trials (defaults)</th></tr>
+                    <tr><th>System</th><th>$k$</th><th>Default $N_{hkl}$ (5 %/unknown)</th><th>Default $N_{peaks}$ (Depth 3)</th><th>Estimated trials (defaults)</th></tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td>Orthorhombic</td><td>3</td><td>300</td><td>7</td>
-                        <td>$C(7,3) \times C(300,3) \times 6 \approx 936\;\text{Million}$</td>
+                        <td>Orthorhombic</td><td>3</td><td>329</td><td>6</td>
+                        <td>$C(6,3) \times C(329,3) \times 6 \approx 706\;\text{Million}$</td>
                     </tr>
                     <tr>
-                        <td>Monoclinic</td><td>4</td><td>100</td><td>7</td>
-                        <td>$C(7,4) \times C(100,4) \times 24 \approx 3.3\;\text{Billion}$</td>
+                        <td>Monoclinic</td><td>4</td><td>114</td><td>7</td>
+                        <td>$C(7,4) \times C(114,4) \times 24 \approx 5.6\;\text{Billion}$</td>
                     </tr>
                     <tr>
-                        <td>Triclinic</td><td>6</td><td>40</td><td>9</td>
-                        <td>$C(9,6) \times C(40,6) \times 720 \approx 232\;\text{Billion}$</td>
+                        <td>Triclinic</td><td>6</td><td>37</td><td>9</td>
+                        <td>$C(9,6) \times C(37,6) \times 720 \approx 140\;\text{Billion}$</td>
                     </tr>
                 </tbody>
             </table>
             <p>
-                These numbers can grow very rapidly. For example, increasing the Monoclinic $N_{hkl}$ from 100 to 150
-                multiplies the HKL combinations by roughly $(150/100)^4 \approx 5\times$, and increasing $N_{peaks}$
-                from 7 to 9 multiplies the peak combinations by $C(9,4)/C(7,4) = 126/35 \approx 3.6\times$.
+                These numbers can grow very rapidly. For example, raising <code>HKL Basis</code> from 5 to 7.5 %/unknown
+                takes the Monoclinic $N_{hkl}$ from 114 to 170 and multiplies the HKL combinations by roughly
+                $(170/114)^4 \approx 5\times$, and raising <code>Depth</code> from 3 to 5 takes monoclinic from 7 to 9 peaks
+                and multiplies the peak combinations by $C(9,4)/C(7,4) = 126/35 \approx 3.6\times$. Because both
+                settings are shared, they act on all checked systems at once, and most strongly on the systems with the
+                most unknowns.
             </p>
 
             <h4>Axial Front-Loading (finding "strange" axis ratios)</h4>
@@ -1214,10 +1302,10 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <p>
                 <strong>Triclinic is deliberately excluded</strong> from front-loading. With $k=6$, the reciprocal angles
                 ($D=kl$, $E=hl$, $F=hk$) are carried <em>only</em> by mixed reflections, and the basis is small (default
-                $N_{hkl}=40$). Promoting axials there would crowd out the mixed reflections needed to determine the angles
+                $N_{hkl}=37$). Promoting axials there would crowd out the mixed reflections needed to determine the angles
                 and drive most trials singular, so triclinic keeps the plain magnitude ordering. The practical consequence
                 is that triclinic cells with one very long axis are intrinsically harder for this tool; raising $N_{hkl}$
-                (up to its ceiling of 123) is the available lever.
+                (<code>HKL Basis</code> up to 16 %/unknown, i.e. 96% of the ceiling of 123) is the available lever.
             </p>
 
             <h4>GPU Memory Management &amp; Safe Batching</h4>
@@ -1229,7 +1317,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 <li>
                     <strong>Dispatch chunking (thread budget):</strong>
                     The HKL-combination dimension is split into chunks using a target of
-                    <strong>500,000</strong> invocations per dispatch for Orthorhombic and Monoclinic,
+                    <strong>500,000</strong> invocations per dispatch for every system except Triclinic,
                     and <strong>50,000</strong> for Triclinic (whose 6×6 solve and 720-permutation inner loop make
                     each thread far heavier). These are sizing targets, not hard trial ceilings:
                     workgroup rounding and the minimum of one Y workgroup can exceed the target, and
@@ -1258,7 +1346,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     <strong>Buffer sizing:</strong>
                     At device-request time Brutus asks the adapter for its maximum <code>maxBufferSize</code> and
                     <code>maxStorageBufferBindingSize</code>. The results buffer is then sized to
-                    <code>Buffer/Candidate (kCells) × 1,000 × cell-struct-size</code> (32 bytes/cell for Triclinic, 16 for the others).
+                    <code>Buffer/Candidate (kCells) × 1,000 × cell-struct-size</code> (32 bytes/cell for Triclinic, 16 for the others), once per system searched.
                     The solver loop releases its per-run GPU buffers in a <code>finally</code> block
                     when execution completes, fails or is cancelled. The GPU <em>device</em> itself is created once and reused by
                     every search for the lifetime of the page, rather than re-created per run, and is released on page
@@ -1282,7 +1370,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 they do not by themselves indicate a failure.
                 <br><br>
                 <strong>If the search is too slow:</strong> Adjusting internal GPU memory or chunk parameters is not useful.
-                Instead, curate the peak list, lower the <code>HKL Basis Size</code>, or reduce <code>Peaks to Combine</code>.
+                Instead, curate the peak list, uncheck the systems you can exclude, lower <code>HKL Basis</code>, or reduce <code>Depth</code>.
             </blockquote>
 
             <h4 style="margin-top: 2.5em;">Two-Stage GPU Filtering</h4>
@@ -1308,10 +1396,10 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     <strong>Figure of Merit Pre-filter:</strong>
                     For surviving cells, the GPU calculates a fast internal score: the mean of the per-peak normalised
                     residual $\langle |\Delta Q_i| / \Delta Q_{tol,i}\rangle$, evaluated over the first
-                    $\min(\max(N_{peaks}, 10),\, 32)$ observed peaks. The lower bound of 10 guarantees a meaningful sample
+                    $\min(\max(k + \text{Depth}, 10),\, 32)$ observed peaks (for orthorhombic, monoclinic and triclinic
+                    $k + \text{Depth} = N_{peaks}$). The lower bound of 10 guarantees a meaningful sample
                     even for very small $N_{peaks}$; the upper bound is the shader constant <code>MAX_FOM_PEAKS = 32</code>,
-                    even for very small $N_{peaks}$; the upper bound is the shader constant <code>MAX_FOM_PEAKS = 32</code>,
-                    which is the same for all three GPU solvers, so a cell is judged on the same amount of
+                    which is the same for all four GPU shaders, so a cell is judged on the same amount of
                     evidence whichever system found it. The matching
                     tolerance $\Delta Q_{tol,i}$ is the per-peak Q tolerance derived from the user's 2θ Error (see
                     <a href="#refinement">Q-Space Tolerance</a>). If the mean normalised residual exceeds
@@ -1322,9 +1410,11 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     <strong>Impurity tolerance.</strong> If <code>Impurity Peaks</code> is non-zero, the shader takes a
                     second path: it scores every peak, then averages only the best
                     $(N_{fom} - N_{impurity})$ residuals via a partial selection sort, so the worst-fitting peaks are
-                    discarded rather than penalising the cell. Note this path cannot use the fail-fast abort — every
-                    peak must be scored before the worst can be identified — so a non-zero
-                    <code>Impurity Peaks</code> makes the GPU stage noticeably slower. The impurity count is clamped
+                    discarded rather than penalising the cell. This path cannot use the plain running-sum abort, since
+                    the worst peaks are only known at the end; instead (for up to 4 impurity peaks) it keeps the
+                    largest residuals seen so far and aborts as soon as <em>sum &minus; largest</em> exceeds the budget,
+                    a lower bound on the final score. It still scores more peaks per reject, so a non-zero
+                    <code>Impurity Peaks</code> makes the GPU stage somewhat slower. The impurity count is clamped
                     inside the shader to at most $N_{fom} - 1$, so at least one peak always contributes to the average
                     regardless of what is entered in the UI.
                 </li>
@@ -1417,8 +1507,8 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             </ol>
             <p>
                 With zero refinement disabled, only one pairing/fit is performed and no fitted zero
-                correction is attached. With it enabled, the same up-to-two-round strategy applies regardless of origin: GPU-searched systems
-                (orthorhombic, monoclinic, triclinic) and CPU-searched systems (cubic, tetragonal, hexagonal). GPU
+                correction is attached. With it enabled, the same up-to-two-round strategy applies to every system,
+                whether the candidate came from the GPU or from the CPU fallback. GPU
                 candidates are refined in parallel by a pool of dedicated Web Workers (see <a href="#introduction">Architecture</a>).
             </p>
 
@@ -1453,6 +1543,11 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     <tr><td>Triclinic</td><td>6</td><td>7</td></tr>
                 </tbody>
             </table>
+            <p>
+                The same thresholds decide whether a system can be searched at all: a checked system with fewer peaks
+                in the 2θ window than its minimum is skipped with a message, and <code>Start Indexing</code> asks for
+                more peaks only when no checked system can run.
+            </p>
 
             <h3>Standard Deviation Propagation</h3>
             <p>
@@ -1503,11 +1598,15 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 search. Widening the host-side table would not help — the limit is intrinsic to the u32 shader.
             </p>
             <p>
-                This translates into a hard ceiling on the HKL Basis Size, distinct for each system:
+                This translates into a hard ceiling on the HKL basis, distinct for each system. For $k \le 3$ the
+                generated lists run out first (cubic 752, tetragonal 1,474, hexagonal 1,249,
+                orthorhombic 2,196); the u32 limit binds for monoclinic and triclinic:
             </p>
             <table>
-                <thead><tr><th>System</th><th>$k$</th><th>Max $N_{hkl}$</th><th>$C(\text{Max}, k)$</th></tr></thead>
+                <thead><tr><th>System</th><th>$k$</th><th>u32 ceiling on $N_{hkl}$</th><th>$C(\text{Max}, k)$</th></tr></thead>
                 <tbody>
+                    <tr><td>Cubic</td><td>1</td><td>$2^{32}-1$</td><td>&mdash;</td></tr>
+                    <tr><td>Tetragonal / Hexagonal</td><td>2</td><td><strong>92,682</strong></td><td>$4.295 \times 10^9$</td></tr>
                     <tr><td>Orthorhombic</td><td>3</td><td><strong>2,954</strong></td><td>$4.292 \times 10^9$</td></tr>
                     <tr><td>Monoclinic</td><td>4</td><td><strong>568</strong></td><td>$4.291 \times 10^9$</td></tr>
                     <tr><td>Triclinic</td><td>6</td><td><strong>123</strong></td><td>$4.249 \times 10^9$</td></tr>
@@ -1515,25 +1614,25 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             </table>
             <p>
                 Each value is the largest $N_{hkl}$ for which $C(N_{hkl}, k)$ still fits in u32
-                (e.g. $C(124, 6) \approx 4.47 \times 10^9$ already overflows, so Triclinic stops at 123). Brutus enforces
-                this on two levels: a <strong>pre-flight check</strong> recomputes $C(N_{hkl}, k)$ from your inputs and, if
-                it exceeds the ceiling, disables the <em>Start Indexing</em> button (turning it red with a "Too Large"
-                label) and shows an explanatory status message; and a <strong>backstop clamp</strong> inside the GPU task
-                caps $N_{hkl}$ at the per-system maximum and warns if it ever had to intervene. In normal use you will hit
-                the button block first — the clamp only guards against a stale or programmatically-set value slipping
-                through.
+                (e.g. $C(124, 6) \approx 4.47 \times 10^9$ already overflows, so Triclinic stops at 123). Because
+                <code>HKL Basis</code> is a percentage of $N_{max} = \min(\text{list length}, \text{u32 ceiling})$, capped
+                at 100%, no setting can exceed the ceiling. A <strong>pre-flight check</strong> still recomputes
+                $C(N_{hkl}, k)$ for every checked system and would disable the <em>Start Indexing</em> button (red,
+                "Too Large") should a list ever grow past it.
             </p>
             <p>
                 The u32 ceiling is not the only pre-flight limit. A search can stay well under it and still be
                 impractically slow, because the number of GPU <em>dispatches</em> grows as you raise
-                <strong>Peaks to Combine</strong>: the per-dispatch thread budget is fixed, so more peak combinations
+                <strong>Depth</strong>: the per-dispatch thread budget is fixed, so more peak combinations
                 mean fewer HKL combinations per dispatch and therefore more dispatches to cover the same space. At the
                 extreme — triclinic with the maximum peak count — the chunk collapses to a handful of HKLs and the run
                 would need on the order of a billion dispatches: it never errors, it just never finishes. The pre-flight
-                check therefore also estimates the dispatch count and treats it like the u32 ceiling: a warning in the
-                status line above a soft threshold, and a red <em>Start Indexing</em> button above a hard one. If you see
-                a &ldquo;too slow&rdquo; block, lower <strong>Peaks to Combine</strong> first — it has a much larger effect on
-                dispatch count than <strong>HKL Basis Size</strong>.
+                check therefore estimates the dispatch count of <em>every checked system</em> and treats it like the u32
+                ceiling: a warning in the status line above a soft threshold (100,000 dispatches), and a red
+                <em>Start Indexing</em> button above a hard one (2 million), naming the system concerned. It also blocks a
+                peak count whose combinations exceed the WebGPU limit of 65,535 workgroups. If you see a &ldquo;too
+                slow&rdquo; block, lower <strong>Depth</strong> first — it has a much larger effect on dispatch count than
+                <strong>HKL Basis</strong> — or uncheck triclinic.
             </p>
 
             <h3>System-Specific Breakdown</h3>
@@ -1542,9 +1641,9 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <ul>
                 <li><strong>HKL Limit:</strong> The 4.29 Billion wall is reached at $N_{hkl} = 123$. ($C(123,6) \approx 4.24 \times 10^9$).</li>
                 <li><strong>Permutations:</strong> $6! = 720$.</li>
-                <li><strong>Peak Multiplier:</strong> Using 20 peaks: $C(20,6) = 38,760$.</li>
+                <li><strong>Peak Multiplier:</strong> Using 18 peaks (Depth 12): $C(18,6) = 18,564$.</li>
                 <li><strong>Maximum Possible Trials:</strong>
-                    $$ 4.24 \times 10^9 \times 38,760 \times 720 \approx 1.18 \times 10^{17} \quad (118 \text{ Quadrillion}) $$
+                    $$ 4.24 \times 10^9 \times 18,564 \times 720 \approx 5.7 \times 10^{16} \quad (57 \text{ Quadrillion}) $$
                 </li>
             </ul>
 
@@ -1552,20 +1651,28 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <ul>
                 <li><strong>HKL Limit:</strong> The wall is reached at $N_{hkl} = 568$. ($C(568,4) \approx 4.29 \times 10^9$).</li>
                 <li><strong>Permutations:</strong> $4! = 24$.</li>
-                <li><strong>Peak Multiplier:</strong> Using 20 peaks: $C(20,4) = 4,845$.</li>
+                <li><strong>Peak Multiplier:</strong> Using 16 peaks (Depth 12): $C(16,4) = 1,820$.</li>
                 <li><strong>Maximum Possible Trials:</strong>
-                    $$ 4.29 \times 10^9 \times 4,845 \times 24 \approx 5 \times 10^{14} \quad (500 \text{ Trillion}) $$
+                    $$ 4.29 \times 10^9 \times 1,820 \times 24 \approx 1.9 \times 10^{14} \quad (190 \text{ Trillion}) $$
                 </li>
             </ul>
 
             <h4>3. Orthorhombic ($k=3$)</h4>
             <ul>
-                <li><strong>HKL Limit:</strong> The wall is reached at $N_{hkl} = 2,954$. ($C(2954,3) \approx 4.29 \times 10^9$).</li>
+                <li><strong>HKL Limit:</strong> The u32 wall would be at $N_{hkl} = 2,954$, but the generated list ends at
+                    2,196 ($C(2196,3) \approx 1.76 \times 10^9$).</li>
                 <li><strong>Permutations:</strong> $3! = 6$.</li>
-                <li><strong>Peak Multiplier:</strong> Using 20 peaks: $C(20,3) = 1,140$.</li>
+                <li><strong>Peak Multiplier:</strong> Using 15 peaks (Depth 12): $C(15,3) = 455$.</li>
                 <li><strong>Maximum Possible Trials:</strong>
-                    $$ 4.29 \times 10^9 \times 1,140 \times 6 \approx 2.9 \times 10^{13} \quad (29 \text{ Trillion}) $$
+                    $$ 1.76 \times 10^9 \times 455 \times 6 \approx 4.8 \times 10^{12} \quad (4.8 \text{ Trillion}) $$
                 </li>
+            </ul>
+
+            <h4>4. Cubic, Tetragonal, Hexagonal ($k \le 2$)</h4>
+            <ul>
+                <li>Even at the maximum settings these searches stay small: tetragonal at 16 %/unknown (32%, 472 hkl)
+                    and Depth 12 ($3 \times 14 = 42$ peaks) is $C(472,2) \times C(42,2) \times 2 \approx 190$ million trials. Their run
+                    time is dominated by refinement of the candidates on the CPU, not by the GPU.</li>
             </ul>
 
             <h3>Practical Implications</h3>
@@ -1585,7 +1692,8 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 <strong>Practical Limit:</strong> For a search to finish in a "coffee break" time frame (5–10 minutes),
                 keep the Total Trials count under 100–500 Billion. For modern desktop GPUs (e.g. Nvidia RTX series),
                 speeds of 100 Mcells/sec are typical for Orthorhombic; Triclinic is slower due to the
-                larger $k$ and the more complex 6×6 linear solve. The size of the GPU buffer, or the accepted solutions, will greatly affect the indexing time because each cell will pass a CPU Least Square fit.
+                larger $k$ and the more complex 6×6 linear solve. With the default systems checked, the run time is
+                dominated by monoclinic; checking triclinic as well usually multiplies it many times. The size of the GPU buffer, or the accepted solutions, will greatly affect the indexing time because each cell will pass a CPU Least Square fit.
             </blockquote>
 
             <h3 id="tuning-the-search">Tuning the Search</h3>
@@ -1609,9 +1717,15 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     The true cell may be larger than initially expected.
                 </li>
                 <li>
+                    <strong>Check more systems.</strong>
+                    Triclinic is off by default; check it if the higher-symmetry results are not
+                    convincing. To keep the run short, uncheck the systems you have already explored.
+                </li>
+                <li>
                     <strong>Increase GPU Parameters.</strong>
-                    Try increasing <code>HKL Basis Size</code> (e.g. from 80 to 120 for Tri) or
-                    <code>Peaks to Combine</code> (e.g. from 7 to 9 for Mono).
+                    Try increasing <code>HKL Basis</code> (e.g. from 5 to 8 %/unknown) or
+                    <code>Depth</code> (e.g. from 3 to 5). Both apply to every checked system, so consider
+                    unchecking the ones you do not need first.
                     This significantly increases search time but covers more combinations.
                 </li>
                 <li>
@@ -1623,18 +1737,18 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
 
             <h4>If you get too many solutions (GPU buffer fills)</h4>
             <p>
-                The GPU buffer is limited (default 50,000 candidates). If it fills up, GPU enumeration stops early; unvisited combinations remain unsearched.
+                The GPU buffer is limited (default 100,000 candidates per system). If it fills up, GPU enumeration of that system stops early, a status message names it, and unvisited combinations remain unsearched; the following systems are still searched.
                 In that case, if there is no solution:
             </p>
             <ol>
                 <li>
-                    <strong>Tighten the FoM Tolerance</strong> (e.g. from 3 to 1.5). This discards more candidates on the GPU, so fewer reach the CPU buffer.
+                    <strong>Tighten the FoM Tolerance</strong> (e.g. from 1.25 to 1.0). This discards more candidates on the GPU, so fewer reach the CPU buffer.
                 </li>
                 <li>
                     <strong>Lower the <code>Max Volume</code></strong> if you can constrain the cell size further.
                 </li>
                 <li>
-                    <strong>Increase the Buffer size</strong> (e.g. from 50 to 200 kCells) if you suspect the correct
+                    <strong>Increase the Buffer size</strong> (e.g. from 100 to 250 kCells) if you suspect the correct
                     solution may occur in combinations not yet visited when the buffer fills. Note that larger buffers mean more CPU
                     work during post-processing.
                 </li>
@@ -1694,6 +1808,44 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 A minimum M(20) of 2.0 is required for a solution to be retained at all. Solutions below this threshold
                 are silently discarded.
             </p>
+
+            <h3 id="r-lattice">R lattices in hexagonal axes</h3>
+            <p>
+                A rhombohedral (R) lattice is described in Brutus on its hexagonal triple cell. Two thirds of the
+                hexagonal reflections are then systematically absent: only those with $-h+k+l = 3n$ (obverse) exist,
+                or $h-k+l = 3n$ in the reverse setting. A powder line merges the two $\bar{3}m$ stars $(hkl)$ and
+                $(khl)$ and exists if either is allowed, so about <em>half</em> of the calculated hexagonal lines are
+                absent (corundum to 75&deg; 2&theta;: 25 lines instead of 51), and obverse and reverse give the same
+                line list. Counting the absent lines in $N_{calc}$ made M(20) about two times too low, so a true R cell
+                could rank below a lower-symmetry sub-cell.
+            </p>
+            <p>
+                Every hexagonal cell is therefore <strong>probed for an R lattice</strong> during refinement. After the
+                normal (P) fit, the R line list is generated for the refined cell, and if it indexes
+                <em>exactly as many peaks</em> as the full hexagonal list &mdash; both among the first 20 and among
+                all peaks &mdash; the cell is refined again as R: peaks are paired only with R lines and M(20) counts
+                only R lines. Requiring the same number of indexed peaks ensures the impurity allowance is never spent
+                on a genuine non-R line, so a primitive hexagonal cell can never be turned into an R one. Both
+                versions share a solution key, so the de-duplication keeps the R one (the higher M20). The probe runs
+                before the M(20) threshold: an R lattice that scores below 2.0 on the full list is still caught.
+            </p>
+            <p>
+                Measured on synthetic patterns: corundum M(20) 124 &rarr; 232 (now ranked first, ahead of a
+                monoclinic sub-cell at 226 that previously outranked it), Bi<sub>2</sub>Te<sub>3</sub> 76 &rarr; 164;
+                ZnO (primitive hexagonal) is correctly left as P.
+            </p>
+            <ul>
+                <li><strong>Where the R line list is used:</strong> refinement and M(20)/F(N), the post-processing swap
+                    search, Refine MC, Swap hkl (assignments and refit), the calculated tick marks on the chart and the
+                    hkl table of the PDF report. Cells derived from an R cell by these tools stay R.</li>
+                <li><strong>Where it is not:</strong> the automatic space-group analysis and Space Group MC always use
+                    the full hexagonal lattice, because they detect R centring precisely by finding the R-forbidden
+                    lines empty. The R flag does not decide the space group; the analysis still does.</li>
+                <li><strong>Display:</strong> an <strong>R</strong> badge in the solutions table, &ldquo;hexa R&rdquo;
+                    in the report summary and &ldquo;(R lattice, hexagonal axes)&rdquo; in the report details.</li>
+                <li>Sub-cells and transformed cells found in post-processing do not inherit the flag; they are probed
+                    afresh when refined.</li>
+            </ul>
 
             <h3>F(N) Figure of Merit</h3>
             <p>
@@ -2096,6 +2248,40 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
         the report says so rather than inventing a rule to blame.
     </p>
 
+    <h4 id="sg-line-not-reflection">A powder line, not a reflection</h4>
+    <p>
+        The operator test above answers for one $(hkl)$. A powder peak is not one $(hkl)$: it is a
+        <strong>line</strong>, and every reflection that falls on it contributes. The line is forbidden only
+        if <em>every</em> reflection on it is. Brutus therefore asks about the whole line, in both routes:
+    </p>
+    <ul>
+        <li><strong>Its metric orbit.</strong> All indices that the cell metric places at the same $2\theta$
+            (the holohedry: $m\bar{3}m$, $4/mmm$, $6/mmm$, $mmm$, $2/m$) are tested, not just the one the
+            generator happened to keep. This matters whenever the space group&rsquo;s Laue class is lower
+            than the lattice&rsquo;s: in Pa&#772;3, 320 is forbidden (<em>hk0</em>: $h=2n$) but 230, on the same
+            line, is not; in an R group in hexagonal axes, $(h,k,l)$ and $(k,h,l)$ share a line but fall
+            under different obverse conditions.</li>
+        <li><strong>Exact coincidences.</strong> Different orbits that happen to have the same $2\theta$
+            &mdash; cubic 221 and 300 ($N=9$), 410 and 322 ($N=17$) &mdash; are merged into one line by the
+            generator, which now remembers the merged reflections, so a line carrying an allowed 221 is not
+            blamed for its forbidden 300.</li>
+    </ul>
+    <p>
+        Testing only the kept representative was wrong in both cases, and wrong systematically: every R
+        group, Pa&#772;3, Ia&#772;3, and the <em>c</em>/<em>n</em>/<em>d</em>-glide cubic groups (P&#772;43n,
+        Pm&#772;3n, Pn&#772;3n, F&#772;43c, Fm&#772;3c, Fd&#772;3c, I&#772;43d, Ia&#772;3d) collected hard violations on
+        patterns that obey them exactly. The same line test decides the <strong>Ambiguous</strong> demotion,
+        so an allowed alternative counts as allowed when any reflection on its line is.
+    </p>
+    <p>
+        <strong>Settings in other axes are not candidates.</strong> The indexer produces b-unique monoclinic
+        cells and indexes every R lattice in hexagonal axes, so a-/c-unique monoclinic settings and the
+        rhombohedral-axes settings of the seven R groups (Hall symbol with <code>3*</code>) are skipped:
+        their conditions refer to different indices. The automatic analysis used to rank the
+        rhombohedral-axes copies as hexagonal candidates; since they forbid almost nothing in hexagonal
+        indices, every R group appeared only through that duplicate, never through its true setting.
+    </p>
+
     <h4>Rewarding settings that explain the observed absences</h4>
     <p>
         Violation counting is <strong>one-sided</strong>: it only ever looks at reflections that <em>are</em>
@@ -2166,6 +2352,10 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
         on its length is applied <em>after</em> that neutral sort rather than before: truncating a
         score-ordered list drops settings for scoring reasons while presenting itself as a list of what is
         merely compatible, and &ldquo;never a candidate&rdquo; reads far too easily as &ldquo;ruled out&rdquo;.
+        The cap never cuts a setting with zero hard violations: all of those are kept (up to 150), and
+        settings with violations fill the list up to 40. A fixed cap of 40 on a list ordered by
+        <em>descending</em> number used to drop the low-numbered compatible settings &mdash; F222, Fmm2,
+        Ccc2, Aba2, Iba2, I4, I4<sub>1</sub>&hellip; &mdash; on patterns that obey them exactly.
         The report states how many settings it shows out of how many were found.
     </p>
     <p>
@@ -2288,10 +2478,10 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 <li>
                 
                     <p>
-  <strong>List the compatible space groups.</strong> Based on the crystal system and detected centering, the internal space-group database is filtered, and every remaining setting is tested against the indexed reflections. A setting is kept when its hard violations do not exceed <code>MAX_VIOLATIONS</code> (2). Each surviving setting carries its hard and soft violation counts, the offending reflections, and how many of the detected absences it accounts for (<em>explains n/N</em>).
+  <strong>List the compatible space groups.</strong> Based on the crystal system and detected centering, the internal space-group database is filtered, and every remaining setting (in the axes the indexer uses) is tested against the indexed reflections, one powder line at a time (see <a href="#sg-line-not-reflection">A powder line, not a reflection</a>). A setting is kept when its hard violations do not exceed <code>MAX_VIOLATIONS</code> (2). Each surviving setting carries its hard and soft violation counts, the offending reflections, and how many of the detected absences it accounts for (<em>explains n/N</em>).
 </p>
 <p>
-  The output is a <strong>compatibility list, not a ranking</strong>: settings are grouped by hard violation count and ordered by space-group number within each group, and the length cap (40 settings, with the total stated) is applied after that neutral sort. A <strong>Weighted Extinction Confidence</strong> score is still computed per setting and still drives the <em>explains n/N</em> figure, but it no longer decides the order — see <a href="#sg-compatibility-list">A compatibility list, not a ranking</a>. Names are given as the conventional space-group symbol consistent with the orientation the program found. Ranking hypotheses against each other is the job of the <a href="#space-group-mc">Space Group MC</a>.
+  The output is a <strong>compatibility list, not a ranking</strong>: settings are grouped by hard violation count and ordered by space-group number within each group, and the length cap (every zero-violation setting, up to 150; otherwise 40; the total is stated) is applied after that neutral sort. A <strong>Weighted Extinction Confidence</strong> score is still computed per setting and still drives the <em>explains n/N</em> figure, but it no longer decides the order — see <a href="#sg-compatibility-list">A compatibility list, not a ranking</a>. Names are given as the conventional space-group symbol consistent with the orientation the program found. Ranking hypotheses against each other is the job of the <a href="#space-group-mc">Space Group MC</a>.
 </p>
                 
                 </li>
@@ -2976,9 +3166,11 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 <strong>Trigonal and rhombohedral groups are only ever tested in their hexagonal setting.</strong>
                 Brutus classifies cells by their <em>metric</em>, and a trigonal or rhombohedral lattice
                 described in hexagonal axes has $a = b$, $\gamma = 120^\circ$ &mdash; which the program calls
-                hexagonal, correctly. There is no separate trigonal system to search and none is needed: every
-                rhombohedral lattice can be indexed on the hexagonal triple cell, and that is what you will
-                get. The consequences are worth stating explicitly:
+                hexagonal, correctly. There is no separate trigonal or rhombohedral system to search and none is
+                needed: every rhombohedral lattice is found and reported on the hexagonal triple cell, and that is
+                what you will get. (Such a cell may carry the <a href="#r-lattice">R flag</a>, which changes only its
+                calculated line list and M(20); Space Group MC removes it and tests every hypothesis against the full
+                hexagonal lattice.) The consequences are worth stating explicitly:
             </p>
             <ul>
                 <li>
@@ -3448,7 +3640,8 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 <li>
                     <strong>GPU parameters too restrictive:</strong>
                     The true solution might require HKLs or peak combinations beyond the default
-                    <code>HKL Basis Size</code> or <code>Peaks to Combine</code>. Try increasing these.
+                    <code>HKL Basis</code> or <code>Depth</code>. Try increasing these, and check that the right
+                    systems are selected (Triclinic is off by default).
                 </li>
                 <li>
                     <strong>Large zero-point error:</strong>
@@ -3485,14 +3678,16 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <h3>The progress bar is stuck / search seems frozen</h3>
             <ul>
                 <li>
-                    A high <strong>Peaks to Combine</strong> value can make the GPU issue an enormous number of tiny
+                    A high <strong>Depth</strong> value can make the GPU issue an enormous number of tiny
                     dispatches, so the bar advances in barely-visible steps even though nothing is wrong. If you were
                     warned about a large dispatch count before starting, this is expected — press Stop, lower
-                    <strong>Peaks to Combine</strong>, and run again.
+                    <strong>Depth</strong>, and run again. The progress bar is shared by all checked systems: with
+                    five systems, each covers one fifth of it, and monoclinic or triclinic take far longer than their
+                    share suggests.
                 </li>
                 <li>
-                    For Tetragonal and Hexagonal searches with dense patterns, a large fraction of trial cells
-                    pass the initial filter and require full refinement. The search is still running. Watch the
+                    Without WebGPU (CPU fallback), Tetragonal and Hexagonal searches with dense patterns refine
+                    a large fraction of the trial cells. The search is still running. Watch the
                     trials-per-second counter in the status bar.
                 </li>
                 <li>
@@ -3501,7 +3696,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     if the GPU buffer is large (e.g. 200 kCells).
                 </li>
                 <li>
-                    After GPU dispatch finishes, the refinement drain watches each worker individually.
+                    After the last GPU system finishes (status <em>Refining candidate cells...</em>), the refinement drain watches each worker individually.
                     A worker with outstanding batches and no valid activity for more than about 30 seconds
                     is removed and terminated. Its remaining candidates are abandoned, and any late
                     messages from that worker are ignored. The search is marked <strong>incomplete</strong>;
@@ -3510,7 +3705,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 <li>
                     If the browser reports that the GPU device was lost, the driver has reset (a TDR) or the tab was
                     suspended. GPU searches are disabled until you reload the page; reload and try again with a smaller
-                    HKL Basis Size or fewer peaks to combine.
+                    HKL Basis or a lower Depth.
                 </li>
             </ul>
 
@@ -3661,7 +3856,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             </ol>
 
             <div class="footer">
-                <p>Help guide generated with the help of an AI, based on source code analysis. Last revised 10 September 2026; aligned with application build 20260910r1.</p>
+                <p>Help guide generated with the help of an AI, based on source code analysis. Last revised 10 October 2026; aligned with application build 20261010.</p>
             </div>
         </section>
 

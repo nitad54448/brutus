@@ -165,11 +165,14 @@ function mcStepScales(params, cell, fracFallback) {
 // monoclinic/triclinic algebra stays in one place. Returns null on anything
 // non-physical (extractCellFromFit already checks positivity, beta range,
 // determinant sanity), plus our own finite/volume guards.
-function mcParamsToCell(params, system, maxVolume) {
+// `lattice` ('R' or undefined) is carried over from the cell being refined, so
+// an R cell is scored on its R lines throughout the walk (see hkl.js).
+function mcParamsToCell(params, system, maxVolume, lattice) {
     if (!params || params.some(p => !isFinite(p))) return null;
     const cell = extractCellFromFit(params, system);
     if (!cell) return null;
     cell.system = system;
+    if (lattice === 'R' && system === 'hexagonal') cell.lattice = 'R';
     const axes = [cell.a, cell.b ?? cell.a, cell.c ?? cell.a];
     if (axes.some(x => !isFinite(x) || x < 2.0 || x > 50.0)) return null;
     const angs = [cell.alpha ?? 90, cell.beta ?? 90, cell.gamma ?? 90];
@@ -315,7 +318,7 @@ function monteCarloPolish(sol, data, state, opts) {
         // Sanity check: the parameter round-trip must reproduce the cell. If it
         // does not, the vector convention is wrong for this system and the walk
         // would silently explore the wrong space -- bail out instead.
-        const rt = mcParamsToCell(p0, system, max_volume);
+        const rt = mcParamsToCell(p0, system, max_volume, sol.lattice);
         if (!rt) return null;
         const drift = Math.abs(rt.a - sol.a) / Math.max(sol.a, 1e-9);
         if (!(drift < 1e-6)) return null;
@@ -329,7 +332,7 @@ function monteCarloPolish(sol, data, state, opts) {
         const z0 = refineZero ? (sol.zero_correction || 0) : 0;
 
         // --- reference state -------------------------------------------------
-        const baseCell = mcParamsToCell(p0, system, max_volume);
+        const baseCell = mcParamsToCell(p0, system, max_volume, sol.lattice);
         if (!baseCell) return null;
         if (refineZero) baseCell.zero_correction = z0;
         const baseEval = mcEvaluateCell(baseCell, ctx);
@@ -368,7 +371,7 @@ function monteCarloPolish(sol, data, state, opts) {
                 if (trialZ > zeroMaxDeg) trialZ = zeroMaxDeg;
             }
 
-            const trialCell = mcParamsToCell(trialP, system, max_volume);
+            const trialCell = mcParamsToCell(trialP, system, max_volume, sol.lattice);
             if (!trialCell) continue;
             if (refineZero) trialCell.zero_correction = trialZ;
 
@@ -438,7 +441,7 @@ function monteCarloPolish(sol, data, state, opts) {
         // sample, and the two cells are within a hair of each other by
         // construction. Only if the polish fails outright, or drops below the
         // parent, do we fall back to the sampled point.
-        bestCell = mcParamsToCell(bestP, system, max_volume);
+        bestCell = mcParamsToCell(bestP, system, max_volume, sol.lattice);
         if (!bestCell) return null;
         if (refineZero) bestCell.zero_correction = bestZ;
 
@@ -688,6 +691,7 @@ function mcLeastSquaresPolish(cell, data, state, ctx) {
         const out = extractCellFromFit(fit.solution.slice(0, nCellPar), system);
         if (!out) return null;
         out.system = system;
+        if (cell.lattice === 'R' && system === 'hexagonal') out.lattice = 'R';
         if (refineZero) {
             if (useZeroColumn) {
                 const zNew = fit.solution[fit.solution.length - 1] * DEG;

@@ -20,6 +20,42 @@
 let _SG_FILTER = null;
 function setSpaceGroupFilter(fn) { _SG_FILTER = (typeof fn === 'function') ? fn : null; }
 function getSpaceGroupFilter() { return _SG_FILTER; }
+
+// --- LATTICE LINE FILTER: R lattices in hexagonal axes (9 Oct 2026) --------
+// A hexagonal cell may carry `lattice: 'R'`: a rhombohedral lattice described
+// on its hexagonal triple cell. Two thirds of the hexagonal REFLECTIONS are
+// then absent; a powder LINE merges two -3m stars and survives if either is
+// allowed, so about half of the calculated lines vanish (51 -> 25 for
+// corundum to 75 deg 2-theta). Counting the absent ones made M(20) about two
+// times too low, so R cells ranked below lower-symmetry sub-cells.
+// With the flag set, generateHKL_for_analysis emits only the R lines, and so
+// does every consumer that takes the cell: refinement and M(20)
+// (refineAndTestSolution), the swap search, Refine MC, Swap hkl, the chart
+// ticks and the report's hkl table.
+//
+// The obverse condition is -h+k+l = 3n, the reverse one h-k+l = 3n. The
+// generator emits one representative per 6/mmm star (h >= k >= 0, l >= 0),
+// and a 6/mmm star is two -3m stars, (h,k,l) and (k,h,l): the line exists if
+// either is allowed, i.e. -h+k+l = 3n OR h-k+l = 3n. This also makes the
+// obverse and reverse settings the same line list, as they must be for powder
+// positions.
+//
+// The space-group analysis must NOT see this filter: it detects R centring
+// by finding the R-forbidden lines empty, so it needs them generated. It
+// strips the flag (withoutLattice) before generating; Space Group MC strips
+// it from its parent cell for the same reason.
+const R_LATTICE_LINE = (h, k, l) =>
+    ((((-h + k + l) % 3) + 3) % 3 === 0) || ((((h - k + l) % 3) + 3) % 3 === 0);
+function latticeLineFilter(params) {
+    return (params && params.lattice === 'R' && params.system === 'hexagonal') ? R_LATTICE_LINE : null;
+}
+// A shallow copy without the lattice flag (or the cell itself if it has none).
+function withoutLattice(cell) {
+    if (!cell || cell.lattice === undefined) return cell;
+    const out = { ...cell };
+    delete out.lattice;
+    return out;
+}
 // HKL generator... 
 function generateHKL_for_analysis(params, lambda, maxTth, mode = 'full') {
     const { a, b: b_in, c: c_in, alpha: alpha_in, beta: beta_in, gamma: gamma_in, system } = params;
@@ -28,6 +64,7 @@ function generateHKL_for_analysis(params, lambda, maxTth, mode = 'full') {
     const gamma = gamma_in ?? (system === 'hexagonal' ? 120 : 90);
 
     const reflections = [];
+    const latticeFilter = latticeLineFilter(params);
     const d_min = lambda / (2 * Math.sin(maxTth * Math.PI / 360));
     const q_max_limit = (1 / (d_min * d_min)) * 1.05;
     const h_max = Math.ceil(a / d_min) + 1;
@@ -43,6 +80,8 @@ function generateHKL_for_analysis(params, lambda, maxTth, mode = 'full') {
         // same set -- they are required to agree on N_calc (see the q_only note
         // below), and a filter applied to only one of them would break that.
         if (_SG_FILTER !== null && !_SG_FILTER(h, k, l)) return;
+        // Lattice (R) condition, same placement and same reason as above.
+        if (latticeFilter !== null && !latticeFilter(h, k, l)) return;
 
         // The physical diffractability check must gate BOTH modes, otherwise
         // the q_only fast path returns reflections the full path rejects and
@@ -226,8 +265,19 @@ function generateHKL_for_analysis(params, lambda, maxTth, mode = 'full') {
         reflections.sort((a, b) => a.tth - b.tth);
         uniqueReflections.push(reflections[0]);
         for (let i = 1; i < reflections.length; i++) {
-            if (Math.abs(reflections[i].tth - uniqueReflections[uniqueReflections.length - 1].tth) > tolerance) {
+            const last = uniqueReflections[uniqueReflections.length - 1];
+            if (Math.abs(reflections[i].tth - last.tth) > tolerance) {
                 uniqueReflections.push(reflections[i]);
+            } else {
+                // Same line, different reflection: cubic 221 and 300 (N = 9),
+                // 410 and 322 (N = 17), tetragonal 500 and 430 ... The line
+                // keeps ONE representative, chosen by generation order, and
+                // that one may be the reflection a space group forbids while
+                // the other is allowed. Record the merged ones so the absence
+                // test can ask about the whole line (countViolations); nothing
+                // else reads this, and the line list itself is unchanged.
+                const r = reflections[i];
+                (last.coincident || (last.coincident = [])).push({ h: r.h, k: r.k, l: r.l });
             }
         }
     }
