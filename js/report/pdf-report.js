@@ -150,6 +150,16 @@ try {
         { label: '2theta Min (deg):', value: tthMinVal.toFixed(2) },
         { label: '2theta Max (deg):', value: tthMaxVal.toFixed(2) },
     ];
+    // The GPU search settings the last run used (captured when it started),
+    // on rows of their own. They used to be printed only in the summary line.
+    if (lastGpuRunSettings) {
+        if (paramData.length % 2) paramData.push({ label: '', value: '' });
+        paramData.push(
+            { label: 'HKL (%/unknown):', value: String(lastGpuRunSettings.perUnknown) },
+            { label: 'Depth:', value: String(lastGpuRunSettings.depth) },
+            { label: 'FoM Tolerance:', value: String(lastGpuRunSettings.fom) },
+            { label: 'Candidates:', value: Number(lastGpuRunSettings.candidates).toLocaleString('en-US') });
+    }
 
     const col1X = margin;
     const col2X = margin + 85;
@@ -164,39 +174,20 @@ try {
         doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(String(item.value), x + labelWidth, yPos);
     });
     yPos += 7;
-          
-    doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text('Systems Searched:', margin, yPos);
-    // The systems the last run actually searched (in search order), not the
-    // checkboxes as they are now: they may have been changed since the run,
-    // and would then disagree with the per-system table further down.
-    const systems = (Array.isArray(lastSystemSearchStats) && lastSystemSearchStats.length)
-        ? lastSystemSearchStats.map(r => r.label)
-        : Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value.charAt(0).toUpperCase() + cb.value.slice(1));
-    const systemsText = systems.join(', ');
-    doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(systemsText, margin + labelWidth, yPos);
-    yPos += 8;
+    // (No "Systems Searched" line: the per-system table below lists them.)
 
     doc.setDrawColor(200); doc.line(margin, yPos, pdfWidth - margin, yPos); yPos += 8;
 
     doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1).text('Indexing Solutions Summary', margin, yPos); yPos += 8;
           
-    if (lastIndexingStats) {
-        const cleanedStats = lastIndexingStats
-            .replace(/\u00A0/g, ' ')
-            .replace(/\s+/g, ' ');
-
-        doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
-        // Wrapped: a TRUNCATED or INCOMPLETE suffix makes the line longer
-        // than the page, and jsPDF does not wrap on its own.
-        const statLines = doc.splitTextToSize(cleanedStats, pdfWidth - 2 * margin);
-        doc.text(statLines, margin, yPos);
-        yPos += 7 + 4 * (statLines.length - 1); 
-    }
-
     // Per-system breakdown of the last run: basis, peaks, trials searched /
-    // planned, candidates refined, time. Fixed-width rows in the data font
-    // (Courier), so the columns line up without a table layout.
-    if (Array.isArray(lastSystemSearchStats) && lastSystemSearchStats.length) {
+    // planned, candidates refined, time, and a note (truncated, skipped,
+    // stopped...). Fixed-width rows in the data font (Courier), so the
+    // columns line up without a table layout. The run totals follow it; the
+    // search settings are in the parameter block above, so the old one-line
+    // summary that repeated all of this is gone.
+    const hasSystemRows = Array.isArray(lastSystemSearchStats) && lastSystemSearchStats.length;
+    if (hasSystemRows) {
         const rows = formatSystemSearchStats(lastSystemSearchStats);
         doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.SMALL);
         rows.forEach((row, i) => {
@@ -205,8 +196,25 @@ try {
             doc.text(row, margin, yPos);
             yPos += 3.5;
         });
-        yPos += 4;
     }
+    if (lastRunTotals) {
+        const n = (v) => Math.round(v).toLocaleString('en-US');
+        const t = lastRunTotals;
+        let line = (t.total !== null && t.total > 0)
+            ? `Trials: ${n(t.done)} / ${n(t.total)} (${fmtSearchedPercent(Math.min(1, t.done / t.total))})`
+            : `Trials: ${n(t.done)}${t.total === null ? ' (CPU)' : ''}`;
+        line += `    Time: ${t.time}`;
+        if (t.failures && t.failures.length) line += `    INCOMPLETE: ${t.failures.join(' ')}`;
+        if (hasSystemRows) yPos += 1.5;
+        doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.SMALL);
+        // Wrapped: an INCOMPLETE message can be longer than the page.
+        doc.splitTextToSize(line, pdfWidth - 2 * margin).forEach(l => {
+            if (yPos > 280) { doc.addPage(); yPos = 20; }
+            doc.text(l, margin, yPos);
+            yPos += 3.5;
+        });
+    }
+    if (hasSystemRows || lastRunTotals) yPos += 4;
           
     doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
     doc.text('Sys', margin, yPos);

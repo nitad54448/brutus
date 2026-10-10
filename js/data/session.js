@@ -37,6 +37,7 @@ lastIndexingStats = '';
 lastGpuRunSettings = null;
 lastTruncatedSystems = [];
 lastSystemSearchStats = [];
+lastRunTotals = null;
 
 updatePeakTable();
 updateSolutionsTable();

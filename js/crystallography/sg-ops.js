@@ -156,9 +156,10 @@ function sgCompileCondition(condStr) {
             const defaultRhs = rhsMatch ? rhsMatch[0] : '=2n';
             const parts = [];
             for (let piece of condStr.split(',')) {
-                let clean = piece.trim().replace(/\*/g, '');
-                if (!clean.includes('=')) clean += defaultRhs;
-                const m = clean.match(/([0-9]*[hkl+\-]+)\s*=\s*(\d+)n/);
+                let clean = piece.replace(/[\s*]/g, '');
+                if (!clean.includes('=')) clean += defaultRhs.replace(/\s/g, '');
+                // Anchored, as in satisfiesCondition(): see the note there.
+                const m = clean.match(/^([+\-]?\d*[hkl](?:[+\-]\d*[hkl])*)=(\d+)n$/);
                 if (!m) { parts.length = 0; break; }
                 const mod = parseInt(m[2], 10);
                 if (!isFinite(mod) || mod <= 0) { parts.length = 0; break; }

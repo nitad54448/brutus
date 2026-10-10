@@ -282,6 +282,15 @@
                 actually uses &mdash; and every setting is verified before the file is written.
             </p>
             <p>
+                The printed rules come out in International Tables form. A composite modulus is split into
+                prime powers and the smallest equivalent rule list is kept, so 6<sub>1</sub> gives
+                <em>00l</em>: $l=6n$ (not $l=2n,\ l=3n$), R&#772;3c gives <em>h&#772;hl</em>: $h+l=3n,\ l=2n$ (not
+                $-2h+l=6n$) and C2/c gives <em>h0l</em>: $h=2n,\ l=2n$. The <em>strings</em> are then checked
+                against the operators, read exactly as the app reads them, first per setting and again on the
+                finished file over a larger box; the file is written only if everything passes, so a failed
+                build leaves the previous <code>sg_ops.json</code> in place.
+            </p>
+            <p>
                 This replaced a two-stage pipeline (one program wrote 527 per-setting files, a second merged
                 the handful of fields Brutus needs). That put two schemas between cctbx and the application,
                 and a field renamed upstream broke the merge silently. It also lost three settings: the file
@@ -290,21 +299,27 @@
             <table>
                 <tr><th style="width:26%">Option</th><th>Effect</th></tr>
                 <tr><td><code>--self-test</code></td>
-                    <td>Checks the derivation against nine space groups built by closing published generators,
+                    <td>Checks the derivation against eleven space groups built by closing published generators,
                         with <strong>no cctbx involved</strong>. Each group's order is checked against its
                         published value first, so a typo in a generator fails loudly instead of quietly
-                        testing the wrong group. Run this first: if it passes, the mathematics is sound and
+                        testing the wrong group, and the printed rules of key zones must match the tables
+                        exactly. Run this first: if it passes, the mathematics is sound and
                         only the cctbx enumeration is unexercised.</td></tr>
                 <tr><td><code>--check FILE</code></td>
                     <td>Re-reads a finished <code>sg_ops.json</code> cold and confirms it is internally
                         consistent: every zone label used by a condition exists, the conditions reproduce the
-                        operators reflection by reflection, <code>crystal_system</code> is lower case, and the
-                        centring letters are ones the app recognises.</td></tr>
+                        operators reflection by reflection, every rule string is in the documented grammar,
+                        <code>crystal_system</code> is lower case, the centring letters are ones the app
+                        recognises, and no text field carries a control character.</td></tr>
                 <tr><td><code>--box N</code></td>
-                    <td>Half-range of the <em>hkl</em> box used for that verification (default 5). Larger is
-                        stricter and costs little.</td></tr>
+                    <td>Half-range of the <em>hkl</em> box used to derive and minimise the conditions (default 6).</td></tr>
+                <tr><td><code>--verify-box N</code></td>
+                    <td>Half-range of the final check of the finished file, and of <code>--check</code>
+                        (default 10, about a minute). It must cover the largest modulus (6) on every zone
+                        parameter.</td></tr>
                 <tr><td><code>--limit N</code>, <code>--pretty</code></td>
-                    <td>Stop after N settings (smoke test); write indented JSON.</td></tr>
+                    <td>Stop after N settings (smoke test; written to <code>sg_ops.partial.json</code> unless
+                        <code>--out</code> is given, so it cannot replace the real database); write indented JSON.</td></tr>
             </table>
 
             <h4><code>check_sg_ops.mjs</code> &mdash; does the app accept the database?</h4>
@@ -730,18 +745,19 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     thousands); every system in the sequence starts with an empty buffer.
                     Candidates are streamed to CPU refinement while the GPU is running. When the capacity
                     is reached, GPU enumeration of that system ends early (a status message says so) and the run moves on
-                    to the next system. The final <em>Trials: done / total</em> line (also printed in the PDF report)
-                    then counts only the part actually searched (it also lists the HKL, Depth, FoM and Candidates
-                    values the run used) and ends with
-                    <code>TRUNCATED (candidate buffer full): Monoclinic at 12%</code>. The percentage is exact as a lower
+                    to the next system. The final <em>Trials: done / total</em> status line then counts only the
+                    part actually searched (it also lists the HKL, Depth, FoM and Candidates values the run used)
+                    and ends with <code>TRUNCATED (candidate buffer full): Monoclinic at 12%</code>. The percentage is exact as a lower
                     bound: the shaders record the first HKL combination they could not finish, and everything before it
                     was searched completely.
                     <br><br>
-                    The PDF report (Indexing Solutions Summary) lists the systems the last run searched (not the
-                    checkboxes as they are when the report is made) and adds one row per system: HKL basis size, peaks
+                    In the PDF report, the HKL, Depth, FoM Tolerance and Candidates values the last run used are
+                    listed with the other Indexing Parameters, and the Indexing Solutions Summary has one row per
+                    system the run searched (not the checkboxes as they are when the report is made): HKL basis size, peaks
                     combined, trials searched / planned with the percentage, candidate cells sent to refinement, time,
                     and a note (<em>truncated at 12% (buffer full)</em>, <em>stopped</em>, <em>not reached</em>,
-                    <em>skipped (needs 7 peaks)</em>, <em>skipped (GPU required)</em>). The same table is printed in the
+                    <em>skipped (needs 7 peaks)</em>, <em>skipped (GPU required)</em>), followed by the run totals:
+                    <em>Trials: searched / planned (%)&nbsp;&nbsp;Time</em>. The same table is printed in the
                     browser console at the end of each run.
                     Candidates are retained in GPU arrival order, not ranked by final M(20).
                     A larger buffer reduces the risk of reaching the cap but increases potential CPU work;
@@ -3856,7 +3872,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             </ol>
 
             <div class="footer">
-                <p>Help guide generated with the help of an AI, based on source code analysis. Last revised 10 October 2026; aligned with application build 20261010.</p>
+                <p>Help guide generated with the help of an AI, based on source code analysis. Last revised 10 October 2026; aligned with application build 20261010c.</p>
             </div>
         </section>
 

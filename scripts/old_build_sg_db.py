@@ -11,9 +11,7 @@ files exist only to be immediately re-merged. This script goes straight from
 cctbx to the file the app loads.
 
 WHAT IT PRODUCES
-Exactly the fields the app reads (js/core/sg-database.js loads the file;
-js/crystallography/sg-ops.js, sg-ranking.js and centering.js use it), and
-nothing else:
+Exactly the fields worker-logic.js and main_app.js read, and nothing else:
 
     rotations           table of distinct 3x3 rotation matrices, row-major
     zone_defs           zone label -> list of normal vectors
@@ -46,40 +44,21 @@ For each operator (R, t):
     h.t in Z becomes sum u_i (b_i . t) in Z. With t = t_num / D this is
     sum u_i p_i = 0 (mod D) where p_i = b_i . t_num, an exact integer
     congruence. Dividing through by g = gcd(p_1..p_r, D) gives the reduced rule.
-  * a composite modulus is split into prime powers (Chinese remainder theorem)
-    before the rule list is minimised, and same-vector rules with coprime
-    moduli are merged back afterwards. That gives the International Tables
-    forms -- 00l: l=6n for 6_1, h-hl: h+l=3n, l=2n for R-3c -- instead of
-    whichever single congruence an operator happened to produce
-    (h-hl: -2*h+l=6n) or a split that depends on operator order
-    (00l: l=2n, l=3n).
 No Smith normal form and no floating point anywhere.
-
-RULE STRINGS
-Every rule is written in the grammar  [+-]?[c*]x([+-][c*]x)*=Nn  with x one of
-h, k, l (the zone's parameters, named by the letter whose column carries them)
-and c a positive integer coefficient. The build verifies the STRINGS -- parsed
-the way the app parses them -- against the operators, not only its internal
-coefficients, so a labelling slip cannot reach the file.
 
 Usage:
     python3 build_sg_db.py                     # -> sg_ops.json
     python3 build_sg_db.py --pretty --box 6
     python3 build_sg_db.py --self-test         # check the algebra, no cctbx
-    python3 build_sg_db.py --limit 20          # smoke test -> sg_ops.partial.json
-    python3 build_sg_db.py --check sg_ops.json # re-verify a built file, no cctbx
-The output is written only if every check passes; a failed build leaves any
-existing file untouched.
+    python3 build_sg_db.py --limit 20          # first 20 settings, for a smoke test
 """
 
 import argparse
 import json
 import os
-import re
 import sys
 from collections import OrderedDict
 from fractions import Fraction
-from itertools import combinations
 from math import gcd
 
 LETTERS = ('h', 'k', 'l')
@@ -233,15 +212,6 @@ def canonical_zone(basis, free):
         used.add(idx)
         out.append((idx, b, f, coeff))
     out.sort(key=lambda t: t[0])
-    # The app reads a rule's letter x as h[column of x]. That is the zone
-    # parameter only if the vector named x holds +1 in that column and every
-    # other basis vector holds 0 there. The collision fallback above (and any
-    # basis where the first +/-1 is not a private column) breaks that, and the
-    # rule strings would then be evaluated on the wrong numbers. Refuse.
-    for i, (idx, b, _f, _c) in enumerate(out):
-        if b[idx] != 1 or any(o[1][idx] != 0 for j, o in enumerate(out) if j != i):
-            raise ValueError(f'zone basis {[o[1] for o in out]}: letter '
-                             f'{LETTERS[idx]!r} does not name its own parameter')
     return ([b for _, b, _, _ in out],
             [LETTERS[i] for i, _, _, _ in out],
             [(f, c) for _, _, f, c in out])
@@ -334,109 +304,14 @@ def conditions_for_zone(basis, letters, ops, t_den):
         mod = t_den // g
         if mod <= 1:
             continue
-        # Split a composite modulus into prime powers (CRT): a.u = 0 (mod 6)
-        # is a.u = 0 (mod 2) AND a.u = 0 (mod 3), exactly. Minimising over
-        # prime-power rules is what lets the tables' forms come out.
-        for q in _prime_powers(mod):
-            cq = [v // g % q for v in p]
-            gq = q
-            for v in cq:
-                gq = gcd(gq, v)
-            mq = q // gq
-            if mq <= 1:
-                continue
-            coeffs = _canonical_rule([v // gq for v in cq], mq)
-            key = (coeffs, mq)
-            if key in seen:
-                continue
-            seen.add(key)
-            s = _rule_string(coeffs, letters, mq)
-            if s:
-                rules.append((s, coeffs, mq))
-    return rules
-
-
-def _prime_powers(n):
-    """6 -> [2, 3], 12 -> [4, 3], 4 -> [4]."""
-    out, p = [], 2
-    while p * p <= n:
-        if n % p == 0:
-            q = 1
-            while n % p == 0:
-                n //= p
-                q *= p
-            out.append(q)
-        p += 1
-    if n > 1:
-        out.append(n)
-    return out
-
-
-def _minimal_rules(rules, members, readers):
-    """Smallest equivalent subset of `rules` on `members`, best-looking first."""
-    if len(rules) <= 1:
-        return list(rules)
-    pts = [h for h in members if _parameters(h, readers) is not None]
-    masks = []
-    for r in rules:
-        m = 0
-        for bit, h in enumerate(pts):
-            if _satisfies_all(h, [r], readers):
-                m |= 1 << bit
-        masks.append(m)
-    every = (1 << len(pts)) - 1
-    target = every
-    for m in masks:
-        target &= m
-
-    def looks(combo):
-        # fewest negative terms, then fewest terms (h=2n, l=2n rather than
-        # h+l=2n, h=2n), then smallest moduli, then alphabetical
-        neg = sum(1 for r in combo for c in r[1] if c < 0)
-        terms = sum(1 for r in combo for c in r[1] if c != 0)
-        return (neg, terms, sum(r[2] for r in combo), sorted(r[0] for r in combo))
-
-    for size in range(1, len(rules) + 1):
-        best = None
-        for idx in combinations(range(len(rules)), size):
-            m = every
-            for i in idx:
-                m &= masks[i]
-            if m != target:
-                continue
-            combo = [rules[i] for i in idx]
-            if best is None or looks(combo) < looks(best):
-                best = combo
-        if best is not None:
-            return best
-    return list(rules)
-
-
-def _merge_coprime(rules, letters):
-    """Undo the CRT split where it does not help: two rules with the SAME
-    coefficient vector and coprime moduli are one rule (l=2n, l=3n -> l=6n).
-    Exact, so no re-verification is needed."""
-    rules = list(rules)
-    merged = True
-    while merged:
-        merged = False
-        for i in range(len(rules)):
-            for j in range(i + 1, len(rules)):
-                _a, ca, ma = rules[i]
-                _b, cb, mb = rules[j]
-                if gcd(ma, mb) != 1:
-                    continue
-                m = ma * mb
-                # same vector, once each is lifted to the product modulus
-                if _canonical_rule(list(ca), m) != _canonical_rule(list(cb), m):
-                    continue
-                c = _canonical_rule(list(ca), m)
-                rules[i] = (_rule_string(c, letters, m), c, m)
-                del rules[j]
-                merged = True
-                break
-            if merged:
-                break
+        coeffs = _canonical_rule([v // g for v in p], mod)
+        key = (coeffs, mod)
+        if key in seen:
+            continue
+        seen.add(key)
+        s = _rule_string(coeffs, letters, mod)
+        if s:
+            rules.append((s, coeffs, mod))
     return rules
 
 
@@ -492,15 +367,19 @@ def build_setting_zones(ops, t_den, box):
         members = [h for h in grid if _in_zone(normals, h)]
         if not members:
             continue
-        # Keep a SMALLEST subset of the rules that gives the same verdict on
-        # every member of the box, and among those the most conventional one
-        # (see _minimal_rules). The
-        # old greedy drop depended on operator order: 6_1 kept l=2n, l=3n
-        # instead of l=6n, and a weakest-first order turned Fddd's
-        # k=2n, k+l=4n into the equivalent -k+l=4n, k+l=4n. Rules per zone are
-        # few, and the search stops at the first size that works.
-        kept = _minimal_rules(rules, members, readers)
-        kept = _merge_coprime(kept, letters)
+        # Drop any rule the others already imply. A rule is redundant exactly
+        # when removing it leaves the zone's present/absent verdict unchanged on
+        # every member of the box.
+        kept = list(rules)
+        i = 0
+        while i < len(kept):
+            trial = kept[:i] + kept[i + 1:]
+            same = all(_satisfies_all(h, trial, readers) ==
+                       _satisfies_all(h, kept, readers) for h in members)
+            if same:
+                kept = trial
+            else:
+                i += 1
 
         # Prefer the conventional spelling. The reduction above can land on a
         # form that is correct but not the one the tables print: Fddd's
@@ -665,20 +544,11 @@ def verify_setting(records, absent, grid):
     all: they are derived here, so a disagreement is a bug in THIS file and is
     caught before anything is written."""
     printed = [r for r in records if r['printed']]
-    # The STRINGS are checked, parsed the way the app parses them -- not the
-    # internal coefficients they were printed from. Checking the coefficients
-    # passed even when a string named the wrong letter.
-    compiled = []
-    for rec in printed:
-        fns = [_parse_rule(s) for s in rec['rules']]
-        if any(f is None for f in fns):
-            return [('unparseable', rec['zone'], rec['rules'])]
-        compiled.append((rec['normals'], fns))
     bad = []
     for gi, h in enumerate(grid):
         present = True
-        for normals, fns in compiled:
-            if _in_zone(normals, h) and any(not f(h) for f in fns):
+        for rec in printed:
+            if rec['_verdict'][gi] is False:
                 present = False
                 break
         if present == absent[h]:
@@ -702,7 +572,7 @@ def load_cctbx():
 def point_group_symbol(sgtbx, sg):
     """cctbx has no single obvious call for 'mmm'. Try the usual routes and
     degrade to an empty string rather than guessing -- the field is display
-    only (rankSpaceGroups copies it, nothing branches on it)."""
+    only (rankSpaceGroups prints it, nothing branches on it)."""
     try:
         pg = sg.build_derived_point_group()
         sym = sgtbx.space_group_type(pg).lookup_symbol()
@@ -710,8 +580,6 @@ def point_group_symbol(sgtbx, sg):
         parts = sym.split()
         if parts and len(parts[0]) == 1 and parts[0].isalpha() and parts[0].isupper():
             parts = parts[1:]
-        # Full symbols are kept on purpose: '12/m1' (b unique), '-3m1' vs
-        # '-31m' -- the 1s record the orientation of the symmetry directions.
         return ''.join(parts)
     except Exception:
         return ''
@@ -722,16 +590,12 @@ def centring_from_ops(ops, t_den):
 
     Fallback for sg.conventional_centring_type_symbol(). The centring vectors
     ARE the operators whose rotation is the identity, so this needs no cctbx
-    call and cannot disagree with the operators the app will use. The letter
-    feeds the app's centring filter (settingCenteringAllowed), so a wrong one
+    call and cannot disagree with the operators the app will use. The letter is
+    what settingCenteringAllowed() in worker-logic.js filters on, so a wrong one
     silently drops whole families of candidate settings.
 
     Counting lattice points per cell, origin included:
         1 -> P     2 -> A/B/C/I     3 -> R (hexagonal axes)     4 -> F
-    An R group in RHOMBOHEDRAL axes (Hall 'P 3*') is primitive in its own
-    basis and comes out 'P', although its symbol starts with R. The app never
-    uses those settings (it indexes R lattices in hexagonal axes), so this is
-    reported, not changed.
     """
     half, third, twothirds = t_den // 2, t_den // 3, 2 * t_den // 3
     vecs = {tuple(t) for r, t in ops
@@ -751,10 +615,7 @@ def centring_from_ops(ops, t_den):
             return 'R'
         if vecs == {(third, twothirds, third), (twothirds, third, twothirds)}:
             return 'R'
-        # Anything else with three lattice points is not a centring this app
-        # knows (the old catch-all also said 'R' whenever t_den was not a
-        # multiple of 3, because t_den // 3 then divides nothing usefully).
-        return '?'
+        return 'R' if all(third and v[0] % third == 0 for v in vecs) else '?'
     if len(vecs) == 3:
         if vecs == {(0, half, half), (half, 0, half), (half, half, 0)}:
             return 'F'
@@ -768,9 +629,6 @@ def extract_ops(sg):
     raw = []
     for i in range(sg.order_z()):
         op = sg(i)
-        if int(op.r().den()) != 1:
-            raise ValueError('rotation part with a denominator: not a '
-                             'conventional-basis operator')
         r = tuple(int(v) for v in op.r().num())
         tn = tuple(int(v) for v in op.t().num())
         td = int(op.t().den())
@@ -790,33 +648,22 @@ def extract_ops(sg):
 # ===========================================================================
 
 SELF_TEST = {
-    # generators as xyz triplets, expected order, and the EXACT printed rule
-    # list of some zones (International Tables forms).
-    'P2_1':  (['-x,y+1/2,-z'], 2, {'0k0': ['k=2n']}),
-    'Pc':    (['x,-y,z+1/2'], 2, {'h0l': ['l=2n']}),
-    'P2_1/c': (['-x,y+1/2,-z+1/2', '-x,-y,-z'], 4, {'h0l': ['l=2n'], '0k0': ['k=2n']}),
+    # generators as xyz triplets, expected order, and a few ITA conditions
+    'P2_1':  (['-x,y+1/2,-z'], 2, {'0k0': 'k=2n'}),
+    'Pc':    (['x,-y,z+1/2'], 2, {'h0l': 'l=2n'}),
+    'P2_1/c': (['-x,y+1/2,-z+1/2', '-x,-y,-z'], 4, {'h0l': 'l=2n', '0k0': 'k=2n'}),
     'Pbca':  (['-x+1/2,-y,z+1/2', '-x,y+1/2,-z+1/2', '-x,-y,-z'], 8,
-              {'0kl': ['k=2n'], 'h0l': ['l=2n'], 'hk0': ['h=2n']}),
+              {'0kl': 'k=2n', 'h0l': 'l=2n', 'hk0': 'h=2n'}),
     'Fddd':  (['-x,-y,z', '-x,y,-z', '-x+1/4,-y+1/4,-z+1/4',
-               'x,y+1/2,z+1/2', 'x+1/2,y,z+1/2'], 32,
-              {'0kl': ['k=2n', 'k+l=4n'], 'hkl': ['h+k=2n', 'h+l=2n']}),
-    'I4_1':  (['-y,x+1/2,z+1/4', 'x+1/2,y+1/2,z+1/2'], 8,
-              {'00l': ['l=4n'], 'hkl': ['h+k+l=2n']}),
-    # A composite modulus: the screw gives one rule, not 'l=2n, l=3n'.
-    'P6_1':  (['x-y,x,z+1/6'], 6, {'00l': ['l=6n']}),
-    # The rest exercise the ZONE LABELLING on the awkward families. hhl
-    # (h == k) and h-hl (h == -k) are different zones carrying different
-    # conditions, the hexagonal and cubic groups generate the (-2k)kl /
-    # h(-2h)l / hkk forms, and R-3c must come out as the tables print it
-    # (h+l=3n, l=2n), not as the single congruence -2*h+l=6n.
-    'P6_3/mmc': (['x-y,x,z+1/2', 'y,x,-z', '-x,-y,-z'], 24, {'hhl': ['l=2n']}),
-    'R-3c':  (['-y,x-y,z', 'y,x,-z+1/2', '-x,-y,-z', 'x+2/3,y+1/3,z+1/3'], 36,
-              {'h-hl': ['l=2n', 'h+l=3n'], 'hkl': ['-h+k+l=3n']}),
+               'x,y+1/2,z+1/2', 'x+1/2,y,z+1/2'], 32, {}),
+    'I4_1':  (['-y,x+1/2,z+1/4', 'x+1/2,y+1/2,z+1/2'], 8, {'00l': 'l=4n'}),
+    # These three exist to exercise the ZONE LABELLING on the awkward families.
+    # hhl (h == k) and h-hl (h == -k) are different zones carrying different
+    # conditions, and the cubic groups generate the (-2k)kl / h(-2h)l forms.
+    'P6_3/mmc': (['x-y,x,z+1/2', 'y,x,-z', '-x,-y,-z'], 24, {}),
+    'R-3c':  (['-y,x-y,z', 'y,x,-z+1/2', '-x,-y,-z', 'x+2/3,y+1/3,z+1/3'], 36, {}),
     'Pa-3':  (['-x+1/2,-y,z+1/2', '-x,y+1/2,-z+1/2', 'z,x,y', '-x,-y,-z'], 24,
-              {'0kl': ['k=2n']}),
-    'I-43d': (['-x+1/2,-y,z+1/2', '-x,y+1/2,-z+1/2', 'z,x,y', 'y+1/4,x+1/4,z+1/4',
-               'x+1/2,y+1/2,z+1/2'], 48,
-              {'hhl': ['2*h+l=4n'], 'hkl': ['h+k+l=2n']}),
+              {'0kl': 'k=2n'}),
 }
 DEN_ST = 24
 
@@ -882,16 +729,16 @@ def self_test(box):
         printed = {r['zone']: r['rules'] for r in records if r['printed']}
         allz = {r['zone']: r['rules'] for r in records}
         miss = []
-        for zone, rules in expect.items():
-            if sorted(printed.get(zone, [])) != sorted(rules):
-                miss.append(f'{zone}: {", ".join(rules)} (got {", ".join(printed.get(zone, [])) or "nothing"})')
+        for zone, rule in expect.items():
+            if zone not in allz or rule not in allz[zone]:
+                miss.append(f'{zone}: {rule}')
         status = 'ok' if not bad and not miss else 'FAIL'
         if bad or miss:
             failures += 1
         print(f'  {name:9s} order {len(ops):3d}  zones {len(records):2d}  '
               f'rule/operator mismatches {len(bad):4d}  {status}')
         if miss:
-            print(f'      expected but not printed: {"; ".join(miss)}')
+            print(f'      expected but not derived: {"; ".join(miss)}')
         pr = '; '.join(f'{z}: {", ".join(r)}' for z, r in sorted(printed.items()))
         print(f'      printed: {pr or "none"}')
         print(f'      zones:   {", ".join(sorted(allz))}   centring: {centring_from_ops(ops, DEN_ST)}')
@@ -906,41 +753,29 @@ def self_test(box):
 # ===========================================================================
 
 def check_file(path, box):
-    """Validate sg_ops.json against itself, from scratch (see _check_db)."""
-    with open(path, 'r', encoding='utf-8') as f:
-        db = json.load(f)
-    return _check_db(db, box, path)
+    """Validate sg_ops.json against itself, from scratch.
 
-
-RULE_GRAMMAR = re.compile(r'^[+-]?(?:\d+\*)?[hkl](?:[+-](?:\d+\*)?[hkl])*=\d+n$')
-
-
-def _check_db(db, box, label):
-    """Validate a database dict against itself.
-
-    Uses only the dict -- no cctbx, no memory of how it was built -- rebuilds
+    Reads only the file -- no cctbx, no memory of how it was built -- rebuilds
     the operators from the rotation table, and confirms that
 
       * every zone label used by a condition exists in zone_defs
-      * every rule string is in the documented grammar
       * every reflection's present/absent verdict from the printed conditions
         matches the verdict from the operators
-      * crystal_system is lower case, because sgSystemMatches() compares it
-        with ===
+      * crystal_system is lower case, because sgSystemMatches() in
+        worker-logic.js compares it with ===
       * centering is a letter the app's filter recognises
-      * no text field carries a control character (cctbx returns a NUL
-        "extension" for settings without one)
 
-    main() runs this on the JSON round-trip of what it is about to write, so
-    the file is checked exactly as the app will read it. Anything this catches
-    would otherwise have surfaced as a silently wrong space-group ranking.
+    Anything this catches would otherwise have surfaced as a silently wrong
+    space-group ranking.
     """
-    db = db or {}
+    with open(path, 'r', encoding='utf-8') as f:
+        db = json.load(f)
+
     rots = [tuple(r) for r in db.get('rotations', [])]
     zone_defs = db.get('zone_defs', {})
     groups = db.get('space_groups', {})
     if not rots or not groups:
-        print(f'{label}: missing rotations or space_groups'); return 1
+        print(f'{path}: missing rotations or space_groups'); return 1
 
     grid = [(h, k, l)
             for h in range(-box, box + 1)
@@ -952,41 +787,28 @@ def _check_db(db, box, label):
                      'tetragonal', 'trigonal', 'hexagonal', 'cubic'}
     VALID_CENTRING = set('PABCIFR')
 
-    def has_ctrl(v):
-        return isinstance(v, str) and any(ord(ch) < 32 for ch in v)
-
     n_set = 0
-    bad_cond, bad_zone, bad_sys, bad_cent, bad_text, bad_ops = [], [], [], [], [], []
+    bad_cond, bad_zone, bad_sys, bad_cent = [], [], [], []
     for gk, g in groups.items():
         sysname = g.get('crystal_system')
         if sysname not in VALID_SYSTEMS:
             bad_sys.append((gk, sysname))
         for st in g.get('settings', []):
             n_set += 1
-            sym = st.get('symbol')
-            if any(has_ctrl(v) for v in st.values()) or any(has_ctrl(v) for v in g.values()):
-                bad_text.append((sym, st.get('description')))
-            t_den = st.get('t_den')
-            if not isinstance(t_den, int) or t_den <= 0 or any(
-                    not (0 <= o[0] < len(rots)) for o in st.get('ops', [])):
-                bad_ops.append((sym, t_den))
-                continue
+            t_den = st['t_den']
             ops = [(rots[o[0]], (o[1], o[2], o[3])) for o in st['ops']]
             if st.get('centering') not in VALID_CENTRING:
-                bad_cent.append((sym, st.get('centering')))
+                bad_cent.append((st.get('symbol'), st.get('centering')))
 
             compiled = []
             for zone, rules in (st.get('conditions') or {}).items():
                 normals = zone_defs.get(zone)
                 if normals is None:
-                    bad_zone.append((sym, zone))
-                    continue
-                if any(not RULE_GRAMMAR.match(str(r)) for r in rules):
-                    bad_cond.append((sym, zone, f'rule outside the grammar: {rules}'))
+                    bad_zone.append((st.get('symbol'), zone))
                     continue
                 fns = [_parse_rule(r) for r in rules]
                 if any(f is None for f in fns):
-                    bad_cond.append((sym, zone, 'unparseable rule'))
+                    bad_cond.append((st.get('symbol'), zone, 'unparseable rule'))
                     continue
                 compiled.append((normals, fns))
 
@@ -1002,17 +824,15 @@ def _check_db(db, box, label):
                 if present == is_absent(h, ops, t_den):
                     wrong += 1
             if wrong:
-                bad_cond.append((sym, '-', f'{wrong} reflections disagree'))
+                bad_cond.append((st.get('symbol'), '-', f'{wrong} reflections disagree'))
 
-    print(f'{label}: {len(groups)} space groups, {n_set} settings, '
-          f'{len(rots)} rotations, {len(zone_defs)} zone labels (box {box})')
+    print(f'{path}: {len(groups)} space groups, {n_set} settings, '
+          f'{len(rots)} rotations, {len(zone_defs)} zone labels')
     ok = True
     for name, items in (('conditions vs operators', bad_cond),
                         ('zone labels missing from zone_defs', bad_zone),
                         ('crystal_system not lower case / unknown', bad_sys),
-                        ('unrecognised centring letter', bad_cent),
-                        ('operator table (t_den, rotation index)', bad_ops),
-                        ('control characters in text fields', bad_text)):
+                        ('unrecognised centring letter', bad_cent)):
         if items:
             ok = False
             print(f'  !! {name}: {len(items)}')
@@ -1025,10 +845,8 @@ def _check_db(db, box, label):
 
 
 def _parse_rule(text):
-    """'2*h+l=4n' -> predicate on (h,k,l), every term with its own sign and
-    coefficient. The app's satisfiesCondition()/sgCompileCondition() must read
-    the strings the same way; before build 20261010 they did not (an unanchored
-    regex dropped a leading '-2*' and everything before a later 'c*' term)."""
+    """'2*h+l=4n' -> predicate on (h,k,l). Mirrors the JS side exactly."""
+    import re
     m = re.match(r'^(.*)=(\d+)n$', str(text).replace(' ', ''))
     if not m:
         return None
@@ -1047,39 +865,15 @@ def _parse_rule(text):
     return pred
 
 
-def _setting_description(symbols):
-    """'b1', 'ba-c origin choice 2', 'hexagonal axes' ...
-
-    cctbx's extension() is a single character and is NUL when the setting has
-    none; formatting it unconditionally wrote 'origin \\x00' into 450 of the
-    530 descriptions. H and R are axes, not origins."""
-    ext = str(symbols.extension() or '').strip('\0 ')
-    qual = str(symbols.qualifier() or '').strip('\0 ')
-    parts = [qual] if qual else []
-    if ext in ('1', '2'):
-        parts.append(f'origin choice {ext}')
-    elif ext == 'H':
-        parts.append('hexagonal axes')
-    elif ext == 'R':
-        parts.append('rhombohedral axes')
-    elif ext:
-        parts.append(ext)
-    return ' '.join(parts)
-
-
 # ===========================================================================
 # Main
 # ===========================================================================
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--out', default=None,
-                    help='output file (default sg_ops.json; sg_ops.partial.json with --limit)')
-    ap.add_argument('--box', type=int, default=6,
-                    help='hkl half-range used to derive and minimise the conditions')
-    ap.add_argument('--verify-box', type=int, default=10,
-                    help='hkl half-range of the final check of the emitted file '
-                         '(must cover the largest modulus, 6, on every zone parameter)')
+    ap.add_argument('--out', default='sg_ops.json')
+    ap.add_argument('--box', type=int, default=5,
+                    help='hkl half-range used to verify conditions against operators')
     ap.add_argument('--pretty', action='store_true')
     ap.add_argument('--limit', type=int, default=0, help='stop after N settings (smoke test)')
     ap.add_argument('--self-test', action='store_true',
@@ -1091,10 +885,7 @@ def main():
     if args.self_test:
         return self_test(args.box)
     if args.check:
-        return check_file(args.check, args.verify_box)
-    if args.out is None:
-        # A smoke test must not overwrite the real database with 20 settings.
-        args.out = 'sg_ops.partial.json' if args.limit else 'sg_ops.json'
+        return check_file(args.check, args.box)
 
     sgtbx = load_cctbx()
 
@@ -1112,11 +903,7 @@ def main():
         sg = sgtbx.space_group(hall)
         ops, t_den = extract_ops(sg)
 
-        try:
-            records, defs, absent, grid = build_setting_zones(ops, t_den, args.box)
-        except ValueError as exc:      # a zone the labelling cannot name safely
-            verify_failures.append((symbols.hermann_mauguin(), 'error', [str(exc)]))
-            continue
+        records, defs, absent, grid = build_setting_zones(ops, t_den, args.box)
         bad = verify_setting(records, absent, grid)
         if bad:
             verify_failures.append((symbols.hermann_mauguin(), len(bad), bad[:4]))
@@ -1147,8 +934,8 @@ def main():
             groups[key] = OrderedDict([
                 ('number', number),
                 ('standard_symbol', symbols.hermann_mauguin()),
-                # LOWERCASE: the app's sgSystemMatches() compares this string
-                # exactly, and cctbx returns 'Orthorhombic'.
+                # LOWERCASE: sgSystemMatches() in worker-logic.js compares this
+                # string exactly, and cctbx returns 'Orthorhombic'.
                 ('crystal_system', str(sg.crystal_system()).lower()),
                 ('point_group', point_group_symbol(sgtbx, sg)),
                 ('centrosymmetric', bool(sg.is_centric())),
@@ -1165,13 +952,12 @@ def main():
         except Exception:
             reported = None
         centering = derived if derived != '?' else (reported or '?')
-        # R groups in rhombohedral axes (Hall 'P 3*') are primitive in their own
-        # basis: 'P' from the operators against 'R' from the symbol is expected.
-        expected = ('*' in hall and derived == 'P' and reported == 'R')
-        if reported and derived != '?' and reported != derived and not expected:
+        if reported and derived != '?' and reported != derived:
             centring_disagreements.append((symbols.hermann_mauguin(), reported, derived))
 
-        desc = _setting_description(symbols)
+        ext = symbols.extension()
+        qual = symbols.qualifier()
+        desc = ' '.join(x for x in [qual, f'origin {ext}' if ext else ''] if x).strip()
         groups[key]['settings'].append(OrderedDict([
             ('setting_id', f'{number:03d}_{len(groups[key]["settings"]) + 1:02d}'),
             ('setting_number', idx),
@@ -1207,25 +993,12 @@ def main():
 
     kw = dict(ensure_ascii=False)
     kw.update({'indent': 2} if args.pretty else {'separators': (',', ':')})
-    text = json.dumps(payload, **kw)
+    with open(args.out, 'w', encoding='utf-8') as f:
+        json.dump(payload, f, **kw)
 
-    # Check what is about to be written, as the app will read it, and write
-    # only if everything passed. The old order wrote first and reported after,
-    # so a failed build had already replaced a good file.
-    print(f'verifying the emitted database (box {args.verify_box}) ...')
-    check_rc = _check_db(json.loads(text), args.verify_box, args.out)
-    failed = bool(zone_clashes or verify_failures or check_rc)
-    if failed:
-        print(f'NOT written: {args.out} left untouched (see the problems below).')
-    else:
-        tmp = args.out + '.tmp'
-        with open(tmp, 'w', encoding='utf-8') as f:
-            f.write(text)
-        os.replace(tmp, args.out)
-
-    size = len(text.encode('utf-8'))
+    size = os.path.getsize(args.out)
     print(f'built {n_settings} settings in {len(ordered)} space groups '
-          f'-> {args.out if not failed else "(not written)"} ({size / 1024:.0f} KB)')
+          f'-> {args.out} ({size / 1024:.0f} KB)')
     print(f'  distinct rotation matrices : {len(rot_table)}')
     print(f'  total operators            : {n_ops}')
     print(f'  zone labels                : {len(zone_defs)}')
@@ -1246,13 +1019,13 @@ def main():
               f'reproduce the operators:')
         for sym, n, examples in verify_failures[:6]:
             print(f'     {sym}: {n} reflections disagree, e.g. {examples}')
-        print('     Nothing was written. The app takes absences from the operators, '
-              'but it names violations and detects extinctions from these rule '
-              'strings, so a file with wrong strings is not shipped.')
+        print('     The operators in the file are still correct -- absences never '
+              'come from the condition strings -- but the printed rules are wrong '
+              'and should not be trusted until this is fixed.')
     else:
         print('  conditions verified against the operators on every setting: no disagreements')
 
-    return 1 if failed else 0
+    return 1 if (zone_clashes or verify_failures) else 0
 
 
 if __name__ == '__main__':

@@ -18,6 +18,10 @@ let lastTruncatedSystems = [];
 // `done` is filled in by finalizeIndexing from the same taskProgress the
 // overall "Trials:" line uses, so the rows always add up to it.
 let lastSystemSearchStats = [];
+// Totals of the last run for the PDF report, printed under the per-system
+// table: trials searched / planned (planned is null for a CPU-only run),
+// wall-clock time, and any failure messages.
+let lastRunTotals = null;
 // "12%", "3.4%", "0.0089%": enough digits that a search cut off near its start
 // does not read as 0.
 // Fixed-width text rows (for the Courier font of the PDF report and the
@@ -850,6 +854,8 @@ if (lastSystemSearchStats.length) {
     console.log('[indexing] per system:\n' + formatSystemSearchStats(lastSystemSearchStats).join('\n'));
 }
 lastIndexingStats = finalStatus; 
+lastRunTotals = { done: totalActualTrials, total: gpuSettings ? totalMaxTrials : null,
+                  time: durationStr, failures: indexingFailures.slice() };
 
 
 // Update screen status temporarily

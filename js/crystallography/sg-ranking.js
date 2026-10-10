@@ -215,14 +215,19 @@ const satisfiesCondition = (h, k, l, condStr) => {
     
     const conditions = condStr.split(',').map(s => s.trim());
     for (const condition of conditions) {
-        let cleanCond = condition.replace(/\*/g, '');
+        let cleanCond = condition.replace(/[\s*]/g, '');
         
         // If a shorthand part like "h" is missing its modulus, append the shared suffix
         if (!cleanCond.includes('=')) {
-            cleanCond += defaultRhs;
+            cleanCond += defaultRhs.replace(/\s/g, '');
         }
         
-        const match = cleanCond.match(/([0-9]*[hkl\+\-]+)\s*=\s*(\d+)n/);
+        // ANCHORED, one signed term at a time. The old pattern
+        // /([0-9]*[hkl+-]+)=(\d+)n/ was not anchored and allowed a digit only
+        // before the first letter, so it matched a TAIL of the expression:
+        // "-2*k+l=6n" was read as 2k+l (R3c, R-3c) and "h+2*k=4n" as 2k
+        // (I-43d, Ia-3d), and those rules were evaluated on the wrong numbers.
+        const match = cleanCond.match(/^([+\-]?\d*[hkl](?:[+\-]\d*[hkl])*)=(\d+)n$/);
         if (!match) { 
             console.warn(`[satisfiesCondition] Could not parse rule part: "${condition}" in rule string "${condStr}"`); 
             continue; 
