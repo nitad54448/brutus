@@ -323,7 +323,7 @@
             </table>
 
             <h4><code>check_sg_ops.mjs</code> &mdash; does the app accept the database?</h4>
-            <pre><code>node check_sg_ops.mjs sg_ops.json</code></pre>
+            <pre><code>node tests/check_sg_ops.mjs sg_ops.json</code></pre>
             <p>
                 Where <code>--check</code> validates the file against <em>itself</em>, this validates it
                 against the <em>application</em>. It loads the real crystallography scripts (<code>js/crystallography/</code>), replays the
@@ -352,8 +352,8 @@
             </p>
 
             <h4><code>bump_version.py</code> &mdash; cache busting</h4>
-            <pre><code>python3 bump_version.py            # stamp today's date
-python3 bump_version.py --check    # report, change nothing</code></pre>
+            <pre><code>python3 tests/bump_version.py            # stamp today's date
+python3 tests/bump_version.py --check    # report, change nothing</code></pre>
             <p>
                 Sets the <code>?v=</code> on every versioned <code>&lt;script&gt;</code> tag in
                 <code>brutus.html</code> to one value, and warns if they currently disagree &mdash; which
@@ -364,6 +364,12 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <h4>Verification scripts</h4>
             <p>
                 The following checks cover different parts of the application. Run the scripts available in your distribution after changing the corresponding code.
+                The scripts in <code>tests/</code> are run from the application folder (the one holding
+                <code>brutus.html</code>), as written below: <code>check_pipeline.mjs</code>,
+                <code>check_sg_ops.mjs</code> and <code>bump_version.py</code> look for the application files
+                in the current directory, while <code>check_load_order.mjs</code> and
+                <code>regression_test.mjs</code> find them from their own location and also run from inside
+                <code>tests/</code>.
             </p>
             <ul>
                 <li><code>node test_sg_ops.mjs</code> &mdash; derives reflection conditions from operators for
@@ -371,26 +377,25 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     core inside the shipping crystallography scripts rather than a copy of it. Covers
                     screw axes, every glide, all centrings, the 4n d-glide conditions, and the trigonal and
                     hexagonal zone families that a label-matching test gets wrong.</li>
-                <li><code>node check_pipeline.mjs</code> &mdash; confirms that <code>js/indexing/run.js</code>,
+                <li><code>node tests/check_pipeline.mjs</code> &mdash; confirms that <code>js/indexing/run.js</code>,
                     <code>js/gpu/webgpu-engine.js</code> and the four shaders still agree on how the HKL basis is
                     packed for each of the six systems, that every system in <code>SEARCH_ORDER</code> has a packer,
                     an engine configuration and a kernel, and that the engine's parameter list matches what the
                     application passes. Both
                     failures are otherwise invisible: the run completes, every candidate cell is nonsense,
                     and the search reports no solutions with no error anywhere.</li>
-                <li><code>node tests/regression.cjs</code> and <code>node tests/lifecycle.cjs</code>
-                    &mdash; included with the corrected application package. Check lattice equivalence,
-                    solution identity, worker failures, startup isolation and GPU cancellation using a mock
-                    queue. These checks do not replace a browser test on a physical GPU.</li>
-                <li><code>node check_load_order.mjs</code> &mdash; the UI and crystallography scripts share
+                <li><code>node tests/check_load_order.mjs</code> &mdash; the UI and crystallography scripts share
                     one global scope and run in the order <code>brutus.html</code> (and, in the workers,
                     <code>js/crystallography/manifest.js</code>) lists them. This checks that nothing which runs
                     while the scripts load uses a name defined by a later script, that the two lists agree, and
                     that no file is left unloaded. Needs <code>npm install --no-save typescript</code>.</li>
-                <li><code>node regression_test.mjs</code> &mdash; Node tests of the crystallography code
+                <li><code>node tests/regression_test.mjs</code> &mdash; Node tests of the crystallography code
                     with synthetic data of known answer: cubic, tetragonal and hexagonal searches through the
-                    real CPU (fallback) worker, refinement of a perturbed orthorhombic cell, Niggli reduction, and error
-                    propagation compared with a Monte-Carlo estimate.</li>
+                    real CPU (fallback) worker, refinement of a perturbed orthorhombic cell, Niggli reduction, error
+                    propagation compared with a Monte-Carlo estimate, Kα<sub>1</sub> lines indexed with
+                    λ<sub>Kα1</sub> (cell, zero, <em>Swap hkl</em> rows and a manual refit), and the final sieve
+                    keeping the most symmetric description of a lattice, or both descriptions when a less
+                    symmetric one fits clearly better.</li>
             </ul>
 
             <div class="callout-note">
@@ -424,20 +429,21 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <ol>
                 <li>
                     <strong>Load the data file.</strong>
-                    Click <code>Load File</code>. Supported formats include <code>.xy</code>, <code>.xrdml</code>, <code>.xml</code> (Panalytical XRDML or Bruker <code>RawDataFile</code>), <code>.ras</code>, <code>.xra</code>, <code>.uxd</code>, <code>.udf</code>, GSAS <code>.esd</code>, FullProf free-format <code>.dat</code>, Powder CIF <code>.cif</code>, and plain text two-column data.
+                    Click <code>Load File</code>. Supported formats include <code>.xy</code>, <code>.xrdml</code>, <code>.xml</code> (Panalytical XRDML or Bruker <code>RawDataFile</code>), <code>.ras</code>, <code>.xra</code>, <code>.uxd</code>, <code>.udf</code>, GSAS <code>.esd</code>, FullProf free-format <code>.dat</code>, Powder CIF <code>.cif</code>, and plain text two-column data (scientific notation such as <code>1.000e+01</code>, the <code>numpy.savetxt</code> default, is read as data, not as a header).
+                    A file that cannot be read or parsed replaces nothing: the current pattern, peaks and solutions stay as they were.
                 </li>
                 <li>
                     <strong>Detect peaks.</strong>
-                    On the <strong>Peaks</strong> tab, adjust the <code>Min peak (%)</code>, <code>Radius (Å⁻¹)</code>, and <code>Smoothing (Å⁻¹)</code>
+                    On the <strong>Peaks</strong> tab, adjust the <code>Min peak (%)</code>, <code>Radius (Å⁻¹)</code>, and <code>Smooth. (Å⁻¹)</code>
                     sliders until the automatically detected peaks match the visual pattern. If shoulders or
-                    artifacts are picked up as peaks, raise <code>Prominence (%)</code> as well.
+                    artifacts are picked up as peaks, raise <code>Prom. (%)</code> as well.
                 </li>
                 <li>
                     <strong>Curate the peak list.</strong>
                     Carefully review all peaks:
                     <ul>
                         <li>Edit $2\theta$ positions for accuracy.</li>
-                        <li>Delete spurious peaks (noise, impurities, Kα<sub>2</sub> if stripping is off).</li>
+                        <li>Delete spurious peaks (noise, impurities, and, if stripping is off, any Kα<sub>2</sub> peak that was <em>not</em> flagged). Keep the flagged (yellow) Kα<sub>2</sub> rows: they are already left out of indexing, and they are what marks their parents as Kα<sub>1</sub> lines.</li>
                         <li>Add important missing peaks, e.g. low-angle reflections, using <code>Ctrl + Click</code> on the chart.</li>
                     </ul>
                     A clean list of about 15–20 peaks, free of impurities at low angle, is ideal. The result of the indexing will depend only on the quality of the data.
@@ -447,7 +453,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     On the <strong>Parameters</strong> tab:
                     <ul>
                         <li>Select the correct X-ray <code>Radiation Preset</code> (e.g. Cu Kα).</li>
-                        <li>Choose whether to enable <code>Strip K-alpha2</code>. When enabled, the Ka1 wavelength is used; when disabled, the average Kα wavelength is used. The default is OFF (average Kα wavelength).</li>
+                        <li>Choose whether to enable <code>Strip K-alpha2</code>. When enabled, the Ka1 wavelength is used; when disabled, the average Kα wavelength is used. The default is OFF (average Kα wavelength). With stripping off, resolved Kα<sub>2</sub> peaks are flagged and their Kα<sub>1</sub> parents are indexed with the Kα<sub>1</sub> wavelength; stripping is still the most accurate choice when the doublet is resolved &mdash; see <a href="#ka2-flagged">Flagged or stripped?</a></li>
                         <li>Set a chemically reasonable <code>Max Volume (Å³)</code> to limit the search space.</li>
                         <li>Set <code>2θ Error (°)</code> according to your data quality (e.g. ≈0.02° for synchrotron, ≈0.05° for a typical lab diffractometer).</li>
                         <li>Leave <strong>Refine Zero-Point Error</strong> enabled unless you have a specific reason to turn it off.</li>
@@ -458,7 +464,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     <strong>(Optional) Tune GPU Parameters.</strong>
                     The panel <strong>GPU Search Parameters</strong> applies to every checked system.
                     <ul>
-                        <li><code>HKL Basis (% / unknown)</code>: size of the HKL basis, as a percentage of each system's maximum, per unknown cell parameter (default 5: cubic 5%, tetragonal/hexagonal 10%, orthorhombic 15%, monoclinic 20%, triclinic 30%).</li>
+                        <li><code>HKL Basis (% / unknown)</code>: size of the HKL basis, as a percentage of each system's maximum, per unknown cell parameter (default 5: tetragonal/hexagonal 10%, orthorhombic 15%, monoclinic 20%, triclinic 30%). Cubic always searches its whole list (752 hkl), which costs next to nothing.</li>
                         <li><code>Depth</code>: extra peaks combined beyond the number of unknowns. Orthorhombic, monoclinic, triclinic use unknowns + Depth peaks (default 3: 6, 7, 9); cubic, hexagonal and tetragonal use three times as many, 3 &times; (unknowns + Depth) (default: cubic 12, the others 15), which costs almost nothing with one or two unknowns.</li>
                         <li>The lines under the panel list, for each checked system, the basis size (with the percentage actually used), the number of peaks (capped by the peaks you have picked) and the number of trials.</li>
                         <li>The four GPU parameters are locked while a run is in progress; each run uses the values it started with.</li>
@@ -535,8 +541,14 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                         correct behaviour, but if you had a scan tuned to the old fixed value you may want to nudge
                         <code>Smoothing</code> down slightly after comparing.
                         <br><br>
-                        Note that these sliders depend on the wavelength, since $Q$ does. Changing $\lambda$ leaves
-                        the background window stale until peak detection is re-run.
+                        Note that these sliders depend on the wavelength, since $Q$ does. Changing the radiation
+                        preset or typing a new $\lambda$ therefore re-runs peak detection, as long as the peak list
+                        is still the automatic one. Once you have edited it by hand (added, deleted, moved or
+                        confirmed peaks), the edits are kept instead and a status message says that the background
+                        window is now stale; move any peak-finding slider to re-detect, which discards the edits.
+                        The exception is a change made while Kα<sub>2</sub> stripping is on: a preset change, or a
+                        typed value that turns the preset to Custom, switches stripping off, which changes the
+                        plotted data, so detection always re-runs.
                     </div>
                 </li>
                 <li>
@@ -545,9 +557,12 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 </li>
                 <li>
                     <strong>Peak table:</strong>
-                    Lists all detected peaks. The <code>2θ Obs (°)</code> column is directly editable for fine corrections. Seelcting a peak position will mark the peak in the chart.
+                    Lists all detected peaks. The <code>2θ Obs (°)</code> column is directly editable for fine corrections. Selecting a peak position will mark the peak in the chart.
                     Suspected Kα<sub>2</sub> peaks (when stripping is off) are flagged with a yellow background and a ⚠ symbol.
                     Right-clicking a yellow row lets you manually confirm it as a genuine peak.
+                    The Kα<sub>1</sub> parent of each flagged peak is numbered with a <code>*</code>; its <em>d</em>
+                    column is computed with λ<sub>Kα1</sub>, and it is indexed and refined with λ<sub>Kα1</sub> too &mdash;
+                    see <a href="#ka2-flagged">Flagged or stripped?</a>
                 </li>
             </ul>
 
@@ -597,21 +612,35 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     </p>
                 </li>
                 <li>
-                    <strong>Ka1 Wavelength (Å):</strong>
-                    Displays the wavelength used for all Q-space calculations. Updated automatically when a preset is chosen
+                    <strong>Wavelength (Å):</strong>
+                    Displays the wavelength used for all Q-space calculations &mdash; the search, the refinement and the
+                    Refine MC, Swap hkl and Space Group MC dialogs use it for every peak except the Kα<sub>1</sub> parents
+                    of flagged Kα<sub>2</sub> peaks, which use λ<sub>Kα1</sub>. Updated automatically when a preset is chosen
                     and depends on the <code>Strip K-alpha2</code> setting:
                     <ul>
                         <li>When stripping is <strong>ON</strong>: displays the pure Ka1 wavelength (e.g. 1.54056 Å for Cu).</li>
-                        <li>When stripping is <strong>OFF</strong>: displays the intensity-weighted average wavelength (e.g. 1.54184 Å for Cu Kα), which accounts for the unstripped doublet.</li>
+                        <li>When stripping is <strong>OFF</strong>: displays the intensity-weighted average wavelength (e.g. 1.54184 Å for Cu Kα), which accounts for the unstripped doublet. That is the right value for peaks whose doublet is <em>not</em> resolved; the Kα<sub>1</sub> lines of resolved doublets that Brutus identifies use λ<sub>Kα1</sub> instead (see <a href="#ka2-flagged">Flagged or stripped?</a>).</li>
                         <li>When a <strong>Custom</strong> preset is selected, this field becomes editable.</li>
                     </ul>
                 </li>
-  <li>
+  <li id="strip-ka2">
                     <strong>Strip K-alpha2:</strong>
-                    Applies the parameter-free Zhang (2026) dual-wavelength $q$-space differencing method to eliminate the Kα<sub>2</sub> component before peak analysis.
-                    Unlike traditional geometric or iterative corrections, this physics-based algorithm maps the profile into reciprocal $q$-space independently for Kα<sub>1</sub> and Kα<sub>2</sub>, forms a scaled difference profile ($\Delta y_\alpha(q) = y_{\alpha2}(q) - R \cdot y_{\alpha1}(q)$), and isolates the pure Kα<sub>1</sub> signal before projecting back to 2θ via inverse mapping. This preserves true peak intensities without ringing artifacts or baseline dropouts.
+                    Removes the Kα<sub>2</sub> component before peak analysis by inverting the doublet exactly in $q$-space.
+                    Mapped onto the Kα<sub>1</sub> coordinate $u = 4\pi\sin\theta/\lambda_{K\alpha1}$, the measured profile is
+                    $y(u) = F(u) + r\,F(us)$, with $s = \lambda_{K\alpha1}/\lambda_{K\alpha2}$ and $r = I(K\alpha_2)/I(K\alpha_1)$;
+                    the pure Kα<sub>1</sub> pattern $F$ is recovered as the alternating series
+                    $F(u) = \sum_k (-r)^k\, y(u s^k)$, evaluated directly on the data with cubic interpolation and
+                    summed to eight terms ($r^8 \approx 0.004$). $r$ is the preset's ratio, 0.497 for every anode. The
+                    first version followed the dual-wavelength $q$-space differencing of Zhang <em>et al.</em> (2026); a
+                    single difference leaves a negative ghost of about $r^2 \approx 25\,\%$ of each strong peak at twice
+                    the doublet separation, which the series does not. A flat background comes out at $1/(1+r)$ of its
+                    level, the correct Kα<sub>1</sub>-only value.
                     <br><br>
-                    The algorithm utilizes the fixed wavelength separation and characteristic 2:1 intensity ratio ($R=0.5$). The default is <strong>OFF</strong> (average Kα wavelength is used).
+                    Ticking it sets the wavelength to λ<sub>Kα1</sub> and re-detects the peaks on the stripped data,
+                    replacing the current peak list.
+                    The default is <strong>OFF</strong> (average Kα wavelength is used). It is the most accurate choice
+                    whenever the doublet is resolved in your pattern: flagging the Kα<sub>2</sub> peaks instead covers only
+                    the doublets it identifies &mdash; see <a href="#ka2-flagged">Flagged or stripped?</a>
                 </li>
                 <li>
                     <strong>Max Volume (Å³):</strong>
@@ -621,7 +650,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 </li>
                 <li>
                     <strong>Impurity Peaks:</strong>
-                    The number of unindexed peaks tolerated when scoring a candidate, default=1, max 4. If your sample
+                    The number of unindexed peaks tolerated when scoring a candidate, default 1, range 0&ndash;3. If your sample
                     contains a known minor impurity phase, set this to 1 or 2 to avoid penalising the correct solution.
                     It is applied at two separate stages, over different peak sets:
                     <ul>
@@ -683,7 +712,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     used to construct trial matrices:
                     $$ N_{hkl} = \mathrm{round}\big(N_{max} \times \min(100,\; k \times \text{value}) / 100\big) $$
                     where $k$ is the number of unknown cell parameters and $N_{max}$ the system's maximum usable basis
-                    (table below), with a floor of $\max(10, 2k)$. For orthorhombic and monoclinic the floor is 76: the 36 axial reflections, which are always placed first (see <a href="#indexing-method">Axial front-loading</a>), plus at least 40 mixed ones. Without it a low setting gave monoclinic a basis made almost entirely of axials, which cannot determine $\beta$ (at 1 %/unknown it could not produce any cell). The value can be set from 1 to 16 (typically 2&ndash;12).
+                    (table below), with a floor of $\max(10, 2k)$. Cubic always uses its whole list, $N_{hkl} = 752$: its search sends a few dozen candidates to refinement whatever the basis, so the full list costs nothing (it used to get 5 %, 38 hkl and 456 trials). For orthorhombic and monoclinic the floor is 76: the 36 axial reflections, which are always placed first (see <a href="#indexing-method">Axial front-loading</a>), plus at least 40 mixed ones. Without it a low setting gave monoclinic a basis made almost entirely of axials, which cannot determine $\beta$ (at 1 %/unknown it could not produce any cell). The value can be set from 1 to 16 (typically 2&ndash;12).
                     At the default of 5 the old hand-tuned defaults are reproduced: orthorhombic 15% (329), monoclinic 20%
                     (114), triclinic 30% (37).
                     Brutus generates a candidate list of simple HKLs and sorts it by $h^2+k^2+l^2$. For
@@ -698,7 +727,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     <table>
                         <thead><tr><th>System</th><th>$k$</th><th>$N_{max}$</th><th>$N_{hkl}$ at 5</th><th>Peaks at Depth 3</th><th>Trials at defaults</th></tr></thead>
                         <tbody>
-                            <tr><td>Cubic</td><td>1</td><td>752</td><td>38</td><td>12</td><td>456</td></tr>
+                            <tr><td>Cubic</td><td>1</td><td>752</td><td>752 (all)</td><td>12</td><td>9,024</td></tr>
                             <tr><td>Hexagonal</td><td>2</td><td>1,249</td><td>125</td><td>15</td><td>1,627,500</td></tr>
                             <tr><td>Tetragonal</td><td>2</td><td>1,474</td><td>147</td><td>15</td><td>2,253,510</td></tr>
                             <tr><td>Orthorhombic</td><td>3</td><td>2,196</td><td>329</td><td>6</td><td>&approx; 706 Million</td></tr>
@@ -778,6 +807,15 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     Solutions are ranked by M(20) in descending order, can be ranked by Volume or System by clicking on the top label.
                 </li>
                 <li>
+                    <strong>&equiv; badge (same lattice, two descriptions):</strong>
+                    when a lower-symmetry cell fits more than twice as well (M(20)) as a more symmetric description
+                    of the same lattice, the <a href="#final-sieve">final sieve</a> keeps both. Each row then carries
+                    a &equiv; badge naming the other's system (&ldquo;&equiv; cubi&rdquo;); hover it for the other
+                    cell and its M(20). You decide: a real distortion, or extra parameters fitting the noise? Check
+                    the residuals and the space-group analysis of both, and erase the one you reject. The PDF report
+                    marks such rows <code>[=xxxx]</code>.
+                </li>
+                <li>
                     <strong>Cumulative Search Behaviour:</strong>
                     The table acts as a cumulative record across searches. If you run a search for Orthorhombic cells and
                     then a second search for Monoclinic cells, previous results are <strong>retained</strong>. New solutions are
@@ -786,14 +824,14 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 </li>
                 <li>
                     <strong>Context Menu (Right-Click):</strong>
-                    Right-clicking a solution row opens a menu with five options:
+                    Right-clicking a solution row opens a menu with six options:
                     <ul>
                         <li><strong>Erase Solution:</strong> Permanently removes that solution from the ledger.</li>
                         <li><strong>Swap hkl:</strong> Opens a dialog to manually correct peak assignments for the selected cell.</li>
                         <li><strong>Refine MC:</strong> Runs a Monte Carlo stochastic search to polish the cell and escape local minima.</li>
                         <li><strong>Space Group MC:</strong> Re-refines the cell once per <em>extinction class</em> of its crystal system, each time with that class&rsquo;s forbidden reflections removed from the calculated line list, and ranks the classes by a log-odds score. This is the only ranking of space-group hypotheses Brutus makes. See <a href="#space-group-mc">Space Group MC</a>.</li>
                         <li><strong>Export pdCIF:</strong> Saves the raw diffraction data, refined cell parameters, zero offset, and selected space group into a standard Powder CIF (<code>.cif</code>) file.</li>
-                        <li><strong>Generate Report:</strong> Creates a PDF report for that solution only.</li>
+                        <li><strong>Generate Report:</strong> Creates a PDF report for that solution only. It also works while a run is in progress; the main button then stays <code>Stop</code>.</li>
                     </ul>
                 </li>
             </ul>
@@ -887,6 +925,13 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 confirmation dialog &mdash; the same panel as <code>Save as</code> &mdash; naming the file and
                 listing exactly what will be discarded. With nothing to lose it simply unloads.
             </p>
+            <p>
+                Loading replaces the session only once the new file has been read, parsed and checked. A file that
+                fails at any of those steps leaves everything as it was &mdash; pattern, peaks, solutions and the
+                chip's name &mdash; and reports the error, so <code>Save as</code> can never write the previous data
+                under the new file's name. The file picker is re-armed every time, so the same file can be chosen
+                again after you have fixed it.
+            </p>
 
             <h3>A note on <code>.dat</code></h3>
             <p>
@@ -960,7 +1005,9 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             </p>
             <p style="margin-top:0.6rem;">
                 For the formats that record a wavelength, the value written is the one in the
-                <code>Ka1 Wavelength</code> box, and the dialog shows it before you save. The default file name
+                <code>Wavelength (Å)</code> box, and the dialog shows it before you save. With a Kα-average preset
+                and stripping off, the pattern still holds the doublet, so the file records both lines and their
+                ratio instead, and loading it back restores the same preset. The default file name
                 is taken from the loaded file; change it in the browser's save dialog if you want.
             </p>
             <p style="margin-top:0.6rem;">
@@ -983,7 +1030,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <ol>
          <li>
                     <strong>Kα<sub>2</sub> stripping (optional):</strong>
-                    If <code>Strip K-alpha2</code> is enabled, the Zhang (2026) dual-wavelength $q$-space differencing method is applied to the raw intensities. By operating in reciprocal space, it cleanly decouples overlapping doublet reflections without needing prior background subtraction or empirical peak-shape parameters.
+                    If <code>Strip K-alpha2</code> is enabled, the doublet is inverted exactly in $q$-space (the alternating series described under <a href="#strip-ka2">Strip K-alpha2</a>, which grew out of the Zhang (2026) dual-wavelength differencing method) and applied to the raw intensities. Working in reciprocal space, it separates overlapping doublet reflections without prior background subtraction or empirical peak-shape parameters.
                 </li>
                 <li>
                     <strong>Background subtraction:</strong>
@@ -1105,10 +1152,22 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     and marked with ⚠. These are <strong>excluded</strong> from the combinatorial indexing search
                     and from the M(20) Figure of Merit calculation, and count only as "soft" violations
                     during space-group analysis (subject to the consensus override described in the
-                    space-group section).
+                    space-group section). <em>Refine MC</em>, <em>Swap hkl</em> and <em>Space Group MC</em> exclude
+                    them from their refits and figures of merit in the same way, so a child cell's M(20) is
+                    comparable with its parent's.
                 </li>
                 <li><strong>Kα<sub>1</sub> Wavelength for Parent Peaks:</strong> The parent peak of each Kα<sub>2</sub>
-                    ghost is identified. Brutus recalculates its d-spacing using the precise λ<sub>Ka1</sub> wavelength instead of the average, improving indexing accuracy for that peak.
+                    ghost is identified and numbered with a <code>*</code>. It is a pure Kα<sub>1</sub> line, so it is
+                    indexed, refined and reported with λ<sub>Kα1</sub>: the search, the least-squares refinement, the
+                    <em>Refine MC</em>, <em>Swap hkl</em> and <em>Space Group MC</em> dialogs, the absence analysis, the
+                    peak table, the PDF report and the plotted line all use it. Every other peak uses the wavelength in
+                    the <code>Wavelength (Å)</code> box. The fit itself works at one wavelength, so a parent enters it
+                    at the 2θ where its $d$-spacing appears at that wavelength,
+                    $\sin\theta' = \sin\theta\,\lambda/\lambda_{K\alpha1}$, which gives exactly its λ<sub>Kα1</sub>
+                    $Q$; the zero error is then subtracted in that frame, which differs from subtracting it first by
+                    $Z(\lambda/\lambda_{K\alpha1} - 1)/\cos^2\theta$ &mdash; 0.0005° for $Z$ = 0.1° at 130° with Cu.
+                    (Until 13 October 2026 only the displayed $d$ used λ<sub>Kα1</sub>; see
+                    <a href="#ka2-flagged">Flagged or stripped?</a>)
                 </li>
                 <li><strong>PDF Report Table Markers (*1 and *2):</strong> In the final PDF report, reflection pairs belonging to the same doublet are explicitly distinguished:
                     <ul>
@@ -1116,6 +1175,8 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                         <li><code>*2</code> marks the corresponding <strong>Kα<sub>2</sub> companion line</strong> ($d$-spacing computed with λ<sub>Ka2</sub>).</li>
                     </ul>
                     Because both lines originate from the same physical crystal plane, their calculated $d$-spacings will match perfectly in the report table.
+                    Each is listed against its line's position at its own wavelength (Kα<sub>1</sub> for <code>*1</code>,
+                    Kα<sub>2</sub> for <code>*2</code>), so its 2θ and $d$ residuals compare like with like.
                 </li>
                 <li><strong>Manual Override:</strong> Right-click a yellow row to mark it as a confirmed real peak
                     if it was flagged incorrectly (e.g. due to a near-coincidence with another phase).
@@ -1123,6 +1184,39 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     calculation, and no longer contributes a Kα<sub>2</sub>-based soft violation.
                 </li>
             </ul>
+
+            <div class="callout-note" id="ka2-flagged">
+                <strong>Flagged or stripped?</strong>
+                Both routes now index a resolved Kα<sub>1</sub> line with λ<sub>Kα1</sub>, but they reach different
+                peaks. Stripping moves <em>every</em> peak to its Kα<sub>1</sub> position and sets the wavelength to
+                λ<sub>Kα1</sub>. Flagging treats at λ<sub>Kα1</sub> only the parents of the Kα<sub>2</sub> peaks it
+                identified, and every other peak at λ<sub>avg</sub>, which is right for an unresolved doublet.
+                Until 13 October 2026 the parents were only <em>displayed</em> with λ<sub>Kα1</sub> and fitted with
+                λ<sub>avg</sub>, so on resolved doublets the cell came out too large by
+                λ<sub>avg</sub>/λ<sub>Kα1</sub> &minus; 1 (0.083&nbsp;% for Cu, 0.057&ndash;0.073&nbsp;% for Cr, Fe
+                and Co, 0.20&nbsp;% for Mo, 0.26&nbsp;% for Ag) with a normal-looking M(20).
+                <br><br>
+                Measured on synthetic Cu Kα patterns of a cubic cell with $a$ = 5.4309&nbsp;Å:
+                <table style="margin-top:0.75rem;">
+                    <thead><tr><th>Pattern</th><th>Flagged, before</th><th>Flagged, now</th><th>Stripped</th></tr></thead>
+                    <tbody>
+                        <tr><td>Sharp, every doublet resolved, zero 0.06°</td><td>5.4354</td><td>5.4309</td><td>5.4309</td></tr>
+                        <tr><td>Unresolved at low angle, resolved at high angle, zero 0.04°</td><td>5.4361, $Z$ 0.053°</td><td>5.4305, $Z$ 0.032°</td><td>5.4309, $Z$ 0.039°</td></tr>
+                        <tr><td>Sharp, but the 111 Kα<sub>2</sub> shoulder not picked, zero 0</td><td>5.4354, M(20) 4147</td><td>5.4307, M(20) 593</td><td>5.4309, M(20) 18059</td></tr>
+                    </tbody>
+                </table>
+                The last row shows the limit of flagging. Its 111 peak is a resolved Kα<sub>1</sub> line whose
+                Kα<sub>2</sub> shoulder the peak finder did not pick, so nothing marks it as Kα<sub>1</sub> and it
+                stays at λ<sub>avg</sub>. It used to disappear into a cell scaled by 0.08&nbsp;%; it now stands out as
+                the one misfit, and M(20) falls. Adding the missed shoulder with <code>Ctrl + Click</code>
+                (<code>Snap</code> off) lets the pair be recognised: $a$ = 5.4309&nbsp;Å, M(20) 4148. A partly
+                resolved peak, whose maximum sits between the two lines, has no single right wavelength at all.
+                <br><br>
+                <strong>So:</strong> strip Kα<sub>2</sub> whenever the doublet is resolved &mdash; it is the most
+                accurate route. Use the flags when stripping is not wanted, keep the yellow rows in the list (they
+                are what marks their parents as Kα<sub>1</sub> lines), and check the peaks they missed. A
+                Kα<sub>1</sub> preset flags nothing, so with one, delete the Kα<sub>2</sub> peaks by hand.
+            </div>
 
             <h3>Practical Recommendations</h3>
             <ul>
@@ -1143,8 +1237,10 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     of the radius, the data is probably better served by lowering <code>Min peak (%)</code> and
                     curating the list by hand.</li>
                 <li>Always manually curate the final peak list. Remove artifacts and known impurity peaks.
-                    If you are not stripping Kα<sub>2</sub>, delete Kα<sub>2</sub> shoulders explicitly or confirm the
-                    program has tagged them correctly.
+                    If you are not stripping Kα<sub>2</sub>, check that the program has tagged the Kα<sub>2</sub>
+                    shoulders, and leave the tagged (yellow) ones in the list: they are already kept out of indexing,
+                    and they are what marks their parents as Kα<sub>1</sub> lines. Delete a Kα<sub>2</sub> peak the
+                    program did not tag, or add a missed shoulder so the pair is recognised.
                     <div class="callout-warning"><strong>Important:</strong> At high angles, the Kα<sub>1</sub>/Kα<sub>2</sub>
                     doublet may be fully resolved. If you accidentally include one line from Kα<sub>1</sub> and the adjacent
                     one from Kα<sub>2</sub> as two separate peaks — treating them as originating from the same wavelength —
@@ -1152,7 +1248,9 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     </div>
                 </li>
                 <li>Kα<sub>2</sub> stripping can simplify the pattern but may introduce small artifacts.
-                    If indexing fails with stripping ON, try turning it OFF and manually cleaning the peak list.
+                    If indexing fails with stripping ON, try turning it OFF and manually cleaning the peak list; the
+                    flagged doublets are then indexed with λ<sub>Kα1</sub>, but only those (see
+                    <a href="#ka2-flagged">Flagged or stripped?</a>).
                 </li>
             </ul>
         </section>
@@ -1689,6 +1787,15 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 <li>Even at the maximum settings these searches stay small: tetragonal at 16 %/unknown (32%, 472 hkl)
                     and Depth 12 ($3 \times 14 = 42$ peaks) is $C(472,2) \times C(42,2) \times 2 \approx 190$ million trials. Their run
                     time is dominated by refinement of the candidates on the CPU, not by the GPU.</li>
+                <li>That is why a wider hexagonal or tetragonal basis rarely pays: the extra trials mostly yield
+                    supercells of small cells, which pass the GPU filter and are refined one by one. On synthetic Si,
+                    rutile and ZnO patterns a 20&nbsp;% or 40&nbsp;% basis (4&ndash;16&times; the trials) filled the
+                    100&nbsp;k candidate buffer, so the search was truncated, and took about three times as long (in a
+                    software WebGPU test); on nine
+                    test cells, large, long-$c$ and R lattices included, it found nothing the default 10&nbsp;% missed.
+                    Raise it only for a cell you expect to be large, and keep <code>Max Volume</code> tight, which
+                    removes most supercells. Cubic sends only a few dozen candidates to refinement whatever its basis,
+                    so it always searches its whole list.</li>
             </ul>
 
             <h3>Practical Implications</h3>
@@ -1913,7 +2020,9 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             </p>
             <p>
                 The <a href="#final-sieve">final sieve</a> then checks lattice geometry to merge equivalent
-                axis permutations and basis settings, retaining the better M(20).
+                axis permutations and basis settings, retaining the more symmetric description of each lattice,
+                and otherwise the better M(20). When a less symmetric description fits clearly better, both are
+                kept and marked &equiv;, for you to choose.
             </p>
         </section>
 
@@ -2391,12 +2500,16 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
         Right-click a solution and choose <strong>Swap hkl</strong>. The dialog shows the assignment the
         refit will actually use, including the one-line-per-peak rule: where two peaks compete for the same
         calculated line the closer one keeps it and the other is shown unindexed, rather than both being
-        fitted to the same reflection. The dialog lists the first twelve peaks
-        with their current indices, observed <em>d</em>, calculated 2&theta; and the residual &mdash; the
-        low-angle end, where a mis-assignment does most damage to the refined cell. Edit any indices you
+        fitted to the same reflection. The dialog lists every peak in the 2&theta; range
+        with its current indices, observed <em>d</em>, calculated 2&theta; and the residual; the table scrolls
+        when the list is long, and the line above it says how many peaks it holds and how many are unindexed.
+        Kα<sub>2</sub>-suspect peaks are neither listed nor refitted, because indexing leaves them out too: fitted
+        as real reflections they would distort the cell, and counted as unindexed lines they would make the
+        child's M(20) incomparable with its parent's. Edit any indices you
         disagree with; edited fields are highlighted. <strong>Apply</strong> re-fits the cell (and the zero
         error, if that refinement is enabled) with your assignments imposed and adds the result to the
-        solutions list as an ordinary solution, tagged <em>swap&times;n</em>. <strong>Cancel</strong> discards
+        solutions list as an ordinary solution, tagged <em>swap&times;n</em>, directly above its parent; the
+        status line reports the swaps and the change in M(20). <strong>Cancel</strong> discards
         everything.
     </p>
     <p>
@@ -2418,8 +2531,8 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
         <em>l</em> must all be given); assigning a reflection that another peak already holds, which would
         otherwise be quietly averaged into a distorted cell; two edits aimed at the same peak; and an edit
         whose peak is no longer inside the 2&theta; range. The duplicate check is made against
-        <strong>every</strong> peak the refit will use, not only the twelve rows on screen &mdash; a collision
-        with a reflection held by peak thirteen or beyond counts just the same. A manual assignment is
+        <strong>every</strong> peak the refit will use, recomputed when you press <em>Apply</em> rather than read
+        from the rows on screen. A manual assignment is
         honoured even when it is not the nearest line and even when it falls outside the indexing window
         &mdash; overruling the nearest-line rule is exactly what the command is for.
     </p>
@@ -3066,7 +3179,8 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <p>
                 <strong>Stage 2</strong> spends the annealing budget on the shortlist. It offers three
                 candidates per class &mdash; the parent cell, the least-squares cell, and the annealed one
-                &mdash; and keeps whichever scores best, so stage 2 can never leave a class worse off than
+                &mdash; and keeps whichever scores best, judged with the same impurity allowance and zero-point
+                setting as the final ranking, so stage 2 can never leave a class worse off than
                 stage 1 did. Where the score cannot separate two candidates, and it often cannot, $M(20)$
                 breaks the tie: within a single class the line list is fixed, which makes $M(20)$ a legitimate
                 comparison there and the only one of the two that can see the difference between a good cell
@@ -3337,6 +3451,15 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 a new trial cell is constructed with the correct symmetry and re-refined and re-scored.
             </p>
             <p>
+                The trial cell is first put in the setting the line generator assumes: for tetragonal and hexagonal the
+                equal pair becomes $a = b$ (for hexagonal, the pair spanning the angle nearest 120°) and the third edge
+                $c$; for monoclinic the angle furthest from 90° marks the unique axis, which is relabelled $b$. This
+                matters because the Niggli cell orders its edges by length, so a monoclinic lattice very often reduces
+                with its oblique angle on α or γ. Refined as it stood, such a cell was matched against the line list
+                of a different lattice and always rejected, and a triclinic hit was never promoted to monoclinic. The
+                cells produced by the matrix transformations and the divisor analysis below are oriented the same way.
+            </p>
+            <p>
                 A true-primitive reduction of a genuinely centered lattice is available to callers that want
                 it, by passing an explicit centering to the reduction routine. It is not taken from the
                 absence analysis automatically: the centering derived there is a ranked hypothesis, not an
@@ -3492,7 +3615,9 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 lines sit near which observed peaks. The second round therefore enumerates a genuinely
                 different candidate set &mdash; one the first round could not see at any budget, because those
                 candidates did not exist at the starting geometry. The search runs up to four rounds,
-                re-centring on the improved cell each time and stopping as soon as a round stops gaining.
+                re-centring on the improved cell each time and stopping as soon as a round stops gaining. A round
+                gains only if its best candidate indexes more of the observed lines than the cell the round started
+                from, or raises M(20) by more than 2&nbsp;%.
             </p>
             <p>
                 On the PbSO<sub>4</sub> test pattern available in this repository: a
@@ -3506,7 +3631,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 A relabelling can inflate it while quietly wrecking the fit to the rest of the pattern, and the
                 combinatorial search is very good at finding exactly such labellings. Candidates are therefore
                 ranked on <strong>how many of all N observed lines they index</strong> first, and on M(20) only
-                as a tie-break..
+                as a tie-break.
             </p>
 
             <h4>Pruning and constraints</h4>
@@ -3568,6 +3693,18 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 If this dynamic re-pairing captures a better-fitting theoretical reflection and improves the overall M(20) score, the step is accepted. This allows the solution to smoothly escape local minima and naturally resolve its own HKL assignments without requiring manual intervention.
             </p>
             <p>
+                The dialog asks for <strong>Iterations</strong> (annealing steps per run, default 1000) and
+                <strong>Restarts</strong> (independent runs, default 8). It works on the solution you right-clicked,
+                captured when the dialog opens, so a table re-sorted or still filling while it is open cannot change
+                the target. Peaks are those of the 2&theta; window minus the Kα<sub>2</sub>-suspect ones, as in indexing,
+                so the result's M(20) is directly comparable with its parent's; the space-group analysis of the result
+                still sees the suspects, as soft evidence. With <code>Refine Zero-Point Error</code> on, the zero error
+                walks in steps of about 0.01° within &plusmn;0.2° of the <em>parent's</em> refined zero (it used to be
+                &plusmn;0.2° around zero, which pinned every trial at the bound for a parent with a larger zero error and
+                guaranteed &ldquo;no improvement&rdquo;). A result is added, directly above its parent, only if it beats
+                the parent's M(20).
+            </p>
+            <p>
                 The same walk is reused, under a restricted line list, by
                 <a href="#space-group-mc">Space Group MC</a>, which refines the cell once per
                 <em>extinction class</em> of its crystal system and ranks the classes by a log-odds score.
@@ -3592,16 +3729,41 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 <li><strong>Allow small numerical differences.</strong> Corresponding edges must agree
                     within 0.2% of the smaller edge and the three inter-edge angles within 0.15°.
                     An uncertain or unsuccessful comparison retains the candidate.</li>
-                <li><strong>Keep the higher M(20).</strong> Candidates are compared best-first.
-                    Higher symmetry breaks an exact M(20) tie only. There is no 2% quality tie band and
-                    no preference for a monoclinic β closer to 90° over a better-M(20) equivalent.</li>
+                <li><strong>Keep the more symmetric description.</strong> Candidates are compared
+                    best-first. Of two equivalent cells the more symmetric one is kept
+                    (cubic &gt; hexagonal, tetragonal &gt; orthorhombic &gt; monoclinic &gt; triclinic); between equal
+                    symmetries the higher M(20) wins. If the less symmetric cell's M(20) is more than twice as high,
+                    <strong>both are kept</strong>, each marked &equiv; with the other's system (<code>[=xxxx]</code>
+                    in the PDF report): the sieve cannot tell a real distortion from extra parameters fitting the
+                    noise, so you decide. Until 14 October 2026 the higher M(20) always won, and a description with
+                    more free parameters can score a little higher by fitting the noise: on Si a tetragonal cell
+                    with $c = a + 0.001$&nbsp;Å (M(20) 1518) replaced the cubic one (1054). A genuine distortion
+                    inside the 0.2&nbsp;% tolerance fits clearly better instead &mdash; $c/a = 1.0005$ measured to
+                    0.002° gave the tetragonal cell 3&ndash;4 times the cubic M(20), and a larger one leaves the
+                    cubic cell unable to fit at all &mdash; while the extra parameter alone gave at most 1.4 times
+                    in tests. A cell matching a kept one at least as symmetric is dropped; otherwise it replaces the
+                    kept cells it fits within a factor of 2 and is listed beside the others.</li>
+                <li><strong>R cells that are cubic.</strong> A rhombohedral lattice with $\alpha$ = 90°, 109.47°
+                    or 60° is P, I or F cubic. Found by the hexagonal search its triple cell has 3, 3/2 or 3/4 of
+                    the cubic volume, so the steps above never pair the two; the sieve compares their primitive
+                    cells instead and keeps the cubic description. Their M(20) values do not compare: the R cell
+                    counts only R lines, the cubic one every P line, absent F or I lines included.</li>
             </ol>
+            <div class="callout-note">
+                <strong>The cubic cell can still rank below other lattices.</strong> M(20) is computed on the
+                primitive (P) line list, so an F- or I-centred cubic cell is charged for every line its centring
+                forbids, while other lattices that happen to index the same lines (sub-cells and coincidence
+                lattices, common when only a dozen lines are measured) are not. On a stripped Si pattern (13
+                lines) such cells outscore the cubic one, which stays in the list. Check the space-group analysis
+                of the cubic solution: a detected F or I centring is the sign.
+            </div>
             <p>
                 This conservative check recognises equivalent settings without treating every pair of
                 equal-volume cells as identical. It is not an exhaustive search of every possible basis
                 change when numerical reduction is ambiguous. Distinct zero models or input contexts are
                 kept separate during duplicate testing, but all results remain subject to the existing
-                final cap of <strong>50 solutions</strong>, ranked by M(20).
+                final cap of <strong>50 solutions</strong>, ranked by M(20). The cells of a &equiv; pair are kept
+                together, so the list can exceed 50 by a few.
             </p>
         </section>
 
@@ -3652,6 +3814,8 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                 <li>
                     <strong>Incorrect parameters:</strong>
                     Check the wavelength, the selected <code>Radiation Preset</code>, and the <code>Max Volume</code>.
+                    A Kα<sub>1</sub> preset on data that still contain the doublet flags nothing, so every resolved
+                    Kα<sub>2</sub> peak enters the search as a real line; strip Kα<sub>2</sub> or delete those peaks.
                 </li>
                 <li>
                     <strong>GPU parameters too restrictive:</strong>
@@ -3688,6 +3852,15 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     Random solutions can fit a few peaks by coincidence. Always check whether <em>all</em> major
                     observed peaks are reproduced by the calculated pattern. If significant peaks are missed,
                     the solution is incorrect regardless of M(20).
+                </li>
+                <li>
+                    <strong>Unstripped Kα doublets:</strong>
+                    With stripping off, only the Kα<sub>1</sub> parents of <em>flagged</em> Kα<sub>2</sub> peaks are
+                    indexed with λ<sub>Kα1</sub>. A resolved Kα<sub>1</sub> line whose Kα<sub>2</sub> shoulder was not
+                    picked, or a partly resolved peak, stays at the average wavelength and misfits by up to a third of
+                    the doublet splitting. Look for it in the report or the <em>Swap hkl</em> table, add a missed
+                    shoulder with <code>Ctrl + Click</code> so the pair is recognised, or strip Kα<sub>2</sub> &mdash;
+                    see <a href="#ka2-flagged">Flagged or stripped?</a>
                 </li>
             </ul>
 
@@ -3729,7 +3902,9 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             <p>
                 Start is locked as soon as startup begins, including GPU initialization. Stop cancels that
                 run and terminates its CPU/refinement workers. A new search has its own cancellation state
-                and refinement pool; late results and callbacks from the stopped run are ignored.
+                and re-initialises the refinement pool for itself; late results and callbacks from the stopped
+                run are ignored, and so is its clean-up, which therefore cannot release the pool under the new
+                run (that used to leave a run started straight after Stop refining nothing).
                 GPU commands already submitted may still finish on the device, but their cancelled results
                 do not enter the new run. Existing accepted solutions are retained for review.
             </p>
@@ -3799,7 +3974,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
         <section id="references">
             <h2>References</h2>
             <p>
-                Brutus was developed by Nita Dragoe at Université Paris-Saclay (2024–2025) as a successor to the earlier
+                Brutus was developed by Nita Dragoe at Université Paris-Saclay (2024–2026) as a successor to the earlier
                 program <em>Powder</em> (1999–2000). If you use Brutus in your work, please cite:
                 <br>
                 <a href="https://doi.org/10.13140/RG.2.2.18182.84806">
@@ -3834,6 +4009,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
                     Zhang, Z., Lv, B., Zhao, G., Sun, X., Chang, S., Zhang, J., Rodriguez-Carvajal, J., Chen, X. &amp; Feng, Z. (2026).
                     "Parameter-free Kα<sub>2</sub> elimination for X-ray diffraction via dual-wavelength q-space differencing."
                     <em>Measurement</em> <strong>276</strong>, 121448.
+                    (The starting point of Brutus's Kα<sub>2</sub> stripping, which now inverts the doublet exactly; see <a href="#strip-ka2">Strip K-alpha2</a>.)
                 </li>
 
                 <li>
@@ -3872,7 +4048,7 @@ python3 bump_version.py --check    # report, change nothing</code></pre>
             </ol>
 
             <div class="footer">
-                <p>Help guide generated with the help of an AI, based on source code analysis. Last revised 10 October 2026; aligned with application build 20261010c.</p>
+                <p>Help guide generated with the help of an AI, based on source code analysis. Last revised 14 October 2026; aligned with application build 20261014.</p>
             </div>
         </section>
 

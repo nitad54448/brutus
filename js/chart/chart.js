@@ -208,6 +208,33 @@ const updateAllMarkers = () => {
     xrdChart.update('none');
 };
 // ---- Calculated line list ------------------------------------------------
+// A line that indexes a Ka1 line -- a peak marked * whose Ka2 companion was
+// identified, which the fit treats at lambda(Ka1) (p.lambda) -- is drawn
+// where that peak is: at the line's Ka1 position. Every other line stays at
+// the wavelength in the box. Drawn at the average, the tick of a resolved
+// doublet sat between its two peaks, up to ~0.2 deg (Cu) from the peak it
+// explains, and the tooltip's "delta from calc" said the same. Matching
+// mirrors the fit: the nearest line within 1.5 x the 2-theta error, and one
+// line per peak.
+const placeKa1Lines = (lines, lambda, zero) => {
+    if (!lines.length) return;
+    const win = getTthError() * 1.5;
+    const moves = new Map();          // line -> lambda of the Ka1 line it indexes
+    for (const p of pickedPeaks) {
+        if (!(p.lambda > 0) || p.lambda === lambda) continue;
+        const t = peakTthAtWavelength(p, lambda) - zero;   // where the fit put it
+        let best = null, bd = Infinity;
+        for (const L of lines) { const d = Math.abs(L.tth_calc - t); if (d < bd) { bd = d; best = L; } }
+        if (best && bd <= win && !moves.has(best)) moves.set(best, p.lambda);
+    }
+    for (const [L, lam] of moves) {
+        const s = lam / (2 * L.d);
+        if (!(L.d > 0) || !(s > 0 && s < 1)) continue;
+        L.tth_calc = 2 * Math.asin(s) * 180 / Math.PI;
+        L.tth = L.tth_calc + zero;
+        L.lambda = lam;
+    }
+};
 // The measured pattern is plotted exactly as recorded, zero error and all.
 // The refined cell, on the other hand, describes the sample AFTER the zero
 // error has been taken out: 2theta_corrected = 2theta_observed - Z. So to
@@ -227,6 +254,7 @@ const rebuildHklList = () => {
     const maxTth = Math.min(179.9, dataMax + Math.abs(zero) + 1);
     const raw = generateHKL(maxTth, { ...selectedSolution, lambda }, selectedSolution.system) || [];
     currentHklList = raw.map(r => ({ ...r, tth_calc: r.tth, tth: r.tth + zero }));
+    placeKa1Lines(currentHklList, lambda, zero);
 };
 // Single entry point for "this solution is now the displayed one", so the
 // line list can never drift out of step with the highlighted table row.

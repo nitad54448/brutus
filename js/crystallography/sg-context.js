@@ -717,6 +717,24 @@ function sgIndexingStats(cell, data, state, allowed, ictx, preRefl, wilson) {
     const grp = sgResolutionGroups(qs, wl, data.tth_error);
     const nG = grp.count;
 
+    // Intensity weight per resolution group, for THESE groups. The Wilson
+    // context's groupMultiplicity(g) is indexed by the parent FRAME's groups,
+    // which are only the same as these when the line list is the frame's own
+    // (preRefl). Once the class cell has been refined the lines regroup and
+    // the indices shift, so that lookup returned the weight of a different
+    // group. Same weighting rule as sgWilsonContext().
+    let groupMult = null;
+    if (wilson) {
+        const gm = new Float64Array(nG);
+        for (let j = 0; j < nL; j++) {
+            const r = refl[j];
+            gm[grp.groupOf[j]] += SG_USE_EPSILON_WEIGHT
+                ? sgHolohedryWeight(r.h, r.k, r.l, cell.system)
+                : sgMultiplicity(r.h, r.k, r.l, cell.system);
+        }
+        groupMult = (g) => gm[g] || 1;
+    }
+
     // --- observed peaks in q, zero-corrected ---------------------------------
     const obs = [];
     for (const p of state.peaks_sorted_by_q) {
@@ -775,9 +793,9 @@ function sgIndexingStats(cell, data, state, allowed, ictx, preRefl, wilson) {
     for (const o of obs) {
         if (!o.assigned) { unindexed.push(o); continue; }
         if (isAllowed[o.line]) { indexed++; continue; }
-        const gMult = wilson ? wilson.groupMultiplicity(grp.groupOf[o.line]) : null;
+        const gMult = wilson ? groupMult(grp.groupOf[o.line]) : null;
         violations.push({
-            tth: o.p.tth,
+            tth: o.p.tthObs ?? o.p.tth,   // measured 2-theta, for display (a Ka1 line's tth is mapped)
             rel: ictx.relI(o.p),
             // |E|^2 of the offending peak: its intensity in units of the mean at
             // this angle, corrected for Lp and multiplicity. A value near or
@@ -861,7 +879,7 @@ function sgIndexingStats(cell, data, state, allowed, ictx, preRefl, wilson) {
             // they are also the set lambda has to be calibrated against if the
             // two are to describe the same hypothesis.
             if (wilson && wilson.zAt) {
-                const za = wilson.zAt(qc, wilson.groupMultiplicity(g));
+                const za = wilson.zAt(qc, groupMult(g));
                 if (za !== null) allowedZ.push(za);
             }
         } else {
@@ -874,10 +892,10 @@ function sgIndexingStats(cell, data, state, allowed, ictx, preRefl, wilson) {
                 // almost none. That distinction is exactly what a single global
                 // p cannot make.
                 if (wilson) {
-                    const pd = wilson.pDetect(qc, wilson.groupMultiplicity(g));
+                    const pd = wilson.pDetect(qc, groupMult(g));
                     if (pd !== null) cleanP.push(pd);
                     if (wilson.zAt) {
-                        const zc = wilson.zAt(qc, wilson.groupMultiplicity(g));
+                        const zc = wilson.zAt(qc, groupMult(g));
                         if (zc !== null) cleanZ.push(zc);
                     }
                 }

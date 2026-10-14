@@ -12,6 +12,11 @@
 // if the user asks for more than one) and keeps only cells that beat their
 // parent's M20. Zero is a search dimension whenever "Refine Zero" is on.
 let mcRunning = false;
+// The solution the dialog was opened on. Captured at open, as Swap hkl and
+// Space Group MC do: re-resolving the clicked ROW at Apply time picked up a
+// different cell whenever the table had been re-rendered in between (a run
+// still filling it, a re-sort), so the title and the refined cell disagreed.
+let mcParent = null;
 const mcOverlay = document.getElementById('mc-overlay');
 const mcMsg = document.getElementById('mc-msg');
 const mcApplyBtn = document.getElementById('mc-apply');
@@ -30,6 +35,7 @@ document.getElementById('ctx-mc').addEventListener('click', () => {
         showStatus('This solution has no crystal system the MC can constrain.', 'error', 4000);
         return;
     }
+    mcParent = parent;
 
     document.getElementById('mc-title').textContent =
         `Refine MC - ${parent.system}, a=${parent.a.toFixed(4)}` +
@@ -56,7 +62,7 @@ document.addEventListener('keydown', (e) => {
 });
 mcApplyBtn.addEventListener('click', () => {
     if (mcRunning) return;
-    const parent = ctxTargetSolution();
+    const parent = mcParent;
     if (!parent) { closeMcModal(); return; }
 
     // --- read and validate the three parameters -------------------------
@@ -85,7 +91,14 @@ mcApplyBtn.addEventListener('click', () => {
     const tMax = parseFloat(ui.tthMaxSlider.value);
     const imp = getImpurityPeaks();
     const rz = !!(ui.refineZeroCheckbox && ui.refineZeroCheckbox.checked);
-    const pk = pickedPeaks.filter(p => p.tth >= tMin && p.tth <= tMax);
+    // Ka2-suspect peaks are left out of the refinement and the figures of
+    // merit, exactly as indexing leaves them out: the parent's M20 was computed
+    // without them, so including them made the comparison below meaningless,
+    // and two or more of them in the first 20 lines (more than the impurity
+    // allowance) zeroed M20 for every trial cell. The absence analysis still
+    // sees them, as soft evidence, as it does after indexing.
+    const inRange = pickedPeaks.filter(p => p.tth >= tMin && p.tth <= tMax);
+    const pk = inRange.filter(p => !p.ka2Suspect);
     const minReq = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7, triclinic: 7 }[parent.system] || 6;
     if (pk.length < minReq) {
         mcMsg.classList.remove('info');
@@ -103,9 +116,10 @@ mcApplyBtn.addEventListener('click', () => {
     // and figures of merit come out identical to the rest of the program.
     let mcState;
     try {
+        // Ka1 lines (p.lambda) are mapped to this wavelength inside
+        // getSortedPeaks; d_min follows from the mapped maximum.
         const sorted = getSortedPeaks(pk, wl);
-        const maxTth = Math.max(...pk.map(p => p.tth));
-        const d_min = wl / (2 * Math.sin(maxTth * Math.PI / 360));
+        const d_min = wl / (2 * Math.sin(sorted.tth_max_deg * Math.PI / 360));
         if (!isFinite(d_min) || d_min <= 0) throw new Error('bad d_min');
         mcState = {
             q_obs: sorted.q_obs,
@@ -171,7 +185,7 @@ mcApplyBtn.addEventListener('click', () => {
         }
 
         try {
-            res.analysis = analyzeSystematicAbsences(res, pk, spaceGroupData, wl, te, tMax, imp, tMin);
+            res.analysis = analyzeSystematicAbsences(res, inRange, spaceGroupData, wl, te, tMax, imp, tMin);
         } catch (err) { res.analysis = null; }
 
         // Place the refined cell immediately above its parent rather than at

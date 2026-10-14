@@ -429,5 +429,12 @@ const recalculatePeakValues = () => {
         peak.d = lam / (2 * Math.sin(peak.tth * Math.PI / 360));
         peak.q = 1 / (peak.d * peak.d);
         peak.lambdaUsed = lam; // for debugging / display traceability
+        // The same λ for everything that FITS a cell: indexing, refinement,
+        // the dialogs, the absence analysis and the report read p.lambda
+        // (peaksAtWavelength, js/crystallography/fit.js). Only a peak with a
+        // wavelength of its own carries it; it used to be display-only, so
+        // those Ka1 lines were indexed with the average.
+        if (lam !== lambda) peak.lambda = lam;
+        else delete peak.lambda;
     });
 };

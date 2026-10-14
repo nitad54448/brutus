@@ -5,6 +5,46 @@
 // run on the main thread (brutus.html) and in both workers, which load them
 // through manifest.js, so nothing here may touch the DOM.
 
+// A trial cell in the setting the line generator and the LS design rows assume
+// for `system`: tetragonal / hexagonal with the equal pair as a = b (and the
+// 120 deg angle between them), monoclinic b-unique. getSymmetry() recognises
+// these systems in ANY orientation, but generateHKL_for_analysis() reads only
+// a and c (tetragonal, hexagonal) or beta (monoclinic), so a cell with its
+// equal pair on (a, c), or its odd angle on alpha or gamma, was refined against
+// the line list of a different lattice and always rejected. The Niggli cell of
+// an ordinary monoclinic lattice (axes sorted by length) very often has the odd
+// angle on alpha, so triclinic hits were never promoted to monoclinic.
+function orientForSystem(cell, system) {
+    const a = cell.a, b = cell.b ?? cell.a, c = cell.c ?? cell.a;
+    const al = cell.alpha ?? 90, be = cell.beta ?? 90, ga = cell.gamma ?? 90;
+    switch (system) {
+        case 'cubic':
+            return { system, a: (a + b + c) / 3.0 };
+        case 'tetragonal':
+        case 'hexagonal': {
+            let pair;   // [equal, equal, unique]
+            if (system === 'hexagonal') {
+                // The pair spanning the 120 deg angle (gamma: a,b; beta: a,c; alpha: b,c).
+                const d = [Math.abs(ga - 120), Math.abs(be - 120), Math.abs(al - 120)];
+                pair = [[a, b, c], [a, c, b], [b, c, a]][d.indexOf(Math.min(...d))];
+            } else {
+                const dAB = Math.abs(a - b), dAC = Math.abs(a - c), dBC = Math.abs(b - c);
+                pair = (dAB <= dAC && dAB <= dBC) ? [a, b, c] : (dAC <= dBC ? [a, c, b] : [b, c, a]);
+            }
+            return { system, a: (pair[0] + pair[1]) / 2.0, c: pair[2] };
+        }
+        case 'monoclinic': {
+            // The angle furthest from 90 marks the unique axis; relabel it as b.
+            const off = [Math.abs(al - 90), Math.abs(be - 90), Math.abs(ga - 90)];
+            const i = off.indexOf(Math.max(...off));
+            if (i === 0) return { system, a: b, b: a, c: c, beta: al };   // a-unique -> (b, a, c)
+            if (i === 2) return { system, a: a, b: c, c: b, beta: ga };   // c-unique -> (a, c, b)
+            return { system, a, b, c, beta: be };
+        }
+        default:
+            return { ...cell, system };
+    }
+}
 function findTransformedSolutions(initialSolutions, data, state, postMessage_func) {
     const { allowedSystems } = data;
     const { refineAndTestSolution, q_obs, original_indices, N_FOR_M20, q_max, d_min, tth_obs_rad, peaks_sorted_by_q } = state;
@@ -59,42 +99,14 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
             //    AND the user *wants* to search for that higher symmetry...
             if (symmetryOrder[idealSymmetry] > symmetryOrder[sol.system] && allowedSystems.includes(idealSymmetry)) {
                 
-                let newTrialCell = { system: idealSymmetry };
-                
-                // 5. Create a *new* trial cell based on the "true" symmetry
-                switch (idealSymmetry) {
-                    case 'cubic':
-                        newTrialCell.a = (nCell.a + nCell.b + nCell.c) / 3.0; // Average the axes
-                        break;
-                    case 'tetragonal':
-                    case 'hexagonal':
-                        // Robustly find repeated axis ('a') and unique axis ('c') by closest pair
-                        const diffAB = Math.abs(nCell.a - nCell.b);
-                        const diffAC = Math.abs(nCell.a - nCell.c);
-                        const diffBC = Math.abs(nCell.b - nCell.c);
-                        if (diffAB <= diffAC && diffAB <= diffBC) { // a == b
-                            newTrialCell.a = (nCell.a + nCell.b) / 2.0;
-                            newTrialCell.c = nCell.c;
-                        } else if (diffAC <= diffAB && diffAC <= diffBC) { // a == c
-                            newTrialCell.a = (nCell.a + nCell.c) / 2.0;
-                            newTrialCell.c = nCell.b;
-                        } else { // b == c
-                            newTrialCell.a = (nCell.b + nCell.c) / 2.0;
-                            newTrialCell.c = nCell.a;
-                        }
-                        break;
-                    case 'orthorhombic':
-                        newTrialCell.a = nCell.a;
-                        newTrialCell.b = nCell.b;
-                        newTrialCell.c = nCell.c;
-                        break;
-                    case 'monoclinic':
-                        newTrialCell.a = nCell.a;
-                        newTrialCell.b = nCell.b;
-                        newTrialCell.c = nCell.c;
-                        newTrialCell.beta = nCell.beta; // Niggli cell will have alpha=gamma=90
-                        break;
-                }
+                // 5. Create a *new* trial cell based on the "true" symmetry, in
+                //    the setting the generators expect. (The Niggli cell orders
+                //    its axes by LENGTH, so a monoclinic one has its odd angle on
+                //    alpha or gamma as often as on beta; taking nCell.beta, as
+                //    this did, tested an orthorhombic line list instead.)
+                const newTrialCell = (idealSymmetry === 'orthorhombic')
+                    ? { system: idealSymmetry, a: nCell.a, b: nCell.b, c: nCell.c }
+                    : orientForSystem(nCell, idealSymmetry);
 
 
                 // 6. Send this new, "squeezed" cell to be re-tested
@@ -112,7 +124,7 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
                 const G = metricFromCell(sol); const Pt = transpose(tf.P); const Gprime = matMul(matMul(Pt, G), tf.P);
                 const candCell = cellFromMetric(Gprime);
                 const newSystem = getSymmetry(candCell.a, candCell.b, candCell.c, candCell.alpha, candCell.beta, candCell.gamma);
-                if (allowedSystems.includes(newSystem)) refineAndTestSolution({ ...candCell, system: newSystem });
+                if (allowedSystems.includes(newSystem)) refineAndTestSolution(orientForSystem(candCell, newSystem));
             } catch {}
         });
      
@@ -146,7 +158,7 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
                 // parent's R flag (refinement probes R again by itself).
                 const candCell = { ...withoutLattice(sol), a: sol.a/h_div, b: (sol.b??sol.a)/k_div, c:(sol.c??sol.a)/l_div };
                 const newSystem = getSymmetry(candCell.a, candCell.b, candCell.c, candCell.alpha, candCell.beta, candCell.gamma);
-                if (allowedSystems.includes(newSystem)) refineAndTestSolution({ ...candCell, system: newSystem });
+                if (allowedSystems.includes(newSystem)) refineAndTestSolution(orientForSystem(candCell, newSystem));
             }
         }
         if (sol.system === 'orthorhombic' && allowedSystems.includes('hexagonal')) {

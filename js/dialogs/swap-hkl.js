@@ -44,7 +44,9 @@ document.getElementById('ctx-swap').addEventListener('click', () => {
     const te = getTthError();
     const tMin = parseFloat(ui.tthMinSlider.value);
     const tMax = parseFloat(ui.tthMaxSlider.value);
-    const pk = pickedPeaks.filter(p => p.tth >= tMin && p.tth <= tMax);
+    // Ka2-suspect peaks are not listed or refitted, as indexing excludes them
+    // (see the Apply handler below).
+    const pk = pickedPeaks.filter(p => p.tth >= tMin && p.tth <= tMax && !p.ka2Suspect);
     const minReq = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7, triclinic: 7 }[parent.system] || 6;
     if (pk.length < minReq) { showStatus(`Not enough peaks in the 2-theta range (need ${minReq} for ${parent.system}).`, 'error', 4000); return; }
 
@@ -95,7 +97,14 @@ document.getElementById('swap-apply').addEventListener('click', () => {
     const tMax = parseFloat(ui.tthMaxSlider.value);
     const imp = getImpurityPeaks();
     const rz = !!(ui.refineZeroCheckbox && ui.refineZeroCheckbox.checked);
-    const pk = pickedPeaks.filter(p => p.tth >= tMin && p.tth <= tMax);
+    // The refit and its figures of merit use the peaks indexing used: no
+    // Ka2-suspect peaks. With them, a ghost inside the window of some other
+    // line was fitted as a real reflection, and the ghosts counted as
+    // unindexed lines in M20 -- which the parent's M20 never did, so the
+    // "M20 parent -> child" comparison was not like for like. The absence
+    // analysis keeps them, as soft evidence, as it does after indexing.
+    const inRange = pickedPeaks.filter(p => p.tth >= tMin && p.tth <= tMax);
+    const pk = inRange.filter(p => !p.ka2Suspect);
 
     // Collect only rows the user actually changed.
     const overrides = [];
@@ -145,7 +154,7 @@ document.getElementById('swap-apply').addEventListener('click', () => {
 
     const child = res.cell;
     try {
-        child.analysis = analyzeSystematicAbsences(child, pk, spaceGroupData, wl, te, tMax, imp, tMin);
+        child.analysis = analyzeSystematicAbsences(child, inRange, spaceGroupData, wl, te, tMax, imp, tMin);
     } catch (err) { child.analysis = null; }
     // Same placement rule as Refine MC: a derived solution sits directly
     // above the cell it came from, so the pair can be read together.
@@ -155,8 +164,11 @@ document.getElementById('swap-apply').addEventListener('click', () => {
     displayedSolutions = [...solutions];
     updateSolutionsTable();
     updateAllMarkers();
+    // Read the parent's M20 BEFORE closing: closeSwapModal() sets swapParent to
+    // null, so the message below threw on every successful Apply.
+    const parentM20 = swapParent.m20 || 0;
     closeSwapModal();
     const list = res.swaps.map(x => `${x.from}->${x.to}`).join(', ');
     showStatus(`Applied ${res.swaps.length} swap(s): ${list}. ` +
-               `M20 ${(swapParent.m20 || 0).toFixed(1)} -> ${(child.m20 || 0).toFixed(1)}`, 'success', 8000);
+               `M20 ${parentM20.toFixed(1)} -> ${(child.m20 || 0).toFixed(1)}`, 'success', 8000);
 });

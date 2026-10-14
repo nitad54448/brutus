@@ -29,7 +29,7 @@ const updatePeakTable = () => {
             // Parent of a tagged Ka2 ghost: provably a Ka1 line, d uses λ_Ka1
             row.title =
                 `Kα₁ line — its Kα₂ ghost was identified.\n` +
-                `d-spacing computed with λ_Kα₁.`;
+                `d-spacing, indexing and refinement use λ_Kα₁.`;
         }
         if (index === selectedPeakIndex) {
             row.classList.add('peak-row-selected');

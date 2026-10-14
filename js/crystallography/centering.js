@@ -156,7 +156,9 @@ function determineCentering(indexed_hkls, system) {
             // Details: store hard violators preferentially, fall back to soft.
             if (violations[key] > 0 && violations[key] <= MAX_DETAILS_TO_STORE) {
                 const detailsSource = hardViolatingPeaksFinal.length > 0 ? hardViolatingPeaksFinal : softViolatingPeaksFinal;
-                violationDetails[key] = detailsSource.slice(0, MAX_DETAILS_TO_STORE).map(p => ({ h: p.h, k: p.k, l: p.l, tth: p.tth, ka2Suspect: !!p.ka2Suspect, lowIntensity: !!p.lowIntensity }));
+                // tth_obs: the measured 2-theta (a Ka1 line's tth is its value
+                // at the run's wavelength, see analyzeSystematicAbsences).
+                violationDetails[key] = detailsSource.slice(0, MAX_DETAILS_TO_STORE).map(p => ({ h: p.h, k: p.k, l: p.l, tth: p.tth_obs ?? p.tth, ka2Suspect: !!p.ka2Suspect, lowIntensity: !!p.lowIntensity }));
             }
         }
     }

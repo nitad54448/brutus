@@ -22,11 +22,14 @@
 //   node check_load_order.mjs
 //
 // Exit code 0 = clean, 1 = problems found, 2 = could not run.
-import { readFileSync, readdirSync, statSync } from 'fs';
+import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { join, relative } from 'path';
 import { createRequire } from 'module';
 
-const ROOT = new URL('.', import.meta.url).pathname;
+// The app root: this script's directory, or its parent when the script lives
+// in tests/ (it used to assume the former and failed with ENOENT on brutus.html).
+const HERE = new URL('.', import.meta.url).pathname;
+const ROOT = existsSync(join(HERE, 'brutus.html')) ? HERE : join(HERE, '..') + '/';
 let ts;
 try {
     const require = createRequire(import.meta.url);

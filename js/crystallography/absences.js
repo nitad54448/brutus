@@ -28,6 +28,13 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
     // latticeLineFilter in hkl.js). The R list is only what is displayed.
     const all_calc_hkls = generateHKL_for_analysis(withoutLattice(solution), wavelength, tthMax);
 
+    // Ka1 lines (p.lambda) are matched where the cell fit put them: at their
+    // 2-theta for this wavelength (peaksAtWavelength, js/crystallography/fit.js).
+    // Matched at the measured value instead, a Ka1 line at high angle sat up
+    // to ~0.2 deg (Cu) from its own calculated line once the cell was right.
+    // Manual swaps stay keyed by the MEASURED 2-theta (tthObs).
+    obs_peaks = peaksAtWavelength(obs_peaks, wavelength);
+
     if (all_calc_hkls.length === 0) {
     fallbackResult.hklList = [];
     return fallbackResult;
@@ -119,7 +126,7 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
     obs_peaks.forEach(peak => {
         const corrected_tth = peak.tth - zero_correction;
         let bestMatch = all_calc_hkls.reduce((best, hkl) => { const diff = Math.abs(hkl.tth - corrected_tth); return diff < best.minDiff ? { hkl, minDiff: diff } : best; }, { hkl: null, minDiff: Infinity });
-        const man = manualByTth.get(Number(peak.tth).toFixed(4));
+        const man = manualByTth.get(Number(peak.tthObs ?? peak.tth).toFixed(4));
         if (man) {
             const forced = all_calc_hkls.find(x => x.h === man.h && x.k === man.k && x.l === man.l);
             // Honour it even if that line is not the nearest; only skip when the
@@ -141,6 +148,7 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
             indexed_hkls.push({
                 h: bestMatch.hkl.h, k: bestMatch.hkl.k, l: bestMatch.hkl.l,
                 tth: peak.tth, calc_tth: bestMatch.hkl.tth,
+                tth_obs: peak.tthObs ?? peak.tth,   // measured, for display
                 // Other reflections on exactly this line (see the generator):
                 // a group forbids the LINE only if it forbids all of them.
                 coincident: bestMatch.hkl.coincident || [],
@@ -366,23 +374,34 @@ function getPeakAssignments(solution, obs_peaks, wavelength, tthError, tthMax, l
     if (!lines.length) return [];
     const zero = solution.zero_correction || 0;
     const window = tthError * 1.5;
-    const peaks = (obs_peaks || [])
-        .filter(p => typeof p.tth === 'number' && isFinite(p.tth))
-        .slice().sort((x, y) => x.tth - y.tth);
+    // Matched where the cell fit puts them (Ka1 lines at their 2-theta for this
+    // wavelength, see peaksAtWavelength), listed in measured order, and
+    // REPORTED in each peak's own frame: a Ka1 row shows its measured 2-theta,
+    // the line's position at lambda(Ka1), the residual between the two and a
+    // d-spacing from lambda(Ka1).
+    const peaks = peaksAtWavelength((obs_peaks || [])
+        .filter(p => typeof p.tth === 'number' && isFinite(p.tth)), wavelength)
+        .slice().sort((x, y) => (x.tthObs ?? x.tth) - (y.tthObs ?? y.tth));
 
     const assigned = assignNearestLines(peaks, lines, zero, window);
     const out = [];
     for (let i = 0; i < peaks.length; i++) {
         const p = peaks[i];
-        const tc = p.tth - zero;
+        const lam = p.lambdaObs || wavelength;
+        const tc = (p.tthObs ?? p.tth) - zero;
         const a = assigned[i];
         const best = a ? a.line : null;
-        const dObs = wavelength / (2 * Math.sin(tc * RAD / 2));
+        let calc = best ? best.tth : null;
+        if (best && lam !== wavelength) {
+            const s = lam / (2 * best.d);
+            calc = (s > 0 && s < 1) ? 2 * Math.asin(s) * DEG : null;
+        }
+        const dObs = lam / (2 * Math.sin(tc * RAD / 2));
         out.push({
-            tth: p.tth, tth_corr: tc,
+            tth: p.tthObs ?? p.tth, tth_corr: tc,
             h: best ? best.h : null, k: best ? best.k : null, l: best ? best.l : null,
-            calc_tth: best ? best.tth : null,
-            diff: best ? (tc - best.tth) : null,
+            calc_tth: calc,
+            diff: calc != null ? (tc - calc) : null,
             d_obs: isFinite(dObs) ? dObs : null,
             d_calc: best ? best.d : null,
             indexed: !!best
@@ -418,8 +437,13 @@ const system = solution.system;
     if (ovr.size === 0) return { error: 'no changes to apply' };
 
     const toQ = (t) => (4 * Math.sin(t * RAD / 2) ** 2) / (wavelength ** 2);
-    const peaks = (obs_peaks || []).filter(p => typeof p.tth === 'number' && isFinite(p.tth))
+    // Fitted where indexing fits them: Ka1 lines at their 2-theta for this
+    // wavelength (peaksAtWavelength), sorted on THAT value -- the q order the
+    // figures of merit below assume. Overrides and swaps are keyed by the
+    // measured 2-theta (tthObs), the value the dialog shows.
+    const peaks = peaksAtWavelength((obs_peaks || []).filter(p => typeof p.tth === 'number' && isFinite(p.tth)), wavelength)
                                    .slice().sort((x, y) => x.tth - y.tth);
+    const keyOf = (p) => (p.tthObs ?? p.tth).toFixed(4);
 
     // Every override must name exactly one peak. An override whose 2-theta
     // matches no peak (the caller changed the range between opening the dialog
@@ -427,7 +451,7 @@ const system = solution.system;
     // peaks would have been applied to both.
     const keyCount = new Map();
     for (const p of peaks) {
-        const k4 = p.tth.toFixed(4);
+        const k4 = keyOf(p);
         keyCount.set(k4, (keyCount.get(k4) || 0) + 1);
     }
     for (const k4 of ovr.keys()) {
@@ -446,7 +470,7 @@ const system = solution.system;
     const rows = [], qv = [], tthRads = [], swaps = [];
     for (let i = 0; i < peaks.length; i++) {
         const p = peaks[i];
-        const key = p.tth.toFixed(4);
+        const key = keyOf(p);
         const tc = p.tth - zero;
         let hkl = autoHkl[i];
         if (ovr.has(key)) {
@@ -455,7 +479,7 @@ const system = solution.system;
             // line, and even when it falls outside the indexing window. That is
             // the entire point: the user is overruling the nearest-line rule.
             swaps.push({
-                tth: p.tth,
+                tth: p.tthObs ?? p.tth,           // measured: the key every reader uses
                 h: man.h, k: man.k, l: man.l,      // numeric, so downstream
                 from: hkl ? `(${hkl.h},${hkl.k},${hkl.l})` : '(unindexed)',
                 to: `(${man.h},${man.k},${man.l})` // consumers need not re-parse

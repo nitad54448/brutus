@@ -18,10 +18,12 @@ self.onmessage = function(e) {
     const data = e.data;
     const { systemToSearch, peaks, wavelength, tth_error, impurity_peaks, fom_threshold, max_solutions } = data;
     // --- 2. Set up the "global" state for the functions ---
-    const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(peaks, wavelength);
+    // Ka1 lines (p.lambda) enter at their 2-theta for this wavelength, and
+    // d_min follows from the highest of THOSE values (getSortedPeaks).
+    const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q, tth_max_deg } = getSortedPeaks(peaks, wavelength);
     const N_FOR_M20 = Math.min(20, peaks.length);
     const min_m20 = 2.0;
-    const d_min = wavelength / (2 * Math.sin(Math.max(...peaks.map(p => p.tth)) * Math.PI / 360));
+    const d_min = wavelength / (2 * Math.sin(tth_max_deg * Math.PI / 360));
     // A^-2. This is 1/d_min^2, NOT a scattering vector -- see the
     // convention block at the top of js/crystallography/metric.js.
     const q_max = 1 / (d_min * d_min);

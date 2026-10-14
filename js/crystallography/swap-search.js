@@ -333,7 +333,8 @@ function _swapRound(sol, data, state, cfg) {
         cellSeen.add(key);
         cell._swaps = dims
             .map((d, k) => (r[k] === 0 ? null : {
-                tth: peaks_sorted_by_q[d.i].tth,
+                // measured 2-theta, the key manual swaps use (a Ka1 line's tth is mapped)
+                tth: peaks_sorted_by_q[d.i].tthObs ?? peaks_sorted_by_q[d.i].tth,
                 from: `(${lines[base[d.i]].h},${lines[base[d.i]].k},${lines[base[d.i]].l})`,
                 to: `(${lines[d.cands[r[k]]].h},${lines[d.cands[r[k]]].k},${lines[d.cands[r[k]]].l})`,
             }))
@@ -409,8 +410,12 @@ function combinatorialSwapSearch(sol, data, state, postMessage_func, cfgIn) {
         best = top;
 
         // Re-centre only on a real gain, otherwise every parent pays for four
-        // rounds of nothing.
-        const gained = (top.n_idx_all > (current.n_idx_all || 0)) ||
+        // rounds of nothing. The parent of round 1 carries no n_idx_all of its
+        // own (only the children are evaluated), so its count comes from the
+        // round's diagnostics -- compared against 0 it was always a "gain".
+        const curNIdx = Number.isFinite(current.n_idx_all) ? current.n_idx_all
+                      : (cands._diag ? cands._diag.parentNIdx : 0);
+        const gained = (top.n_idx_all > curNIdx) ||
                        (top.m20 > (current.m20 || 0) * cfg.ROUND_GAIN);
         if (!gained) break;
         current = top;

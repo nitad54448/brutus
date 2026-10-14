@@ -7,13 +7,21 @@
 //   - refineAndTestSolution pulls a perturbed orthorhombic cell back;
 //   - Niggli reduction undoes a unimodular transformation;
 //   - least-squares error propagation matches a Monte-Carlo estimate
-//     (orthorhombic and monoclinic).
+//     (orthorhombic and monoclinic);
+//   - Ka1 lines that carry their own wavelength (p.lambda) are indexed with
+//     it: cell, zero, Swap hkl rows and a manual refit;
+//   - the final sieve keeps the most symmetric description of a lattice, or
+//     both, marked as a pair, when a less symmetric one fits clearly better
+//     (js/indexing/solutions.js).
 //
 //   node regression_test.mjs          exit code 0 = all passed
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import vm from 'vm';
 
-const ROOT = new URL('.', import.meta.url).pathname;
+// The app root: this script's directory, or its parent when the script lives
+// in tests/ (it used to assume the former and failed with ENOENT on js/...).
+const HERE = new URL('.', import.meta.url).pathname;
+const ROOT = existsSync(HERE + 'js/crystallography/manifest.js') ? HERE : new URL('..', import.meta.url).pathname;
 const read = (p) => readFileSync(ROOT + p, 'utf8');
 
 // ---- load the crystallography scripts the way a worker does ----------------
@@ -162,6 +170,137 @@ function esdCheck(system, cell, coeffs, hkls, names) {
     const hkls = [];
     for (let h = -3; h <= 3; h++) for (let k = 0; k <= 3; k++) for (let l = -3; l <= 3; l++) if (h || k || l) hkls.push([h, k, l]);
     esdCheck('monoclinic', cell, coeffs, hkls.slice(0, 40), [['a', 's_a'], ['c', 's_c'], ['beta', 's_beta']]);
+}
+
+// ---- 5. Ka1 lines carry their own wavelength (p.lambda) -----------------------
+// With a K-alpha AVERAGE preset and no stripping, a peak whose Ka2 companion
+// was identified is a pure Ka1 line and carries p.lambda = lambda(Ka1). The
+// fit has to use it: those lines used to be indexed with the average, which
+// left the cell 0.08 % too large (Cu) with a normal-looking M(20).
+{
+    const KA1 = 1.54056, KAVG = 1.54184, Z = 0.02;
+    const truth = { a: 5.4309, b: 5.4309, c: 5.4309, alpha: 90, beta: 90, gamma: 90, system: 'cubic' };
+    // Below 60 deg the doublet is unresolved and the peak sits at the average
+    // position; above, it is resolved and the picked peak is the Ka1 line.
+    // Every measured position carries the zero error Z.
+    const peaks = W.generateHKL_for_analysis(truth, KA1, 140).map(L => {
+        const resolved = L.tth > 60;
+        const t = 2 * Math.asin((resolved ? KA1 : KAVG) / (2 * L.d)) * 180 / Math.PI + Z;
+        return resolved ? { tth: t, height: 100, lambda: KA1 } : { tth: t, height: 100 };
+    }).filter(p => p.tth < 140);
+    // refineAndTestSolution polishes a trial cell (pairing happens against the
+    // TRIAL cell's lines), so each fit starts from the cell a search would hand it.
+    const fitWith = (pk, a0) => {
+        const sorted = W.getSortedPeaks(pk, KAVG);
+        const d_min = KAVG / (2 * Math.sin(sorted.tth_max_deg * Math.PI / 360));
+        const state = { ...sorted, N_FOR_M20: Math.min(20, pk.length), min_m20: 2.0, q_max: 1 / (d_min * d_min),
+                        d_min, foundSolutions: [], foundSolutionMap: new Map(), diag: {} };
+        const out = [];
+        W.refineAndTestSolution({ ...truth, a: a0 }, { ...baseData(pk), wavelength: KAVG, refineZero: true }, state, (m) => out.push(m));
+        const s = out.find(m => m.type === 'solution');
+        return s && s.payload;
+    };
+    const nKa1 = peaks.filter(p => p.lambda).length;
+    const p = fitWith(peaks, truth.a);
+    check(`Ka1 lines indexed with lambda(Ka1): a and zero (${nKa1} of ${peaks.length} peaks are Ka1)`,
+          !!p && near(p.a, truth.a, 2e-4) && near(p.zero_correction, Z, 3e-3),
+          p ? `a=${p.a.toFixed(5)} Z=${p.zero_correction.toFixed(4)} M20=${p.m20.toFixed(1)}` : 'rejected');
+    // What the old code did: the same peaks without p.lambda, refined from the
+    // cell the search then found (the Ka1 lines read at the average wavelength).
+    // The resolved and unresolved lines then disagree: no cell fits both, so
+    // the refit either fails or keeps a cell that is too large.
+    const old = fitWith(peaks.map(({ lambda, ...rest }) => rest), truth.a * KAVG / KA1);
+    check('  the same peaks without p.lambda: rejected, or a cell too large (the old behaviour)',
+          !old || old.a - truth.a > 1e-3, old ? `a=${old.a.toFixed(5)} M20=${old.m20.toFixed(1)}` : 'rejected (M20 = 0)');
+
+    // Swap hkl rows and refits: a Ka1 line is listed at its MEASURED 2-theta,
+    // against its line's Ka1 position, with a d-spacing from lambda(Ka1); and a
+    // manual assignment keyed by that measured value finds it.
+    const X = expose(['getPeakAssignments', 'refineWithManualHkl']);
+    if (p) {
+        const rows = X.getPeakAssignments(p, peaks, KAVG, 0.03, 140);
+        const ka1Rows = rows.filter(r => peaks.some(q => q.lambda && Math.abs(q.tth - r.tth) < 1e-9));
+        const worst = Math.max(...ka1Rows.map(r => Math.abs(r.diff)));
+        const worstD = Math.max(...ka1Rows.map(r => Math.abs(r.d_obs / r.d_calc - 1)));
+        check('getPeakAssignments: Ka1 rows at the measured 2-theta, residuals in their own frame',
+              ka1Rows.length === nKa1 && ka1Rows.every(r => r.indexed) && worst < 0.005 && worstD < 1e-4,
+              `${ka1Rows.length} Ka1 rows, max |diff| ${worst.toFixed(4)} deg, max |d_obs/d_calc - 1| ${worstD.toExponential(1)}`);
+        const top = ka1Rows[ka1Rows.length - 1];
+        const res = top && X.refineWithManualHkl(p, peaks, [{ tth: top.tth, h: top.h, k: top.k, l: top.l }], KAVG, 0.03, 140, true, 0);
+        check('refineWithManualHkl: override keyed by the measured 2-theta of a Ka1 line',
+              !!res && !res.error && near(res.cell.a, truth.a, 2e-4) && res.swaps.length === 1 && res.swaps[0].tth === top.tth,
+              res ? (res.error || `a=${res.cell.a.toFixed(5)} swap @ ${res.swaps[0].tth.toFixed(4)}`) : 'no Ka1 row');
+    }
+}
+
+// ---- 6. Final sieve: the more symmetric description of a lattice is kept ------
+// applyFinalSieve lives in js/indexing/solutions.js (main thread, next to DOM
+// code), so the sieve block is taken from the real source, as check_pipeline
+// does for run.js, and run against the crystallography loaded above.
+{
+    const src = read('js/indexing/solutions.js');
+    const i0 = src.indexOf('const SIEVE_SYMMETRY_RANK'), i1 = src.indexOf('const sortSolutions');
+    if (i0 < 0 || i1 < i0) {
+        check('final sieve: block found in js/indexing/solutions.js', false, 'markers not found');
+    } else {
+        vm.runInContext('var showStatus = () => {};\n' + src.slice(i0, i1) + '\nglobalThis.__sieve = applyFinalSieve;', ctx);
+        const sieve = ctx.__sieve;
+        const vol = (s) => s.system === 'hexagonal' ? Math.sqrt(3) / 2 * s.a * s.a * s.c
+                         : (s.a * (s.b ?? s.a) * (s.c ?? s.a)) * Math.sin((s.beta ?? 90) * Math.PI / 180);
+        const S = (o) => ({ zero_correction: 0, _fitContext: 'x', ...o, volume: vol(o) });
+        const show = (out) => out.map(s => `${s.system}${s.lattice === 'R' ? '(R)' : ''} a=${s.a}${s.c ? ' c=' + s.c : ''}`).join('; ');
+        // Si: the cubic cell, a pseudo-cubic tetragonal one (same volume) and
+        // the R cell with alpha = 90 (3x the volume), M(20) as measured.
+        let out = sieve([S({ system: 'tetragonal', a: 5.4310, c: 5.4320, m20: 1518 }),
+                         S({ system: 'hexagonal', lattice: 'R', a: 7.6800, c: 9.4069, m20: 1427 }),
+                         S({ system: 'cubic', a: 5.4310, m20: 1054 })]);
+        check('final sieve: Si kept as cubic over tetragonal c = a and R (alpha 90)',
+              out.length === 1 && out[0].system === 'cubic', show(out));
+        // F-centred cubic: R cell with alpha = 60 (3/4 of the volume), tetragonal a = c.
+        out = sieve([S({ system: 'hexagonal', lattice: 'R', a: 8.2021, c: 20.0938, m20: 760 }),
+                     S({ system: 'tetragonal', a: 11.6001, c: 11.6001, m20: 244.5 }),
+                     S({ system: 'cubic', a: 11.6001, m20: 243.9 })]);
+        check('final sieve: F-cubic kept as cubic over R (alpha 60) and tetragonal a = c',
+              out.length === 1 && out[0].system === 'cubic', show(out));
+        // A lower-symmetry cell that fits clearly better (M20 x4, a genuine
+        // distortion or not) is kept AND the cubic one is listed beside it,
+        // each marked with the other, for the user to decide.
+        out = sieve([S({ system: 'tetragonal', a: 4.0000, c: 4.0060, m20: 400 }),
+                     S({ system: 'cubic', a: 4.0020, m20: 100 })]);
+        const tet = out.find(s => s.system === 'tetragonal'), cub = out.find(s => s.system === 'cubic');
+        check('final sieve: a clearly better lower-symmetry cell is kept, with the cubic one beside it',
+              out.length === 2 && !!tet && !!cub && tet._symAlt && tet._symAlt[0].system === 'cubic' &&
+              cub._symAltOf && cub._symAltOf[0].system === 'tetragonal', show(out));
+        // The 50-row cap never keeps one of such a pair without the other.
+        const filler = Array.from({ length: 49 }, (_, i) => S({ system: 'cubic', a: 5.05 + 0.1 * i, m20: 1000 - i }));
+        out = sieve([...filler, S({ system: 'tetragonal', a: 4.0000, c: 4.0060, m20: 400 }),
+                     S({ system: 'cubic', a: 4.0020, m20: 100 })]);
+        check('final sieve: the result cap keeps both cells of a pair',
+              out.length === 51 && out.some(s => s.system === 'tetragonal') && out.some(s => s.a === 4.0020),
+              `${out.length} kept`);
+        // Monoclinic fits best; tetragonal is listed beside it, then the cubic
+        // cell replaces the tetragonal one (within 2x of it): the monoclinic
+        // cell is paired with the cubic one only, no mark names the dropped cell.
+        const monTet = sieve([S({ system: 'monoclinic', a: 4.0000, b: 4.0010, c: 4.0060, beta: 90.1, m20: 400 }),
+                              S({ system: 'tetragonal', a: 4.0000, c: 4.0060, m20: 150 })]);
+        out = sieve([S({ system: 'monoclinic', a: 4.0000, b: 4.0010, c: 4.0060, beta: 90.1, m20: 400 }),
+                     S({ system: 'tetragonal', a: 4.0000, c: 4.0060, m20: 150 }),
+                     S({ system: 'cubic', a: 4.0020, m20: 100 })]);
+        const mon = out.find(s => s.system === 'monoclinic'), cub2 = out.find(s => s.system === 'cubic');
+        check('final sieve: a replaced cell leaves no pair mark behind',
+              monTet.length === 2 && monTet.every(s => s._symAlt || s._symAltOf) &&   // the pair being replaced
+              out.length === 2 && !!mon && !!cub2 && mon._symAlt && mon._symAlt.length === 1 &&
+              mon._symAlt[0].system === 'cubic' && cub2._symAltOf && cub2._symAltOf[0].system === 'monoclinic',
+              show(out) + (mon && mon._symAlt ? ' | mono marks: ' + mon._symAlt.map(o => o.system).join(',') : ''));
+        // Equal volumes, different lattices: both stay (the help's example).
+        out = sieve([S({ system: 'orthorhombic', a: 4, b: 5, c: 6, m20: 50 }),
+                     S({ system: 'orthorhombic', a: 3, b: 5, c: 8, m20: 40 })]);
+        check('final sieve: distinct lattices of equal volume are both kept', out.length === 2, show(out));
+        // A real R lattice (corundum) is not taken for a cubic one.
+        out = sieve([S({ system: 'hexagonal', lattice: 'R', a: 4.7589, c: 12.991, m20: 300 }),
+                     S({ system: 'cubic', a: 4.2, m20: 20 })]);
+        check('final sieve: a non-cubic R cell is kept beside an unrelated cubic one', out.length === 2, show(out));
+    }
 }
 
 console.log(failures ? `\n${failures} test(s) FAILED` : '\nAll regression tests passed.');

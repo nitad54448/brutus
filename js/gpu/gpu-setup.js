@@ -17,7 +17,8 @@
 //                               (hklBasisMax). K is the number of unknown
 //                               cell parameters. At the default 5 this gives
 //                               ortho 15% (329), mono 20% (114), tri 30% (37),
-//                               i.e. the old hand-tuned defaults.
+//                               i.e. the old hand-tuned defaults. Cubic
+//                               always uses its whole list (minPercent).
 //   Depth                    -- peaks combined = peakFactor x (K + Depth):
 //                               orthorhombic/monoclinic/triclinic K + Depth
 //                               (Depth 3: 6, 7, 9 peaks); cubic, hexagonal,
@@ -41,9 +42,21 @@
 //                 the first 4-5 lines all come from one zone (00l of a long c
 //                 axis, hk0 of a long a axis) the second parameter cannot be
 //                 solved from them at all. The old CPU search used 12 peaks.
+//   minPercent    smallest basis, in % of the system's maximum, whatever the
+//                 "% / unknown" setting asks for. Cubic searches its whole
+//                 list (752 hkl, 9,024 trials at Depth 3) instead of 5 % (38
+//                 hkl, 456 trials): it sends a few dozen candidates to
+//                 refinement either way, so the full list costs nothing.
+//                 Hexagonal and tetragonal stay on the setting. Their cost is
+//                 the CPU refinement of what the GPU passes, mostly supercells
+//                 of small cells, not the GPU: on Si, rutile and ZnO a 20 % or
+//                 40 % basis (4-16x the trials) filled the 100k candidate
+//                 buffer (search truncated) and took about 3x as long (in
+//                 software WebGPU), and on nine test cells (large, long-c and
+//                 R lattices included) it found nothing the 10 % basis missed.
 // ------------------------------------------------------------------
 const SEARCH_SYSTEMS = {
-    cubic:        { K: 1, label: 'Cubic',        shortLabel: 'Cubic',  permutations: 1,   peakFactor: 3, cpuFallback: true,  fomFullList: true,  splitSpecialHkls: false },
+    cubic:        { K: 1, label: 'Cubic',        shortLabel: 'Cubic',  permutations: 1,   peakFactor: 3, minPercent: 100, cpuFallback: true,  fomFullList: true,  splitSpecialHkls: false },
     hexagonal:    { K: 2, label: 'Hexagonal',    shortLabel: 'Hex',    permutations: 2,   peakFactor: 3, cpuFallback: true,  fomFullList: true,  splitSpecialHkls: false },
     tetragonal:   { K: 2, label: 'Tetragonal',   shortLabel: 'Tetra',  permutations: 2,   peakFactor: 3, cpuFallback: true,  fomFullList: true,  splitSpecialHkls: false },
     orthorhombic: { K: 3, label: 'Orthorhombic', shortLabel: 'Ortho',  permutations: 6,   peakFactor: 1, cpuFallback: false, fomFullList: false, splitSpecialHkls: true },
@@ -290,6 +303,8 @@ const planGpuSearch = (system, nPeaksAvailable = Infinity, settings = null) => {
     // for those two systems the floor is all axials + MIN_MIXED_HKL mixed.
     let floor = Math.max(10, 2 * K);
     if (cfg.splitSpecialHkls) floor = Math.max(floor, axialHklCount(system) + MIN_MIXED_HKL);
+    // Cubic: its whole list, at any setting (see minPercent).
+    if (cfg.minPercent) floor = Math.max(floor, Math.round(max * cfg.minPercent / 100));
     floor = Math.min(max, floor);
     const nHkl = Math.min(max, Math.max(floor, Math.round(max * requestedPercent / 100)));
     const percent = 100 * nHkl / max;

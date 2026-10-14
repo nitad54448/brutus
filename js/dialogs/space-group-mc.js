@@ -38,6 +38,10 @@ let sgSelectedMemberIdx = 0; // Tracks which specific space group chip is select
 let sgSortKey = 'score';
 let sgSortDir = -1;
 let sgParent = null;
+// The solution object itself, for placing the added child next to it.
+// sgParent is withoutLattice(parent), which is a COPY for an R cell, so
+// solutions.indexOf(sgParent) found nothing and the child went to the end.
+let sgParentSource = null;
 const sgOverlay = document.getElementById('sg-overlay');
 const sgMsg = document.getElementById('sg-msg');
 const sgRunBtn = document.getElementById('sg-run');
@@ -67,9 +71,10 @@ const sgBuildInputs = () => {
     if (pk.length < 6) return { error: 'Not enough peaks in the 2-theta range (need at least 6).' };
     if (!isFinite(wl) || wl <= 0) return { error: 'Invalid wavelength.' };
 
+    // Ka1 lines (p.lambda) are mapped to this wavelength inside
+    // getSortedPeaks; d_min follows from the mapped maximum.
     const sorted = getSortedPeaks(pk, wl);
-    const maxTth = Math.max(...pk.map(p => p.tth));
-    const d_min = wl / (2 * Math.sin(maxTth * Math.PI / 360));
+    const d_min = wl / (2 * Math.sin(sorted.tth_max_deg * Math.PI / 360));
     if (!isFinite(d_min) || d_min <= 0) return { error: 'Could not derive d_min from the peak list.' };
 
     return {
@@ -278,6 +283,7 @@ document.getElementById('ctx-sg').addEventListener('click', () => {
     // hexagonal lattice, so the R-forbidden lines are there to be found empty
     // (see latticeLineFilter in js/crystallography/hkl.js).
     sgParent = withoutLattice(parent);
+    sgParentSource = parent;
     sgRows = [];
     sgSelectedSig = null;
     sgSelectedMemberIdx = 0;
@@ -347,7 +353,11 @@ sgRunBtn.addEventListener('click', () => {
     let wilson = null;
     try { wilson = sgWilsonContext(frame, inp.data, inp.state, parent.system); }
     catch (err) { wilson = null; }
-    const shared = { frame, ictx, wilson };
+    // impurityAllowance and refineZero are read by sgScoreClass() when it
+    // picks the best cell within a class, and were never passed, so that
+    // choice was made with no impurity allowance and no zero parameter while
+    // the final ranking (sgRankRows) used both.
+    const shared = { frame, ictx, wilson, impurityAllowance: inp.imp, refineZero: inp.rz };
     // sgRescoreAll() needs the frame (for the shared position count that
     // fixes epsBase for every row alike) and the Wilson context (to re-solve
     // lambda against the same reference class it takes p from). Both are
@@ -531,6 +541,9 @@ sgAddBtn.addEventListener('click', () => {
     if (inp.error) { sgSay(inp.error, true); return; }
 
     const child = { ...row.cell };
+    // A sieve pair mark (js/indexing/solutions.js) belongs to the parent row,
+    // not to a cell derived from it.
+    delete child._symAlt; delete child._symAltOf;
     child.system = parent.system;
     child.manualSwaps = parent.manualSwaps || [];
     // Provenance: which hypothesis produced this cell. The cell was refined
@@ -563,7 +576,7 @@ sgAddBtn.addEventListener('click', () => {
                                                    inp.wl, inp.te, inp.tMax, inp.imp, inp.tMin);
     } catch (err) { child.analysis = null; }
 
-    const parentIdx = solutions.indexOf(parent);
+    const parentIdx = solutions.indexOf(sgParentSource || parent);
     if (parentIdx >= 0) solutions.splice(parentIdx, 0, child);
     else solutions.push(child);
     displayedSolutions = [...solutions];

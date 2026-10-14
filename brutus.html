@@ -483,7 +483,7 @@
                      in js/gpu/gpu-setup.js), PER UNKNOWN cell parameter:
                      at 5, cubic uses 5%, hexagonal 10%, orthorhombic 15%,
                      monoclinic 20%, triclinic 30%. -->
-                <label for="gpu-hkl-percent" class="control-label" title="HKL basis searched, in percent of each system's maximum, per unknown cell parameter. The search basis is (number of unknowns) x this value %: at 5, cubic 5%, tetragonal/hexagonal 10%, orthorhombic 15%, monoclinic 20%, triclinic 30%. Typical range 2 to 12.">HKL Basis (% / unknown)</label>
+                <label for="gpu-hkl-percent" class="control-label" title="HKL basis searched, in percent of each system's maximum, per unknown cell parameter. The search basis is (number of unknowns) x this value %: at 5, tetragonal/hexagonal 10%, orthorhombic 15%, monoclinic 20%, triclinic 30%. Cubic always searches its whole list (752 hkl), which costs next to nothing. Typical range 2 to 12.">HKL Basis (% / unknown)</label>
                 <input type="number" id="gpu-hkl-percent" value="5" min="1" max="16" step="0.5" class="control-input">
             </div>
             <div>
@@ -610,7 +610,7 @@
 
     <div id="status-box"></div>
 
-<div id="app-footer">Brutus, 10 Oct 2026</div>
+<div id="app-footer">Brutus, 13 Oct 2026</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-swap">Swap hkl</div>

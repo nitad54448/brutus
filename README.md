@@ -83,18 +83,23 @@ something behaves the way it does.
 ## Quick start
 
 1. **Load a data file.** Two-column text (`.xy`, `.csv`, `.txt`; a header line
-   such as `Wavelength 0.79764` is picked up), `.xrdml`, Bruker RawData `.xml`
+   such as `Wavelength 0.79764` is picked up, and numbers may be written in
+   scientific notation, as `numpy.savetxt` does), `.xrdml`, Bruker RawData `.xml`
    (the XML inside a `.brml`, unzipped), `.ras`, `.uxd`, `.udf`, GSAS (`.gsa`,
    `.esd`, `.std`, `.xra`), FullProf `.dat` and pdCIF. When the file records its
    radiation, the matching preset is selected: a Kα doublet gives the Kα-average
-   preset (and Kα₂ stripping), a monochromated Kα1 line the Kα1 preset.
-2. **Detect peaks.** Adjust `Min peak (%)`, `Radius (pts)` and `Points` until
-   the marks match what you see.
+   preset (Kα₂ stripping becomes available, but stays off), a monochromated Kα1
+   line the Kα1 preset. A file that fails to load replaces nothing: the current
+   pattern, peaks and solutions are kept.
+2. **Detect peaks.** Adjust `Min peak (%)`, `Prom. (%)`, `Radius (Å⁻¹)` and
+   `Smooth. (Å⁻¹)` until the marks match what you see.
 3. **Curate the peak list.** This is the step that decides whether indexing
-   works. Fix positions, delete impurity lines and Kα₂ shoulders, add anything
-   the detector missed with `Ctrl + Click`. Fifteen to twenty clean peaks, with
-   nothing spurious at low angle, is the target.
-4. **Set parameters.** Radiation preset, `Strip K-alpha2` if you want it,
+   works. Fix positions, delete impurity lines and any Kα₂ peak that was not
+   flagged (keep the yellow, flagged ones; see *Kα₂ doublets* below), add
+   anything the detector missed with `Ctrl + Click`. Fifteen to twenty clean
+   peaks, with nothing spurious at low angle, is the target.
+4. **Set parameters.** Radiation preset, `Strip K-alpha2` whenever the Kα
+   doublet is resolved in your pattern (see *Kα₂ doublets* below),
    a chemically sensible `Max Volume`, and a `2θ Error` that matches your data
    (≈0.02° synchrotron, ≈0.05° typical lab). Then pick the crystal systems:
    every checked system is searched, one after the other. All are checked by
@@ -102,7 +107,42 @@ something behaves the way it does.
    under the search parameters show, for each checked system, the HKL basis,
    the number of peaks combined and the number of trials, before you start.
 5. **Index.** Sort the solutions by M(20) and click a row to overlay the
-   calculated tick marks on your pattern.
+   calculated tick marks on your pattern. Of two descriptions of the same
+   lattice the more symmetric one is kept; when the less symmetric one fits
+   more than twice as well (M(20)), both are listed, marked ≡ with each
+   other's system: decide whether the distortion is real, and erase the other.
+
+---
+
+## Kα₂ doublets
+
+With a Kα-average preset and `Strip K-alpha2` off, Brutus flags resolved Kα₂
+peaks (yellow rows) and keeps them out of indexing. Their Kα₁ parents (rows
+marked `*`) are pure Kα₁ lines, so they are indexed and refined with λ(Kα₁);
+every other peak uses the wavelength in the `Wavelength (Å)` box, the Kα
+average, which is right for an unresolved doublet. The same rule holds in the
+Refine MC, Swap hkl and Space Group MC dialogs, the absence analysis and the
+PDF report, and the plot draws those lines at their Kα₁ positions. Keep the
+yellow rows in the list: they are what marks their parents as Kα₁ lines.
+
+Until 13 October 2026 only the displayed d-spacing used λ(Kα₁): the fit read
+those lines at the average, so on resolved doublets the cell came out too
+large by λ(avg)/λ(Kα₁) − 1 (0.08 % for Cu, 0.20 % for Mo) with a normal
+M(20). On synthetic Cu Kα patterns of a cubic cell with a = 5.4309 Å:
+
+| Pattern | Flagged, before | Flagged, now | Stripped |
+|---|---|---|---|
+| all doublets resolved, zero 0.06° | 5.4354 | 5.4309 | 5.4309 |
+| low angle unresolved, high angle resolved, zero 0.04° | 5.4361 | 5.4305 | 5.4309 |
+
+Only a peak whose Kα₂ companion was found gets λ(Kα₁). A resolved Kα₁ line
+whose companion was not picked, or a partly resolved peak whose maximum sits
+between the two lines, stays at the average and now shows up as a misfit (a
+lower M(20)) instead of scaling the whole cell. Add the missed companion with
+`Ctrl + Click` on its shoulder (`Snap` off) and the pair is recognised.
+**Stripping Kα₂ remains the most accurate route**: every peak moves to its Kα₁
+position and the wavelength switches to λ(Kα₁). A Kα₁ preset flags nothing, so
+with one, delete any Kα₂ peaks by hand.
 
 ---
 
@@ -132,7 +172,7 @@ The search parameters are shared by all systems and rarely need touching:
 
 | Setting | Default | Effect |
 |---|---|---|
-| `HKL Basis (% / unknown)` | 5 | Size of the HKL basis, in percent of each system's full list, per unknown cell parameter: 5 % for cubic (1 unknown), 10 % for tetragonal and hexagonal, 15 % for orthorhombic, 20 % for monoclinic, 30 % for triclinic. Orthorhombic and monoclinic never go below all 36 axial reflections plus 40 mixed ones. Typical range 2–12. |
+| `HKL Basis (% / unknown)` | 5 | Size of the HKL basis, in percent of each system's full list, per unknown cell parameter: 10 % for tetragonal and hexagonal (2 unknowns), 15 % for orthorhombic, 20 % for monoclinic, 30 % for triclinic. Cubic always searches its whole list (752 hkl, 9,024 trials), which costs next to nothing. Orthorhombic and monoclinic never go below all 36 axial reflections plus 40 mixed ones. Typical range 2–12. |
 | `Depth` | 3 | Peaks combined = number of unknowns + Depth: 6 for orthorhombic, 7 for monoclinic, 9 for triclinic. Cubic, tetragonal and hexagonal have only one or two unknowns and use three times that: 12 and 15. Always capped by the peaks you have picked. |
 | `FoM Tolerance` | 1.25 | Threshold of the GPU pre-filter. Lower is stricter. |
 | `Candidates` | 100 | Candidate buffer, in thousands of cells, per system. |
@@ -215,9 +255,9 @@ failed build leaves the previous `sg_ops.json` in place. Three commands let you
 check it without trusting me:
 
 ```bash
-python build_sg_db.py --self-test        # checks the maths, no cctbx needed
+python build_sg_db.py --self-test         # checks the maths, no cctbx needed
 python build_sg_db.py --check sg_ops.json # re-verifies a finished file
-node check_sg_ops.mjs sg_ops.json         # checks the app can consume it
+node tests/check_sg_ops.mjs sg_ops.json   # checks the app can consume it
 ```
 
 `--self-test` builds eleven space groups by closing published generators,
@@ -257,12 +297,17 @@ to different indices, and applying it would be wrong.
 | Script | |
 |---|---|
 | `build_sg_db.py` | builds `sg_ops.json` from cctbx |
-| `check_sg_ops.mjs` | validates the database against the application |
-| `bump_version.py` | stamps one cache-busting `?v=` across `brutus.html` |
+| `tests/check_sg_ops.mjs` | validates the database against the application |
+| `tests/bump_version.py` | stamps one cache-busting `?v=` across `brutus.html` |
 | `test_sg_ops.mjs` | derives reflection conditions from the shipping operator code and checks them against the International Tables |
-| `check_pipeline.mjs` | verifies the app (`js/indexing/run.js`), the engine and the shaders still agree on how the HKL basis is packed, for all six systems |
-| `check_load_order.mjs` | checks that the scripts in `brutus.html` and the worker manifest load in a safe order (nothing runs before what it uses is defined) and that the two lists agree. Needs `npm install --no-save typescript` |
-| `regression_test.mjs` | Node regression tests of the crystallography code: known cubic, tetragonal, hexagonal and orthorhombic cells, Niggli reduction, and error propagation against Monte Carlo (about three minutes) |
+| `tests/check_pipeline.mjs` | verifies the app (`js/indexing/run.js`), the engine and the shaders still agree on how the HKL basis is packed, for all six systems |
+| `tests/check_load_order.mjs` | checks that the scripts in `brutus.html` and the worker manifest load in a safe order (nothing runs before what it uses is defined) and that the two lists agree. Needs `npm install --no-save typescript` |
+| `tests/regression_test.mjs` | Node regression tests of the crystallography code: known cubic, tetragonal, hexagonal and orthorhombic cells, Niggli reduction, error propagation against Monte Carlo, Kα₁ lines indexed with λ(Kα₁), and the final sieve keeping the most symmetric description of a lattice, or both when a less symmetric one fits clearly better (about three minutes) |
+
+Run the scripts in `tests/` from the app folder, the one holding `brutus.html`
+(for example `node tests/check_pipeline.mjs`): `check_pipeline.mjs`,
+`check_sg_ops.mjs` and `bump_version.py` look for the app files in the current
+directory.
 
 `test_sg_ops.mjs` and `check_pipeline.mjs` are worth running after touching the
 code they cover, because both failures are otherwise invisible: the run
@@ -279,8 +324,8 @@ runs a new one, the result is not an obvious caching error but, for example, a
 results table and a PDF report that disagree. Every URL therefore carries the
 same `?v=`: the `<script>` tags in `brutus.html`, and — through
 `js/core/version.js` — the workers, the shaders and `sg_ops.json`. Run
-`python bump_version.py` after any change; it sets every tag together and warns
-if they have drifted apart.
+`python3 tests/bump_version.py` from the app folder after any change; it sets
+every tag together and warns if they have drifted apart.
 
 ---
 
@@ -292,7 +337,7 @@ cite [https://doi.org/10.13140/RG.2.2.18182.84806](https://doi.org/10.13140/RG.2
 
 1. **M(20):** de Wolff, P. M. (1968). *J. Appl. Cryst.* **1**, 108–113.
 2. **F(N):** Smith, G. S. & Snyder, R. L. (1979). *J. Appl. Cryst.* **12**, 60–65.
-3. **Richardson–Lucy deconvolution:** Richardson, W. H. (1972). *J. Opt. Soc. Am.* **62**, 55–59; Lucy, L. B. (1974). *Astron. J.* **79**, 745.
+3. **Kα₂ elimination in q-space:** Zhang, Z. *et al.* (2026). *Measurement* **276**, 121448. Brutus started from this method and now inverts the doublet exactly, as described in `brutus_help.html`.
 4. **cctbx:** Grosse-Kunstleve, R. W., Sauter, N. K., Moriarty, N. W. & Adams, P. D. (2002). *J. Appl. Cryst.* **35**, 126–136.
 5. **Previous software:** Dragoe, N. (2001). *J. Appl. Cryst.* **34**, 535.
 
@@ -310,4 +355,4 @@ Licensed under a
   <img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-nc-nd/4.0/88x31.png" />
 </a>
 
-*This document and most of the code porting was done by an AI. Last updated: 10 October 2026.*
+*This document and most of the code porting was done by an AI. Last updated: 14 October 2026.*

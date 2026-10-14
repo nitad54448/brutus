@@ -211,6 +211,9 @@
            deliberately drained of the confident green: the cell is fine, but the
            class it assumes was not established by the absences. */
         .sol-badge.sg.sg-tied { color: #fbbf24; }
+        /* Two descriptions of one lattice kept side by side by the final sieve
+           (the lower-symmetry one fits clearly better): each names the other. */
+        .sol-badge.alt { color: #c084fc; white-space: nowrap; }
         .solutions-table th, .solutions-table td { padding: 0.5rem; text-align: left; border-bottom: 1px solid var(--border-color); vertical-align: middle;}
         .solutions-table th { background-color: #2a3547; font-weight: 600; position: sticky; top: 0;}
         .solutions-table th[data-sort] { cursor: pointer; } 

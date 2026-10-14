@@ -22,7 +22,10 @@ function logSliderToValue(position) {
 // the arrow defers the lookup to call time.
 const debouncedFindPeaks = debounce((...args) => findPeaks(...args), 250);
 const debouncedUpdateAndRedraw = debounce(() => {
+    // Raw (unstripped) data before AND after means only the wavelength moved.
+    const unchanged = workingExperimentalData === fullExperimentalData;
     updateWorkingData();
+    const dataChanged = !(unchanged && workingExperimentalData === fullExperimentalData);
     if (xrdChart) {
         if (xAxisMode === 'd' || xAxisMode === 'q') {
             rebuildPlot(true);
@@ -32,7 +35,17 @@ const debouncedUpdateAndRedraw = debounce(() => {
             setExperimentalTrace(true); // pas d'animation, sinon c'est trop lent
         }
     }
-    findPeaks();
+    // findPeaks() REPLACES pickedPeaks. A preset change or a typed wavelength
+    // that leaves the plotted data untouched must not discard hand edits --
+    // the same rule as the wavelength 'change' handler below; the callers have
+    // already re-derived d / q and the Ka2 flags for the new wavelength.
+    if (dataChanged || !peaksManuallyEdited) {
+        findPeaks();
+    } else {
+        showStatus('Wavelength changed. The background window is set in Q, so it is now stale — ' +
+                   'move a peak-finding slider to re-detect (this will discard manual peak edits).',
+                   'info', 9000);
+    }
 }, 250);
 // log slider, 
 const initialPeakThreshold = 2.0;

@@ -14,21 +14,30 @@ if (ui.fileInputLabel) ui.fileInputLabel.addEventListener('click', () => {
 ui.fileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    // Re-arm the input at once: without this, choosing the SAME file again
+    // (after fixing it, or after a failed load) fires no 'change' event.
+    e.target.value = '';
 
     const MAX_FILE_SIZE_MB = 50;
     if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
         showStatus(`Error: File is too large (>${MAX_FILE_SIZE_MB} MB).`, "error");
         ui.fileInputLabel.classList.add('error');
-        e.target.value = null; // Clear the input
         return;
     }
 
-    renderFileChip(file.name, file.size);
-    loadedFileName = file.name;
-
-    resetSessionState();
-
-    const text = await file.text();
+    // Read, parse and validate BEFORE touching the session. The chip, the
+    // file name and resetSessionState() used to come first, so a file that
+    // failed to parse wiped the peaks and solutions and renamed the chip while
+    // the previous pattern stayed plotted -- Save as then wrote the old data
+    // under the new name. A failed load now leaves the current session alone.
+    let text;
+    try {
+        text = await file.text();
+    } catch (error) {
+        showStatus(`Error reading file: ${error.message}`, "error");
+        ui.fileInputLabel.classList.add('error');
+        return;
+    }
     let parsed;
     const _perfParseEnd = perfStart('parseFile');
     try {
@@ -40,7 +49,7 @@ ui.fileInput.addEventListener('change', async (e) => {
         return;
     }
     _perfParseEnd(`(${parsed && parsed.tth ? parsed.tth.length : 0} points, ${file.name})`);
-    
+
     ui.fileInputLabel.classList.remove('error');
 
     if (!parsed || !parsed.tth || parsed.tth.length === 0) {
@@ -130,6 +139,10 @@ ui.fileInput.addEventListener('change', async (e) => {
          return;
     }
 
+    // The new pattern is good: only now does it replace the session.
+    renderFileChip(file.name, file.size);
+    loadedFileName = file.name;
+    resetSessionState();
 
     // Radiation from the file, if it records one. Parsers return the raw
     // description (doublet lines, ratio, monochromator hint or a single

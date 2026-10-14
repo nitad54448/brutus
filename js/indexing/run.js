@@ -337,7 +337,9 @@ const taskPromises = [];
 // GPU
 let qTolerancesArray, qObsArray;
 if (webgpuSystems.length > 0) {
-    const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(filteredPeaks, baseParams.wavelength);
+    // Ka1 lines (p.lambda) enter at their 2-theta for this wavelength -- see
+    // peaksAtWavelength in js/crystallography/fit.js.
+    const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q, tth_max_deg } = getSortedPeaks(filteredPeaks, baseParams.wavelength);
     // 32, not 20: the WGSL solvers cap the FoM loop at MAX_FOM_PEAKS and
     // index q_tolerances[i] for i < min(finalFomCount, MAX_FOM_PEAKS). With
     // MAX_FOM_PEAKS unified to 32 across all the shaders, a 20-length
@@ -360,8 +362,7 @@ if (webgpuSystems.length > 0) {
     // that apply to this whole run. Each worker keeps its own foundSolutionMap;
     // cross-worker duplicates are resolved by applyFinalSieve at the end of the run.
     const N_FOR_M20 = Math.min(20, filteredPeaks.length);
-    const maxTthDeg = maxOfArray(filteredPeaks.map(p => p.tth));
-    const d_min = baseParams.wavelength / (2 * Math.sin(maxTthDeg * Math.PI / 360));
+    const d_min = baseParams.wavelength / (2 * Math.sin(tth_max_deg * Math.PI / 360));
     const q_max = 1 / (d_min * d_min);
     runPool.init({
         baseParams,
@@ -768,7 +769,13 @@ if (isCurrentRun()) finalizeIndexing(false, mySessionToken);
         finalizeIndexing(false, mySessionToken);
     }
 } finally {
-    runPool.release();
+    // Only the CURRENT run may release the page-lifetime pool. A run that was
+    // stopped reaches this block late -- after its GPU chunk or a pending await
+    // returns -- and by then Stop has already terminated the pool and the user
+    // may have started a new run on it. Releasing it here un-initialised that
+    // new run's pool: its in-flight batches were dropped and every later
+    // refineBatch() became a no-op, so the new run silently refined nothing.
+    if (mySessionToken === indexingRunToken) runPool.release();
     if (mySessionToken === indexingRunToken && isIndexing) setUIState(false);
 }
 };

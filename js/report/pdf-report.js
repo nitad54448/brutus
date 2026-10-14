@@ -226,10 +226,27 @@ try {
     yPos += 5;
 
     doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+    // Same lattice as another listed cell, both kept by the final sieve (the
+    // lower-symmetry one fits more than twice as well): [=xxxx] names the other.
+    const pairMark = (sol) => {
+        const others = [...(sol._symAltOf || []), ...(sol._symAlt || [])];
+        return others.length ? `  [=${others.map(o => o.system.substring(0, 4)).join(',')}]` : '';
+    };
+    let anyPairMark = false;
+    // Parameters, then the mark: on the same line if it fits, else below.
+    const paramsWithMark = (text, mark) => {
+        if (mark && doc.getTextWidth(text + mark) > pdfWidth - 2 * margin - 75) {
+            doc.text(text, margin + 75, yPos);
+            yPos += 4;
+            doc.text(mark.trim(), margin + 75, yPos);
+        } else doc.text(text + mark, margin + 75, yPos);
+    };
     solutionsToReport.slice(0, 30).forEach(sol => {
         if (yPos > 280) { doc.addPage(); yPos = 20; }
         let paramStr = '';
         const p = sol.errors || {};
+        const mark = pairMark(sol);
+        if (mark) anyPairMark = true;
         switch (sol.system) {
              case 'cubic': paramStr = `a=${formatWithError(sol.a, p.s_a)}`; break;
              case 'tetragonal': paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`; break;
@@ -245,7 +262,7 @@ try {
                 doc.text(paramStr, margin + 75, yPos);
                 yPos += 5; 
                 paramStr = `al=${formatWithError(sol.alpha, p.s_alpha)}, be=${formatWithError(sol.beta, p.s_beta)}, ga=${formatWithError(sol.gamma, p.s_gamma)}`;
-                doc.text(paramStr, margin + 75, yPos); 
+                paramsWithMark(paramStr, mark);
                 yPos += 5;
                 return; 
         }
@@ -253,9 +270,16 @@ try {
         doc.text(sol.m20.toFixed(2), margin + 15, yPos);
         doc.text((sol.fN_20 || 0).toFixed(2), margin + 30, yPos);
         doc.text(sol.volume.toFixed(2), margin + 45, yPos);
-        doc.text(paramStr, margin + 75, yPos);
+        paramsWithMark(paramStr, mark);
         yPos += 5;
     });
+    if (anyPairMark) {
+        if (yPos > 280) { doc.addPage(); yPos = 20; }
+        doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
+        doc.text('[=xxxx] The same lattice is also listed as a xxxx cell. The lower-symmetry description fits more than twice', margin, yPos); yPos += 3.5;
+        doc.text('as well (M20); both are kept so that you can choose between them.', margin, yPos); yPos += 3.5;
+        doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+    }
 
     // ------------------------------------------------------------------
     // SPACE-GROUP DETERMINATION BLOCK
@@ -841,8 +865,25 @@ try {
         }
     
         const ambiguousHkls = (sol.analysis ? sol.analysis.ambiguousHkls : new Set()) || new Set();
-        const corrected_tth_obs = reportPeaks.map(p => ({ ...p, tth_corr: p.tth - (sol.zero_correction || 0) }));
-        const reportLines = []; 
+        const zeroCorr = sol.zero_correction || 0;
+        const corrected_tth_obs = reportPeaks.map(p => ({
+            ...p,
+            tth_corr: p.tth - zeroCorr,
+            // Where the cell fit placed the peak: a Ka1 line (p.lambda) at the
+            // 2-theta its d-spacing has at lambda, every other peak at its own
+            // (peakTthAtWavelength, js/crystallography/fit.js). Lines are
+            // MATCHED in this frame and LISTED in the peak's own.
+            tth_fit: peakTthAtWavelength(p, lambda) - zeroCorr
+        }));
+        // A calculated line in the frame of the peak it is listed against: at
+        // lambda(Ka1) for a Ka1 line, so 2th_cal and diff(2t) compare like with
+        // like (the d columns already used lambda(Ka1) for it).
+        const lineFor = (hkl, peak) => {
+            if (!hkl || !(peak.lambda > 0) || peak.lambda === lambda || !(hkl.d > 0)) return hkl;
+            const s = peak.lambda / (2 * hkl.d);
+            return (s < 1) ? { ...hkl, tth: 2 * Math.asin(s) * (180 / Math.PI) } : hkl;
+        };
+        const reportLines = [];
         const assignedHkls = new Set();
     
         const manualByTth = new Map();
@@ -858,7 +899,8 @@ try {
 
              if (corr_peak.ka2Suspect && corr_peak.ka2ParentIdx != null && pickedPeaks[corr_peak.ka2ParentIdx]) {
                  const parentPeak = pickedPeaks[corr_peak.ka2ParentIdx];
-                 const parentTthCorr = parentPeak.tth - (sol.zero_correction || 0);
+                 // The parent is a Ka1 line: find its reflection where the fit put it.
+                 const parentTthCorr = peakTthAtWavelength(parentPeak, lambda) - zeroCorr;
                  
                  let parentHkl = null; let minParentDiff = Infinity;
                  hklList.forEach(hkl => {
@@ -885,13 +927,14 @@ try {
                      }
                  }
              } else {
-                 hklList.forEach(hkl => { const diff = Math.abs(hkl.tth - corr_peak.tth_corr); if (diff < minDiff) { minDiff = diff; bestMatchHkl = hkl; } });
+                 hklList.forEach(hkl => { const diff = Math.abs(hkl.tth - corr_peak.tth_fit); if (diff < minDiff) { minDiff = diff; bestMatchHkl = hkl; } });
 
                  const _man = manualByTth.get(Number(corr_peak.tth).toFixed(4));
                  if (_man) {
                      const forced = hklList.find(x => x.h === _man.h && x.k === _man.k && x.l === _man.l);
-                     if (forced) { bestMatchHkl = forced; minDiff = Math.abs(forced.tth - corr_peak.tth_corr); isManual = true; }
+                     if (forced) { bestMatchHkl = forced; minDiff = Math.abs(forced.tth - corr_peak.tth_fit); isManual = true; }
                  }
+                 bestMatchHkl = lineFor(bestMatchHkl, corr_peak);
              }
 
              const indexWindow = tthError * 1.5;
@@ -979,8 +1022,17 @@ try {
     console.error("Failed to generate PDF:", error);
     showStatus("An error occurred during PDF generation.", 'error');
 } finally {
-    ui.reportButton.textContent = 'Generate PDF Report';
-    ui.reportButton.disabled = (solutions.length === 0);
-    document.body.style.cursor = 'default';
+    // A report can be generated from the context menu WHILE a run is in
+    // progress; the button is then the run's Stop button and must stay one
+    // (setUIState owns it until the run ends).
+    if (isIndexing) {
+        ui.reportButton.textContent = 'Stop';
+        ui.reportButton.disabled = false;
+        document.body.style.cursor = 'wait';
+    } else {
+        ui.reportButton.textContent = 'Generate PDF Report';
+        ui.reportButton.disabled = (solutions.length === 0);
+        document.body.style.cursor = 'default';
+    }
 }
 };

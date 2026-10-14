@@ -36,9 +36,12 @@
                 return;
             }
             
-            // Skip non-commented header lines (that contain letters)
+            // Skip non-commented header lines (that contain letters). An
+            // exponent marker is not a letter here: a file written as
+            // "1.000e+01 2.345e+03" (numpy.savetxt's default format) is all
+            // data, and testing the raw line rejected every row of it.
             if (!dataStarted) {
-                if (/[a-zA-Z]/.test(line)) { 
+                if (/[a-zA-Z]/.test(line.replace(/([0-9.])[eE][+-]?(?=\d)/g, '$1'))) {
                     headerLines++;
                     noteWavelength(line);
                     return;

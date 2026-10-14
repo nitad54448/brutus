@@ -367,8 +367,13 @@ function monteCarloPolish(sol, data, state, opts) {
             if (refineZero) {
                 trialZ = curZ + mcGauss(rng) * zeroStepDeg * stepMul;
                 if (!isFinite(trialZ)) continue;
-                if (trialZ < -zeroMaxDeg) trialZ = -zeroMaxDeg;
-                if (trialZ > zeroMaxDeg) trialZ = zeroMaxDeg;
+                // Envelope around the PARENT's zero, like the cell parameters'
+                // (lo/hi above). It was +/-zeroMax around 0, so a parent refined
+                // with |Z| > 0.2 deg had every trial pinned at the bound, the
+                // walk could never revisit its own zero, and Refine MC / Space
+                // Group MC silently returned "no improvement" for such cells.
+                if (trialZ < z0 - zeroMaxDeg) trialZ = z0 - zeroMaxDeg;
+                if (trialZ > z0 + zeroMaxDeg) trialZ = z0 + zeroMaxDeg;
             }
 
             const trialCell = mcParamsToCell(trialP, system, max_volume, sol.lattice);

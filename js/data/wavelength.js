@@ -244,7 +244,7 @@ const updateKa2Banner = () => {
         `Yellow rows are <b>excluded from indexing and FOM</b>, ` +
         `and count as <i>soft</i> violations in space-group analysis. ` +
         `Their ${nParents} Kα₁ parent${nParents > 1 ? 's' : ''} ` +
-        `(marked with <b>*</b>) use λ_Kα₁ for the d-spacing. ` +
+        `(marked with <b>*</b>) are indexed and refined with λ_Kα₁. ` +
         `Right-click a yellow row to confirm it as real instead.`;
 };
 //turn off stripping if no average, v 123

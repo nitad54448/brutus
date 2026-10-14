@@ -421,13 +421,58 @@ const get_hkl_search_list = (system) => {
 
     return hkl_search_list_cache[system] = hkls;
 };
+// ---- Peaks with a wavelength of their own ---------------------------------
+// With a K-alpha AVERAGE preset and no stripping, a peak whose K-alpha2
+// companion has been identified (flagKa2SuspectPeaks, js/data/wavelength.js)
+// is a pure K-alpha1 line, and recalculatePeakValues gives it p.lambda =
+// lambda(Ka1). Every other peak is at the run's wavelength (the value in the
+// Wavelength box) and carries no p.lambda.
+//
+// The cell fit works at ONE wavelength, so such a peak enters it at the 2-theta
+// where the same d-spacing appears at that wavelength:
+//     sin(theta') = sin(theta) * wavelength / p.lambda
+// which makes q = 4 sin^2(theta') / wavelength^2 = 4 sin^2(theta) / p.lambda^2
+// exactly -- the Ka1 line indexed with lambda(Ka1). Mapping at the entry
+// leaves the search, the refinement, the zero column, the tolerances and the
+// figures of merit untouched downstream. The zero error is then subtracted in
+// the mapped frame; the difference from subtracting it first is
+// Z * (wavelength/p.lambda - 1) / cos^2(theta): 0.0005 deg for Z = 0.1 deg at
+// 2-theta = 130 deg with Cu, far below any 2-theta error.
+//
+// Before this, these peaks were DISPLAYED with lambda(Ka1) (peak table, PDF
+// report) but indexed with the average, so resolved doublets gave a cell
+// 0.08 % too large for Cu (0.2 % for Mo) with a normal-looking M(20).
+function peakTthAtWavelength(p, wavelength) {
+    const lam = p && p.lambda;
+    if (!(lam > 0) || !(wavelength > 0) || lam === wavelength || !Number.isFinite(p.tth)) return p ? p.tth : NaN;
+    const s = Math.sin(p.tth * RAD / 2) * wavelength / lam;
+    return (s > 0 && s < 1) ? 2 * Math.asin(s) * DEG : p.tth;
+}
+// Copies of `peaks` in which every peak with its own wavelength sits at its
+// 2-theta for `wavelength`. The measured value is kept as tthObs (for display
+// and for matching user edits by position) and lambda moves to lambdaObs, so
+// a second pass over the result changes nothing.
+function peaksAtWavelength(peaks, wavelength) {
+    return (peaks || []).map(p => {
+        const t = peakTthAtWavelength(p, wavelength);
+        if (!p || t === p.tth) return p;
+        const { lambda, ...rest } = p;
+        return { ...rest, tth: t, tthObs: p.tth, lambdaObs: lambda };
+    });
+}
 function getSortedPeaks(peaks, wavelength) {
-    const peaks_sorted_by_q = peaks.map((p, i) => {
+    const atWl = peaksAtWavelength(peaks, wavelength);
+    const peaks_sorted_by_q = atWl.map((p, i) => {
         const q = (4 * Math.sin(p.tth * RAD / 2)**2) / (wavelength**2);
         return {...p, original_index: i, q: q};
     }).sort((a,b) => a.q - b.q);
     const q_obs = new Float64Array(peaks_sorted_by_q.map(p => p.q));
     const original_indices = peaks_sorted_by_q.map(p => p.original_index);
-    const tth_obs_rad = new Float64Array(peaks.map(p => p.tth * RAD));
-    return { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q };
+    const tth_obs_rad = new Float64Array(atWl.map(p => p.tth * RAD));
+    // Highest 2-theta on the same footing, for d_min / q_max: a Ka1 line at the
+    // top of the range sits above its measured 2-theta once mapped, and a line
+    // list cut at the measured value would leave it unindexed.
+    let tth_max_deg = -Infinity;
+    for (const p of atWl) if (p.tth > tth_max_deg) tth_max_deg = p.tth;
+    return { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q, tth_max_deg };
 }

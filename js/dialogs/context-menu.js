@@ -49,6 +49,16 @@ document.getElementById('ctx-erase').addEventListener('click', () => {
         // Remove from main list by identity, not by rendered row index.
         const k = solutions.indexOf(target);
         if (k > -1) solutions.splice(k, 1);
+        // Its partner in a sieve pair (js/indexing/solutions.js) no longer has
+        // a second description listed: drop the mark that names it.
+        if (target._symAlt || target._symAltOf) {
+            const same = (x) => x.system === target.system && x.a === target.a && x.m20 === target.m20;
+            for (const s of solutions) for (const f of ['_symAlt', '_symAltOf']) {
+                if (!s[f]) continue;
+                s[f] = s[f].filter(x => !same(x));
+                if (!s[f].length) delete s[f];
+            }
+        }
 
         // Re-sync displayed list
         displayedSolutions = [...solutions]; 
