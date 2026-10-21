@@ -1,7 +1,7 @@
 // js/peaks/peak-table.js
 // The picked-peak table and its editing.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 const updatePeakTable = () => {
@@ -58,9 +58,13 @@ ui.peakListBody.addEventListener('change', (e) => {
         const wasUserConfirmed = !!pickedPeaks[index]?.userConfirmedReal;
         const existingHeight = pickedPeaks[index]?.height; 
         
-        pickedPeaks[index] = { tth, d: 0, q: 0, height: existingHeight, userConfirmedReal: wasUserConfirmed };
+        const editedPeak = { tth, d: 0, q: 0, height: existingHeight, userConfirmedReal: wasUserConfirmed };
+        pickedPeaks[index] = editedPeak;
         peaksManuallyEdited = true;
         pickedPeaks.sort((a, b) => a.tth - b.tth);
+        if (selectedPeakIndex === index) {
+            selectedPeakIndex = pickedPeaks.indexOf(editedPeak);
+        }
         recalculatePeakValues();
         updatePeakTable();
         updateStartIndexingButtonState();

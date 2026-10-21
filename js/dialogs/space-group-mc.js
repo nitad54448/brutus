@@ -1,7 +1,7 @@
 // js/dialogs/space-group-mc.js
 // Space Group MC dialog.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // 3d. Action: Space Group MC
@@ -78,7 +78,7 @@ const sgBuildInputs = () => {
     if (!isFinite(d_min) || d_min <= 0) return { error: 'Could not derive d_min from the peak list.' };
 
     return {
-        pk, wl, te, tMin, tMax, imp, rz, nGhosts,
+        pk, inRange, wl, te, tMin, tMax, imp, rz, nGhosts,
         state: {
             q_obs: sorted.q_obs,
             original_indices: sorted.original_indices,
@@ -231,7 +231,7 @@ const sgRenderRows = (impAllowance) => {
     const displayed = sgSortForDisplay(ranked);
     sgTbody.innerHTML = displayed.map(r => sgRowHtml(r, ctx)).join('');
     const sel = sgRows.find(r => r.sig === sgSelectedSig);
-    sgAddBtn.disabled = !(sel && sel.cell && !sel.error);
+    sgAddBtn.disabled = sgRunning || !(sel && sel.cell && !sel.error);
     // mark the sorted column in the header
     const ths = document.querySelectorAll('#sg-table thead th');
     ths.forEach(th => {
@@ -546,6 +546,7 @@ sgAddBtn.addEventListener('click', () => {
     delete child._symAlt; delete child._symAltOf;
     child.system = parent.system;
     child.manualSwaps = parent.manualSwaps || [];
+    child._fitContext = `sg-mc:${row.sig}:${Date.now()}`;
     // Provenance: which hypothesis produced this cell. The cell was refined
     // against the restricted line list, so it is only meaningful alongside
     // the label -- and alongside the margin, since a cell taken from a row
@@ -572,7 +573,7 @@ sgAddBtn.addEventListener('click', () => {
     };
 
     try {
-        child.analysis = analyzeSystematicAbsences(child, inp.pk, spaceGroupData,
+        child.analysis = analyzeSystematicAbsences(child, inp.inRange || inp.pk, spaceGroupData,
                                                    inp.wl, inp.te, inp.tMax, inp.imp, inp.tMin);
     } catch (err) { child.analysis = null; }
 

@@ -2,7 +2,7 @@
 // Small generic helpers: debounce/throttle, timing, number formatting,
 // combinations, and the scattering-vector conversions used by the plot.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // debounce

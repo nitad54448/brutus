@@ -1,7 +1,7 @@
 // js/parsers/philips-udf.js
 // Philips UDF reader.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
     
@@ -42,7 +42,7 @@ if (isRawScan) {
     }
 
     if (intensity.length === 0) throw new Error("No intensity data found after RawScan in UDF file.");
-    if (startTth === undefined || stepSize === undefined) throw new Error("Could not find DataAngleRange/ScanStepSize in UDF file.");
+    if (!Number.isFinite(startTth) || !Number.isFinite(stepSize) || stepSize <= 0) throw new Error("Could not find DataAngleRange/ScanStepSize in UDF file.");
 
     const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize);
     return { tth, intensity, radiation: { ka1: wavelength, ka2, ratio } };

@@ -239,8 +239,8 @@
                 Brutus runs entirely in the browser, requiring no installation, and it can be completely run locally in a server. The program is split across several files:
             </p>
             <ul>
-                <li><code>brutus.html</code> — the application markup, controls and script loading.</li>
-                <li><code>js/</code> (UI) — the user interface as a set of small classic scripts loaded in order by <code>brutus.html</code>: <code>js/core/</code> (state, status, input reading), <code>js/data/</code> (file loading, radiation presets, Kα2 stripping, export), <code>js/parsers/</code> (one reader per file format), <code>js/peaks/</code> (background, smoothing, peak picking, the peak table), <code>js/chart/</code> (Chart.js rendering and interaction), <code>js/indexing/</code> (search coordination, solution sieving, the results table), <code>js/dialogs/</code> (Refine MC, Swap hkl, Space Group MC), <code>js/report/</code> (pdCIF and PDF report) and <code>js/main.js</code> (startup).</li>
+                <li><code>index.html</code> — the application markup, controls and script loading.</li>
+                <li><code>js/</code> (UI) — the user interface as a set of small classic scripts loaded in order by <code>index.html</code>: <code>js/core/</code> (state, status, input reading), <code>js/data/</code> (file loading, radiation presets, Kα2 stripping, export), <code>js/parsers/</code> (one reader per file format), <code>js/peaks/</code> (background, smoothing, peak picking, the peak table), <code>js/chart/</code> (Chart.js rendering and interaction), <code>js/indexing/</code> (search coordination, solution sieving, the results table), <code>js/dialogs/</code> (Refine MC, Swap hkl, Space Group MC), <code>js/report/</code> (pdCIF and PDF report) and <code>js/main.js</code> (startup).</li>
                 <li><code>js/crystallography/</code> — all crystallographic mathematics: HKL generation, Q-calculation, least-squares solvers, figure-of-merit calculations, error propagation, Niggli reduction and the space-group analysis. The same files are loaded three ways: on the main thread (post-processing and helper maths), in the CPU index worker, and in each refinement worker; <code>manifest.js</code> lists them in load order for the workers.</li>
                 <li><code>js/workers/index-worker.js</code> — the post-processing pass over GPU solutions, and the CPU fallback search of cubic/tetragonal/hexagonal cells used only when WebGPU is unavailable.</li>
                 <li><code>js/workers/refinement-worker.js</code> — a thin batch-refinement worker. GPU-found candidate cells are refined (full weighted least-squares, M(20), error propagation) not on the main thread but across a <strong>pool of these workers</strong>, sized to <code>hardwareConcurrency − 2</code> (minimum 1, at most 12) to leave cores free for the UI and the GPU driver. The pool lives for the whole page and is re-initialised for each run. Candidate cells are streamed to the pool in round-robin batches while the GPU search is still running, so refinement overlaps GPU execution.</li>
@@ -272,7 +272,7 @@
                 Reads cctbx and writes <code>sg_ops.json</code>. Requires a cctbx environment; nothing else in
                 Brutus does.
             </p>
-            <pre><code>python3 build_sg_db.py --out sg_ops.json</code></pre>
+            <pre><code>python3 scripts/build_sg_db.py --out sg_ops.json</code></pre>
             <p>
                 It walks every setting cctbx knows, extracts the exact rational symmetry operators, and
                 derives the zones and reflection conditions <em>from those operators</em>: for each operator
@@ -312,7 +312,7 @@
                         <code>crystal_system</code> is lower case, the centring letters are ones the app
                         recognises, and no text field carries a control character.</td></tr>
                 <tr><td><code>--box N</code></td>
-                    <td>Half-range of the <em>hkl</em> box used to derive and minimise the conditions (default 6).</td></tr>
+                    <td>Half-range of the <em>hkl</em> box used to derive and minimise the conditions (default 5).</td></tr>
                 <tr><td><code>--verify-box N</code></td>
                     <td>Half-range of the final check of the finished file, and of <code>--check</code>
                         (default 10, about a minute). It must cover the largest modulus (6) on every zone
@@ -356,7 +356,7 @@
 python3 tests/bump_version.py --check    # report, change nothing</code></pre>
             <p>
                 Sets the <code>?v=</code> on every versioned <code>&lt;script&gt;</code> tag in
-                <code>brutus.html</code> to one value, and warns if they currently disagree &mdash; which
+                <code>index.html</code> to one value, and warns if they currently disagree &mdash; which
                 matters for the reason set out in the note below. Run it after changing any JavaScript or
                 rebuilding the database.
             </p>
@@ -365,7 +365,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
             <p>
                 The following checks cover different parts of the application. Run the scripts available in your distribution after changing the corresponding code.
                 The scripts in <code>tests/</code> are run from the application folder (the one holding
-                <code>brutus.html</code>), as written below: <code>check_pipeline.mjs</code>,
+                <code>index.html</code>), as written below: <code>check_pipeline.mjs</code>,
                 <code>check_sg_ops.mjs</code> and <code>bump_version.py</code> look for the application files
                 in the current directory, while <code>check_load_order.mjs</code> and
                 <code>regression_test.mjs</code> find them from their own location and also run from inside
@@ -385,7 +385,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                     failures are otherwise invisible: the run completes, every candidate cell is nonsense,
                     and the search reports no solutions with no error anywhere.</li>
                 <li><code>node tests/check_load_order.mjs</code> &mdash; the UI and crystallography scripts share
-                    one global scope and run in the order <code>brutus.html</code> (and, in the workers,
+                    one global scope and run in the order <code>index.html</code> (and, in the workers,
                     <code>js/crystallography/manifest.js</code>) lists them. This checks that nothing which runs
                     while the scripts load uses a name defined by a later script, that the two lists agree, and
                     that no file is left unloaded. Needs <code>npm install --no-save typescript</code>.</li>
@@ -400,7 +400,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
 
             <div class="callout-note">
                 <strong>Versioning and the browser cache.</strong> The <code>?v=</code> query string on the
-                <code>&lt;script&gt;</code> tags in <code>brutus.html</code> exists only to force browsers to
+                <code>&lt;script&gt;</code> tags in <code>index.html</code> exists only to force browsers to
                 re-fetch a file that has changed. Its value is arbitrary — a date is merely readable — and
                 only the fact that it <em>changed</em> matters. Note that the crystallography scripts are
                 loaded three ways (see above) and each way is a separate cache entry, so a partial bump can
@@ -408,7 +408,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 That does not present as a caching problem: it presents as results that disagree between the
                 table and the report. The worker URLs are therefore derived at runtime from the query string
                 on the <code>js/core/version.js</code> tag, so the value <code>bump_version.py</code> stamps
-                into <code>brutus.html</code> busts the whole chain &mdash; and so does the fetch of <code>sg_ops.json</code>, which would
+                into <code>index.html</code> busts the whole chain &mdash; and so does the fetch of <code>sg_ops.json</code>, which would
                 otherwise be cached across a database rebuild and fail the operator check while the file on
                 disk was perfectly correct. <code>bump_version.py</code> sets all of them together and warns
                 if they have drifted apart. Keep the date in the page footer in step with it — the PDF report
@@ -1623,7 +1623,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 With zero refinement disabled, only one pairing/fit is performed and no fitted zero
                 correction is attached. With it enabled, the same up-to-two-round strategy applies to every system,
                 whether the candidate came from the GPU or from the CPU fallback. GPU
-                candidates are refined in parallel by a pool of dedicated Web Workers (see <a href="#introduction">Architecture</a>).
+                candidates are refined in parallel by a pool of dedicated Web Workers (see <a href="#overview">Architecture</a>).
             </p>
 
             <p>

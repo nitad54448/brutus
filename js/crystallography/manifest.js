@@ -1,5 +1,5 @@
 // js/crystallography/manifest.js
-// The crystallography scripts, in load order. brutus.html includes the same
+// The crystallography scripts, in load order. index.html includes the same
 // files as <script> tags (check_load_order.mjs verifies that the two lists
 // agree); the workers load them with importBrutusCrystallography().
 const BRUTUS_CRYSTALLOGRAPHY_FILES = [

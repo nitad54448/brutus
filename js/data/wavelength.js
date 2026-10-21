@@ -2,7 +2,7 @@
 // Radiation: presets, file-wavelength classification, Kα2 helpers
 // and the preset / wavelength controls.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // Kα1 / Kα2 from Bearden (1967), as tabulated in International Tables
@@ -299,9 +299,12 @@ const handleWavelengthPresetChange = (opts = {}) => {
         }
     }
     
-    debouncedUpdateAndRedraw();
-    recalculatePeakValues();
-    updatePeakTable();
+    if (!opts.onLoad && fullExperimentalData && fullExperimentalData.tth.length > 0) {
+        debouncedUpdateAndRedraw();
+        recalculatePeakValues();
+        rebuildHklList();
+        updatePeakTable();
+    }
 };
 /**
  * Handles manual edits to the wavelength input field.
@@ -337,6 +340,7 @@ const handleWavelengthValueChange = () => {
         ui.stripKa2Checkbox.disabled = true;
         debouncedUpdateAndRedraw();
         recalculatePeakValues();
+        rebuildHklList();
         updatePeakTable();
     }
 };

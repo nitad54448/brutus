@@ -1,7 +1,7 @@
 // js/dialogs/refine-mc.js
 // Refine MC dialog: Monte-Carlo polishing of one cell.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // 3c. Action: Refine MC
@@ -184,6 +184,7 @@ mcApplyBtn.addEventListener('click', () => {
             return;
         }
 
+        res._fitContext = `refine-mc:${Date.now()}`;
         try {
             res.analysis = analyzeSystematicAbsences(res, inRange, spaceGroupData, wl, te, tMax, imp, tMin);
         } catch (err) { res.analysis = null; }

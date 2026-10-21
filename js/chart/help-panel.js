@@ -1,7 +1,7 @@
 // js/chart/help-panel.js
 // The chart help panel ("?" button).
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // Chart help: click the "?" button to toggle the panel (no hover trigger).

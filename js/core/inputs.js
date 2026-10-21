@@ -3,7 +3,7 @@
 // parameter goes through readNumberInput, so a typed-but-not-blurred value
 // is clamped exactly like a validated one.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 /**
@@ -42,12 +42,7 @@ function validateNumberInput(inputEl, defaultVal = 0) {
 // see the same clamped integer. Bounds come from the input's own min/max
 // attributes so the runtime clamp can never drift from the markup.
 function getImpurityPeaks() {
-    const el = ui.impurityPeaksInput;
-    const lo = Number.isFinite(parseInt(el.min, 10)) ? parseInt(el.min, 10) : 0;
-    const hiParsed = parseInt(el.max, 10);
-    const hi = Number.isFinite(hiParsed) ? hiParsed : Infinity;
-    const raw = parseInt(el.value, 10) || 0;
-    return Math.max(lo, Math.min(raw, hi));
+    return readNumberInput(ui.impurityPeaksInput, { integer: true, fallback: 1 });
 }
 // Read a numeric <input> the way its markup says it may be read: parse it,
 // fall back to the markup default (the value="" attribute) when the field
@@ -103,12 +98,18 @@ inputsToValidate.forEach(({ id, el, integer }) => {
 if (ui.wavelength) {
     // Recalculate d-spacings if the user manually changes the wavelength (Custom mode)
     ui.wavelength.addEventListener('change', () => {
+        if (typeof handleWavelengthValueChange === 'function') handleWavelengthValueChange();
         if (pickedPeaks.length > 0) {
             recalculatePeakValues();
             updatePeakTable();
         }
-        if (xrdChart && (xAxisMode === 'd' || xAxisMode === 'q')) {
-            rebuildPlot(false);
+        if (xrdChart) {
+            if (xAxisMode === 'd' || xAxisMode === 'q') {
+                rebuildPlot(false);
+            } else {
+                rebuildHklList();
+                updateAllMarkers();
+            }
         }
     });
 }

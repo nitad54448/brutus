@@ -1,7 +1,7 @@
 // js/indexing/diagnostics.js
 // Explaining an empty result from the search diagnostics.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // ---- GPU run diagnostics -------------------------------------------------

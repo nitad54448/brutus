@@ -1,12 +1,12 @@
 // js/core/version.js
 // Cache-busting version shared by every runtime URL.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // Cache-busting query for every URL the app builds at runtime: both workers,
 // the shaders and the space-group database. It is read off this script's own
-// <script> tag, so the single ?v= that bump_version.py stamps into brutus.html
+// <script> tag, so the single ?v= that bump_version.py stamps into index.html
 // reaches all of them. With no query (a test harness, an inlined build) nothing
 // is busted, which is harmless.
 //

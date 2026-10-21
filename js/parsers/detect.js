@@ -1,7 +1,7 @@
 // js/parsers/detect.js
 // Picks the reader for a file from its content and extension.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
     const detectAndParseFile = (fileName, fileContent) => {
@@ -42,7 +42,7 @@
             },
             { // Jade MDI (treat as 2-column)
                  test: (name, content, firstLine, upper) => name.endsWith('.mdi') && (upper.includes('2-THETA, INTENSITY') || upper.startsWith('(SAMPLE')),
-                 parser: parseDataFile
+                 parser: (content) => parseDataFile(content, fileName)
             },
             { // pdCIF
                 test: (name, content) => name.endsWith('.cif') || content.includes('_pd_meas_2theta_scan'),

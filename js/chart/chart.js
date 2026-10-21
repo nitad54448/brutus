@@ -1,7 +1,7 @@
 // js/chart/chart.js
 // Chart.js setup, plugins, markers and redraws.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // Snap indicator: a dashed guide at the position a Ctrl+click would use.
@@ -155,8 +155,8 @@ const initializeChart = () => {
                                 }
                                 // A calculated tick is its own line, so it must match
                                 // essentially exactly; an observed peak only has to be
-                                // inside the user's stated 2-theta error.
-                                const tol = (di === 2) ? 1e-4 : getTthError();
+                                // inside the matching window (1.5 x 2-theta error).
+                                const tol = (di === 2) ? 1e-4 : getTthError() * 1.5;
                                 if (best && bd < tol) {
                                     lines.push(`hkl (${best.h},${best.k},${best.l})`);
                                     if (di === 1) lines.push(`\u0394 from calc: ${(tth - best.tth).toFixed(4)}\u00B0`);

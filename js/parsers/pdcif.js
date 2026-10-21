@@ -1,7 +1,7 @@
 // js/parsers/pdcif.js
 // pdCIF (powder CIF) reader.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
     // pdCIF (powder CIF). Reads the first loop that carries a 2θ column

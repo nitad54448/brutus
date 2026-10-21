@@ -1,7 +1,7 @@
 // js/indexing/worker-pool.js
 // The CPU index worker URL and the refinement worker pool.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 const setupWorker = () => {
@@ -90,6 +90,13 @@ class RefinementWorkerPool {
         const msg = e.data;
         if (!this._initialised || !this.workers.includes(w) || !msg || !msg.type) return;
         const id = msg.batchId !== undefined ? msg.batchId : msg.taskId;
+        if (id === undefined && (msg.type === 'cellError' || msg.type === 'batchError')) {
+            this._crashCount++;
+            this.onFailure(msg.message || 'Refinement worker initialization failed.');
+            console.error('Refinement worker init error:', msg.message);
+            this._removeWorker(w);
+            return;
+        }
         if (!w.activeBatches.has(id) || !this.pendingResolvers.has(id)) return;
         w.lastActivity = this._now();
         if (msg.type === 'solutions') {

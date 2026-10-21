@@ -1,7 +1,7 @@
 // js/data/export.js
 // Save-as: exports the plotted pattern in several formats.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 /* ------------------------------------------------------------------

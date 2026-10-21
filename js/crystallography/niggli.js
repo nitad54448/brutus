@@ -2,7 +2,7 @@
 // Niggli reduction and equivalent cells.
 //
 // Part of the crystallography code (formerly worker-logic.js). The same files
-// run on the main thread (brutus.html) and in both workers, which load them
+// run on the main thread (index.html) and in both workers, which load them
 // through manifest.js, so nothing here may touch the DOM.
 
 // --- SPACE GROUP / NIGGLI FUNCTIONS ---

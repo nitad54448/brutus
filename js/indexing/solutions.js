@@ -1,7 +1,7 @@
 // js/indexing/solutions.js
 // The solution ledger: intake from workers, pruning, sorting and the results table.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 ui.solutionsTableHeaders.forEach(header => {

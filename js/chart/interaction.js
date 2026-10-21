@@ -1,7 +1,7 @@
 // js/chart/interaction.js
 // Cursor snapping, click-to-add peaks and the panel resizer.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // ---- Snapping ------------------------------------------------------------

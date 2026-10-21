@@ -16,7 +16,7 @@ account, and there is no install step.
 
 ## Running it
 
-This program can be run by accessing <https://nitad54448.github.io/brutus/brutus.html>.
+This program can be run by accessing <https://nitad54448.github.io/brutus/>.
 
 If you want, you can copy all these files to a folder of your choice and run it
 from there. This is a static site, so any web server will work; you can launch
@@ -25,10 +25,10 @@ one in Visual Studio or with:
 ```bash
 cd brutus
 python -m http.server 8000
-# then open http://localhost:8000/brutus.html
+# then open http://localhost:8000/index.html
 ```
 
-Opening `brutus.html` straight off the disk (`file://`) will *not* work — the
+Opening `index.html` straight off the disk (`file://`) will *not* work — the
 app fetches the shaders and the space-group database at runtime, and browsers
 block that for local files.
 
@@ -238,7 +238,7 @@ of the 64 distinct ones.
 `sg_ops.json` is generated directly from [cctbx](https://cctbx.github.io/):
 
 ```bash
-python build_sg_db.py --out sg_ops.json
+python scripts/build_sg_db.py --out sg_ops.json
 ```
 
 You only need this if you want to rebuild the database; a working copy ships
@@ -255,8 +255,8 @@ failed build leaves the previous `sg_ops.json` in place. Three commands let you
 check it without trusting me:
 
 ```bash
-python build_sg_db.py --self-test         # checks the maths, no cctbx needed
-python build_sg_db.py --check sg_ops.json # re-verifies a finished file
+python scripts/build_sg_db.py --self-test         # checks the maths, no cctbx needed
+python scripts/build_sg_db.py --check sg_ops.json # re-verifies a finished file
 node tests/check_sg_ops.mjs sg_ops.json   # checks the app can consume it
 ```
 
@@ -282,7 +282,7 @@ to different indices, and applying it would be wrong.
 
 | File | |
 |---|---|
-| `brutus.html` | the application |
+| `index.html` | the application |
 | `brutus_help.html` | full technical documentation |
 | `js/core/`, `js/data/`, `js/parsers/`, `js/peaks/`, `js/chart/`, `js/dialogs/`, `js/report/`, `js/indexing/`, `js/main.js` | the UI: state, file readers, peak picking, chart, dialogs, exports and report, and the indexing orchestration (`js/indexing/run.js`) |
 | `js/crystallography/` | the crystallography: HKL generation, least squares, figures of merit, Niggli reduction, space-group analysis. The same files run on the main thread and in both workers; `manifest.js` lists them in load order |
@@ -296,15 +296,14 @@ to different indices, and applying it would be wrong.
 
 | Script | |
 |---|---|
-| `build_sg_db.py` | builds `sg_ops.json` from cctbx |
+| `scripts/build_sg_db.py` | builds `sg_ops.json` from cctbx |
 | `tests/check_sg_ops.mjs` | validates the database against the application |
-| `tests/bump_version.py` | stamps one cache-busting `?v=` across `brutus.html` |
-| `test_sg_ops.mjs` | derives reflection conditions from the shipping operator code and checks them against the International Tables |
+| `tests/bump_version.py` | stamps one cache-busting `?v=` across `index.html` |
 | `tests/check_pipeline.mjs` | verifies the app (`js/indexing/run.js`), the engine and the shaders still agree on how the HKL basis is packed, for all six systems |
-| `tests/check_load_order.mjs` | checks that the scripts in `brutus.html` and the worker manifest load in a safe order (nothing runs before what it uses is defined) and that the two lists agree. Needs `npm install --no-save typescript` |
+| `tests/check_load_order.mjs` | checks that the scripts in `index.html` and the worker manifest load in a safe order (nothing runs before what it uses is defined) and that the two lists agree. Needs `npm install --no-save typescript` |
 | `tests/regression_test.mjs` | Node regression tests of the crystallography code: known cubic, tetragonal, hexagonal and orthorhombic cells, Niggli reduction, error propagation against Monte Carlo, Kα₁ lines indexed with λ(Kα₁), and the final sieve keeping the most symmetric description of a lattice, or both when a less symmetric one fits clearly better (about three minutes) |
 
-Run the scripts in `tests/` from the app folder, the one holding `brutus.html`
+Run the scripts in `tests/` from the app folder, the one holding `index.html`
 (for example `node tests/check_pipeline.mjs`): `check_pipeline.mjs`,
 `check_sg_ops.mjs` and `bump_version.py` look for the app files in the current
 directory.
@@ -322,7 +321,7 @@ The page, the two workers and the GPU shaders must all come from the same build:
 if the browser serves an old crystallography file to the workers while the page
 runs a new one, the result is not an obvious caching error but, for example, a
 results table and a PDF report that disagree. Every URL therefore carries the
-same `?v=`: the `<script>` tags in `brutus.html`, and — through
+same `?v=`: the `<script>` tags in `index.html`, and — through
 `js/core/version.js` — the workers, the shaders and `sg_ops.json`. Run
 `python3 tests/bump_version.py` from the app folder after any change; it sets
 every tag together and warns if they have drifted apart.

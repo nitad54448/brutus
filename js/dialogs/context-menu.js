@@ -1,7 +1,7 @@
 // js/dialogs/context-menu.js
 // Right-click menu on the solutions table.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // Context Menu Logic

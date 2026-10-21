@@ -1,7 +1,7 @@
 // js/peaks/peak-finder.js
 // Background estimation, smoothing and peak picking.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // Convert a rolling-ball radius expressed in Q (A^-1) into a per-point

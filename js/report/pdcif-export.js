@@ -1,7 +1,7 @@
 // js/report/pdcif-export.js
 // pdCIF export of a solution.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // 4. Action: Export pdCIF

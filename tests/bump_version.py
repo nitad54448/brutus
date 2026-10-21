@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stamp one cache-busting version across every ?v= in brutus.html.
+"""Stamp one cache-busting version across every ?v= in index.html.
 
 WHY THIS EXISTS
 The page and the two workers run the same crystallography scripts. If the
@@ -9,7 +9,7 @@ not like a stale cache. One version, stamped everywhere, prevents that.
 
 WHERE THE VERSION IS USED
 
-  brutus.html    every <script src="js/...?v=..."> tag. The page loads all of
+  index.html     every <script src="js/...?v=..."> tag. The page loads all of
                  its own code through these tags.
 
   js/core/version.js
@@ -22,7 +22,7 @@ WHERE THE VERSION IS USED
                  Both workers forward their own ?v= to the crystallography files
                  they import (js/crystallography/manifest.js).
 
-So the tags in brutus.html are the only thing to edit, and they must all
+So the tags in index.html are the only thing to edit, and they must all
 match: if js/core/version.js carried an older ?v= than the crystallography
 tags, the workers would load an older build than the page.
 
@@ -38,7 +38,7 @@ import os
 import re
 import sys
 
-HTML = "brutus.html"
+HTML = "index.html"
 TAG_RX = re.compile(r'(<script\s+src="([^"?]+)\?v=)([^"]*)(")')
 
 

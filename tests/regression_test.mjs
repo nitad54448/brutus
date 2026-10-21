@@ -16,13 +16,15 @@
 //
 //   node regression_test.mjs          exit code 0 = all passed
 import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
+import { fileURLToPath } from 'url';
 import vm from 'vm';
 
 // The app root: this script's directory, or its parent when the script lives
 // in tests/ (it used to assume the former and failed with ENOENT on js/...).
-const HERE = new URL('.', import.meta.url).pathname;
-const ROOT = existsSync(HERE + 'js/crystallography/manifest.js') ? HERE : new URL('..', import.meta.url).pathname;
-const read = (p) => readFileSync(ROOT + p, 'utf8');
+const HERE = fileURLToPath(new URL('.', import.meta.url));
+const ROOT = existsSync(join(HERE, 'js/crystallography/manifest.js')) ? HERE : join(HERE, '..');
+const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 
 // ---- load the crystallography scripts the way a worker does ----------------
 const posted = [];

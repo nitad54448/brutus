@@ -1,7 +1,7 @@
 // js/core/ui.js
 // DOM references, the status toast, tab switching and the run-state lock.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 const ui = {
@@ -111,7 +111,7 @@ const setUIState = (indexing) => {
     document.body.style.cursor = indexing ? 'wait' : 'default';
     
     const controlsToDisable = [ 
-        ui.fileInput, ui.peakThresholdSlider, ui.peakProminenceSlider, ui.tthMinSlider, ui.tthMaxSlider, 
+        ui.fileInput, ui.fileChipClear, ui.peakThresholdSlider, ui.peakProminenceSlider,
         ui.ballRadiusSlider, ui.smoothingWidthSlider, ui.wavelength, ui.tthError, 
         ui.maxVolume, ui.impurityPeaksInput, ui.refineZeroCheckbox, 
         // GPU search settings: locked for the run, since each system is
@@ -122,6 +122,10 @@ const setUIState = (indexing) => {
     ];
     
     controlsToDisable.forEach(el => { if (el) el.disabled = indexing; });
+    const hasData = fullExperimentalData.tth.length > 0;
+    if (ui.tthMinSlider) ui.tthMinSlider.disabled = indexing || !hasData;
+    if (ui.tthMaxSlider) ui.tthMaxSlider.disabled = indexing || !hasData;
+    if (ui.saveAsButton) ui.saveAsButton.disabled = indexing || !hasData;
     // The strip control follows the PRESET, not just the run state. It used
     // to be in the list above, so every finished run re-enabled it -- even
     // under a custom or Ka1 preset, where ticking it strips a Ka2 that is

@@ -2,7 +2,7 @@
 // WebGPU availability, the shared engine, the per-system search table and the
 // GPU search parameter controls.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // ------------------------------------------------------------------

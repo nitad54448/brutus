@@ -1,7 +1,7 @@
 // js/data/kalpha2-strip.js
 // Kα2 stripping and the working (plotted) data.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 /**
@@ -47,7 +47,8 @@ const stripZhang = (tth, intensity, ka1, ka2, ratio) => {
             if (x_src[mid] <= target) lo = mid;
             else hi = mid;
         }
-        const t = (target - x_src[lo]) / (x_src[hi] - x_src[lo]);
+        const denom = x_src[hi] - x_src[lo];
+        const t = denom > 0 ? (target - x_src[lo]) / denom : 0;
         return y_src[lo] * (1 - t) + y_src[hi] * t;
     };
 
@@ -70,7 +71,8 @@ const stripZhang = (tth, intensity, ka1, ka2, ratio) => {
             if (x_src[mid] <= target) lo = mid;
             else hi = mid;
         }
-        const t = (target - x_src[lo]) / (x_src[hi] - x_src[lo]);
+        const denom = x_src[hi] - x_src[lo];
+        const t = denom > 0 ? (target - x_src[lo]) / denom : 0;
         const p0 = y_src[lo > 0 ? lo - 1 : 0];
         const p1 = y_src[lo];
         const p2 = y_src[hi];
@@ -173,6 +175,7 @@ const refreshAfterStripChange = () => {
             rebuildPlot(false);
         } else {
             setExperimentalTrace(false);
+            rebuildHklList();
         }
     }
 

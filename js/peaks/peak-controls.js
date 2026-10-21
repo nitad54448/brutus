@@ -1,7 +1,7 @@
 // js/peaks/peak-controls.js
 // Peak-search sliders and the 2θ range controls.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // echelle log, 0.1% c'est suffisant ?
@@ -22,6 +22,7 @@ function logSliderToValue(position) {
 // the arrow defers the lookup to call time.
 const debouncedFindPeaks = debounce((...args) => findPeaks(...args), 250);
 const debouncedUpdateAndRedraw = debounce(() => {
+    if (!fullExperimentalData || !fullExperimentalData.tth.length) return;
     // Raw (unstripped) data before AND after means only the wavelength moved.
     const unchanged = workingExperimentalData === fullExperimentalData;
     updateWorkingData();
@@ -33,6 +34,7 @@ const debouncedUpdateAndRedraw = debounce(() => {
             // Stripping and deconvolution both change the intensities, so the
             // ordinate is rescaled as well as redrawn.
             setExperimentalTrace(true); // pas d'animation, sinon c'est trop lent
+            rebuildHklList();
         }
     }
     // findPeaks() REPLACES pickedPeaks. A preset change or a typed wavelength
@@ -42,6 +44,7 @@ const debouncedUpdateAndRedraw = debounce(() => {
     if (dataChanged || !peaksManuallyEdited) {
         findPeaks();
     } else {
+        updateAllMarkers();
         showStatus('Wavelength changed. The background window is set in Q, so it is now stale — ' +
                    'move a peak-finding slider to re-detect (this will discard manual peak edits).',
                    'info', 9000);
@@ -116,7 +119,7 @@ ui.ballRadiusSlider.addEventListener('input', () => { ui.ballRadiusValue.textCon
 // purely automatic. Otherwise say the background is stale and let the user
 // decide -- any peak-finding slider re-runs the detection anyway.
 ui.wavelength.addEventListener('change', () => {
-    if (!workingExperimentalData || !workingExperimentalData.intensity) return;
+    if (!workingExperimentalData || !workingExperimentalData.intensity.length) return;
     if (!peaksManuallyEdited) {
         debouncedFindPeaks();
     } else {

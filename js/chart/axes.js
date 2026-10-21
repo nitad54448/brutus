@@ -1,7 +1,7 @@
 // js/chart/axes.js
 // Plot axis modes (2θ / θ / d / Q, linear / sqrt / log).
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // ===================== AXIS SYSTEM =====================================

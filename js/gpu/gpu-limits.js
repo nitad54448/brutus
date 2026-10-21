@@ -1,7 +1,7 @@
 // js/gpu/gpu-limits.js
 // GPU search-size limits and the Start button state.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 const UINT32_MAX = 4294967295n; // 2^32 - 1 (BigInt)

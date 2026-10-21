@@ -1,7 +1,7 @@
 // js/parsers/generic.js
 // Generic two/three-column text reader (.xy, .dat, .csv, .txt ...).
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
     /**

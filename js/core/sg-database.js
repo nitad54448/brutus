@@ -1,7 +1,7 @@
 // js/core/sg-database.js
 // Loads the space-group operator database (sg_ops.json).
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // space group, fichier crée avec Gemmi, je mets le script aussi sur git

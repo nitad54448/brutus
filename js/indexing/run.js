@@ -2,7 +2,7 @@
 // Indexing runs: startIndexing (GPU searches, CPU fallback, refinement),
 // finalizeIndexing and stopping a run.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // What the last run searched with, for the final status line and the report.

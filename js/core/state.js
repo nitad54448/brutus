@@ -1,7 +1,7 @@
 // js/core/state.js
 // Session state shared by the UI modules (data, peaks, solutions, run bookkeeping).
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // data, si Ka stripped ou pas, on copie les données

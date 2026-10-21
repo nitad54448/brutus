@@ -1,7 +1,7 @@
 // js/data/session.js
 // Session reset, the file chip and the unload dialog.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // Tabula rasa. A new file makes every previous session-scoped value (peaks,
@@ -18,6 +18,7 @@ const resetSessionState = () => {
 abortActiveIndexing();
 
 pickedPeaks = [];
+peaksManuallyEdited = false;
 solutions = [];
 displayedSolutions = [];
 selectedSolution = null;

@@ -2,7 +2,7 @@
 // Tolerances, weights, figures of merit, least squares, error propagation and peak sorting.
 //
 // Part of the crystallography code (formerly worker-logic.js). The same files
-// run on the main thread (brutus.html) and in both workers, which load them
+// run on the main thread (index.html) and in both workers, which load them
 // through manifest.js, so nothing here may touch the DOM.
 
 // Returns a tolerance in A^-2, i.e. on 1/d^2, matching q_obs / q_calc.

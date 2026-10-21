@@ -500,7 +500,7 @@ class WebGPUEngine {
             throw new Error(
                 `${cfg.systemName}: the shader declares @workgroup_size(${wg.x}, ${wg.y}, ${wg.z}) ` +
                 `but webgpu-engine.js dispatches for ${cfg.workgroupX} x ${cfg.workgroupY}. ` +
-                `The two files are out of sync -- hard-reload, or bump ?v= in brutus.html.`);
+                `The two files are out of sync -- hard-reload, or bump ?v= in index.html.`);
         }
 
         const pipeline = this.pipeline;

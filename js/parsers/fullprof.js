@@ -1,7 +1,7 @@
 // js/parsers/fullprof.js
 // FullProf free-format .dat reader.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 /**
@@ -78,7 +78,7 @@
         //       values. That alone separates this format from everything
         //       else that reaches here: two-column files have two per line
         //       and x/y/sigma files have three.
-        const slack = Math.max(2, ...perLine);
+        const slack = Math.max(2, maxOfArray(perLine));
         const countMatches = values.length >= nExpected - 1 && values.length <= nExpected + slack;
 
         const packedLines = perLine.filter(n => n >= 4).length;

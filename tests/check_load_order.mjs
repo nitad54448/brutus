@@ -1,7 +1,7 @@
 // check_load_order.mjs -- static check of the classic-script load order.
 //
 // Brutus's JavaScript is a set of classic scripts that share ONE global scope
-// and run in the order brutus.html lists them (and, in the workers, the order
+// and run in the order index.html lists them (and, in the workers, the order
 // js/crystallography/manifest.js lists them). That design has exactly one
 // failure mode that no browser reports until the code path actually runs:
 // code that executes while the scripts load (a top-level call, an initializer,
@@ -15,7 +15,7 @@
 // forEach/map callbacks, constructors of classes instantiated at load time) and
 // reports every reference to a top-level name that is not yet initialised.
 // Callbacks handed to addEventListener, setTimeout, promises etc. are treated
-// as deferred. It also checks that brutus.html and the manifest agree, that no
+// as deferred. It also checks that index.html and the manifest agree, that no
 // name is declared twice in one context, and that no file in js/ is orphaned.
 //
 //   npm install --no-save typescript      (parser only; any recent version)
@@ -24,12 +24,13 @@
 // Exit code 0 = clean, 1 = problems found, 2 = could not run.
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { join, relative } from 'path';
+import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 
 // The app root: this script's directory, or its parent when the script lives
-// in tests/ (it used to assume the former and failed with ENOENT on brutus.html).
-const HERE = new URL('.', import.meta.url).pathname;
-const ROOT = existsSync(join(HERE, 'brutus.html')) ? HERE : join(HERE, '..') + '/';
+// in tests/ (it used to assume the former and failed with ENOENT on index.html).
+const HERE = fileURLToPath(new URL('.', import.meta.url));
+const ROOT = existsSync(join(HERE, 'index.html')) ? HERE : join(HERE, '..');
 let ts;
 try {
     const require = createRequire(import.meta.url);
@@ -42,14 +43,14 @@ try {
 const read = (p) => readFileSync(join(ROOT, p), 'utf8').replace(/\r\n/g, '\n');
 
 // ---- the three load orders -------------------------------------------------
-const html = read('brutus.html');
+const html = read('index.html');
 const htmlScripts = [...html.matchAll(/<script\s+src="([^"?]+)(?:\?[^"]*)?"[^>]*>/g)]
     .map(m => m[1]).filter(p => p.startsWith('js/'));
 const manifestSrc = read('js/crystallography/manifest.js');
 const manifestFiles = [...manifestSrc.matchAll(/^\s*'([^']+\.js)',\s*$/gm)].map(m => 'js/crystallography/' + m[1]);
 
 const contexts = {
-    'main thread (brutus.html)': htmlScripts,
+    'main thread (index.html)': htmlScripts,
     'CPU index worker': ['js/crystallography/manifest.js', ...manifestFiles, 'js/workers/index-worker.js'],
     'refinement worker': ['js/crystallography/manifest.js', ...manifestFiles, 'js/workers/refinement-worker.js'],
 };
@@ -57,20 +58,20 @@ const contexts = {
 const problems = [];
 const problem = (msg) => problems.push(msg);
 
-// brutus.html must load exactly the manifest's crystallography files, in order.
+// index.html must load exactly the manifest's crystallography files, in order.
 const htmlCryst = htmlScripts.filter(p => p.startsWith('js/crystallography/'));
 if (JSON.stringify(htmlCryst) !== JSON.stringify(manifestFiles)) {
-    problem(`brutus.html and js/crystallography/manifest.js list different crystallography files:\n` +
+    problem(`index.html and js/crystallography/manifest.js list different crystallography files:\n` +
             `      html:     ${htmlCryst.join(', ')}\n      manifest: ${manifestFiles.join(', ')}`);
 }
 
 // Every .js under js/ must be loaded by something.
 const walk = (dir) => readdirSync(join(ROOT, dir)).flatMap(n => {
-    const p = join(dir, n);
+    const p = dir + '/' + n;
     return statSync(join(ROOT, p)).isDirectory() ? walk(p) : (p.endsWith('.js') ? [p] : []);
 });
 const loaded = new Set(Object.values(contexts).flat());
-for (const f of walk('js')) if (!loaded.has(f)) problem(`${f} is not loaded by brutus.html or by a worker`);
+for (const f of walk('js')) if (!loaded.has(f)) problem(`${f} is not loaded by index.html or by a worker`);
 
 // Names that cannot be redeclared with let/const/class at global scope.
 const RESTRICTED = new Set(['window', 'document', 'location', 'top', 'self', 'chrome', 'undefined', 'NaN', 'Infinity']);

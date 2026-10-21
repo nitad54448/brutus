@@ -1,7 +1,7 @@
 // js/dialogs/swap-hkl.js
 // Swap hkl dialog: manual re-assignment of reflections.
 //
-// Classic script, loaded in order by brutus.html (see the list there); its
+// Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
 // 3b. Action: Swap hkl
@@ -153,6 +153,7 @@ document.getElementById('swap-apply').addEventListener('click', () => {
     if (!res || res.error) { swapMsg.textContent = 'Refinement failed: ' + ((res && res.error) || 'unknown'); return; }
 
     const child = res.cell;
+    child._fitContext = `swap-hkl:${Date.now()}`;
     try {
         child.analysis = analyzeSystematicAbsences(child, inRange, spaceGroupData, wl, te, tMax, imp, tMin);
     } catch (err) { child.analysis = null; }
