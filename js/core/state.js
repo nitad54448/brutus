@@ -7,6 +7,7 @@
 // data, si Ka stripped ou pas, on copie les données
 let fullExperimentalData = { tth: [], intensity: [] }; // The original, unmodified data
 let loadedFileName = ''; // basename of the currently loaded file, for Save-as naming
+let fileLoadToken = 0; // only the latest file selection may replace the session
 let workingExperimentalData = { tth: [], intensity: [] }; // The data to be plotted and analyzed (raw or stripped)
 let pickedPeaks = [];
 // True once the user has hand-edited the peak list (added, deleted, moved

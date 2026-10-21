@@ -14,6 +14,7 @@ if (ui.fileInputLabel) ui.fileInputLabel.addEventListener('click', () => {
 ui.fileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    const loadToken = ++fileLoadToken;
     // Re-arm the input at once: without this, choosing the SAME file again
     // (after fixing it, or after a failed load) fires no 'change' event.
     e.target.value = '';
@@ -34,10 +35,13 @@ ui.fileInput.addEventListener('change', async (e) => {
     try {
         text = await file.text();
     } catch (error) {
+        if (loadToken !== fileLoadToken) return;
         showStatus(`Error reading file: ${error.message}`, "error");
         ui.fileInputLabel.classList.add('error');
         return;
     }
+    // A newer selection or an unload supersedes this asynchronous read.
+    if (loadToken !== fileLoadToken) return;
     let parsed;
     const _perfParseEnd = perfStart('parseFile');
     try {
@@ -101,8 +105,8 @@ ui.fileInput.addEventListener('change', async (e) => {
         return;
     }
 
-    if (tth_out.length > 1 && tth_out[0] > tth_out[tth_out.length - 1]) {
-        console.warn("Descending 2θ scan detected. Sorting ascending to prevent binary search failure...");
+    if (tth_out.some((t, i) => i > 0 && t < tth_out[i - 1])) {
+        console.warn("Unordered 2θ scan detected. Sorting ascending to prevent binary search failure...");
         const combined = tth_out.map((t, i) => ({ t, int: int_out[i] })).sort((a, b) => a.t - b.t);
         tth_out = combined.map(item => item.t);
         int_out = combined.map(item => item.int);

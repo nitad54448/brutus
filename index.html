@@ -7,74 +7,74 @@
     <!--
      27 july 2026, removed the  CDN dependencies.
     -->
-<script src="scripts/chart.umd.js"></script>
-    <script src="scripts/hammer.min.js"></script>
-    <script src="scripts/chartjs-plugin-zoom.min.js"></script>
-    <script src="scripts/jspdf.umd.min.js"></script>
+    <script src="scripts/chart.umd.js" defer></script>
+    <script src="scripts/hammer.min.js" defer></script>
+    <script src="scripts/chartjs-plugin-zoom.min.js" defer></script>
+    <script src="scripts/jspdf.umd.min.js" defer></script>
     <!-- Crystallography: the same files run in both workers, which load them
          through js/crystallography/manifest.js. Keep the two lists in step
          (check_load_order.mjs compares them). -->
-    <script src="js/crystallography/metric.js?v=20261021" defer></script>
-    <script src="js/crystallography/hkl.js?v=20261021" defer></script>
-    <script src="js/crystallography/cell.js?v=20261021" defer></script>
-    <script src="js/crystallography/fit.js?v=20261021" defer></script>
-    <script src="js/crystallography/refine.js?v=20261021" defer></script>
-    <script src="js/crystallography/transforms.js?v=20261021" defer></script>
-    <script src="js/crystallography/monte-carlo.js?v=20261021" defer></script>
-    <script src="js/crystallography/niggli.js?v=20261021" defer></script>
-    <script src="js/crystallography/absences.js?v=20261021" defer></script>
-    <script src="js/crystallography/centering.js?v=20261021" defer></script>
-    <script src="js/crystallography/sg-ranking.js?v=20261021" defer></script>
-    <script src="js/crystallography/swap-search.js?v=20261021" defer></script>
-    <script src="js/crystallography/sg-ops.js?v=20261021" defer></script>
-    <script src="js/crystallography/sg-context.js?v=20261021" defer></script>
-    <script src="js/crystallography/sg-score.js?v=20261021" defer></script>
-    <script src="js/gpu/webgpu-engine.js?v=20261021" defer></script>
+    <script src="js/crystallography/metric.js?v=20261021c" defer></script>
+    <script src="js/crystallography/hkl.js?v=20261021c" defer></script>
+    <script src="js/crystallography/cell.js?v=20261021c" defer></script>
+    <script src="js/crystallography/fit.js?v=20261021c" defer></script>
+    <script src="js/crystallography/refine.js?v=20261021c" defer></script>
+    <script src="js/crystallography/transforms.js?v=20261021c" defer></script>
+    <script src="js/crystallography/monte-carlo.js?v=20261021c" defer></script>
+    <script src="js/crystallography/niggli.js?v=20261021c" defer></script>
+    <script src="js/crystallography/absences.js?v=20261021c" defer></script>
+    <script src="js/crystallography/centering.js?v=20261021c" defer></script>
+    <script src="js/crystallography/sg-ranking.js?v=20261021c" defer></script>
+    <script src="js/crystallography/swap-search.js?v=20261021c" defer></script>
+    <script src="js/crystallography/sg-ops.js?v=20261021c" defer></script>
+    <script src="js/crystallography/sg-context.js?v=20261021c" defer></script>
+    <script src="js/crystallography/sg-score.js?v=20261021c" defer></script>
+    <script src="js/gpu/webgpu-engine.js?v=20261021c" defer></script>
     <!-- Application. Classic scripts, run in this order once the document is
          parsed (defer); they share one global scope, so a name defined in one
          is visible to the ones after it. js/main.js runs last. -->
-    <script src="js/core/version.js?v=20261021" defer></script>
-    <script src="js/core/utils.js?v=20261021" defer></script>
-    <script src="js/core/ui.js?v=20261021" defer></script>
-    <script src="js/core/state.js?v=20261021" defer></script>
-    <script src="js/core/inputs.js?v=20261021" defer></script>
-    <script src="js/data/wavelength.js?v=20261021" defer></script>
-    <script src="js/core/sg-database.js?v=20261021" defer></script>
-    <script src="js/gpu/gpu-setup.js?v=20261021" defer></script>
-    <script src="js/indexing/solutions.js?v=20261021" defer></script>
-    <script src="js/peaks/peak-controls.js?v=20261021" defer></script>
-    <script src="js/data/session.js?v=20261021" defer></script>
-    <script src="js/indexing/worker-pool.js?v=20261021" defer></script>
-    <script src="js/data/kalpha2-strip.js?v=20261021" defer></script>
-    <script src="js/data/export.js?v=20261021" defer></script>
-    <script src="js/chart/help-panel.js?v=20261021" defer></script>
-    <script src="js/parsers/fullprof.js?v=20261021" defer></script>
-    <script src="js/parsers/generic.js?v=20261021" defer></script>
-    <script src="js/parsers/xml-utils.js?v=20261021" defer></script>
-    <script src="js/parsers/bruker-xml.js?v=20261021" defer></script>
-    <script src="js/parsers/xrdml.js?v=20261021" defer></script>
-    <script src="js/parsers/rigaku-ras.js?v=20261021" defer></script>
-    <script src="js/parsers/gsas.js?v=20261021" defer></script>
-    <script src="js/parsers/uxd.js?v=20261021" defer></script>
-    <script src="js/parsers/philips-udf.js?v=20261021" defer></script>
-    <script src="js/parsers/pdcif.js?v=20261021" defer></script>
-    <script src="js/parsers/detect.js?v=20261021" defer></script>
-    <script src="js/data/file-load.js?v=20261021" defer></script>
-    <script src="js/peaks/peak-finder.js?v=20261021" defer></script>
-    <script src="js/peaks/peak-table.js?v=20261021" defer></script>
-    <script src="js/gpu/gpu-limits.js?v=20261021" defer></script>
-    <script src="js/indexing/diagnostics.js?v=20261021" defer></script>
-    <script src="js/indexing/run.js?v=20261021" defer></script>
-    <script src="js/dialogs/context-menu.js?v=20261021" defer></script>
-    <script src="js/dialogs/swap-hkl.js?v=20261021" defer></script>
-    <script src="js/dialogs/refine-mc.js?v=20261021" defer></script>
-    <script src="js/dialogs/space-group-mc.js?v=20261021" defer></script>
-    <script src="js/report/pdcif-export.js?v=20261021" defer></script>
-    <script src="js/report/pdf-report.js?v=20261021" defer></script>
-    <script src="js/chart/axes.js?v=20261021" defer></script>
-    <script src="js/chart/chart.js?v=20261021" defer></script>
-    <script src="js/chart/interaction.js?v=20261021" defer></script>
-    <script src="js/main.js?v=20261021" defer></script>
+    <script src="js/core/version.js?v=20261021c" defer></script>
+    <script src="js/core/utils.js?v=20261021c" defer></script>
+    <script src="js/core/ui.js?v=20261021c" defer></script>
+    <script src="js/core/state.js?v=20261021c" defer></script>
+    <script src="js/core/inputs.js?v=20261021c" defer></script>
+    <script src="js/data/wavelength.js?v=20261021c" defer></script>
+    <script src="js/core/sg-database.js?v=20261021c" defer></script>
+    <script src="js/gpu/gpu-setup.js?v=20261021c" defer></script>
+    <script src="js/indexing/solutions.js?v=20261021c" defer></script>
+    <script src="js/peaks/peak-controls.js?v=20261021c" defer></script>
+    <script src="js/data/session.js?v=20261021c" defer></script>
+    <script src="js/indexing/worker-pool.js?v=20261021c" defer></script>
+    <script src="js/data/kalpha2-strip.js?v=20261021c" defer></script>
+    <script src="js/data/export.js?v=20261021c" defer></script>
+    <script src="js/chart/help-panel.js?v=20261021c" defer></script>
+    <script src="js/parsers/fullprof.js?v=20261021c" defer></script>
+    <script src="js/parsers/generic.js?v=20261021c" defer></script>
+    <script src="js/parsers/xml-utils.js?v=20261021c" defer></script>
+    <script src="js/parsers/bruker-xml.js?v=20261021c" defer></script>
+    <script src="js/parsers/xrdml.js?v=20261021c" defer></script>
+    <script src="js/parsers/rigaku-ras.js?v=20261021c" defer></script>
+    <script src="js/parsers/gsas.js?v=20261021c" defer></script>
+    <script src="js/parsers/uxd.js?v=20261021c" defer></script>
+    <script src="js/parsers/philips-udf.js?v=20261021c" defer></script>
+    <script src="js/parsers/pdcif.js?v=20261021c" defer></script>
+    <script src="js/parsers/detect.js?v=20261021c" defer></script>
+    <script src="js/data/file-load.js?v=20261021c" defer></script>
+    <script src="js/peaks/peak-finder.js?v=20261021c" defer></script>
+    <script src="js/peaks/peak-table.js?v=20261021c" defer></script>
+    <script src="js/gpu/gpu-limits.js?v=20261021c" defer></script>
+    <script src="js/indexing/diagnostics.js?v=20261021c" defer></script>
+    <script src="js/indexing/run.js?v=20261021c" defer></script>
+    <script src="js/dialogs/context-menu.js?v=20261021c" defer></script>
+    <script src="js/dialogs/swap-hkl.js?v=20261021c" defer></script>
+    <script src="js/dialogs/refine-mc.js?v=20261021c" defer></script>
+    <script src="js/dialogs/space-group-mc.js?v=20261021c" defer></script>
+    <script src="js/report/pdcif-export.js?v=20261021c" defer></script>
+    <script src="js/report/pdf-report.js?v=20261021c" defer></script>
+    <script src="js/chart/axes.js?v=20261021c" defer></script>
+    <script src="js/chart/chart.js?v=20261021c" defer></script>
+    <script src="js/chart/interaction.js?v=20261021c" defer></script>
+    <script src="js/main.js?v=20261021c" defer></script>
     <link href="inter-font.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
     <style>
@@ -100,7 +100,7 @@
         height: min(760px, 90vh);
         max-width: 98vw;
         max-height: 96vh;
-        min-width: 560px;
+        min-width: min(560px, 96vw);
         min-height: 300px;
     }
     /* Long explanatory text must not squeeze the table out of existence. */
@@ -278,9 +278,9 @@
 
             <!-- Save-as format menu (mirrors the Refine MC / Swap dialogs) -->
             <div id="save-menu-overlay">
-                <div id="save-menu-modal">
-                    <h3>Save data as</h3>
-                    <p class="save-sub">Choose a format, then pick the folder and file name in the save dialog.</p>
+                <div id="save-menu-modal" role="dialog" aria-modal="true" aria-labelledby="save-menu-title" aria-describedby="save-menu-description" tabindex="-1">
+                    <h3 id="save-menu-title">Save data as</h3>
+                    <p id="save-menu-description" class="save-sub">Choose a format, then pick the folder and file name in the save dialog.</p>
                     <label class="save-field">
                         Format
                         <select id="save-format-select">
@@ -293,7 +293,7 @@
                             <option value="gsas">GSAS ESD (.esd)</option>
                         </select>
                     </label>
-                    <div id="save-menu-msg"></div>
+                    <div id="save-menu-msg" role="status" aria-live="polite"></div>
                     <div id="save-menu-buttons">
                         <button id="save-menu-cancel" class="btn btn-secondary">Cancel</button>
                         <button id="save-menu-confirm" class="btn btn-primary">Save</button>
@@ -330,7 +330,7 @@
                         <div id="peak-controls" class="hidden" style="display: flex; flex-direction: column; flex-grow: 1;">
                             
                             <div class="slider-group">
-                                <label class="control-label">Min peak (%)</label>
+                                <label for="peak-threshold-slider" class="control-label">Min peak (%)</label>
                                 <div class="slider-value-track">
                                     <input type="range" id="peak-threshold-slider" class="custom-slider" min="0" max="100" value="56">
                                     <span id="peak-threshold-value" class="slider-value-display">2.0</span>
@@ -338,7 +338,7 @@
                             </div>
 
                             <div class="slider-group">
-                                <label class="control-label" title="Rejects a maximum unless the valley beside it drops by at least this fraction of its own height. A fully resolved peak scores near 100%, an unresolved shoulder about 50%, a noise spike on a flank about 25%. Unlike a minimum-separation rule this keeps genuinely resolved close reflections. 0 disables the test (default).">Prom. (%)</label>
+                                <label for="peak-prominence-slider" class="control-label" title="Rejects a maximum unless the valley beside it drops by at least this fraction of its own height. A fully resolved peak scores near 100%, an unresolved shoulder about 50%, a noise spike on a flank about 25%. Unlike a minimum-separation rule this keeps genuinely resolved close reflections. 0 disables the test (default).">Prom. (%)</label>
                                 <div class="slider-value-track">
                                     <input type="range" id="peak-prominence-slider" class="custom-slider" min="0" max="90" value="0" step="5">
                                     <span id="peak-prominence-value" class="slider-value-display">0</span>
@@ -346,7 +346,7 @@
                             </div>
                             
                             <div class="slider-group">
-                                <label class="control-label" title="Rolling-ball background window, expressed in reciprocal space (Q = 4&#960;sin&#952;/&#955;). Independent of the scan step, so the same value gives the same background on data measured at any resolution.">Radius (&#197;&#8315;&#185;)</label>
+                                <label for="ball-radius-slider" class="control-label" title="Rolling-ball background window, expressed in reciprocal space (Q = 4&#960;sin&#952;/&#955;). Independent of the scan step, so the same value gives the same background on data measured at any resolution.">Radius (&#197;&#8315;&#185;)</label>
                                 <div class="slider-value-track">
                                     <input type="range" id="ball-radius-slider" class="custom-slider" min="0.005" max="0.300" value="0.050" step="0.005">
                                     <span id="ball-radius-value" class="slider-value-display">0.050</span>
@@ -354,7 +354,7 @@
                             </div>
                             
                             <div class="slider-group">
-                                <label class="control-label" title="Moving-average half-width applied before the rolling-ball erosion, in reciprocal space (Q = 4&#960;sin&#952;/&#955;). Same units as Radius, so the two are directly comparable: keep this well below Radius or the smoothing erodes the peaks. 0 disables smoothing.">Smooth. (&#197;&#8315;&#185;)</label>
+                                <label for="smoothing-width-slider" class="control-label" title="Moving-average half-width applied before the rolling-ball erosion, in reciprocal space (Q = 4&#960;sin&#952;/&#955;). Same units as Radius, so the two are directly comparable: keep this well below Radius or the smoothing erodes the peaks. 0 disables smoothing.">Smooth. (&#197;&#8315;&#185;)</label>
                                 <div class="slider-value-track">
                                     <input type="range" id="smoothing-width-slider" class="custom-slider" min="0" max="0.060" value="0.012" step="0.002">
                                     <span id="smoothing-width-value" class="slider-value-display">0.012</span>
@@ -364,14 +364,14 @@
                             <div style="border-top: 1px solid var(--border-color); margin: 1.5rem 0;"></div>
 
                             <div class="slider-group">
-                                <label class="control-label">2θ Min</label>
+                                <label for="tth-min-slider" class="control-label">2θ Min</label>
                                 <div class="slider-value-track">
                                     <input type="range" id="tth-min-slider" class="custom-slider" disabled>
                                     <span id="tth-min-value" class="slider-value-display">-</span>
                                 </div>
                             </div>
                             <div class="slider-group">
-                                <label class="control-label">2θ Max</label>
+                                <label for="tth-max-slider" class="control-label">2θ Max</label>
                                 <div class="slider-value-track">
                                     <input type="range" id="tth-max-slider" class="custom-slider" disabled>
                                     <span id="tth-max-value" class="slider-value-display">-</span>
@@ -610,7 +610,7 @@
 
     <div id="status-box"></div>
 
-<div id="app-footer">Brutus, 13 Oct 2026</div>
+<div id="app-footer">Brutus</div>
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-swap">Swap hkl</div>

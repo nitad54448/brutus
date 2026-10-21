@@ -301,6 +301,7 @@ to different indices, and applying it would be wrong.
 | `tests/bump_version.py` | stamps one cache-busting `?v=` across `index.html` |
 | `tests/check_pipeline.mjs` | verifies the app (`js/indexing/run.js`), the engine and the shaders still agree on how the HKL basis is packed, for all six systems |
 | `tests/check_load_order.mjs` | checks that the scripts in `index.html` and the worker manifest load in a safe order (nothing runs before what it uses is defined) and that the two lists agree. Needs `npm install --no-save typescript` |
+| `tests/check_ui_regressions.mjs` | checks file-load races, scan sorting, numeric inputs, Kα₂ tolerance updates, indexing locks and Save-dialog keyboard behavior. Run with `node --test tests/check_ui_regressions.mjs`; no dependencies needed |
 | `tests/regression_test.mjs` | Node regression tests of the crystallography code: known cubic, tetragonal, hexagonal and orthorhombic cells, Niggli reduction, error propagation against Monte Carlo, Kα₁ lines indexed with λ(Kα₁), and the final sieve keeping the most symmetric description of a lattice, or both when a less symmetric one fits clearly better (about three minutes) |
 
 Run the scripts in `tests/` from the app folder, the one holding `index.html`
@@ -325,6 +326,7 @@ same `?v=`: the `<script>` tags in `index.html`, and — through
 `js/core/version.js` — the workers, the shaders and `sg_ops.json`. Run
 `python3 tests/bump_version.py` from the app folder after any change; it sets
 every tag together and warns if they have drifted apart.
+The UI footer and PDF reports display this same build version automatically.
 
 ---
 

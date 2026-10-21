@@ -23,3 +23,7 @@ const APP_VERSION_QS = (() => {
         return '';
     }
 })();
+// Display exactly the build identifier used by the page and its workers,
+// including suffixes such as "b" for multiple builds on the same date.
+const APP_VERSION = new URLSearchParams(APP_VERSION_QS).get('v') || '';
+const APP_VERSION_LABEL = APP_VERSION ? `Brutus, v${APP_VERSION}` : 'Brutus';

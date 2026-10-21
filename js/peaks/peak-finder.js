@@ -166,6 +166,7 @@ const quickselect = (arr, k) => {
     return arr[k];
 };
 function findPeaks() {
+    if (isIndexing) return;
     // Now uses workingExperimentalData
     if (!workingExperimentalData || !workingExperimentalData.intensity || workingExperimentalData.intensity.length < 5) return;
     const _perfEnd = perfStart('findPeaks');

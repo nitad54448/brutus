@@ -52,12 +52,13 @@ function getImpurityPeaks() {
 // code disagreed with the markup (FoM fell back to 0.8, the field says 1.5).
 function readNumberInput(el, { integer = false, fallback = NaN } = {}) {
     if (!el) return fallback;
-    const parse = integer ? (v) => parseInt(v, 10) : parseFloat;
+    const parse = value => value == null || String(value).trim() === '' ? NaN : Number(value);
     let v = parse(el.value);
     if (!Number.isFinite(v)) {
         const d = parse(el.defaultValue);
         v = Number.isFinite(d) ? d : fallback;
     }
+    if (integer) v = Math.trunc(v);
     const min = parseFloat(el.min), max = parseFloat(el.max);
     if (Number.isFinite(min) && v < min) v = min;
     if (Number.isFinite(max) && v > max) v = max;
@@ -95,9 +96,19 @@ inputsToValidate.forEach(({ id, el, integer }) => {
         if (id.startsWith('gpu')) updateGpuStatusText();
     });
 });
+if (ui.tthError) {
+    ui.tthError.addEventListener('change', () => {
+        if (isIndexing) return;
+        recalculatePeakValues();
+        rebuildHklList();
+        updatePeakTable();
+        updateStartIndexingButtonState();
+    });
+}
 if (ui.wavelength) {
     // Recalculate d-spacings if the user manually changes the wavelength (Custom mode)
     ui.wavelength.addEventListener('change', () => {
+        if (isIndexing) return;
         if (typeof handleWavelengthValueChange === 'function') handleWavelengthValueChange();
         if (pickedPeaks.length > 0) {
             recalculatePeakValues();

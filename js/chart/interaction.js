@@ -110,7 +110,7 @@ resizer.addEventListener('mousedown', (e) => { e.preventDefault(); document.body
 });
 ui.chartCanvas.addEventListener('contextmenu', e => { e.preventDefault(); if (xrdChart) { xrdChart.resetZoom('none'); updateAllMarkers(); } });
 ui.chartCanvas.addEventListener('click', (e) => {
-    if (!e.ctrlKey || !xrdChart) return;
+    if (isIndexing || !e.ctrlKey || !xrdChart) return;
     const tthRaw = tthFromEvent(e);
     if (tthRaw === null) return;
     // Shift is the deliberate escape hatch from snapping.

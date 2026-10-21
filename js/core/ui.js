@@ -111,7 +111,7 @@ const setUIState = (indexing) => {
     document.body.style.cursor = indexing ? 'wait' : 'default';
     
     const controlsToDisable = [ 
-        ui.fileInput, ui.fileChipClear, ui.peakThresholdSlider, ui.peakProminenceSlider,
+        ui.fileInput, ui.fileInputLabel, ui.fileChipClear, ui.peakThresholdSlider, ui.peakProminenceSlider,
         ui.ballRadiusSlider, ui.smoothingWidthSlider, ui.wavelength, ui.tthError, 
         ui.maxVolume, ui.impurityPeaksInput, ui.refineZeroCheckbox, 
         // GPU search settings: locked for the run, since each system is
@@ -152,7 +152,7 @@ const setUIState = (indexing) => {
     });
     
 
-    ui.peakListBody.querySelectorAll('input, button').forEach(el => { el.disabled = indexing; });
+    setPeakTableLocked(indexing);
     ui.fileInputLabel.style.pointerEvents = indexing ? 'none' : 'auto'; 
     ui.fileInputLabel.style.opacity = indexing ? '0.7' : '1';
     

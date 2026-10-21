@@ -311,7 +311,7 @@ sgRunBtn.addEventListener('click', () => {
 
     const readInt = (id, lo, hi, dflt) => {
         const el = document.getElementById(id);
-        const v = parseInt(el.value, 10);
+        const v = Math.trunc(Number(el.value));
         return (isFinite(v) && v >= lo && v <= hi) ? v : dflt;
     };
     const nIter = readInt('sg-iterations', 50, 20000, 600);

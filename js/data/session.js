@@ -85,6 +85,7 @@ if (ui.fileChipSize) ui.fileChipSize.textContent = formatFileSize(sizeBytes);
 // first-load view. Everything the load path switches ON is switched off here,
 // which is why the two live next to each other.
 const clearLoadedFile = () => {
+fileLoadToken++; // an outstanding read must not restore the unloaded pattern
 resetSessionState();
 
 fullExperimentalData = { tth: [], intensity: [] };

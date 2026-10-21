@@ -71,7 +71,7 @@ mcApplyBtn.addEventListener('click', () => {
     const readInt = (id, lo, hi, label) => {
         const el = document.getElementById(id);
         const raw = el.value.trim();
-        const v = parseInt(raw, 10);
+        const v = Math.trunc(Number(raw));
         let error = null;
         if (raw === '' || !isFinite(v)) error = `${label} must be a number.`;
         else if (v < lo || v > hi) error = `${label} must be between ${lo} and ${hi}.`;

@@ -269,13 +269,28 @@ const updateSaveInfo = () => {
     }
     ui.saveMenuMsg.innerHTML = notes.length ? 'Info: ' + notes.join('<br>Info: ') : '';
 };
+let saveMenuReturnFocus = null;
+const saveMenuFocusables = () =>
+    [ui.saveFormatSelect, ui.saveMenuCancel, ui.saveMenuConfirm].filter(el => el && !el.disabled);
+const focusSaveMenu = () => {
+    const target = saveMenuFocusables()[0] || document.getElementById('save-menu-modal');
+    if (target) target.focus();
+};
 const openSaveMenu = () => {
     const p = getExportPattern();
     if (!p) { showStatus('No data to save.', 'error'); return; }
     updateSaveInfo();
+    saveMenuReturnFocus = document.activeElement;
     ui.saveMenuOverlay.classList.add('open');
+    focusSaveMenu();
 };
-const closeSaveMenu = () => ui.saveMenuOverlay.classList.remove('open');
+const closeSaveMenu = () => {
+    if (!ui.saveMenuOverlay.classList.contains('open')) return;
+    ui.saveMenuOverlay.classList.remove('open');
+    const target = saveMenuReturnFocus;
+    saveMenuReturnFocus = null;
+    if (target && target.isConnected && !target.disabled) target.focus();
+};
 // MIME + human description per extension, for the native save dialog's type list.
 const EXT_DESC = {
     xy: 'XY data', csv: 'CSV', dat: 'Data', xrdml: 'XRDML',
@@ -330,4 +345,25 @@ if (ui.saveMenuCancel)    ui.saveMenuCancel.addEventListener('click', closeSaveM
 if (ui.saveMenuConfirm)   ui.saveMenuConfirm.addEventListener('click', doSave);
 if (ui.saveMenuOverlay)   ui.saveMenuOverlay.addEventListener('click', (e) => {
     if (e.target === ui.saveMenuOverlay) closeSaveMenu();
+});
+document.addEventListener('keydown', (e) => {
+    if (!ui.saveMenuOverlay || !ui.saveMenuOverlay.classList.contains('open')) return;
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        closeSaveMenu();
+    } else if (e.key === 'Tab') {
+        const controls = saveMenuFocusables();
+        const index = controls.indexOf(document.activeElement);
+        if (index < 0 || (!e.shiftKey && index === controls.length - 1) || (e.shiftKey && index === 0)) {
+            e.preventDefault();
+            const target = e.shiftKey ? controls[controls.length - 1] : controls[0];
+            if (target) target.focus();
+            else focusSaveMenu();
+        }
+    }
+});
+document.addEventListener('focusin', (e) => {
+    if (!ui.saveMenuOverlay || !ui.saveMenuOverlay.classList.contains('open')) return;
+    const modal = document.getElementById('save-menu-modal');
+    if (modal && !modal.contains(e.target)) focusSaveMenu();
 });

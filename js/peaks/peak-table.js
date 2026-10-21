@@ -4,6 +4,11 @@
 // Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
+const setPeakTableLocked = (locked) => {
+    ui.peakListBody.querySelectorAll('input, button').forEach(el => {
+        el.disabled = locked || el.classList.contains('peak-d-input');
+    });
+};
 const updatePeakTable = () => {
     // Clamp the selected index in case the peak list shrank.
     if (selectedPeakIndex !== null && selectedPeakIndex >= pickedPeaks.length) {
@@ -39,11 +44,13 @@ const updatePeakTable = () => {
         fragment.appendChild(row);
     });
     ui.peakListBody.appendChild(fragment);
+    setPeakTableLocked(isIndexing);
     ui.peakTableContainer.classList.toggle('hidden', pickedPeaks.length === 0);
     updateKa2Banner();
     updateAllMarkers();
 };
 ui.peakListBody.addEventListener('change', (e) => {
+    if (isIndexing) return;
     if (e.target.classList.contains('peak-tth-input')) {
         const index = parseInt(e.target.dataset.index, 10); 
         let tth = parseFloat(e.target.value); 
@@ -71,6 +78,7 @@ ui.peakListBody.addEventListener('change', (e) => {
     }
 });
  ui.peakListBody.addEventListener('click', (e) => {
+    if (isIndexing) return;
     if (e.target.classList.contains('delete-peak-btn')) {
         const index = parseInt(e.target.dataset.index);
         pickedPeaks.splice(index, 1);
@@ -91,6 +99,7 @@ ui.peakListBody.addEventListener('change', (e) => {
 });
 // Right-click on a Ka2-suspect row → toggle "this is actually a real peak"
 ui.peakListBody.addEventListener('contextmenu', (e) => {
+    if (isIndexing) return;
     const row = e.target.closest('tr.ka2-suspect');
     if (!row) return;
     e.preventDefault();
@@ -103,6 +112,7 @@ ui.peakListBody.addEventListener('contextmenu', (e) => {
     // its hasKa2Child status (and revert from λ_Ka1 to user λ for d).
     recalculatePeakValues();
     updatePeakTable();
+    updateStartIndexingButtonState();
 });
 // --- Selected-peak highlight ---
 // While the user is editing a peak's row (focus inside an input) or

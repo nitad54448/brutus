@@ -349,6 +349,7 @@ ui.wavelengthPreset.addEventListener('change', handleWavelengthPresetChange);
 // Edits to the wavelength input auto-switch the preset to "custom" when the
 // typed value no longer matches the selected preset.
 const debouncedWavelengthChange = debounce(() => {
+if (isIndexing) return;
 const typed = parseFloat(ui.wavelength.value);
 // FIX: Only trigger heavy recalculations if the user typed a valid, realistic wavelength
 if (isFinite(typed) && typed >= 0.1 && typed <= 10.0) {

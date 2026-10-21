@@ -4,6 +4,9 @@
 // Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
+const appFooter = document.getElementById('app-footer');
+if (appFooter) appFooter.textContent = APP_VERSION_LABEL;
+
 setupWorker();
 handleWavelengthPresetChange({ onLoad: true });
 // Startup work that reports through showStatus and the UI helpers. It used

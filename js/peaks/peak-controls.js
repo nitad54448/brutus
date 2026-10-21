@@ -22,6 +22,7 @@ function logSliderToValue(position) {
 // the arrow defers the lookup to call time.
 const debouncedFindPeaks = debounce((...args) => findPeaks(...args), 250);
 const debouncedUpdateAndRedraw = debounce(() => {
+    if (isIndexing) return;
     if (!fullExperimentalData || !fullExperimentalData.tth.length) return;
     // Raw (unstripped) data before AND after means only the wavelength moved.
     const unchanged = workingExperimentalData === fullExperimentalData;
