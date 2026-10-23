@@ -17,7 +17,7 @@ alias Mat4x4 = mat4x4<f32>;
 @group(0) @binding(0) var<storage, read> q_obs: array<f32>;
 // PRECOMPUTED hkl products, NOT raw indices. Each element is
 //     vec4(h*h, k*k, l*l, h*l)
-// packed on the JS side (see HKL_PACKERS in main_app.js) -- which is exactly
+// packed on the JS side (see HKL_PACKERS in js/indexing/run.js) -- which is exactly
 // one row of the 4x4 system, and exactly the dot product the FoM needs. Same
 // 16 bytes per reflection as the old [h,k,l,pad] layout, so buffer sizing is
 // unchanged. The products are small integers (|h|,|k|,|l| <= 12) and exact in
@@ -78,7 +78,7 @@ struct Config {
     f_params: vec4<f32>,  // Indices 8-11
     // Chunk 4 (F32): min_axis, max_axis, min_volume, pad
     // These were hard-coded as 2.0 / 50.0 / 20.0 in extractCell*, in all three
-    // shaders, while main_app.js kept its own copy of the same three numbers.
+    // shaders, while the JS app kept its own copy of the same three numbers.
     // Two sources for one limit is how limits drift apart.
     f_params2: vec4<f32>  // Indices 12-15
 };

@@ -14,67 +14,67 @@
     <!-- Crystallography: the same files run in both workers, which load them
          through js/crystallography/manifest.js. Keep the two lists in step
          (check_load_order.mjs compares them). -->
-    <script src="js/crystallography/metric.js?v=20261021c" defer></script>
-    <script src="js/crystallography/hkl.js?v=20261021c" defer></script>
-    <script src="js/crystallography/cell.js?v=20261021c" defer></script>
-    <script src="js/crystallography/fit.js?v=20261021c" defer></script>
-    <script src="js/crystallography/refine.js?v=20261021c" defer></script>
-    <script src="js/crystallography/transforms.js?v=20261021c" defer></script>
-    <script src="js/crystallography/monte-carlo.js?v=20261021c" defer></script>
-    <script src="js/crystallography/niggli.js?v=20261021c" defer></script>
-    <script src="js/crystallography/absences.js?v=20261021c" defer></script>
-    <script src="js/crystallography/centering.js?v=20261021c" defer></script>
-    <script src="js/crystallography/sg-ranking.js?v=20261021c" defer></script>
-    <script src="js/crystallography/swap-search.js?v=20261021c" defer></script>
-    <script src="js/crystallography/sg-ops.js?v=20261021c" defer></script>
-    <script src="js/crystallography/sg-context.js?v=20261021c" defer></script>
-    <script src="js/crystallography/sg-score.js?v=20261021c" defer></script>
-    <script src="js/gpu/webgpu-engine.js?v=20261021c" defer></script>
+    <script src="js/crystallography/metric.js?v=20261023" defer></script>
+    <script src="js/crystallography/hkl.js?v=20261023" defer></script>
+    <script src="js/crystallography/cell.js?v=20261023" defer></script>
+    <script src="js/crystallography/fit.js?v=20261023" defer></script>
+    <script src="js/crystallography/refine.js?v=20261023" defer></script>
+    <script src="js/crystallography/transforms.js?v=20261023" defer></script>
+    <script src="js/crystallography/monte-carlo.js?v=20261023" defer></script>
+    <script src="js/crystallography/niggli.js?v=20261023" defer></script>
+    <script src="js/crystallography/absences.js?v=20261023" defer></script>
+    <script src="js/crystallography/centering.js?v=20261023" defer></script>
+    <script src="js/crystallography/sg-ranking.js?v=20261023" defer></script>
+    <script src="js/crystallography/swap-search.js?v=20261023" defer></script>
+    <script src="js/crystallography/sg-ops.js?v=20261023" defer></script>
+    <script src="js/crystallography/sg-context.js?v=20261023" defer></script>
+    <script src="js/crystallography/sg-score.js?v=20261023" defer></script>
+    <script src="js/gpu/webgpu-engine.js?v=20261023" defer></script>
     <!-- Application. Classic scripts, run in this order once the document is
          parsed (defer); they share one global scope, so a name defined in one
          is visible to the ones after it. js/main.js runs last. -->
-    <script src="js/core/version.js?v=20261021c" defer></script>
-    <script src="js/core/utils.js?v=20261021c" defer></script>
-    <script src="js/core/ui.js?v=20261021c" defer></script>
-    <script src="js/core/state.js?v=20261021c" defer></script>
-    <script src="js/core/inputs.js?v=20261021c" defer></script>
-    <script src="js/data/wavelength.js?v=20261021c" defer></script>
-    <script src="js/core/sg-database.js?v=20261021c" defer></script>
-    <script src="js/gpu/gpu-setup.js?v=20261021c" defer></script>
-    <script src="js/indexing/solutions.js?v=20261021c" defer></script>
-    <script src="js/peaks/peak-controls.js?v=20261021c" defer></script>
-    <script src="js/data/session.js?v=20261021c" defer></script>
-    <script src="js/indexing/worker-pool.js?v=20261021c" defer></script>
-    <script src="js/data/kalpha2-strip.js?v=20261021c" defer></script>
-    <script src="js/data/export.js?v=20261021c" defer></script>
-    <script src="js/chart/help-panel.js?v=20261021c" defer></script>
-    <script src="js/parsers/fullprof.js?v=20261021c" defer></script>
-    <script src="js/parsers/generic.js?v=20261021c" defer></script>
-    <script src="js/parsers/xml-utils.js?v=20261021c" defer></script>
-    <script src="js/parsers/bruker-xml.js?v=20261021c" defer></script>
-    <script src="js/parsers/xrdml.js?v=20261021c" defer></script>
-    <script src="js/parsers/rigaku-ras.js?v=20261021c" defer></script>
-    <script src="js/parsers/gsas.js?v=20261021c" defer></script>
-    <script src="js/parsers/uxd.js?v=20261021c" defer></script>
-    <script src="js/parsers/philips-udf.js?v=20261021c" defer></script>
-    <script src="js/parsers/pdcif.js?v=20261021c" defer></script>
-    <script src="js/parsers/detect.js?v=20261021c" defer></script>
-    <script src="js/data/file-load.js?v=20261021c" defer></script>
-    <script src="js/peaks/peak-finder.js?v=20261021c" defer></script>
-    <script src="js/peaks/peak-table.js?v=20261021c" defer></script>
-    <script src="js/gpu/gpu-limits.js?v=20261021c" defer></script>
-    <script src="js/indexing/diagnostics.js?v=20261021c" defer></script>
-    <script src="js/indexing/run.js?v=20261021c" defer></script>
-    <script src="js/dialogs/context-menu.js?v=20261021c" defer></script>
-    <script src="js/dialogs/swap-hkl.js?v=20261021c" defer></script>
-    <script src="js/dialogs/refine-mc.js?v=20261021c" defer></script>
-    <script src="js/dialogs/space-group-mc.js?v=20261021c" defer></script>
-    <script src="js/report/pdcif-export.js?v=20261021c" defer></script>
-    <script src="js/report/pdf-report.js?v=20261021c" defer></script>
-    <script src="js/chart/axes.js?v=20261021c" defer></script>
-    <script src="js/chart/chart.js?v=20261021c" defer></script>
-    <script src="js/chart/interaction.js?v=20261021c" defer></script>
-    <script src="js/main.js?v=20261021c" defer></script>
+    <script src="js/core/version.js?v=20261023" defer></script>
+    <script src="js/core/utils.js?v=20261023" defer></script>
+    <script src="js/core/ui.js?v=20261023" defer></script>
+    <script src="js/core/state.js?v=20261023" defer></script>
+    <script src="js/core/inputs.js?v=20261023" defer></script>
+    <script src="js/data/wavelength.js?v=20261023" defer></script>
+    <script src="js/core/sg-database.js?v=20261023" defer></script>
+    <script src="js/gpu/gpu-setup.js?v=20261023" defer></script>
+    <script src="js/indexing/solutions.js?v=20261023" defer></script>
+    <script src="js/peaks/peak-controls.js?v=20261023" defer></script>
+    <script src="js/data/session.js?v=20261023" defer></script>
+    <script src="js/indexing/worker-pool.js?v=20261023" defer></script>
+    <script src="js/data/kalpha2-strip.js?v=20261023" defer></script>
+    <script src="js/data/export.js?v=20261023" defer></script>
+    <script src="js/chart/help-panel.js?v=20261023" defer></script>
+    <script src="js/parsers/fullprof.js?v=20261023" defer></script>
+    <script src="js/parsers/generic.js?v=20261023" defer></script>
+    <script src="js/parsers/xml-utils.js?v=20261023" defer></script>
+    <script src="js/parsers/bruker-xml.js?v=20261023" defer></script>
+    <script src="js/parsers/xrdml.js?v=20261023" defer></script>
+    <script src="js/parsers/rigaku-ras.js?v=20261023" defer></script>
+    <script src="js/parsers/gsas.js?v=20261023" defer></script>
+    <script src="js/parsers/uxd.js?v=20261023" defer></script>
+    <script src="js/parsers/philips-udf.js?v=20261023" defer></script>
+    <script src="js/parsers/pdcif.js?v=20261023" defer></script>
+    <script src="js/parsers/detect.js?v=20261023" defer></script>
+    <script src="js/data/file-load.js?v=20261023" defer></script>
+    <script src="js/peaks/peak-finder.js?v=20261023" defer></script>
+    <script src="js/peaks/peak-table.js?v=20261023" defer></script>
+    <script src="js/gpu/gpu-limits.js?v=20261023" defer></script>
+    <script src="js/indexing/diagnostics.js?v=20261023" defer></script>
+    <script src="js/indexing/run.js?v=20261023" defer></script>
+    <script src="js/dialogs/context-menu.js?v=20261023" defer></script>
+    <script src="js/dialogs/swap-hkl.js?v=20261023" defer></script>
+    <script src="js/dialogs/refine-mc.js?v=20261023" defer></script>
+    <script src="js/dialogs/space-group-mc.js?v=20261023" defer></script>
+    <script src="js/report/pdcif-export.js?v=20261023" defer></script>
+    <script src="js/report/pdf-report.js?v=20261023" defer></script>
+    <script src="js/chart/axes.js?v=20261023" defer></script>
+    <script src="js/chart/chart.js?v=20261023" defer></script>
+    <script src="js/chart/interaction.js?v=20261023" defer></script>
+    <script src="js/main.js?v=20261023" defer></script>
     <link href="inter-font.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
     <style>
@@ -84,11 +84,10 @@
        #sg-modal rules in styles.css without needing !important. Move this
        block into styles.css if you prefer to keep the head clean.
 
-       The modal becomes a column flexbox: the intro paragraph and the
-       status line get their own scroll areas with capped heights, the
-       table takes whatever is left, and the native resize grip in the
-       bottom-right corner sizes the whole thing. The browser writes the
-       new size as an inline style, so it persists while the page is open.
+       The modal displays the introductory explanation completely without
+       scrollbars. The results table has its own scroll area sized so the user
+       can browse results comfortably. The native resize grip in the
+       bottom-right corner allows resizing the whole modal.
        ------------------------------------------------------------------ */
     #sg-overlay #sg-modal {
         box-sizing: border-box;
@@ -97,27 +96,28 @@
         resize: both;                 /* the grip */
         overflow: hidden;             /* required for resize to take effect */
         width: min(1100px, 96vw);
-        height: min(760px, 90vh);
+        height: min(640px, 92vh);
         max-width: 98vw;
-        max-height: 96vh;
+        max-height: 94vh;
         min-width: min(560px, 96vw);
         min-height: 300px;
     }
-    /* Long explanatory text must not squeeze the table out of existence. */
+    /* Explanatory text is complete and unclipped (no scrollbar). */
     #sg-overlay #sg-sub {
-        flex: 0 1 auto;
-        max-height: 30%;
-        overflow-y: auto;
-        margin-bottom: 0.5rem;
+        flex: 0 0 auto;
+        max-height: none;
+        overflow: visible;
+        margin-bottom: 0.65rem;
+        line-height: 1.45;
     }
     #sg-overlay #sg-title,
     #sg-overlay #sg-params,
     #sg-overlay #sg-buttons { flex: 0 0 auto; }
-    /* The table is the elastic part. */
+    /* The results table: sized ~20% lower in height so the user can browse results. */
     #sg-overlay #sg-table-wrap {
         flex: 1 1 auto;
-        min-height: 90px;
-        overflow: auto;
+        min-height: 120px;
+        overflow-y: auto;
     }
     .sg-chip {
         display: inline-block;
@@ -138,11 +138,12 @@
         color: #fff;
         border-color: var(--primary-accent);
     }
-    /* The Wilson / tie / progress line - the one that grows. */
+    /* Status and tie message line - clean without scrollbar. */
     #sg-overlay #sg-msg {
-        flex: 0 1 auto;
-        max-height: 30%;
-        overflow-y: auto;
+        flex: 0 0 auto;
+        min-height: 18px;
+        margin-top: 8px;
+        overflow: visible;
         overflow-wrap: anywhere;
     }
 

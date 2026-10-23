@@ -18,7 +18,7 @@ alias Mat6x6 = array<f32, 36>; // Flat 6x6 matrix, row-major
 // PRECOMPUTED hkl products, NOT raw indices. TWO vec4 per reflection:
 //     [2*i + 0] = vec4(h*h, k*k, l*l, k*l)
 //     [2*i + 1] = vec4(h*l, h*k, 0, 0)
-// packed on the JS side (see HKL_PACKERS in main_app.js). This is the only
+// packed on the JS side (see HKL_PACKERS in js/indexing/run.js). This is the only
 // system whose stride changes (4 -> 8 floats per reflection); the engine reads
 // it from cfg.hklFloats. The FoM inner loop no longer recomputes six products
 // per candidate cell, which is where this shader spends nearly all its time.
@@ -80,7 +80,7 @@ struct Config {
     f_params: vec4<f32>,  // Indices 8-11
     // Chunk 4 (F32): min_axis, max_axis, min_volume, pad
     // These were hard-coded as 2.0 / 50.0 / 20.0 in extractCell*, in all three
-    // shaders, while main_app.js kept its own copy of the same three numbers.
+    // shaders, while the JS app kept its own copy of the same three numbers.
     // Two sources for one limit is how limits drift apart.
     f_params2: vec4<f32>  // Indices 12-15
 };

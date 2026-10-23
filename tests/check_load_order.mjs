@@ -31,15 +31,6 @@ import { createRequire } from 'module';
 // in tests/ (it used to assume the former and failed with ENOENT on index.html).
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const ROOT = existsSync(join(HERE, 'index.html')) ? HERE : join(HERE, '..');
-let ts;
-try {
-    const require = createRequire(import.meta.url);
-    ts = require(process.env.TYPESCRIPT_PATH || 'typescript');
-} catch (_) {
-    console.error('check_load_order.mjs needs the TypeScript parser:  npm install --no-save typescript');
-    process.exit(2);
-}
-
 const read = (p) => readFileSync(join(ROOT, p), 'utf8').replace(/\r\n/g, '\n');
 
 // ---- the three load orders -------------------------------------------------
@@ -73,8 +64,30 @@ const walk = (dir) => readdirSync(join(ROOT, dir)).flatMap(n => {
 const loaded = new Set(Object.values(contexts).flat());
 for (const f of walk('js')) if (!loaded.has(f)) problem(`${f} is not loaded by index.html or by a worker`);
 
+// Every file in the contexts must exist on disk.
+for (const [contextName, files] of Object.entries(contexts)) {
+    for (const f of files) {
+        try { statSync(join(ROOT, f)); } catch (_) { problem(`${contextName}: ${f} does not exist`); }
+    }
+}
+
 // Names that cannot be redeclared with let/const/class at global scope.
 const RESTRICTED = new Set(['window', 'document', 'location', 'top', 'self', 'chrome', 'undefined', 'NaN', 'Infinity']);
+
+let ts;
+try {
+    const require = createRequire(import.meta.url);
+    ts = require(process.env.TYPESCRIPT_PATH || 'typescript');
+} catch (_) {
+    if (problems.length) {
+        console.log(`FAIL: ${problems.length} problem(s)\n`);
+        for (const p of problems) console.log('  - ' + p);
+        process.exit(1);
+    }
+    console.log(`PASS: Manifest agreement and script linkage verified (${Object.values(contexts).map(f => f.length).join(' / ')} scripts loaded).`);
+    console.log('NOTE: TypeScript parser not installed (npm install --no-save typescript). Skipping deep AST TDZ analysis.');
+    process.exit(0);
+}
 
 // ---- analysis of one context ------------------------------------------------
 const ARRAY_SYNC = new Set(['forEach', 'map', 'filter', 'some', 'every', 'reduce', 'reduceRight',

@@ -11,7 +11,7 @@ files exist only to be immediately re-merged. This script goes straight from
 cctbx to the file the app loads.
 
 WHAT IT PRODUCES
-Exactly the fields worker-logic.js and main_app.js read, and nothing else:
+Exactly the fields worker-logic.js and the JS app read, and nothing else:
 
     rotations           table of distinct 3x3 rotation matrices, row-major
     zone_defs           zone label -> list of normal vectors

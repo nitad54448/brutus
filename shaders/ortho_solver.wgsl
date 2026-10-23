@@ -15,7 +15,7 @@ alias Vec3 = vec3<f32>;
 
 // PRECOMPUTED hkl products, NOT raw indices. Each element is
 //     vec4(h*h, k*k, l*l, 0)
-// packed on the JS side (see HKL_PACKERS in main_app.js). The layout is the
+// packed on the JS side (see HKL_PACKERS in js/indexing/run.js). The layout is the
 // same 16 bytes per reflection the raw [h,k,l,pad] form used, so nothing about
 // buffer sizing changes -- but the FoM inner loop no longer recomputes h*h,
 // k*k and l*l for every candidate cell, and one 16-byte vector load replaces
@@ -80,7 +80,7 @@ struct Config {
     f_params: vec4<f32>,
     // Chunk 4 (F32): min_axis, max_axis, min_volume, pad
     // These were hard-coded as 2.0 / 50.0 / 20.0 in extractCell*, in all three
-    // shaders, while main_app.js kept its own copy of the same three numbers.
+    // shaders, while the JS app kept its own copy of the same three numbers.
     // Two sources for one limit is how limits drift apart.
     f_params2: vec4<f32>
 };
