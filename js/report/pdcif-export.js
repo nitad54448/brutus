@@ -69,7 +69,10 @@ const generatePdCIF = (sol) => {
         .replace(/[\u2212\u2013\u2014]/g, '-')
         .replace(/'/g, '');
 
-    const mcRan = !!(sol.sgClass || (sol.sgMembers && sol.sgMembers.length));
+    // The group simulated on the plot (the one the user last chose) is the one written; the others go in the notes.
+    const chosenAll = solutionSGs(sol);
+    const chosenSg = chosenAll.find(g => g.symbol && g.setting_id && g.setting_id === sol.simSG) || chosenAll.slice().reverse().find(g => g.symbol) || null;
+    const mcRan = !!(chosenSg || sol.sgClass || (sol.sgMembers && sol.sgMembers.length));
     const decisiveNats = (typeof SG_DECISIVE_NATS === 'number') ? SG_DECISIVE_NATS : 2.3;
 
     let sgName = null;          // a definite H-M symbol, or null
@@ -80,6 +83,14 @@ const generatePdCIF = (sol) => {
         notes.push('No space group analysis was run for this cell, so the symmetry');
         notes.push('is left undetermined. The cell parameters above are complete and');
         notes.push('usable on their own; assume P 1 unless you know otherwise.');
+    } else if (chosenSg) {
+        // Chosen by the user (Explore Space Group, Convert): a definite symbol.
+        sgName = toAsciiSg(chosenSg.symbol).trim() || null;
+        if (Number.isFinite(chosenSg.number)) sgNumber = chosenSg.number;
+        notes.push(`Space group chosen by the user: ${toAsciiSg(chosenSg.label)}` +
+                   (chosenSg.source ? ` (${toAsciiSg(chosenSg.source)}).` : '.'));
+        const others = chosenAll.filter(g => g !== chosenSg);
+        if (others.length) notes.push(`Also held for this solution: ${others.map(g => toAsciiSg(g.label)).join('; ')}.`);
     } else {
         if (sol.sgMembers && sol.sgMembers.length > 0) {
             const parts = String(sol.sgMembers[0]).split(' (');

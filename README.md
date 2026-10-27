@@ -82,7 +82,7 @@ something behaves the way it does.
 
 ## Quick start
 
-1. **Load a data file.** Two-column text (`.xy`, `.csv`, `.txt`; a header line
+1. **Load a data file** (`File → Load pattern…`). Two-column text (`.xy`, `.csv`, `.txt`; a header line
    such as `Wavelength 0.79764` is picked up, and numbers may be written in
    scientific notation, as `numpy.savetxt` does), `.xrdml`, Bruker RawData `.xml`
    (the XML inside a `.brml`, unzipped), `.ras`, `.uxd`, `.udf`, GSAS (`.gsa`,
@@ -91,14 +91,14 @@ something behaves the way it does.
    preset (Kα₂ stripping becomes available, but stays off), a monochromated Kα1
    line the Kα1 preset. A file that fails to load replaces nothing: the current
    pattern, peaks and solutions are kept.
-2. **Detect peaks.** Adjust `Min peak (%)`, `Prom. (%)`, `Radius (Å⁻¹)` and
+2. **Detect peaks** (Peaks tab). Adjust `Min peak (%)`, `Prom. (%)`, `Radius (Å⁻¹)` and
    `Smooth. (Å⁻¹)` until the marks match what you see.
 3. **Curate the peak list.** This is the step that decides whether indexing
    works. Fix positions, delete impurity lines and any Kα₂ peak that was not
    flagged (keep the yellow, flagged ones; see *Kα₂ doublets* below), add
    anything the detector missed with `Ctrl + Click`. Fifteen to twenty clean
    peaks, with nothing spurious at low angle, is the target.
-4. **Set parameters.** Radiation preset, `Strip K-alpha2` whenever the Kα
+4. **Set parameters** (Data and Indexing tabs). Radiation preset, `Strip K-alpha2` whenever the Kα
    doublet is resolved in your pattern (see *Kα₂ doublets* below),
    a chemically sensible `Max Volume`, and a `2θ Error` that matches your data
    (≈0.02° synchrotron, ≈0.05° typical lab). Then pick the crystal systems:
@@ -106,8 +106,9 @@ something behaves the way it does.
    default except triclinic, which is rare and the most expensive. The lines
    under the search parameters show, for each checked system, the HKL basis,
    the number of peaks combined and the number of trials, before you start.
-5. **Index.** Sort the solutions by M(20) and click a row to overlay the
-   calculated tick marks on your pattern. Of two descriptions of the same
+5. **Index.** Press `Index` in the title bar (it becomes a red `Stop`; Esc
+   stops too). Sort the solutions by M(20) or volume, either way, and open one
+   to overlay its calculated tick marks on your pattern. Of two descriptions of the same
    lattice the more symmetric one is kept; when the less symmetric one fits
    more than twice as well (M(20)), both are listed, marked ≡ with each
    other's system: decide whether the distortion is real, and erase the other.
@@ -125,19 +126,18 @@ Refine MC, Swap hkl and Space Group MC dialogs, the absence analysis and the
 PDF report, and the plot draws those lines at their Kα₁ positions. Keep the
 yellow rows in the list: they are what marks their parents as Kα₁ lines.
 
-Until 13 October 2026 only the displayed d-spacing used λ(Kα₁): the fit read
-those lines at the average, so on resolved doublets the cell came out too
-large by λ(avg)/λ(Kα₁) − 1 (0.08 % for Cu, 0.20 % for Mo) with a normal
-M(20). On synthetic Cu Kα patterns of a cubic cell with a = 5.4309 Å:
+Reading those lines at the average instead would make the cell too large by
+λ(avg)/λ(Kα₁) − 1 (0.08 % for Cu, 0.20 % for Mo) with a normal M(20). On
+synthetic Cu Kα patterns of a cubic cell with a = 5.4309 Å:
 
-| Pattern | Flagged, before | Flagged, now | Stripped |
-|---|---|---|---|
-| all doublets resolved, zero 0.06° | 5.4354 | 5.4309 | 5.4309 |
-| low angle unresolved, high angle resolved, zero 0.04° | 5.4361 | 5.4305 | 5.4309 |
+| Pattern | Flagged | Stripped |
+|---|---|---|
+| all doublets resolved, zero 0.06° | 5.4309 | 5.4309 |
+| low angle unresolved, high angle resolved, zero 0.04° | 5.4305 | 5.4309 |
 
 Only a peak whose Kα₂ companion was found gets λ(Kα₁). A resolved Kα₁ line
 whose companion was not picked, or a partly resolved peak whose maximum sits
-between the two lines, stays at the average and now shows up as a misfit (a
+between the two lines, stays at the average and shows up as a misfit (a
 lower M(20)) instead of scaling the whole cell. Add the missed companion with
 `Ctrl + Click` on its shoulder (`Snap` off) and the pair is recognised.
 **Stripping Kα₂ remains the most accurate route**: every peak moves to its Kα₁
@@ -186,6 +186,16 @@ selective rather than enlarging the buffer: lower `FoM Tolerance` or
 
 ---
 
+## How many solutions are kept
+
+The list keeps at most 50 solutions (plus the partner of an ≡ pair), best M(20) first, after equivalent
+descriptions of one lattice are merged. Every system that has cells keeps a reserved share of those 50
+(50 divided by the number of systems present, so 25 each for two, 8 for six); places a system does not fill go
+to the best remaining cells. While a run goes on the working list is cut the same way, from 500 to 400. The
+Log gives the count per system after the sieve. Details: `brutus_help.html`, *Evaluating Solutions*.
+
+---
+
 ## Space groups
 
 Once you have a cell, Brutus works out which space groups are compatible with
@@ -223,8 +233,27 @@ reflection that falls on it contributes. A line counts as forbidden only if
 every reflection on it is: its whole metric orbit (320 and 230 in a cubic cell,
 $(h,k,l)$ and $(k,h,l)$ in a hexagonal one), plus any reflection that coincides
 with it exactly (cubic 221 and 300). Both routes apply this rule. Testing only
-one representative reflection used to reject the R groups, Pa-3, Ia-3 and the
+one representative reflection would reject the R groups, Pa-3, Ia-3 and the
 cubic c-, n- and d-glide groups on patterns that obey them exactly.
+
+The **Solution** menu works on the open solution. Besides Test Space Group it
+offers two tools for choosing a group by hand:
+
+- **Explore Space Group…** attaches any of the 530 settings to the solution and
+  draws its allowed reflections (**Sim**). A solution can hold several groups;
+  they are saved in the project, listed in the PDF report and written to the
+  pdCIF.
+- **Convert…** carries the cell to a maximal **subgroup** (translationengleiche
+  or klassengleiche, listed from the operators with Powder6's
+  `sg_subgroups.js`) or to another group related by a change of axes
+  (`sg_convert.js`), and adds the result as a new solution. The subgroups are
+  named by matching their operators against `sg_ops.json`, which can leave a
+  few unnamed (the search stops after 30 s). The M(20) of the new solution is
+  the parent's: it is not recomputed. Powder6's **Moyo** naming of subgroups
+  from a test structure is not part of Brutus: it has no atoms, so the library
+  and the structure code were left out of the copied conversion code.
+
+The technical guide (`Help` in the title bar) describes both in full.
 
 ---
 
@@ -282,15 +311,18 @@ to different indices, and applying it would be wrong.
 
 | File | |
 |---|---|
-| `index.html` | the application |
+| `index.html` | the application: the markup and the list of scripts, which a small loader runs in order with the version from `version.json` |
+| `version.json` | the version of the program, written once; everything else reads it |
 | `brutus_help.html` | full technical documentation |
+| `js/core/workspace.js`, `js/core/shell.js` | the window around the plot: log, history, projects, theme, title-bar menus, Index / Stop and the run lock, plot strip, metadata, status bar |
+| `js/convert/`, `js/dialogs/convert.js` | Convert: `sg_subgroups.js` and `sg_convert.js` copied from Powder6 without its structure and Moyo parts (the headers list the changes) and the dialog that uses them |
 | `js/core/`, `js/data/`, `js/parsers/`, `js/peaks/`, `js/chart/`, `js/dialogs/`, `js/report/`, `js/indexing/`, `js/main.js` | the UI: state, file readers, peak picking, chart, dialogs, exports and report, and the indexing orchestration (`js/indexing/run.js`) |
 | `js/crystallography/` | the crystallography: HKL generation, least squares, figures of merit, Niggli reduction, space-group analysis. The same files run on the main thread and in both workers; `manifest.js` lists them in load order |
 | `js/workers/` | `index-worker.js` (CPU search of cubic, tetragonal and hexagonal when WebGPU is not available, and post-processing) and `refinement-worker.js` (batch refinement; a pool of these runs alongside the GPU search) |
-| `js/gpu/` | `webgpu-engine.js` (device, buffers, dispatch chunking, combinadics), `gpu-setup.js` (the search plan: basis size, peaks and trials for each system) and `gpu-limits.js` (pre-flight checks and the Start button) |
+| `js/gpu/` | `webgpu-engine.js` (device, buffers, dispatch chunking, combinadics), `gpu-setup.js` (the search plan: basis size, peaks and trials for each system) and `gpu-limits.js` (pre-flight checks and the Index button) |
 | `shaders/*.wgsl` | the compute kernels: `highsym_solver.wgsl` (cubic, tetragonal, hexagonal), `ortho_solver.wgsl`, `monoclinic_solver.wgsl`, `triclinic_solver.wgsl` |
 | `sg_ops.json` | the space-group database |
-| `styles.css`, `inter-font.css`, `Inter-Variable.ttf`, `tex-svg.js`, `scripts/` | styling, fonts, MathJax, and the vendored libraries |
+| `workspace.css`, `dialogs.css`, `styles.css`, `inter-font.css`, `Inter-Variable.ttf`, `scripts/` | styling, the font, and the vendored libraries (Chart.js, zoom plugin, Hammer.js, jsPDF) |
 
 **Tooling** — not deployed, not needed to run anything:
 
@@ -298,18 +330,19 @@ to different indices, and applying it would be wrong.
 |---|---|
 | `scripts/build_sg_db.py` | builds `sg_ops.json` from cctbx |
 | `tests/check_sg_ops.mjs` | validates the database against the application |
-| `tests/bump_version.py` | stamps one cache-busting `?v=` across `index.html` |
+| `tests/bump_version.py` | writes the version in `version.json` |
 | `tests/check_pipeline.mjs` | verifies the app (`js/indexing/run.js`), the engine and the shaders still agree on how the HKL basis is packed, for all six systems |
+| `tests/check_manual_sg.mjs` | checks that all 530 settings calculate, the F extinctions, Pa-3 and the filter restoration |
+| `tests/check_workspace_browser.mjs` | smoke test of the real page in headless Chrome (Chrome path is set at the top of the file) |
 | `tests/check_load_order.mjs` | checks that the scripts in `index.html` and the worker manifest load in a safe order (nothing runs before what it uses is defined) and that the two lists agree. Needs `npm install --no-save typescript` |
 | `tests/check_ui_regressions.mjs` | checks file-load races, scan sorting, numeric inputs, Kα₂ tolerance updates, indexing locks and Save-dialog keyboard behavior. Run with `node --test tests/check_ui_regressions.mjs`; no dependencies needed |
 | `tests/regression_test.mjs` | Node regression tests of the crystallography code: known cubic, tetragonal, hexagonal and orthorhombic cells, Niggli reduction, error propagation against Monte Carlo, Kα₁ lines indexed with λ(Kα₁), and the final sieve keeping the most symmetric description of a lattice, or both when a less symmetric one fits clearly better (about three minutes) |
 
 Run the scripts in `tests/` from the app folder, the one holding `index.html`
 (for example `node tests/check_pipeline.mjs`): `check_pipeline.mjs`,
-`check_sg_ops.mjs` and `bump_version.py` look for the app files in the current
-directory.
+`check_sg_ops.mjs` look for the app files in the current directory.
 
-`test_sg_ops.mjs` and `check_pipeline.mjs` are worth running after touching the
+`check_sg_ops.mjs` and `check_pipeline.mjs` are worth running after touching the
 code they cover, because both failures are otherwise invisible: the run
 completes, every candidate cell is nonsense, and you get no solutions and no
 error. Run `check_load_order.mjs` after moving code between files or adding a
@@ -321,12 +354,14 @@ that defines it has run fails only when that code path executes.
 The page, the two workers and the GPU shaders must all come from the same build:
 if the browser serves an old crystallography file to the workers while the page
 runs a new one, the result is not an obvious caching error but, for example, a
-results table and a PDF report that disagree. Every URL therefore carries the
-same `?v=`: the `<script>` tags in `index.html`, and — through
-`js/core/version.js` — the workers, the shaders and `sg_ops.json`. Run
-`python3 tests/bump_version.py` from the app folder after any change; it sets
-every tag together and warns if they have drifted apart.
-The UI footer and PDF reports display this same build version automatically.
+results table and a PDF report that disagree. The version is therefore written
+once, in `version.json`. `index.html` reads it (never from the cache) before
+running any script and appends `?v=<version>` to each; through
+`js/core/version.js` the same number reaches the workers, the shaders and
+`sg_ops.json`, and it is shown at the bottom right of the window and in the PDF
+report. Run `python3 tests/bump_version.py` from the app folder after any
+change; it edits `version.json` and nothing else. The app must be served over
+HTTP, as `sg_ops.json` already required.
 
 ---
 
@@ -338,9 +373,9 @@ cite [https://doi.org/10.13140/RG.2.2.18182.84806](https://doi.org/10.13140/RG.2
 
 1. **M(20):** de Wolff, P. M. (1968). *J. Appl. Cryst.* **1**, 108–113.
 2. **F(N):** Smith, G. S. & Snyder, R. L. (1979). *J. Appl. Cryst.* **12**, 60–65.
-3. **Kα₂ elimination in q-space:** Zhang, Z. *et al.* (2026). *Measurement* **276**, 121448. Brutus started from this method and now inverts the doublet exactly, as described in `brutus_help.html`.
+3. **Kα₂ elimination in q-space:** Zhang, Z. *et al.* (2026). *Measurement* **276**, 121448. Brutus inverts the doublet exactly, starting from this method, as described in `brutus_help.html`.
 4. **cctbx:** Grosse-Kunstleve, R. W., Sauter, N. K., Moriarty, N. W. & Adams, P. D. (2002). *J. Appl. Cryst.* **35**, 126–136.
-5. **Previous software:** Dragoe, N. (2001). *J. Appl. Cryst.* **34**, 535.
+5. **Earlier program:** Dragoe, N. (2001). *J. Appl. Cryst.* **34**, 535.
 
 Bug reports and awkward patterns that refuse to index are both welcome:
 [open an issue](https://github.com/nitad54448/brutus/issues/new?template=bug_report.yml).
@@ -349,11 +384,88 @@ Bug reports and awkward patterns that refuse to index are both welcome:
 
 ## License
 
-Licensed under a
+Original Brutus material is licensed under a
 [Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License](http://creativecommons.org/licenses/by-nc-nd/4.0/).
 
 <a rel="license" href="http://creativecommons.org/licenses/by-nc-nd/4.0/">
   <img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-nc-nd/4.0/88x31.png" />
 </a>
 
+Bundled third-party components keep their own terms; see [LICENCE](LICENCE).
+
 *This document and most of the code porting was done by an AI. Last updated: 14 October 2026.*
+
+## Manual space-group comparison
+
+Open a solution in **Solutions**, then choose **Solution → Explore Space Group…**
+(the crystal system filter starts on that of the solution's cell)
+and filter by crystal system, centering, international
+number, Hermann–Mauguin symbol, Hall symbol or setting. **Add to solution** attaches
+the chosen setting to the solution: it is listed under the solution, saved in
+the project, and written to the PDF report and the pdCIF.
+The database contains 230 space groups in 530 settings. Green reflection ticks
+show the chosen setting alongside the observed peaks and the solution's blue
+calculated ticks. **Remove from solution** in the same dialog clears them.
+
+This is a fixed-cell extinction comparison. It uses the displayed cell axes,
+wavelength and zero correction, without refining the cell or converting its
+basis. Alternative monoclinic and rhombohedral settings therefore require a
+cell expressed in those axes. Selecting a different solution clears the manual
+hypothesis. Groups with identical extinctions cannot be distinguished by this
+comparison.
+
+
+## Workspace and projects
+
+The title bar follows Powder6: **About** (shown in the right panel), **⇄ Panels**,
+the **File** and **Solution** menus, **Report**, **Index** and a Dark switch.
+**File** contains pattern loading, pattern export, project saving/loading and
+unloading. **Solution** acts on the solution open in the Solutions tab and is
+disabled without one: **Refine** (Monte-Carlo), **Test Space Group** (Space Group
+MC), **Convert…** (to a maximal subgroup, translationengleiche or klassengleiche,
+or to another group; the subgroup lists come from Powder6's `sg_subgroups.js` and
+`sg_convert.js`, the cell is converted and its M(20) is the parent's),
+**Explore Space Group…**, **Swap hkl…**, **Export pdCIF** and **Erase**.
+
+The left panel is **Data** (pattern and its metadata, 2θ range, radiation, search
+parameters), **Peaks**, **Indexing** (crystal systems, GPU parameters) and
+**Solutions** (one accordion per solution, one open at a time, with symmetry,
+cell, volume, M(20), Niggli cell and space group).
+
+While a search runs, **Index** turns into a red **Stop** (Esc does the same) and
+everything else is locked until it ends; the plot, Log and History stay readable.
+
+The plot has Linear / √I / log I, then Background, **Data** (the experimental
+pattern), **Exp** (experimentally detected peaks), **Sol** (reflections of the open
+solution) and **Sim** (reflections simulated for the space group of the open solution:
+the one chosen for it, or the first group Test Space Group proposed), Save PNG and a
+mouse-help tooltip. Opening a solution shows its Sol and Sim markers; closing it
+deselects it, which also switches the Solution menu off. A solution can hold several
+space groups; the radio button beside each one picks the group drawn as Sim.
+**Report** prints the open solution only, or all listed solutions when none is open.
+The Log tab narrates each run: parameters, the plan, time and candidate cells of every
+crystal system, the sieve and the space-group analysis. The status bar is one line: the
+current status under the controls, the position under the plot pointer where the
+plot starts (at the left when the panels are swapped), then the open solution and
+the version (right).
+
+The version is written once, in `version.json`; `tests/bump_version.py` edits it.
+`index.html` reads it and stamps it on every script, worker, shader and the
+space-group file, and the window shows it at the bottom right.
+
+**Plot**, **Log** and **History** select result views. History records indexing
+runs and can restore their pattern, peaks, parameters and solutions (the Restore
+button is at the right of each entry). At 100 MB of history the program offers, once, to remove the oldest runs.
+It asks before saving a project larger than 10 MB, and before saving a report of
+more than 100 pages (these two only when you save). Every dialog and notice follows the light or dark theme
+of the window. Messages
+and run summaries appear in Log. Green manual space-group ticks have the same
+position/HKL tooltips as blue calculated ticks. In **Snap: HKL** mode, a manual
+comparison uses its allowed reflections as snap targets.
+
+**File > Save project** downloads a `.brutus` project containing the original
+and working patterns, edited peak list, solutions and selection, input settings,
+manual space-group comparison, plot bounds, log and run history. **Open
+project** restores it without rerunning peak detection or indexing. Projects
+are local JSON files; no data is uploaded. Finish or stop an indexing run before
+opening or saving a project. Pattern export remains a separate File command.

@@ -7,275 +7,140 @@
     <!--
      27 july 2026, removed the  CDN dependencies.
     -->
-    <script src="scripts/chart.umd.js" defer></script>
-    <script src="scripts/hammer.min.js" defer></script>
-    <script src="scripts/chartjs-plugin-zoom.min.js" defer></script>
-    <script src="scripts/jspdf.umd.min.js" defer></script>
+    <script type="application/x-brutus" src="scripts/chart.umd.js"></script>
+    <script type="application/x-brutus" src="scripts/hammer.min.js"></script>
+    <script type="application/x-brutus" src="scripts/chartjs-plugin-zoom.min.js"></script>
+    <script type="application/x-brutus" src="scripts/jspdf.umd.min.js"></script>
     <!-- Crystallography: the same files run in both workers, which load them
          through js/crystallography/manifest.js. Keep the two lists in step
          (check_load_order.mjs compares them). -->
-    <script src="js/crystallography/metric.js?v=20261023" defer></script>
-    <script src="js/crystallography/hkl.js?v=20261023" defer></script>
-    <script src="js/crystallography/cell.js?v=20261023" defer></script>
-    <script src="js/crystallography/fit.js?v=20261023" defer></script>
-    <script src="js/crystallography/refine.js?v=20261023" defer></script>
-    <script src="js/crystallography/transforms.js?v=20261023" defer></script>
-    <script src="js/crystallography/monte-carlo.js?v=20261023" defer></script>
-    <script src="js/crystallography/niggli.js?v=20261023" defer></script>
-    <script src="js/crystallography/absences.js?v=20261023" defer></script>
-    <script src="js/crystallography/centering.js?v=20261023" defer></script>
-    <script src="js/crystallography/sg-ranking.js?v=20261023" defer></script>
-    <script src="js/crystallography/swap-search.js?v=20261023" defer></script>
-    <script src="js/crystallography/sg-ops.js?v=20261023" defer></script>
-    <script src="js/crystallography/sg-context.js?v=20261023" defer></script>
-    <script src="js/crystallography/sg-score.js?v=20261023" defer></script>
-    <script src="js/gpu/webgpu-engine.js?v=20261023" defer></script>
+    <script type="application/x-brutus" src="js/crystallography/metric.js"></script>
+    <script type="application/x-brutus" src="js/crystallography/hkl.js"></script>
+    <script type="application/x-brutus" src="js/crystallography/cell.js"></script>
+    <script type="application/x-brutus" src="js/crystallography/fit.js"></script>
+    <script type="application/x-brutus" src="js/crystallography/refine.js"></script>
+    <script type="application/x-brutus" src="js/crystallography/transforms.js"></script>
+    <script type="application/x-brutus" src="js/crystallography/monte-carlo.js"></script>
+    <script type="application/x-brutus" src="js/crystallography/niggli.js"></script>
+    <script type="application/x-brutus" src="js/crystallography/absences.js"></script>
+    <script type="application/x-brutus" src="js/crystallography/centering.js"></script>
+    <script type="application/x-brutus" src="js/crystallography/sg-ranking.js"></script>
+    <script type="application/x-brutus" src="js/crystallography/swap-search.js"></script>
+    <script type="application/x-brutus" src="js/crystallography/sg-ops.js"></script>
+    <script type="application/x-brutus" src="js/crystallography/sg-context.js"></script>
+    <script type="application/x-brutus" src="js/crystallography/sg-score.js"></script>
+    <script type="application/x-brutus" src="js/gpu/webgpu-engine.js"></script>
     <!-- Application. Classic scripts, run in this order once the document is
          parsed (defer); they share one global scope, so a name defined in one
          is visible to the ones after it. js/main.js runs last. -->
-    <script src="js/core/version.js?v=20261023" defer></script>
-    <script src="js/core/utils.js?v=20261023" defer></script>
-    <script src="js/core/ui.js?v=20261023" defer></script>
-    <script src="js/core/state.js?v=20261023" defer></script>
-    <script src="js/core/inputs.js?v=20261023" defer></script>
-    <script src="js/data/wavelength.js?v=20261023" defer></script>
-    <script src="js/core/sg-database.js?v=20261023" defer></script>
-    <script src="js/gpu/gpu-setup.js?v=20261023" defer></script>
-    <script src="js/indexing/solutions.js?v=20261023" defer></script>
-    <script src="js/peaks/peak-controls.js?v=20261023" defer></script>
-    <script src="js/data/session.js?v=20261023" defer></script>
-    <script src="js/indexing/worker-pool.js?v=20261023" defer></script>
-    <script src="js/data/kalpha2-strip.js?v=20261023" defer></script>
-    <script src="js/data/export.js?v=20261023" defer></script>
-    <script src="js/chart/help-panel.js?v=20261023" defer></script>
-    <script src="js/parsers/fullprof.js?v=20261023" defer></script>
-    <script src="js/parsers/generic.js?v=20261023" defer></script>
-    <script src="js/parsers/xml-utils.js?v=20261023" defer></script>
-    <script src="js/parsers/bruker-xml.js?v=20261023" defer></script>
-    <script src="js/parsers/xrdml.js?v=20261023" defer></script>
-    <script src="js/parsers/rigaku-ras.js?v=20261023" defer></script>
-    <script src="js/parsers/gsas.js?v=20261023" defer></script>
-    <script src="js/parsers/uxd.js?v=20261023" defer></script>
-    <script src="js/parsers/philips-udf.js?v=20261023" defer></script>
-    <script src="js/parsers/pdcif.js?v=20261023" defer></script>
-    <script src="js/parsers/detect.js?v=20261023" defer></script>
-    <script src="js/data/file-load.js?v=20261023" defer></script>
-    <script src="js/peaks/peak-finder.js?v=20261023" defer></script>
-    <script src="js/peaks/peak-table.js?v=20261023" defer></script>
-    <script src="js/gpu/gpu-limits.js?v=20261023" defer></script>
-    <script src="js/indexing/diagnostics.js?v=20261023" defer></script>
-    <script src="js/indexing/run.js?v=20261023" defer></script>
-    <script src="js/dialogs/context-menu.js?v=20261023" defer></script>
-    <script src="js/dialogs/swap-hkl.js?v=20261023" defer></script>
-    <script src="js/dialogs/refine-mc.js?v=20261023" defer></script>
-    <script src="js/dialogs/space-group-mc.js?v=20261023" defer></script>
-    <script src="js/report/pdcif-export.js?v=20261023" defer></script>
-    <script src="js/report/pdf-report.js?v=20261023" defer></script>
-    <script src="js/chart/axes.js?v=20261023" defer></script>
-    <script src="js/chart/chart.js?v=20261023" defer></script>
-    <script src="js/chart/interaction.js?v=20261023" defer></script>
-    <script src="js/main.js?v=20261023" defer></script>
+    <script type="application/x-brutus" src="js/core/version.js"></script>
+    <script type="application/x-brutus" src="js/core/utils.js"></script>
+    <script type="application/x-brutus" src="js/core/ui.js"></script>
+    <script type="application/x-brutus" src="js/core/state.js"></script>
+    <script type="application/x-brutus" src="js/core/inputs.js"></script>
+    <script type="application/x-brutus" src="js/data/wavelength.js"></script>
+    <script type="application/x-brutus" src="js/core/sg-database.js"></script>
+    <script type="application/x-brutus" src="js/gpu/gpu-setup.js"></script>
+    <script type="application/x-brutus" src="js/indexing/solutions.js"></script>
+    <script type="application/x-brutus" src="js/peaks/peak-controls.js"></script>
+    <script type="application/x-brutus" src="js/data/session.js"></script>
+    <script type="application/x-brutus" src="js/indexing/worker-pool.js"></script>
+    <script type="application/x-brutus" src="js/data/kalpha2-strip.js"></script>
+    <script type="application/x-brutus" src="js/data/export.js"></script>
+    <script type="application/x-brutus" src="js/parsers/fullprof.js"></script>
+    <script type="application/x-brutus" src="js/parsers/generic.js"></script>
+    <script type="application/x-brutus" src="js/parsers/xml-utils.js"></script>
+    <script type="application/x-brutus" src="js/parsers/bruker-xml.js"></script>
+    <script type="application/x-brutus" src="js/parsers/xrdml.js"></script>
+    <script type="application/x-brutus" src="js/parsers/rigaku-ras.js"></script>
+    <script type="application/x-brutus" src="js/parsers/gsas.js"></script>
+    <script type="application/x-brutus" src="js/parsers/uxd.js"></script>
+    <script type="application/x-brutus" src="js/parsers/philips-udf.js"></script>
+    <script type="application/x-brutus" src="js/parsers/pdcif.js"></script>
+    <script type="application/x-brutus" src="js/parsers/detect.js"></script>
+    <script type="application/x-brutus" src="js/data/file-load.js"></script>
+    <script type="application/x-brutus" src="js/peaks/peak-finder.js"></script>
+    <script type="application/x-brutus" src="js/peaks/peak-table.js"></script>
+    <script type="application/x-brutus" src="js/gpu/gpu-limits.js"></script>
+    <script type="application/x-brutus" src="js/indexing/diagnostics.js"></script>
+    <script type="application/x-brutus" src="js/indexing/run.js"></script>
+    <script type="application/x-brutus" src="js/dialogs/context-menu.js"></script>
+    <script type="application/x-brutus" src="js/dialogs/swap-hkl.js"></script>
+    <script type="application/x-brutus" src="js/dialogs/refine-mc.js"></script>
+    <script type="application/x-brutus" src="js/dialogs/space-group-mc.js"></script>
+    <script type="application/x-brutus" src="js/report/pdcif-export.js"></script>
+    <script type="application/x-brutus" src="js/report/pdf-report.js"></script>
+    <script type="application/x-brutus" src="js/chart/axes.js"></script>
+    <script type="application/x-brutus" src="js/chart/chart.js"></script>
+    <script type="application/x-brutus" src="js/chart/interaction.js"></script>
+    <script type="application/x-brutus" src="js/chart/manual-space-group.js"></script>
+    <script type="application/x-brutus" src="js/convert/sg_subgroups.js"></script>
+    <script type="application/x-brutus" src="js/convert/sg_convert.js"></script>
+    <script type="application/x-brutus" src="js/dialogs/convert.js"></script>
+    <script type="application/x-brutus" src="js/core/workspace.js"></script>
+    <script type="application/x-brutus" src="js/core/shell.js"></script>
+    <script type="application/x-brutus" src="js/main.js"></script>
+    <!-- The one version of the program is version.json. Every script above is listed here in load order
+         (type="application/x-brutus" keeps the browser from running it); this loader reads the version and
+         runs them in that order with ?v=<version>, so page, workers, shaders and the space-group file are
+         cache-busted by the same number. -->
+    <script>
+    (async () => {
+        let version = '';
+        try { version = String((await (await fetch('version.json', { cache: 'no-store' })).json()).version || ''); }
+        catch (error) { console.warn('version.json could not be read; scripts load unversioned.', error); }
+        window.BRUTUS_VERSION = version;
+        if (document.readyState === 'loading') await new Promise(r => document.addEventListener('DOMContentLoaded', r, { once: true }));
+        const query = version ? '?v=' + encodeURIComponent(version) : '';
+        for (const tag of document.querySelectorAll('script[type="application/x-brutus"]')) {
+            const script = document.createElement('script');
+            script.src = tag.getAttribute('src') + query;
+            script.async = false;
+            document.body.appendChild(script);
+        }
+    })();
+    </script>
     <link href="inter-font.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
-    <style>
-    /* ------------------------------------------------------------------
-       Space Group MC: resizable window.
-       Selectors are #sg-overlay #sg-modal so they win over the plain
-       #sg-modal rules in styles.css without needing !important. Move this
-       block into styles.css if you prefer to keep the head clean.
-
-       The modal displays the introductory explanation completely without
-       scrollbars. The results table has its own scroll area sized so the user
-       can browse results comfortably. The native resize grip in the
-       bottom-right corner allows resizing the whole modal.
-       ------------------------------------------------------------------ */
-    #sg-overlay #sg-modal {
-        box-sizing: border-box;
-        display: flex;
-        flex-direction: column;
-        resize: both;                 /* the grip */
-        overflow: hidden;             /* required for resize to take effect */
-        width: min(1100px, 96vw);
-        height: min(640px, 92vh);
-        max-width: 98vw;
-        max-height: 94vh;
-        min-width: min(560px, 96vw);
-        min-height: 300px;
-    }
-    /* Explanatory text is complete and unclipped (no scrollbar). */
-    #sg-overlay #sg-sub {
-        flex: 0 0 auto;
-        max-height: none;
-        overflow: visible;
-        margin-bottom: 0.65rem;
-        line-height: 1.45;
-    }
-    #sg-overlay #sg-title,
-    #sg-overlay #sg-params,
-    #sg-overlay #sg-buttons { flex: 0 0 auto; }
-    /* The results table: sized ~20% lower in height so the user can browse results. */
-    #sg-overlay #sg-table-wrap {
-        flex: 1 1 auto;
-        min-height: 120px;
-        overflow-y: auto;
-    }
-    .sg-chip {
-        display: inline-block;
-        padding: 2px 6px;
-        margin: 2px;
-        border: 1px solid var(--border-color);
-        border-radius: 4px;
-        background: var(--light-bg);
-        cursor: pointer;
-        font-size: 0.8rem;
-        transition: background 0.15s, border-color 0.15s;
-    }
-    .sg-chip:hover {
-        background: var(--medium-bg);
-    }
-    .sg-chip.selected-chip {
-        background: var(--primary-accent);
-        color: #fff;
-        border-color: var(--primary-accent);
-    }
-    /* Status and tie message line - clean without scrollbar. */
-    #sg-overlay #sg-msg {
-        flex: 0 0 auto;
-        min-height: 18px;
-        margin-top: 8px;
-        overflow: visible;
-        overflow-wrap: anywhere;
-    }
-
-    /* Save-as and Unload dialogs. Same object as the Refine MC / Swap dialogs:
-       same overlay, same panel, same button row. The two share every rule below
-       rather than restating them, so a later tweak to one cannot leave the
-       other behind -- which is how you end up with two dialogs that are almost
-       the same. */
-    #save-menu-overlay,
-    #unload-overlay {
-        display: none; position: fixed; inset: 0; z-index: 3000;
-        background: rgba(0,0,0,0.55); align-items: center; justify-content: center;
-    }
-    #save-menu-overlay.open,
-    #unload-overlay.open { display: flex; }
-    #save-menu-modal,
-    #unload-modal {
-        background: var(--medium-bg); border: 1px solid var(--border-color);
-        border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-        width: min(420px, 92vw); max-height: 86vh; display: flex; flex-direction: column;
-        padding: 18px 20px; color: var(--text-light);
-    }
-    #save-menu-modal h3,
-    #unload-modal h3 { margin: 0 0 4px 0; font-size: 1.05rem; }
-    #save-menu-modal .save-sub,
-    #unload-modal .save-sub { margin: 0 0 14px 0; font-size: 0.8rem; color: var(--text-dark); line-height: 1.45; }
-    #save-menu-modal .save-field { display: flex; flex-direction: column; gap: 4px; font-size: 0.875rem; font-weight: 500; color: var(--text-medium); margin-bottom: 14px; }
-    #save-menu-modal .save-field select {
-        width: 100%; box-sizing: border-box; background: var(--light-bg);
-        border: 1px solid var(--border-color); color: var(--text-light);
-        border-radius: 4px; padding: 5px 7px; font-size: 0.85rem;
-    }
-    #save-menu-modal .save-field select:focus {
-        outline: none; border-color: var(--primary-accent);
-        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
-    }
-    #save-menu-msg { min-height: 18px; margin-top: 10px; font-size: 0.8rem; color: var(--text-dark); line-height: 1.4; }
-    #save-menu-buttons,
-    #unload-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; }
-
-    /* The file being unloaded, and what goes with it. Named in the panel rather
-       than in the prose so it reads at a glance before the OK is pressed. */
-    #unload-file {
-        font-size: 0.85rem; color: var(--text-light); word-break: break-all;
-        background: var(--light-bg); border: 1px solid var(--border-color);
-        border-radius: 4px; padding: 6px 8px; margin: 0 0 12px 0;
-    }
-    #unload-losses { margin: 0 0 4px 0; padding-left: 18px; font-size: 0.8rem; color: var(--text-medium); }
-    #unload-losses li { margin: 2px 0; }
-
-    /* Loaded-file chip. Sits under the Load/Save pair and replaces a bare <p>
-       that end-truncated the name -- which cut off the extension, the part you
-       most want to keep. Truncation is now done in JS from the middle. */
-    .file-chip {
-        display: flex; align-items: center; gap: 8px;
-        width: 100%; box-sizing: border-box; margin-top: 0.4rem;
-        padding: 5px 6px 5px 8px; min-height: 30px;
-        background: var(--light-bg); border: 1px solid var(--border-color);
-        border-radius: 6px; font-size: 0.8rem; line-height: 1.2;
-    }
-    .file-chip.is-empty { background: none; border-style: dashed; }
-    .file-chip-icon { flex: none; color: var(--text-dark); font-size: 0.75rem; }
-    .file-chip-name {
-        flex: 1 1 auto; min-width: 0; color: var(--text-medium);
-        white-space: nowrap; overflow: hidden;
-    }
-    .file-chip.is-empty .file-chip-name { color: var(--text-dark); font-style: italic; }
-    .file-chip-size { flex: none; color: var(--text-dark); font-size: 0.72rem; }
-    .file-chip-clear {
-        flex: none; width: 18px; height: 18px; padding: 0; line-height: 1;
-        display: flex; align-items: center; justify-content: center;
-        background: none; border: none; border-radius: 4px;
-        color: var(--text-dark); font-size: 1rem; cursor: pointer;
-    }
-    .file-chip-clear:hover { background: var(--medium-bg); color: var(--text-light); }
-    .file-chip-clear:focus-visible { outline: 2px solid var(--primary-accent); outline-offset: 1px; }
-    .file-chip.is-empty .file-chip-clear { display: none; }
-
-    /* Parse-failure state. `Load File` used to be a <label> carrying
-       .file-input-label, whose own background overrode .btn-secondary -- which
-       is exactly why it did not match `Save as`. It is now the same element
-       with the same classes, so the two are identical by construction, and the
-       error affordance is defined here rather than riding on that class. */
-    #load-file-button.error { border-color: #e24b4a; color: #f09595; }
-
-    /* Chart help: a real button (click to toggle), tooltip opens to the LEFT
-       of the icon and sits on top of everything so it stays on-screen. These
-       #id rules override the generic .help-icon / .tooltip-content in styles.css. */
-    button.help-icon {
-        border: none; cursor: pointer; padding: 0; line-height: 1;
-    }
-    #help-tooltip {
-        /* Cancel the styles.css right-side placement. */
-        left: auto; right: 115%; margin-left: 0; margin-right: 10px;
-        top: -6px;
-        z-index: 4000;
-        max-width: min(400px, 60vw);
-        /* Never open on hover / no delayed reveal. */
-        transition: opacity 0.15s; transition-delay: 0s;
-    }
-    /* The connector arrow points right (toward the icon), anchored on the
-       bubble's right edge. */
-    #help-tooltip::after {
-        content: ""; position: absolute;
-        left: 100%; right: auto;
-        top: 20px; margin-top: -5px;
-        border-width: 5px; border-style: solid;
-        border-color: transparent transparent transparent var(--light-bg);
-    }
-    /* Show only when toggled open via JS; disable the hover-reveal entirely. */
-    .help-tooltip-container:hover #help-tooltip { visibility: hidden; opacity: 0; }
-    .help-tooltip-container #help-tooltip.open { visibility: visible; opacity: 1; }
-    </style>
+    <link rel="stylesheet" href="workspace.css">
+    <link rel="stylesheet" href="dialogs.css">
 </head>
 <body class="app-shell">
+    <header class="workspace-header">
+        <span class="workspace-brand">Brutus</span>
+        <button type="button" id="btn-about" class="hbtn" title="About Brutus" aria-pressed="false">About</button>
+        <button type="button" id="help-guide" class="hbtn" title="Open the technical guide in a new tab">Help</button>
+        <button type="button" id="swap-panels" class="hbtn" title="Swap the controls and results panels" aria-pressed="false">&#8644; Panels</button>
+        <nav class="menubar" aria-label="Main menu">
+            <details id="file-menu" class="workspace-menu"><summary>File</summary><div id="file-menu-items" class="menu-items">
+                <button id="load-file-button" type="button">Load pattern&hellip;</button>
+                <button id="save-as-button" type="button" disabled>Export pattern&hellip;</button>
+                <hr>
+                <button id="open-project" type="button">Open project&hellip;</button>
+                <button id="save-project" type="button">Save project&hellip;</button>
+                <hr>
+                <button id="menu-unload" type="button">Unload pattern</button>
+            </div></details>
+            <details id="solution-menu" class="workspace-menu"><summary>Solution</summary><div class="menu-items">
+                <button type="button" data-sol-action="refine" disabled>Refine</button>
+                <button type="button" data-sol-action="test-sg" disabled>Test Space Group</button>
+                <button type="button" data-sol-action="convert" disabled>Convert&hellip;</button>
+                <button type="button" data-sol-action="explore" disabled>Explore Space Group&hellip;</button>
+                <button type="button" data-sol-action="pdcif" disabled>Export pdCIF</button>
+                <button type="button" data-sol-action="report" disabled>Report PDF</button>
+                <hr>
+                <button type="button" data-sol-action="erase" disabled>Erase</button>
+            </div></details>
+        </nav>
+        <button type="button" id="hb-report" class="hbtn" title="Generate the PDF report" disabled>Report</button>
+        <button type="button" id="hb-run" class="fit-btn" title="Start the indexing search" disabled>&#9654; Index</button>
+        <label class="theme-switch"><input id="theme-toggle" type="checkbox" role="switch"><span class="track" aria-hidden="true"><i></i></span><span>Dark</span></label>
+    </header>
+    <input id="project-input" type="file" accept=".brutus,.json" hidden>
+
 
     <div id="app-container">
         <div id="controls-panel">
-
-            <div class="control-group">
-                <div style="display: flex; gap: 0.5rem;">
-                    <button id="load-file-button" class="btn btn-secondary btn-like flex-1">Load File</button>
-                    <button id="save-as-button" class="btn btn-secondary btn-like flex-1" disabled>Save as</button>
-                </div>
-                <div id="file-name-box" class="file-chip is-empty">
-                    <span class="file-chip-icon" aria-hidden="true">&#9723;</span>
-                    <span id="file-chip-name" class="file-chip-name">No file loaded</span>
-                    <span id="file-chip-size" class="file-chip-size"></span>
-                    <button type="button" id="file-chip-clear" class="file-chip-clear" title="Unload this file and clear the session" aria-label="Unload file">&#215;</button>
-                </div>
-                <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.dat,.asc,.prn,.xrdml,.xml,.ras,.esd,.std,.udf,.uxd,.xra,.gsa,.cif">
-            </div>
 
             <!-- Save-as format menu (mirrors the Refine MC / Swap dialogs) -->
             <div id="save-menu-overlay">
@@ -303,6 +168,18 @@
             </div>
 
             <!-- Unload confirmation (mirrors the Save-as dialog above) -->
+            <!-- General notice / confirmation (large report, large history): same panel as the dialogs around it -->
+            <div id="notice-overlay">
+                <div id="notice-modal" role="alertdialog" aria-modal="true" aria-labelledby="notice-title" aria-describedby="notice-text">
+                    <h3 id="notice-title"></h3>
+                    <p id="notice-text" class="save-sub"></p>
+                    <div id="notice-buttons">
+                        <button id="notice-cancel" class="btn btn-secondary">Cancel</button>
+                        <button id="notice-confirm" class="btn btn-primary">OK</button>
+                    </div>
+                </div>
+            </div>
+
             <div id="unload-overlay">
                 <div id="unload-modal" role="dialog" aria-modal="true" aria-labelledby="unload-title">
                     <h3 id="unload-title">Unload file</h3>
@@ -317,18 +194,109 @@
             </div>
 
             <div class="tab-buttons">
-                <button class="tab-btn active" data-tab="peaks">Peaks</button>
-                <button class="tab-btn" data-tab="parameters">Parameters</button>
-                <button class="tab-btn" data-tab="solutions">
+                <button class="tab-btn active" data-tab="data" title="Pattern and radiation">Data</button>
+                <button class="tab-btn" data-tab="peaks" title="Background and peak positions">Peaks</button>
+                <button class="tab-btn" data-tab="parameters" title="Search limits and crystal systems">Indexing</button>
+                <button class="tab-btn" data-tab="solutions" title="Candidate cells and space groups">
                     Solutions
                     <span id="solutions-led" class="led-indicator gray" aria-label="Solutions status indicator"></span>
                 </button>
             </div>
 
             <div class="tab-content-panels">
-                <div id="peaks-tab-content" class="tab-content-panel active">
+                <div id="data-tab-content" class="tab-content-panel active">
+                    <div class="control-group full-width">
+                        <h3 class="section-title">Pattern</h3>
+                        <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.dat,.asc,.prn,.xrdml,.xml,.ras,.esd,.std,.udf,.uxd,.xra,.gsa,.cif">
+                        <details id="file-meta-acc" class="meta-acc is-empty"><summary id="file-meta-name" title="">No file loaded</summary><div class="sol-body"><dl id="file-meta" class="meta-dl"></dl></div></details>
+                    </div>
+                    <div class="control-group full-width">
+                        <h3 class="section-title">2&theta; range</h3>
+
+
+                            <div class="slider-group">
+                                <label for="tth-min-slider" class="control-label">2θ Min</label>
+                                <div class="slider-value-track">
+                                    <input type="range" id="tth-min-slider" class="custom-slider" disabled>
+                                    <span id="tth-min-value" class="slider-value-display">-</span>
+                                </div>
+                            </div>
+                            <div class="slider-group">
+                                <label for="tth-max-slider" class="control-label">2θ Max</label>
+                                <div class="slider-value-track">
+                                    <input type="range" id="tth-max-slider" class="custom-slider" disabled>
+                                    <span id="tth-max-value" class="slider-value-display">-</span>
+                                </div>
+                            </div>
+                            
+                            
+                    </div>
+                    <div class="control-group full-width">
+                        <h3 class="section-title">Radiation</h3>
+    <div class="parameter-grid">
+        <div>
+<label for="wavelength-preset" class="control-label">Radiation Preset</label>
+<select id="wavelength-preset" class="control-select">
+    <option value="Cu_ka1">Cu Ka1</option>
+    <option value="Cu_avg" selected>Cu K-alpha (Avg)</option>
+    <option value="Co_ka1">Co Ka1</option>
+    <option value="Co_avg">Co K-alpha (Avg)</option>
+    <option value="Fe_ka1">Fe Ka1</option>
+    <option value="Fe_avg">Fe K-alpha (Avg)</option>
+    <option value="Mo_ka1">Mo Ka1</option>
+    <option value="Mo_avg">Mo K-alpha (Avg)</option>
+    <option value="Ag_ka1">Ag Ka1</option>
+    <option value="Ag_avg">Ag K-alpha (Avg)</option>
+    <option value="Cr_ka1">Cr Ka1</option>
+    <option value="Cr_avg">Cr K-alpha (Avg)</option>
+    <option value="custom">Custom (Monochromatic)</option>
+</select>
+
+</div>
+<div>
+    <label for="wavelength" class="control-label">Wavelength (Å)</label>
+    <input type="number" id="wavelength" value="1.54184" step="0.00001" min="0.1" class="control-input">
+</div>
+    </div>
+    
+    <label class="checkbox-label" style="margin-top: 1rem; margin-bottom: 0.5rem;">
+    <input type="checkbox" id="strip-ka2-checkbox">
+    <span>Strip K-alpha2</span> </label>
+
+
+                    </div>
+                    <div class="control-group full-width">
+                        <h3 class="section-title">Search parameters</h3>
+    <div class="parameter-grid">
+        <div>
+            <label for="max-volume" class="control-label">Max Volume (Å³)</label>
+            <input type="number" id="max-volume" value="2000" step="100" min="25" max="12500" class="control-input">
+        </div>
+        <div>
+            <label for="impurity-peaks" class="control-label">Impurity Peaks</label>
+            <input type="number" id="impurity-peaks" value="1" min="0" max="3" step="1" class="control-input">
+        </div>
+    </div>
+
+    <div class="parameter-grid" style="margin-top: 1rem; align-items: end;">
+        <div>
+            <label for="tth-error" class="control-label">2θ Error (°)</label>
+            <input type="number" id="tth-error" value="0.04" step="0.002" min="0.0001" class="control-input">
+        </div>
+        <label class="checkbox-label" style="padding-bottom: 0.5rem;">
+            <input type="checkbox" id="refine-zero-checkbox" checked>
+            <span>Refine Zero Error</span>
+        </label>
+    </div>
+
+
+                    </div>
+                </div>
+
+                <div id="peaks-tab-content" class="tab-content-panel">
                      <div class="control-group" style="width: 100%; flex-grow: 1; display: flex; flex-direction: column;">
                         <div id="peak-controls" class="hidden" style="display: flex; flex-direction: column; flex-grow: 1;">
+                            <h3 class="section-title">Peak search</h3>
                             
                             <div class="slider-group">
                                 <label for="peak-threshold-slider" class="control-label">Min peak (%)</label>
@@ -362,23 +330,6 @@
                                 </div>
                             </div>
 
-                            <div style="border-top: 1px solid var(--border-color); margin: 1.5rem 0;"></div>
-
-                            <div class="slider-group">
-                                <label for="tth-min-slider" class="control-label">2θ Min</label>
-                                <div class="slider-value-track">
-                                    <input type="range" id="tth-min-slider" class="custom-slider" disabled>
-                                    <span id="tth-min-value" class="slider-value-display">-</span>
-                                </div>
-                            </div>
-                            <div class="slider-group">
-                                <label for="tth-max-slider" class="control-label">2θ Max</label>
-                                <div class="slider-value-track">
-                                    <input type="range" id="tth-max-slider" class="custom-slider" disabled>
-                                    <span id="tth-max-value" class="slider-value-display">-</span>
-                                </div>
-                            </div>
-                            
                             <div id="peak-table-container" class="hidden" style="flex-grow: 1; min-height: 0;">
                                 <div id="ka2-warning-banner" class="ka2-warning-banner" style="display:none;"></div>
                                 <table class="peak-table">
@@ -393,44 +344,14 @@
 
                 <div id="parameters-tab-content" class="tab-content-panel">
 
-<div class="control-group full-width">
-    <div class="parameter-grid">
-        <div>
-<label for="wavelength-preset" class="control-label">Radiation Preset</label>
-<select id="wavelength-preset" class="control-select">
-    <option value="Cu_ka1">Cu Ka1</option>
-    <option value="Cu_avg" selected>Cu K-alpha (Avg)</option>
-    <option value="Co_ka1">Co Ka1</option>
-    <option value="Co_avg">Co K-alpha (Avg)</option>
-    <option value="Fe_ka1">Fe Ka1</option>
-    <option value="Fe_avg">Fe K-alpha (Avg)</option>
-    <option value="Mo_ka1">Mo Ka1</option>
-    <option value="Mo_avg">Mo K-alpha (Avg)</option>
-    <option value="Ag_ka1">Ag Ka1</option>
-    <option value="Ag_avg">Ag K-alpha (Avg)</option>
-    <option value="Cr_ka1">Cr Ka1</option>
-    <option value="Cr_avg">Cr K-alpha (Avg)</option>
-    <option value="custom">Custom (Monochromatic)</option>
-</select>
-
-</div>
-<div>
-    <label for="wavelength" class="control-label">Wavelength (Å)</label>
-    <input type="number" id="wavelength" value="1.54184" step="0.00001" min="0.1" class="control-input">
-</div>
-    </div>
-    
-    <label class="checkbox-label" style="margin-top: 1rem; margin-bottom: 0.5rem;">
-    <input type="checkbox" id="strip-ka2-checkbox">
-    <span>Strip K-alpha2</span> </label>
-
-</div>
 
 
 
 
 
-                    <div class="control-group" style="width: 100%; border-top: 1px solid var(--light-bg); padding-top: 1.5rem;">
+
+                    <div class="control-group" style="width: 100%; border-top: none; padding-top: 0;">
+                        <h3 class="section-title">Crystal systems</h3>
                  
                  
 
@@ -439,29 +360,7 @@
 
 
                         <div id="indexing-controls" class="hidden">
-    <div class="parameter-grid">
-        <div>
-            <label for="max-volume" class="control-label">Max Volume (Å³)</label>
-            <input type="number" id="max-volume" value="2000" step="100" min="25" max="12500" class="control-input">
-        </div>
-        <div>
-            <label for="impurity-peaks" class="control-label">Impurity Peaks</label>
-            <input type="number" id="impurity-peaks" value="1" min="0" max="3" step="1" class="control-input">
-        </div>
-    </div>
-
-    <div class="parameter-grid" style="margin-top: 1rem; align-items: end;">
-        <div>
-            <label for="tth-error" class="control-label">2θ Error (°)</label>
-            <input type="number" id="tth-error" value="0.04" step="0.002" min="0.0001" class="control-input">
-        </div>
-        <label class="checkbox-label" style="padding-bottom: 0.5rem;">
-            <input type="checkbox" id="refine-zero-checkbox" checked>
-            <span>Refine Zero Error</span>
-        </label>
-    </div>
-
-<label class="control-label" style="margin-top: 1.5rem; margin-bottom: 1rem;" title="Every checked system is searched on the GPU, one after the other, highest symmetry first: cubic, hexagonal, tetragonal, orthorhombic, monoclinic, triclinic. Rhombohedral (R) lattices are found by the hexagonal search, in hexagonal axes. Without WebGPU, cubic, tetragonal and hexagonal fall back to the CPU.">Crystal Systems to Search:</label>
+<label class="control-label" style="margin-bottom: 0.5rem;" title="Every checked system is searched on the GPU, one after the other, highest symmetry first: cubic, hexagonal, tetragonal, orthorhombic, monoclinic, triclinic. Rhombohedral (R) lattices are found by the hexagonal search, in hexagonal axes. Without WebGPU, cubic, tetragonal and hexagonal fall back to the CPU.">Systems to search</label>
     <!-- Left column: one or two unknowns; right column: three or more.
          Triclinic is off by default (rare, and by far the slowest).
          Rhombohedral lattices are found by the hexagonal search. -->
@@ -503,7 +402,7 @@
             </div>
         </div>
         <!-- Per-system plan, filled by updateGpuStatusText() -->
-        <div id="gpu-plan" style="margin-top: 0.75rem; font-size: 0.75rem; line-height: 1.45; color: var(--text-dark); white-space: pre-line; font-variant-numeric: tabular-nums;"></div>
+        <div id="gpu-plan"></div>
     </div>
 </div>
 
@@ -517,31 +416,35 @@
 
                 <div id="solutions-tab-content" class="tab-content-panel">
                     <div class="control-group full-width">
-                         <div id="solutions-table-container">
-                            <table class="solutions-table">
-                                <thead><tr>
-                                    <th data-sort="system">Sys.</th>
-                                    <th>Parameters (Å)</th>
-                                    <th>Angles (°)</th>
-                                    <th data-sort="volume">Vol</th>
-                                    <th data-sort="m20">M(20)</th>
-                                </tr></thead>
-                                <tbody id="solutions-table-body"></tbody>
-                            </table>
-                         </div>
+                        <div class="sol-toolbar">
+                            <label for="solutions-sort" class="control-label">Sort by</label>
+                            <select id="solutions-sort" class="control-select">
+                                <option value="m20:desc" selected>M(20), highest first</option>
+                                <option value="m20:asc">M(20), lowest first</option>
+                                <option value="volume:asc">Volume, smallest first</option>
+                                <option value="volume:desc">Volume, largest first</option>
+                                <option value="system:asc">Crystal system, A to Z</option>
+                                <option value="system:desc">Crystal system, Z to A</option>
+                            </select>
+                        </div>
+                        <div id="solutions-list" class="sol-list"></div>
+                        <div hidden>
+                            <input id="manual-sg-search" type="search" disabled>
+                            <select id="manual-sg-select" disabled><option value="">No manual comparison</option></select>
+                            <p id="manual-sg-status"></p>
+                            <button id="browse-sg" type="button"></button>
+                        </div>
                     </div>
                 </div>
             </div>
 
-
-
             <div class="bottom-actions">
-                <div id="progress-bar-container" class="hidden" style="width: 100%; background-color: var(--light-bg); border-radius: 9999px; height: 0.625rem; margin-bottom: 0.5rem;">
-                    <div id="progress-bar" style="background-color: var(--primary-accent); height: 0.625rem; border-radius: 9999px; width: 0%; transition: width 0.2s;"></div>
+                <div id="progress-bar-container" class="hidden">
+                    <div id="progress-bar"></div>
                 </div>
                 <!-- min-height, not height: a fixed 1.2em let a two-line warning run underneath the Start / Report buttons. Grows to 3 lines, then scrolls. -->
-                <p id="status-text" style="text-align: center; font-size: 0.8rem; line-height: 1.3; color: var(--text-dark); margin: 0 0 0.5rem 0; min-height: 1.3em; max-height: 3.9em; overflow-y: auto; overflow-wrap: anywhere;"></p>
-                <div style="display: flex; gap: 0.5rem;">
+                <p id="status-text"></p>
+                <div hidden style="display: flex; gap: 0.5rem;">
                     <button id="start-indexing-button" class="btn btn-primary btn-like flex-1" disabled>Find Peaks to Start</button>
                     <button id="report-button" class="btn btn-secondary btn-like flex-1" disabled>Generate PDF Report</button>
                 </div>
@@ -551,31 +454,49 @@
         <div id="drag-handle"></div>
 
         <div id="results-area">
-            <div class="help-tooltip-container" style="position:absolute; top:0.75rem; right:0.75rem; z-index:30;">
-                <button type="button" id="help-icon-btn" class="help-icon" aria-label="Help and usage information" aria-expanded="false">?</button>
-                <div class="tooltip-content" id="help-tooltip">
-    <h4>Brutus - Powder XRD Indexing</h4>
-    <p>This program uses a system-specific, exhaustive GPU search to find potential unit cells based on the first 20 peaks. The checked crystal systems are searched one after the other, highest symmetry first; rhombohedral (R) lattices are found by the hexagonal search and reported in hexagonal axes. WebGPU must be available and active in the browser; without it only cubic, tetragonal and hexagonal can be searched (on the CPU).</p>
-    <p>All trial cells are refined, scored (M(20)), and analyzed for space groups. For a full breakdown, <a href="brutus_help.html" target="_blank" style="color: #6495ED;">read the technical guide.</a></p>
-    <hr>
-    <h4>Supported File Formats:</h4>
-    <p>Generic 2-column (2&theta;, intensity; a "Wavelength" header line is read), .xrdml, Bruker RawData .xml, .ras, .uxd, .udf, GSAS (.gsa, .esd, .std, .xra), FullProf .dat and pdCIF. Data, raw or K&alpha;<sub>2</sub>-stripped, can be saved in several formats.</p>
-    <hr>
-    <h4>Chart Interaction:</h4>
-    <p><b>Zoom:</b> Use the mouse wheel, or select an area. Right-click to reset zoom.</p>
-    <p><b>Pan:</b> Alt + drag the chart to pan.</p>
-    <p><b>Add Peak:</b> Hold <b>Ctrl</b> and click on the chart to manually add a peak at that position.</p>
-</div>
+            <nav id="workspace-views" class="panel-tabs" role="tablist" aria-label="Result views"><button type="button" role="tab" data-view="plot" aria-pressed="true">Plot</button><button type="button" role="tab" data-view="log" aria-pressed="false">Log</button><button type="button" role="tab" data-view="history" aria-pressed="false">History</button></nav>
+            <div id="placeholder" class="placeholder">
+                <svg xmlns="http://www.w3.org/2000/svg" class="placeholder-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                <h2>Awaiting data</h2>
+                <p>Load a pattern from File &rarr; Load pattern to begin.</p>
             </div>
-             <div id="placeholder" style="width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #6b7280;">
-                <svg xmlns="http://www.w3.org/2000/svg" style="width: 4rem; height: 4rem; margin-bottom: 1rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                <h2 style="font-size: 1.5rem; font-weight: 600;">Awaiting Data</h2>
-                <p>Load a data file to begin indexing.</p>
-            </div>
-            <div id="results-container" style="width: 100%; height: 100%; display: none; flex-direction: column; position: relative;">
-                <div id="chart-toolbar" style="display:flex; flex-wrap:wrap; gap:0.9rem; align-items:center; padding:0.35rem 0.6rem; font-size:0.8rem; color:#374151; border-bottom:1px solid #e5e7eb; background:#fafafa;">
-                    <label class="axis-toggle" title="Abscissa. The data itself is never re-measured; only the view changes.">
-                        <span class="axis-toggle-key">X</span>
+            <section id="log-view" class="workspace-view" hidden aria-label="Log"><ol id="workspace-log"></ol></section>
+            <section id="history-view" class="workspace-view" hidden aria-label="History"><p class="hint">Completed indexing runs. Restore a run to compare its solutions.</p><div id="workspace-history"></div></section>
+            <section id="about-view" class="workspace-view" hidden aria-label="About">
+                <article class="about">
+                    <h1>About Brutus</h1>
+                    <p>This program uses a system-specific, exhaustive GPU search to find potential unit cells based on the first 20 peaks. The checked crystal systems are searched one after the other, highest symmetry first; rhombohedral (R) lattices are found by the hexagonal search and reported in hexagonal axes. WebGPU must be available and active in the browser; without it only cubic, tetragonal and hexagonal can be searched (on the CPU).</p>
+                    <p>All trial cells are refined, scored (M(20)), and analyzed for space groups. For a full breakdown, <a href="brutus_help.html" target="_blank" rel="noopener">read the technical guide</a>.</p>
+                    <h2>Supported file formats</h2>
+                    <p>Generic 2-column (2&theta;, intensity; a &ldquo;Wavelength&rdquo; header line is read), .xrdml, Bruker RawData .xml, .ras, .uxd, .udf, GSAS (.gsa, .esd, .std, .xra), FullProf .dat and pdCIF. Data, raw or K&alpha;<sub>2</sub>-stripped, can be saved in several formats.</p>
+                    <h2>Working with it</h2>
+                    <ol>
+                        <li><b>Data</b>: load a pattern, check the radiation and the 2&theta; range.</li>
+                        <li><b>Peaks</b>: adjust the background and peak search until the peak list is clean; Ctrl+click on the plot adds a peak.</li>
+                        <li><b>Indexing</b>: choose the crystal systems and the GPU search parameters, then press <b>Index</b> (Esc or the red button stops the search).</li>
+                        <li><b>Solutions</b>: open a solution to see its cell, Niggli cell and space group; the <b>Solution</b> menu refines it, tests its space group, converts it to a sub- or supergroup, explores a space group by hand, or exports a pdCIF.</li>
+                    </ol>
+                    <p class="hint">Projects (File &rarr; Save project) are JSON files: pattern, peaks, solutions with their space groups, settings, run history and log.</p>
+                </article>
+            </section>
+            <div id="results-container" class="plot-pane" style="display: none;">
+                <div id="chart-toolbar" class="ptools">
+                    <div class="seg" role="group" aria-label="Intensity scale">
+                        <button type="button" data-yscale="linear" aria-pressed="false" title="Linear intensity">Linear</button><button type="button" data-yscale="sqrt" aria-pressed="true" title="Square-root intensity: weak peaks next to strong ones stay visible">&radic;I</button><button type="button" data-yscale="log" aria-pressed="false" title="Logarithmic intensity">log I</button>
+                    </div>
+                    <select id="y-axis-mode" hidden>
+                        <option value="linear">I</option>
+                        <option value="sqrt" selected>&radic;I</option>
+                        <option value="log">log I</option>
+                    </select>
+                    <span class="tool-sep" aria-hidden="true"></span>
+                    <label class="chk" title="Rolling-ball background"><input id="show-background" type="checkbox"> Background</label>
+                    <label class="chk" title="The experimental pattern"><input id="show-data" type="checkbox" checked> Data</label>
+                    <label class="chk" title="Experimentally detected peaks (the peak table)"><input id="show-exp" type="checkbox" checked> Exp</label>
+                    <label class="chk" title="Reflections calculated from the open solution"><input id="show-sol" type="checkbox" checked> Sol</label>
+                    <label class="chk" title="Reflections simulated for the space group of the open solution"><input id="show-sim" type="checkbox" checked> Sim</label>
+                    <span class="tool-sep" aria-hidden="true"></span>
+                    <label class="chk" title="Abscissa. The data itself is never re-measured; only the view changes.">X
                         <select id="x-axis-mode" class="axis-select">
                             <option value="tth" selected>2&theta; (&deg;)</option>
                             <option value="theta">&theta; (&deg;)</option>
@@ -583,25 +504,26 @@
                             <option value="q">Q (&Aring;&#8315;&sup1;)</option>
                         </select>
                     </label>
-                    <label class="axis-toggle" title="Ordinate scaling. Tick labels always show real intensity.">
-                        <span class="axis-toggle-key">Y</span>
-                        <select id="y-axis-mode" class="axis-select">
-                            <option value="linear">I</option>
-                            <option value="sqrt" selected>&radic;I</option>
-                            <option value="log">log I</option>
-                        </select>
-                    </label>
-                    <label class="axis-toggle" title="Where Ctrl+click puts a new peak. Hold Shift while clicking to bypass snapping.">
-                        <span class="axis-toggle-key">Snap</span>
+                    <label class="chk" title="Where Ctrl+click puts a new peak. Hold Shift while clicking to bypass snapping.">Snap
                         <select id="snap-mode" class="axis-select">
                             <option value="off" selected>Off</option>
                             <option value="data">Obs</option>
                             <option value="hkl">Calc</option>
                         </select>
                     </label>
-                    <span id="snap-readout" style="color:#6b7280; font-variant-numeric:tabular-nums;"></span>
+                    <span class="tool-sep" aria-hidden="true"></span>
+                    <button type="button" id="save-png">Save PNG</button>
+                    <span class="info-tip">
+                        <button type="button" class="info-btn" aria-label="Mouse controls of the plot" aria-describedby="plot-help">i</button>
+                        <span class="info-pop" id="plot-help" role="tooltip">
+                            <b>Wheel</b><span>zoom; or drag a box to zoom to it</span>
+                            <b>Alt + drag</b><span>pan</span>
+                            <b>Right-click</b><span>reset the view</span>
+                            <b>Ctrl + click</b><span>add a peak at the cursor (Shift bypasses snapping)</span>
+                        </span>
+                    </span>
                 </div>
-                <div style="flex:1 1 auto; min-height:0; position:relative;">
+                <div class="plot-host">
                     <canvas id="xrd-chart"></canvas>
                 </div>
             </div>
@@ -611,7 +533,7 @@
 
     <div id="status-box"></div>
 
-<div id="app-footer">Brutus</div>
+
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
     <div id="ctx-swap">Swap hkl</div>
@@ -717,5 +639,34 @@
     </div>
   </div>
 </div>
+<footer id="workspace-status" role="status" aria-live="polite"><span id="workspace-state">Ready</span><span id="snap-readout" title="Position under the pointer on the plot: 2θ, d and Q (and hkl when snapping to a calculated line)"></span><span id="workspace-solution">No solution selected</span><span id="app-footer">Brutus</span></footer>
+<dialog id="sg-browser" aria-labelledby="sg-browser-title">
+    <h2 id="sg-browser-title">Explore space group</h2>
+    <p>Choose a setting: its allowed reflections are drawn on the plot for the selected cell, and the setting is added to the solution (and to the report) when you press Add to solution. The displayed cell axes are used; no basis conversion is applied.</p>
+    <label>Crystal system <select id="sg-filter-system"><option value="">All systems</option><option>cubic</option><option>hexagonal</option><option>trigonal</option><option>tetragonal</option><option>orthorhombic</option><option>monoclinic</option><option>triclinic</option></select></label>
+    <label>Centering <select id="sg-filter-centering"><option value="">All</option><option>P</option><option>A</option><option>B</option><option>C</option><option>I</option><option>F</option><option>R</option></select></label>
+    <label>Search <input id="sg-browser-query" type="search" placeholder="Number, symbol, Hall symbol, setting"></label>
+    <p id="sg-browser-count" role="status"></p>
+    <div class="sg-browser-columns"><div id="sg-browser-list" role="group" aria-label="Space-group settings"></div><section id="sg-browser-detail" aria-live="polite">Select a setting to inspect its symmetry and reflection conditions.</section></div>
+    <div class="dialog-actions"><button id="sg-browser-reset" type="button">Reset filters</button><button id="sg-browser-clear" type="button" title="Remove the space group from the solution">Remove from solution</button><button id="sg-browser-cancel" type="button">Cancel</button><button id="sg-browser-apply" type="button" class="primary" disabled>Add to solution</button></div>
+</dialog>
+<dialog id="convert-dialog" aria-labelledby="convert-title">
+    <h2 id="convert-title">Convert to a subgroup or supergroup</h2>
+    <p id="convert-intro"></p>
+    <div class="convert-row">
+        <label>Current space group <select id="convert-from"></select></label>
+        <label>Filter <input id="convert-from-filter" type="search" placeholder="Number, symbol, Hall"></label>
+    </div>
+    <div class="seg" role="group" aria-label="Conversion">
+        <button type="button" data-convert-mode="sub" aria-pressed="true">Maximal subgroups</button><button type="button" data-convert-mode="other" aria-pressed="false">Another group</button>
+    </div>
+    <div id="convert-other" class="convert-row" hidden>
+        <label>Target space group <select id="convert-to"></select></label>
+        <label>Filter <input id="convert-to-filter" type="search" placeholder="Number, symbol, Hall"></label>
+    </div>
+    <p id="convert-status" role="status"></p>
+    <div id="convert-results" class="convert-results"></div>
+    <div class="dialog-actions"><button id="convert-cancel" type="button">Cancel</button><button id="convert-apply" type="button" class="primary" disabled>Add as solution</button></div>
+</dialog>
 </body>
 </html>

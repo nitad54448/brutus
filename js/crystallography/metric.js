@@ -39,26 +39,8 @@
 //  between the UI code, these scripts and the two workers as plain
 //  object keys. A rename missed in one of the three fails silently at
 //  runtime rather than at parse time, so the risk outweighs the tidiness.
-//  Use the named helpers below in new code instead of rewriting the
-//  formula inline.
-//
 const RAD = Math.PI / 180.0;
 const DEG = 180.0 / Math.PI;
-// 1/d^2 in A^-2 from 2-theta in DEGREES. The indexing quantity.
-const dstarSqFromTthDeg = (tth_deg, lambda) => {
-    const s = Math.sin(tth_deg * RAD / 2);
-    return (4 * s * s) / (lambda * lambda);
-};
-// 1/d^2 in A^-2 from theta in RADIANS (note: theta, not 2-theta).
-const dstarSqFromThetaRad = (theta_rad, lambda) => {
-    const s = Math.sin(theta_rad);
-    return (4 * s * s) / (lambda * lambda);
-};
-// Scattering vector 4*pi*sin(theta)/lambda in A^-1 from 2-theta in DEGREES.
-// Present here only so both conventions are defined in one place; the
-// indexing math must never call this.
-const scatteringQFromTthDeg = (tth_deg, lambda) =>
-    4 * Math.PI * Math.sin(tth_deg * RAD / 2) / lambda;
 const metricFromCell = (cell) => {
     const a = cell.a; const b = cell.b ?? cell.a; const c = cell.c ?? cell.a;
     const alpha = (cell.alpha ?? 90) * RAD; const beta  = (cell.beta  ?? 90) * RAD; const gamma = (cell.gamma ?? 90) * RAD;

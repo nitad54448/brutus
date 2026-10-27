@@ -129,75 +129,6 @@ const SG_HOLOHEDRY = {
     cubic: 'm-3m', tetragonal: '4/mmm', hexagonal: '6/mmm',
     orthorhombic: 'mmm', monoclinic: '2/m', triclinic: '-1',
 };
-// ---------------------------------------------------------------------------
-// Compiled reflection conditions
-// ---------------------------------------------------------------------------
-// satisfiesCondition() re-parses its condition string on every call: two regex
-// matches, a split, a map, and a per-term regex. That is fine for the handful of
-// calls the absence analysis makes, and ruinous here -- building the extinction
-// classes asks it tens of millions of times. This compiles each distinct string
-// ONCE into a closure over integer coefficients.
-//
-// The compiled form is VERIFIED against satisfiesCondition() on a small grid
-// before it is trusted, and anything that disagrees (or fails to parse) falls
-// back to the original function. The two can therefore never diverge, whatever
-// a future database throws at them.
-const _SG_COND_CACHE = new Map();
-function sgCompileCondition(condStr) {
-    const hit = _SG_COND_CACHE.get(condStr);
-    if (hit !== undefined) return hit;
-
-    let fn = null;
-    try {
-        if (condStr === 'h+k, k+l, h+l=2n') {
-            fn = (h, k, l) => ((h + k) % 2 === 0) && ((k + l) % 2 === 0) && ((h + l) % 2 === 0);
-        } else {
-            const rhsMatch = condStr.match(/=\s*(\d+)n/);
-            const defaultRhs = rhsMatch ? rhsMatch[0] : '=2n';
-            const parts = [];
-            for (let piece of condStr.split(',')) {
-                let clean = piece.replace(/[\s*]/g, '');
-                if (!clean.includes('=')) clean += defaultRhs.replace(/\s/g, '');
-                // Anchored, as in satisfiesCondition(): see the note there.
-                const m = clean.match(/^([+\-]?\d*[hkl](?:[+\-]\d*[hkl])*)=(\d+)n$/);
-                if (!m) { parts.length = 0; break; }
-                const mod = parseInt(m[2], 10);
-                if (!isFinite(mod) || mod <= 0) { parts.length = 0; break; }
-                let ch = 0, ck = 0, cl = 0, bad = false;
-                for (const term of (m[1].match(/[+-]?[0-9]*[hkl]/g) || [])) {
-                    const t = term.match(/^([+-]?)(\d*)([hkl])$/);
-                    if (!t) { bad = true; break; }
-                    const v = (t[1] === '-' ? -1 : 1) * (t[2] ? parseInt(t[2], 10) : 1);
-                    if (t[3] === 'h') ch += v; else if (t[3] === 'k') ck += v; else cl += v;
-                }
-                if (bad) { parts.length = 0; break; }
-                parts.push([ch, ck, cl, mod]);
-            }
-            if (parts.length) {
-                fn = (h, k, l) => {
-                    for (let i = 0; i < parts.length; i++) {
-                        const p = parts[i];
-                        const v = p[0] * h + p[1] * k + p[2] * l;
-                        if (((v % p[3]) + p[3]) % p[3] !== 0) return false;
-                    }
-                    return true;
-                };
-            }
-        }
-        // Trust nothing that does not reproduce the reference implementation.
-        if (fn) {
-            for (let h = -3; h <= 3 && fn; h++)
-                for (let k = -3; k <= 3 && fn; k++)
-                    for (let l = -3; l <= 3; l++) {
-                        if (fn(h, k, l) !== !!satisfiesCondition(h, k, l, condStr)) { fn = null; break; }
-                    }
-        }
-    } catch (e) { fn = null; }
-
-    const out = fn || ((h, k, l) => !!satisfiesCondition(h, k, l, condStr));
-    _SG_COND_CACHE.set(condStr, out);
-    return out;
-}
 // ============================================================================
 // EXTINCTION-CLASS CONSTRUCTION
 // ============================================================================
@@ -642,36 +573,6 @@ function sgOpsLabelPredicate(setting) {
     if (!C) return null;
     if (C.nAbs === 0) return () => true;
     return (h, k, l) => !sgOpsAbsent(h, k, l, C);
-}
-// epsilon(h): the order of the stabiliser of h in the point group.
-//     <|F(h)|^2> = epsilon(h) * sum_j f_j^2
-// Reflections on a symmetry axis or plane are expected epsilon times STRONGER
-// than a general reflection at the same resolution.
-function sgOpsEpsilon(h, k, l, C) {
-    const R = C.pgR, n = C.nPg;
-    let eps = 0;
-    for (let i = 0; i < n; i++) {
-        const b = i * 9;
-        if (h * R[b] + k * R[b + 3] + l * R[b + 6] !== h) continue;
-        if (h * R[b + 1] + k * R[b + 4] + l * R[b + 7] !== k) continue;
-        if (h * R[b + 2] + k * R[b + 5] + l * R[b + 8] !== l) continue;
-        eps++;
-    }
-    return eps || 1;
-}
-// h is centric iff some operation sends it to -h, which happens in
-// non-centrosymmetric groups too: centricity belongs to the reflection, not the
-// group. Deliberately unused in the class score -- see SG_USE_EPSILON_WEIGHT.
-function sgOpsIsCentric(h, k, l, C) {
-    const R = C.pgR, n = C.nPg;
-    for (let i = 0; i < n; i++) {
-        const b = i * 9;
-        if (h * R[b] + k * R[b + 3] + l * R[b + 6] !== -h) continue;
-        if (h * R[b + 1] + k * R[b + 4] + l * R[b + 7] !== -k) continue;
-        if (h * R[b + 2] + k * R[b + 5] + l * R[b + 8] !== -l) continue;
-        return true;
-    }
-    return false;
 }
 // A stable key for deduplicating settings that carry identical symmetry.
 function sgOpsKey(setting) {

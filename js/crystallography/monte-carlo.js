@@ -53,10 +53,6 @@ const MC_ITERATIONS = 700;
 const MC_RESTARTS   = 2;
 const MC_RANGE      = 0.01;   // +/- 1%
 const MC_SEED       = 20260723;
-// Defaults for the "Refine MC" dialog. The user can override all three; these
-// are just the values the dialog opens with. Cost is ~0.2-0.5 s per solution
-// per restart, so Solutions x Restarts is the number that drives wall time.
-const MC_DEFAULT_SOLUTIONS = 10;
 // Deterministic PRNG (mulberry32). A fixed seed makes runs reproducible, which
 // matters for a stochastic step inside an otherwise deterministic program: a
 // user who reruns the same pattern gets the same answer.

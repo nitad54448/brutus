@@ -18,134 +18,154 @@
     </script>
     <script id="MathJax-script" async
             src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+    <!-- Theme: the same light and dark palettes as the program (workspace.css). The choice made in the program
+         (localStorage "brutus-theme") is applied before the first paint, and follows the program if it changes. -->
+    <script>
+        (function () {
+            var dark = false;
+            try { dark = localStorage.getItem('brutus-theme') === 'dark'; } catch (e) {}
+            document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        })();
+    </script>
+    <link href="inter-font.css" rel="stylesheet">
     <style>
         :root {
-            --dark-bg: #111827;
-            --medium-bg: #1f2937;
-            --light-bg: #374151;
-            --border-color: #4b5563;
-            --primary-accent: #3b82f6;
-            --text-light: #f3f4f6;
-            --text-medium: #d1d5db;
-            --text-dark: #9ca3af;
-            --content-bg: #ffffff;
-            --content-text: #1f2937;
-            --content-heading: #111827;
-            --code-bg: #f3f4f6;
-            --code-text: #111827;
+            --paper: #eceef0; --panel: #fbfcfc; --chrome: #d4dfea; --header-rule: #8fa8be;
+            --medium-bg: #f1f3f4; --light-bg: #e2e5e8; --border-color: #c3c9ce;
+            --primary-accent: #1f5e9c; --selection: #d3e1ef; --on-accent: #ffffff;
+            --text-light: #1b1f23; --text-medium: #3f464d; --text-dark: #5a636b;
+            --code-bg: #f1f3f4; --note-bg: #e1eaf3; --note-line: #1f5e9c; --note-ink: #17426b;
+            --warn-bg: #f4ebd7; --warn-line: #b57a1a; --warn-ink: #63430f;
+            --tag-cpu: #0d7a70; --tag-gpu: #9a4f08;
+            --scroll-track: #eceef0; --scroll-thumb: #c3c9ce;
+            color-scheme: light;
         }
+        [data-theme="dark"] {
+            --paper: #16181b; --panel: #202327; --chrome: #253444; --header-rule: #536e88;
+            --medium-bg: #2b2f34; --light-bg: #343a40; --border-color: #535c65;
+            --primary-accent: #8fb6e0; --selection: #34475b; --on-accent: #172431;
+            --text-light: #e9ecef; --text-medium: #c9ced3; --text-dark: #a3aab1;
+            --code-bg: #2b2f34; --note-bg: #26384a; --note-line: #8fb6e0; --note-ink: #b0ccea;
+            --warn-bg: #3e3525; --warn-line: #d9b56b; --warn-ink: #f0d393;
+            --tag-cpu: #5fd0c3; --tag-gpu: #f0a855;
+            --scroll-track: #202327; --scroll-thumb: #535c65;
+            color-scheme: dark;
+        }
+        * { box-sizing: border-box; }
         body {
-            font-family: 'Inter', sans-serif; margin: 0; background-color: var(--content-bg);
-            color: var(--content-text); line-height: 1.7; display: flex;
-            height: 100vh; overflow: hidden;
+            font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; font-size: 14px; margin: 0;
+            background-color: var(--paper); color: var(--text-light); line-height: 1.65;
+            display: flex; flex-direction: column; height: 100vh; overflow: hidden;
         }
+        #help-bar {
+            display: flex; align-items: center; gap: 14px; min-height: 40px; padding: 0 16px; flex-shrink: 0;
+            background: var(--chrome); border-bottom: 1px solid var(--header-rule); box-shadow: 0 1px 2px #0002;
+        }
+        #help-bar .brand { font-size: 16px; font-weight: 650; color: var(--text-light); }
+        #help-bar .sub { color: var(--text-medium); }
+        #help-bar .spacer { flex: 1; }
+        .theme-switch { display: flex; align-items: center; gap: 8px; color: var(--text-medium); cursor: pointer; margin: 0; }
+        .theme-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+        .theme-switch .track { position: relative; width: 30px; height: 16px; border-radius: 8px; background: var(--border-color); transition: background .15s; }
+        .theme-switch .track i { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #0004; transition: left .15s; }
+        .theme-switch input:checked + .track { background: var(--primary-accent); }
+        .theme-switch input:checked + .track i { left: 16px; }
+        .theme-switch input:focus-visible + .track { outline: 2px solid var(--primary-accent); outline-offset: 2px; }
+        #help-shell { display: flex; flex: 1 1 auto; min-height: 0; }
         #left-panel {
-            width: 280px; flex-shrink: 0; background-color: var(--dark-bg);
-            color: var(--text-medium); padding: 2rem; overflow-y: auto;
+            width: 280px; flex-shrink: 0; background-color: var(--panel);
+            color: var(--text-medium); padding: 1.25rem 1rem; overflow-y: auto;
             border-right: 1px solid var(--border-color);
         }
-        #left-panel .logo {
-            font-size: 1.5rem; font-weight: 700; color: var(--text-light);
-            margin-bottom: 2rem;
-        }
+        #left-panel .logo { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dark); margin: 0 0 0.75rem 0.5rem; }
         #left-panel .logo span { color: var(--primary-accent); }
         #toc { list-style: none; padding: 0; margin: 0; }
+        #toc li { margin: 0; }
         #toc li a {
-            display: block; color: var(--text-dark); text-decoration: none;
-            padding: 0.6rem 1rem; border-radius: 0.375rem; font-weight: 500;
-            font-size: 0.9rem; transition: background-color 0.2s, color 0.2s;
-            border-left: 3px solid transparent;
+            display: block; color: var(--text-medium); text-decoration: none;
+            padding: 0.45rem 0.75rem; border-radius: 4px; font-weight: 500;
+            font-size: 0.88rem; border-left: 3px solid transparent;
         }
-        #toc li a:hover { background-color: var(--medium-bg); color: var(--text-light); }
+        #toc li a:hover { background-color: var(--selection); color: var(--text-light); text-decoration: none; }
         #toc li a.active {
-            background-color: var(--light-bg); color: var(--text-light);
+            background-color: var(--selection); color: var(--text-light);
             border-left-color: var(--primary-accent); font-weight: 600;
         }
-        #toc li a.toc-sub {
-            padding-left: 1.8rem; font-size: 0.82rem; color: #6b7280;
-        }
-        #toc li a.toc-sub:hover { color: var(--text-medium); }
+        #toc li a.toc-sub { padding-left: 1.6rem; font-size: 0.8rem; color: var(--text-dark); }
+        #toc li a.toc-sub:hover { color: var(--text-light); }
         #toc li a.toc-sub.active { color: var(--text-light); }
-        #main-content { flex-grow: 1; overflow-y: auto; padding: 3rem 4rem; }
-        section {
-            margin-bottom: 4rem; padding-top: 2rem; border-top: 1px solid #e5e7eb;
-        }
+        #main-content { flex-grow: 1; overflow-y: auto; padding: 2rem 3rem; background: var(--panel); min-width: 0; }
+        #main-content > * { max-width: 62rem; }
+        section { margin-bottom: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color); }
         section:first-child { padding-top: 0; border-top: none; }
-        h1, h2, h3, h4 {
-            color: var(--content-heading); font-weight: 700; line-height: 1.3;
-            margin-top: 1.5em; margin-bottom: 1em;
-        }
-        h1 { font-size: 2.5rem; }
-        h2 { font-size: 2rem; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.5rem; }
-        h3 { font-size: 1.5rem; }
-        h4 { font-size: 1.2rem; }
-        p, li { margin-bottom: 1rem; }
+        h1, h2, h3, h4 { color: var(--text-light); font-weight: 650; line-height: 1.3; margin-top: 1.4em; margin-bottom: 0.7em; }
+        h1 { font-size: 1.9rem; }
+        h2 { font-size: 1.45rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.4rem; }
+        h3 { font-size: 1.15rem; }
+        h4 { font-size: 1rem; }
+        p, li { margin-bottom: 0.75rem; }
         ul, ol { padding-left: 1.5rem; }
         a { color: var(--primary-accent); text-decoration: none; font-weight: 500; }
         a:hover { text-decoration: underline; }
         code {
-            font-family: 'Source Code Pro', monospace; background-color: var(--code-bg);
-            color: var(--code-text); padding: 0.2em 0.4em;
-            border-radius: 0.25rem; font-size: 0.9em;
+            font-family: 'Cascadia Mono', ui-monospace, Consolas, monospace; background-color: var(--code-bg);
+            color: var(--text-light); padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.9em;
         }
         pre {
-            background-color: var(--code-bg); border-radius: 0.5rem; padding: 1rem;
-            overflow-x: auto; font-size: 0.85rem; line-height: 1.5;
+            background-color: var(--code-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.9rem;
+            overflow-x: auto; font-size: 0.85rem; line-height: 1.5; color: var(--text-light);
         }
         pre code { padding: 0; background: none; }
         blockquote {
-            margin-left: 0; padding: 1rem 1.5rem; border-left: 4px solid var(--primary-accent);
-            background-color: #f9fafb; color: #4b5563;
+            margin-left: 0; padding: 0.8rem 1.2rem; border-left: 4px solid var(--primary-accent);
+            background-color: var(--note-bg); color: var(--text-medium);
         }
-        blockquote strong {
-            display: block; margin-bottom: 0.5rem; font-weight: 600; color: #111827;
-        }
-        table {
-            width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; font-size: 0.9rem;
-        }
-        th, td { padding: 0.75rem 1rem; border: 1px solid #d1d5db; text-align: left; }
-        th { background-color: #f3f4f6; font-weight: 600; }
+        blockquote strong { display: block; margin-bottom: 0.4rem; font-weight: 600; color: var(--text-light); }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 1.25rem; font-size: 0.88rem; }
+        th, td { padding: 0.5rem 0.8rem; border: 1px solid var(--border-color); text-align: left; }
+        th { background-color: var(--light-bg); color: var(--text-medium); font-weight: 600; }
+        tr[style*="border-bottom"] { border-bottom: 1px solid var(--border-color) !important; }
+        .note { border-left-color: var(--border-color) !important; color: var(--text-medium); }
         .formula-box {
-            background-color: #f9fafb; padding: 1rem 1.5rem; border-radius: 0.5rem;
-            border: 1px solid #e5e7eb; overflow-x: auto; margin-bottom: 1rem;
+            background-color: var(--medium-bg); padding: 0.9rem 1.2rem; border-radius: 6px;
+            border: 1px solid var(--border-color); overflow-x: auto; margin-bottom: 1rem; color: var(--text-light);
         }
         .callout-note {
-            background-color: #eff6ff; border-left: 4px solid #3b82f6;
-            padding: 0.75rem 1.25rem; border-radius: 0 0.375rem 0.375rem 0;
-            margin-bottom: 1rem;
+            background-color: var(--note-bg); border-left: 4px solid var(--note-line); color: var(--text-light);
+            padding: 0.7rem 1.1rem; border-radius: 0 4px 4px 0; margin-bottom: 1rem;
         }
         .callout-warning {
-            background-color: #fffbeb; border-left: 4px solid #f59e0b;
-            padding: 0.75rem 1.25rem; border-radius: 0 0.375rem 0.375rem 0;
-            margin-bottom: 1rem;
+            background-color: var(--warn-bg); border-left: 4px solid var(--warn-line); color: var(--text-light);
+            padding: 0.7rem 1.1rem; border-radius: 0 4px 4px 0; margin-bottom: 1rem;
         }
-        .callout-note strong, .callout-warning strong { color: #1e40af; }
-        .callout-warning strong { color: #92400e; }
-        .tag-cpu {
-            display: inline-block; font-size: 0.7rem; font-weight: 700;
-            background-color: #0d948833; color: #0d9488;
-            border: 1px solid #0d948866; border-radius: 3px;
+        .callout-note strong { color: var(--note-ink); }
+        .callout-warning strong { color: var(--warn-ink); }
+        .tag-cpu, .tag-gpu {
+            display: inline-block; font-size: 0.7rem; font-weight: 700; border: 1px solid currentColor; border-radius: 3px;
             padding: 0.1em 0.4em; vertical-align: middle; margin-left: 4px;
         }
-        .tag-gpu {
-            display: inline-block; font-size: 0.7rem; font-weight: 700;
-            background-color: #d9770633; color: #b45309;
-            border: 1px solid #d9770666; border-radius: 3px;
-            padding: 0.1em 0.4em; vertical-align: middle; margin-left: 4px;
-        }
-        .footer {
-            text-align: center; margin-top: 4rem; padding-top: 2rem;
-            border-top: 1px solid #e5e7eb; font-size: 0.85rem; color: #6b7280;
-        }
+        .tag-cpu { color: var(--tag-cpu); }
+        .tag-gpu { color: var(--tag-gpu); }
+        .footer { text-align: center; margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color); font-size: 0.85rem; color: var(--text-dark); }
+        a[style*="background-color: #3b82f6"] { background-color: var(--primary-accent) !important; color: var(--on-accent) !important; }
+        p[style*="color: #6b7280"] { color: var(--text-dark) !important; }
+        mjx-container { color: var(--text-light); }
         ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #f1f1f1; }
-        ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #aaa; }
+        ::-webkit-scrollbar-track { background: var(--scroll-track); }
+        ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-dark); }
+        @media (max-width: 800px) { #help-shell { flex-direction: column; } #left-panel { width: auto; max-height: 30vh; border-right: 0; border-bottom: 1px solid var(--border-color); } #main-content { padding: 1.25rem; } }
     </style>
 </head>
 <body>
+    <header id="help-bar">
+        <span class="brand">Brutus</span><span class="sub">Technical guide</span>
+        <span class="spacer"></span>
+        <label class="theme-switch"><input id="theme-toggle" type="checkbox" role="switch"><span class="track" aria-hidden="true"><i></i></span><span>Dark</span></label>
+    </header>
+    <div id="help-shell">
     <aside id="left-panel">
-        <div class="logo">Help Guide: <span>Brutus</span></div>
+        <div class="logo">Contents</div>
         <nav>
             <ul id="toc">
                 <li><a href="#introduction">Technical Overview</a></li>
@@ -231,7 +251,7 @@
             <p>
                 The solved parameters relate to reciprocal lattice constants. For example, in orthorhombic, the three fitted parameters are $A=1/a^2$, $B=1/b^2$, $C=1/c^2$, giving $a=1/\sqrt{A}$ etc. For monoclinic, the four parameters are $A=1/(a^2\sin^2\beta)$, $B=1/b^2$, $C=1/(c^2\sin^2\beta)$, $D=-2\cos\beta/(ac\sin^2\beta)$, from which $\beta$ is extracted as $\cos\beta = -D/(2\sqrt{AC})$. 
                 Rhombohedral (R) lattices have no system of their own: every R lattice is indexed by its hexagonal triple cell, so the hexagonal search finds it, and refinement and the space-group analysis (R centring) treat it in hexagonal axes; the refinement flags it as R so that its M(20) counts only R lines (see <a href="#r-lattice">R lattices in hexagonal axes</a>).
-                Since 9 October 2026 <strong>all six systems are searched on the GPU</strong> (cubic, hexagonal, tetragonal, orthorhombic, monoclinic, triclinic). Any combination may be checked; the checked systems run <strong>one after the other, highest symmetry first</strong>, and they share two global search settings (<code>HKL Basis (% / unknown)</code> and <code>Depth</code>) instead of per-system values. Without WebGPU, cubic, tetragonal and hexagonal fall back to the former CPU search in a background worker; the other systems are then unavailable.
+                <strong>All six systems are searched on the GPU</strong> (cubic, hexagonal, tetragonal, orthorhombic, monoclinic, triclinic). Any combination may be checked; the checked systems run <strong>one after the other, highest symmetry first</strong>, and they share two global search settings (<code>HKL Basis (% / unknown)</code> and <code>Depth</code>) instead of per-system values. Without WebGPU, cubic, tetragonal and hexagonal fall back to a CPU search in a background worker; the other systems are then unavailable.
             </p>
 
             <h3>Architecture</h3>
@@ -239,7 +259,11 @@
                 Brutus runs entirely in the browser, requiring no installation, and it can be completely run locally in a server. The program is split across several files:
             </p>
             <ul>
-                <li><code>index.html</code> — the application markup, controls and script loading.</li>
+                <li><code>index.html</code> — the application markup and the list of scripts. It does not run the scripts itself: a short loader reads <code>version.json</code> and then runs every script listed in it, in the listed order, with <code>?v=&lt;version&gt;</code> appended. The list is written as <code>&lt;script type="application/x-brutus" src="..."&gt;</code> so that the browser does not run it before the loader does.</li>
+                <li><code>version.json</code> &mdash; the one place the version of the program is written. The loader, the workers, the shaders, <code>sg_ops.json</code>, the status-bar label and the PDF report all take it from here (see <a href="#build-scripts">Build and maintenance scripts</a>).</li>
+                <li><code>js/core/workspace.js</code> and <code>js/core/shell.js</code> &mdash; the window around the plot. <code>workspace.js</code> holds the log, the run history, the project (<code>.brutus</code>) save and load, the theme and the space-group explorer; <code>shell.js</code> holds the title-bar buttons and menus, the Index / Stop button and the lock that applies during a run, the plot strip, the pattern metadata and the status bar.</li>
+                <li><code>js/convert/</code> &mdash; <code>sg_subgroups.js</code> and <code>sg_convert.js</code>, copied from Powder6 (the headers say what was changed): the maximal subgroups of a space group from its operators, and the change of basis that relates two groups. <code>js/dialogs/convert.js</code> is the dialog that uses them.</li>
+                <li><code>workspace.css</code>, <code>dialogs.css</code> &mdash; the light and dark themes and the layout of the window (palette taken from Powder6), and the styles of the Space Group MC window and of the Save-as, Unload and notice dialogs. <code>styles.css</code> is the older base stylesheet they sit on.</li>
                 <li><code>js/</code> (UI) — the user interface as a set of small classic scripts loaded in order by <code>index.html</code>: <code>js/core/</code> (state, status, input reading), <code>js/data/</code> (file loading, radiation presets, Kα2 stripping, export), <code>js/parsers/</code> (one reader per file format), <code>js/peaks/</code> (background, smoothing, peak picking, the peak table), <code>js/chart/</code> (Chart.js rendering and interaction), <code>js/indexing/</code> (search coordination, solution sieving, the results table), <code>js/dialogs/</code> (Refine MC, Swap hkl, Space Group MC), <code>js/report/</code> (pdCIF and PDF report) and <code>js/main.js</code> (startup).</li>
                 <li><code>js/crystallography/</code> — all crystallographic mathematics: HKL generation, Q-calculation, least-squares solvers, figure-of-merit calculations, error propagation, Niggli reduction and the space-group analysis. The same files are loaded three ways: on the main thread (post-processing and helper maths), in the CPU index worker, and in each refinement worker; <code>manifest.js</code> lists them in load order for the workers.</li>
                 <li><code>js/workers/index-worker.js</code> — the post-processing pass over GPU solutions, and the CPU fallback search of cubic/tetragonal/hexagonal cells used only when WebGPU is unavailable.</li>
@@ -289,12 +313,6 @@
                 against the operators, read exactly as the app reads them, first per setting and again on the
                 finished file over a larger box; the file is written only if everything passes, so a failed
                 build leaves the previous <code>sg_ops.json</code> in place.
-            </p>
-            <p>
-                This replaced a two-stage pipeline (one program wrote 527 per-setting files, a second merged
-                the handful of fields Brutus needs). That put two schemas between cctbx and the application,
-                and a field renamed upstream broke the merge silently. It also lost three settings: the file
-                now carries the full 530.
             </p>
             <table>
                 <tr><th style="width:26%">Option</th><th>Effect</th></tr>
@@ -351,13 +369,13 @@
                 symbol.
             </p>
 
-            <h4><code>bump_version.py</code> &mdash; cache busting</h4>
-            <pre><code>python3 tests/bump_version.py            # stamp today's date
-python3 tests/bump_version.py --check    # report, change nothing</code></pre>
+            <h4><code>version.json</code> and <code>bump_version.py</code> &mdash; the version</h4>
+            <pre><code>python3 tests/bump_version.py            # write today's date
+python3 tests/bump_version.py 20261101b  # write an explicit value
+python3 tests/bump_version.py --check    # print the current version</code></pre>
             <p>
-                Sets the <code>?v=</code> on every versioned <code>&lt;script&gt;</code> tag in
-                <code>index.html</code> to one value, and warns if they currently disagree &mdash; which
-                matters for the reason set out in the note below. Run it after changing any JavaScript or
+                The version is written in one file, <code>version.json</code> (<code>{"version": "20261027"}</code>), and
+                nowhere else; <code>bump_version.py</code> only edits that file. Run it after changing any JavaScript or
                 rebuilding the database.
             </p>
 
@@ -365,8 +383,8 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
             <p>
                 The following checks cover different parts of the application. Run the scripts available in your distribution after changing the corresponding code.
                 The scripts in <code>tests/</code> are run from the application folder (the one holding
-                <code>index.html</code>), as written below: <code>check_pipeline.mjs</code>,
-                <code>check_sg_ops.mjs</code> and <code>bump_version.py</code> look for the application files
+                <code>index.html</code>), as written below: <code>check_pipeline.mjs</code>
+                and <code>check_sg_ops.mjs</code> look for the application files
                 in the current directory, while <code>check_load_order.mjs</code> and
                 <code>regression_test.mjs</code> find them from their own location and also run from inside
                 <code>tests/</code>.
@@ -399,25 +417,28 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
             </ul>
 
             <div class="callout-note">
-                <strong>Versioning and the browser cache.</strong> The <code>?v=</code> query string on the
-                <code>&lt;script&gt;</code> tags in <code>index.html</code> exists only to force browsers to
-                re-fetch a file that has changed. Its value is arbitrary — a date is merely readable — and
-                only the fact that it <em>changed</em> matters. Note that the crystallography scripts are
-                loaded three ways (see above) and each way is a separate cache entry, so a partial bump can
-                leave the main thread and the workers running <strong>different builds of the same file</strong>.
-                That does not present as a caching problem: it presents as results that disagree between the
-                table and the report. The worker URLs are therefore derived at runtime from the query string
-                on the <code>js/core/version.js</code> tag, so the value <code>bump_version.py</code> stamps
-                into <code>index.html</code> busts the whole chain &mdash; and so does the fetch of <code>sg_ops.json</code>, which would
-                otherwise be cached across a database rebuild and fail the operator check while the file on
-                disk was perfectly correct. <code>bump_version.py</code> sets all of them together and warns
-                if they have drifted apart. Keep the date in the page footer in step with it — the PDF report
-                reads that footer for its version line.
+                <strong>Versioning and the browser cache.</strong> The <code>?v=</code> query string exists only to force
+                browsers to re-fetch a file that has changed. Its value is arbitrary &mdash; a date is merely readable &mdash;
+                and only the fact that it <em>changed</em> matters. It matters more than it seems: the crystallography
+                scripts are loaded three ways (the page, the CPU index worker and the refinement worker) and each way is a
+                separate cache entry, so a partial update can leave the main thread and the workers running <strong>different
+                builds of the same file</strong>. That does not present as a caching problem: it presents as results that
+                disagree between the table and the report.
                 <p style="margin-top:0.75rem">
-                Shader URLs also inherit the query string from <code>js/core/version.js</code>.
-                Deploy the matching HTML, JavaScript and shaders together, change the version when files
-                change, and reload the page. Shader source is cached by URL for the page lifetime;
-                compiled modules and pipelines are cached on the GPU device.
+                The loader in <code>index.html</code> fetches <code>version.json</code> (never from the cache), keeps it as
+                <code>window.BRUTUS_VERSION</code> and appends it to every script it runs. <code>js/core/version.js</code>
+                turns the same number into the query appended to everything the program builds itself: both workers (which
+                forward it to the crystallography files they import), the WGSL shaders and <code>sg_ops.json</code> &mdash; that
+                last one would otherwise be cached across a database rebuild and fail the operator check while the file on
+                disk was perfectly correct. The label at the bottom right of the window and the version line of the PDF report
+                show the same value. The page therefore has to be served over HTTP (it already had to be, to fetch
+                <code>sg_ops.json</code>); if <code>version.json</code> cannot be read, a warning goes to the console and
+                nothing is versioned.
+                </p>
+                <p style="margin-top:0.75rem">
+                Deploy the matching HTML, JavaScript, shaders and <code>version.json</code> together, change the version when
+                files change, and reload the page. Shader source is cached by URL for the page lifetime; compiled modules and
+                pipelines are cached on the GPU device.
                 </p>
             </div>
         </section>
@@ -429,7 +450,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
             <ol>
                 <li>
                     <strong>Load the data file.</strong>
-                    Click <code>Load File</code>. Supported formats include <code>.xy</code>, <code>.xrdml</code>, <code>.xml</code> (Panalytical XRDML or Bruker <code>RawDataFile</code>), <code>.ras</code>, <code>.xra</code>, <code>.uxd</code>, <code>.udf</code>, GSAS <code>.esd</code>, FullProf free-format <code>.dat</code>, Powder CIF <code>.cif</code>, and plain text two-column data (scientific notation such as <code>1.000e+01</code>, the <code>numpy.savetxt</code> default, is read as data, not as a header).
+                    Choose <code>File &rarr; Load pattern&hellip;</code> (there is no drag-and-drop). Supported formats include <code>.xy</code>, <code>.xrdml</code>, <code>.xml</code> (Panalytical XRDML or Bruker <code>RawDataFile</code>), <code>.ras</code>, <code>.xra</code>, <code>.uxd</code>, <code>.udf</code>, GSAS <code>.esd</code>, FullProf free-format <code>.dat</code>, Powder CIF <code>.cif</code>, and plain text two-column data (scientific notation such as <code>1.000e+01</code>, the <code>numpy.savetxt</code> default, is read as data, not as a header).
                     A file that cannot be read or parsed replaces nothing: the current pattern, peaks and solutions stay as they were.
                 </li>
                 <li>
@@ -450,7 +471,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 </li>
                 <li>
                     <strong>Set parameters.</strong>
-                    On the <strong>Parameters</strong> tab:
+                    On the <strong>Data</strong> tab (radiation, 2&theta; range and search parameters) and the <strong>Indexing</strong> tab (crystal systems and GPU parameters):
                     <ul>
                         <li>Select the correct X-ray <code>Radiation Preset</code> (e.g. Cu Kα).</li>
                         <li>Choose whether to enable <code>Strip K-alpha2</code>. When enabled, the Ka1 wavelength is used; when disabled, the average Kα wavelength is used. The default is OFF (average Kα wavelength). With stripping off, resolved Kα<sub>2</sub> peaks are flagged and their Kα<sub>1</sub> parents are indexed with the Kα<sub>1</sub> wavelength; stripping is still the most accurate choice when the doublet is resolved &mdash; see <a href="#ka2-flagged">Flagged or stripped?</a></li>
@@ -462,7 +483,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 </li>
                 <li>
                     <strong>(Optional) Tune GPU Parameters.</strong>
-                    The panel <strong>GPU Search Parameters</strong> applies to every checked system.
+                    The panel <strong>GPU Search Parameters</strong> (Indexing tab) applies to every checked system.
                     <ul>
                         <li><code>HKL Basis (% / unknown)</code>: size of the HKL basis, as a percentage of each system's maximum, per unknown cell parameter (default 5: tetragonal/hexagonal 10%, orthorhombic 15%, monoclinic 20%, triclinic 30%). Cubic always searches its whole list (752 hkl), which costs next to nothing.</li>
                         <li><code>Depth</code>: extra peaks combined beyond the number of unknowns. Orthorhombic, monoclinic, triclinic use unknowns + Depth peaks (default 3: 6, 7, 9); cubic, hexagonal and tetragonal use three times as many, 3 &times; (unknowns + Depth) (default: cubic 12, the others 15), which costs almost nothing with one or two unknowns.</li>
@@ -473,16 +494,16 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 </li>
                 <li>
                     <strong>Start indexing.</strong>
-                    Click <code>Start Indexing</code>. Progress is shown on the main progress bar and the status line names the system being searched. If a search would need too many GPU dispatches, a warning will appear. 
+                    Press <code>Index</code> in the title bar (it turns into a red <code>Stop</code> during the run; Esc stops it too, and the rest of the window is locked until the run ends). Progress is shown on the main progress bar and the status line names the system being searched. If a search would need too many GPU dispatches, a warning will appear. 
                 </li>
                 <li>
                     <strong>Inspect solutions.</strong>
-                    On the <strong>Solutions</strong> tab:
+                    On the <strong>Solutions</strong> tab, each solution is an accordion; only one is open at a time.
                     <ul>
-                        <li>Sort solutions by M(20).</li>
-                        <li>Click a row to display calculated (blue) and observed (red) tick marks on the chart.</li>
-                        <li>A plausible solution will show excellent alignment and reasonable space-group suggestions.</li>
-                        <li>A right click on a solution will open a menu with several additional functions, see below.</li>
+                        <li>The <code>Sort by</code> selector orders them by M(20), volume or crystal system, either way round.</li>
+                        <li>Opening a solution selects it: its calculated reflections (<strong>Sol</strong>, blue ticks) and, if it has a space group, that group&rsquo;s simulated reflections (<strong>Sim</strong>, green ticks) are drawn under the observed peaks (<strong>Exp</strong>, red ticks). Its detail shows the symmetry, cell, volume, M(20), the Niggli cell and its space groups.</li>
+                        <li>A plausible solution shows excellent alignment and reasonable space-group suggestions.</li>
+                        <li>The <strong>Solution</strong> menu in the title bar (enabled only while a solution is open) refines it, tests, explores and converts its space group, exports a pdCIF or a PDF report, or erases it; see below. Closing the accordion deselects the solution.</li>
                     </ul>
                 </li>
             </ol>
@@ -492,14 +513,33 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
         <section id="ui">
             <h2>The User Interface</h2>
             <p>
-                The application window is divided into a <strong>Controls Panel</strong> (left) and a <strong>Results Area</strong> (right),
-                separated by a draggable divider that allows you to resize both panels.
+                The window has a <strong>title bar</strong>, a <strong>left panel</strong> of four tabs (the controls), a
+                <strong>right panel</strong> of three tabs (the results) separated by a draggable divider, and a
+                <strong>status bar</strong>. The layout and the light and dark palettes follow Powder6; <code>&#8644; Panels</code>
+                swaps the two panels. Dialogs and menus use the same palette as the window.
             </p>
 
-            <h3>Controls Panel</h3>
-            <p>The controls are organized into three main tabs.</p>
+            <h3>Title bar</h3>
+            <ul>
+                <li><strong>About</strong> shows a summary of the program, its file formats and the workflow in the right panel (click it again to return to the plot). <strong>Help</strong> opens this guide in a new tab, in the same light or dark theme as the program.</li>
+                <li><strong>File</strong>: <code>Load pattern&hellip;</code>, <code>Export pattern&hellip;</code> (see <a href="#saving-data">Saving &amp; Converting Data</a>); <code>Open project&hellip;</code>, <code>Save project&hellip;</code> (a <code>.brutus</code> JSON file, see <a href="#projects">Projects</a>); <code>Unload pattern</code> (asks first when something would be lost).</li>
+                <li><strong>Solution</strong>: acts on the open solution; the whole menu is disabled while none is open. See <a href="#solution-menu">The Solution menu</a>.</li>
+                <li><strong>Report</strong> writes the PDF report: of the open solution only, or of every listed solution when none is open.</li>
+                <li><strong>Index</strong> starts the search. While a search runs it becomes a red <strong>Stop</strong> (Esc does the same) and keeps what was found. Until then it is disabled and its tooltip says why (<em>Need 4 more peaks</em>, a GPU limit, no data). During a run the left panel, the menus, Report, About, Panels and the theme switch are locked, and so are Ctrl+click on the plot and the keyboard shortcuts; the plot, Log and History stay readable.</li>
+                <li>The <strong>Dark</strong> switch changes the theme of the program, of its dialogs and of the plot (the choice is remembered, and shared with this guide).</li>
+            </ul>
 
-            <h4>1. Peaks Tab</h4>
+            <h3>Left panel</h3>
+            <p>The controls are organised into four tabs, in the order of the work: <strong>Data</strong>, <strong>Peaks</strong>, <strong>Indexing</strong>, <strong>Solutions</strong>.</p>
+
+            <h4>Data tab</h4>
+            <ul>
+                <li><strong>Pattern.</strong> One accordion, closed by default and titled with the name of the loaded file (long names are shortened from the middle; &ldquo;No file loaded&rdquo; when empty). Opened, it lists the metadata of the pattern: file, format, size, number of points, 2&theta; range, step (median), intensity range and total, the radiation found in the file (or &ldquo;none in the file&rdquo;) and the radiation in use. The parsers give the program only what the readers extract (radiation, 2&theta; and intensity); anything else in a file header, such as scan or instrument details, is not shown.</li>
+                <li><strong>2&theta; range.</strong> The 2&theta; Min and Max sliders restrict the window used for peak finding and indexing, for example to exclude a noisy low-angle or high-angle region.</li>
+                <li><strong>Radiation</strong> (preset, wavelength, Strip K-alpha2) and <strong>Search parameters</strong> (Max Volume, Impurity Peaks, 2&theta; Error, Refine Zero Error): described under <a href="#ui-data-params">Radiation and search parameters</a> below.</li>
+            </ul>
+
+            <h4>Peaks tab</h4>
             <ul>
                 <li>
                     <strong>Peak finding sliders:</strong>
@@ -527,19 +567,13 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                     </ul>
                     <div class="callout-note">
                         <strong>Why Å⁻¹ and not data points?</strong>
-                        Both sliders used to be counts of data points, which made them properties of the
-                        <em>file</em> rather than of the sample: the same specimen measured at 0.01° and 0.02° per
-                        step needed two different settings to give the same background, and a value tuned on one
-                        diffractometer meant nothing on another. $Q$ is the physical axis the background actually
+                        Counts of data points would make both sliders properties of the <em>file</em> rather than of the sample: the same specimen measured at 0.01° and 0.02° per step would need two different settings to give the same background, and a value tuned on one diffractometer would mean nothing on another. $Q$ is the physical axis the background actually
                         lives on, so a setting in Å⁻¹ transfers between scans, step sizes and instruments.
                         <br><br>
                         Because $Q$ is not linear in $2\theta$ — $dQ/d(2\theta) = 2\pi\cos\theta/\lambda$, which
                         <em>shrinks</em> as the angle rises — a fixed $Q$ window spans progressively more channels
                         toward the back of the scan, typically two to four times as many over a laboratory range.
-                        This is intentional and is handled internally per channel. One consequence: high-angle peaks
-                        now receive more smoothing than they did under a flat point count. That is the physically
-                        correct behaviour, but if you had a scan tuned to the old fixed value you may want to nudge
-                        <code>Smoothing</code> down slightly after comparing.
+                        This is intentional and is handled internally per channel. One consequence: high-angle peaks receive more smoothing than a flat point count would give them. That is the physically correct behaviour; nudge <code>Smoothing</code> down if high-angle peaks look too broad.
                         <br><br>
                         Note that these sliders depend on the wavelength, since $Q$ does. Changing the radiation
                         preset or typing a new $\lambda$ therefore re-runs peak detection, as long as the peak list
@@ -553,7 +587,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 </li>
                 <li>
                     <strong>2θ range sliders:</strong>
-                    Restrict the angular window for peak finding, for example to exclude noisy low-angle or high-angle regions.
+                    They are on the Data tab (see above); changing them updates the peak list and the status of the Index button.
                 </li>
                 <li>
                     <strong>Peak table:</strong>
@@ -566,7 +600,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 </li>
             </ul>
 
-            <h4>2. Parameters Tab</h4>
+            <h4 id="ui-data-params">Radiation and search parameters (Data tab) and crystal systems (Indexing tab)</h4>
             <ul>
                 <li>
                     <strong>Radiation Preset:</strong>
@@ -630,9 +664,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                     $y(u) = F(u) + r\,F(us)$, with $s = \lambda_{K\alpha1}/\lambda_{K\alpha2}$ and $r = I(K\alpha_2)/I(K\alpha_1)$;
                     the pure Kα<sub>1</sub> pattern $F$ is recovered as the alternating series
                     $F(u) = \sum_k (-r)^k\, y(u s^k)$, evaluated directly on the data with cubic interpolation and
-                    summed to eight terms ($r^8 \approx 0.004$). $r$ is the preset's ratio, 0.497 for every anode. The
-                    first version followed the dual-wavelength $q$-space differencing of Zhang <em>et al.</em> (2026); a
-                    single difference leaves a negative ghost of about $r^2 \approx 25\,\%$ of each strong peak at twice
+                    summed to eight terms ($r^8 \approx 0.004$). $r$ is the preset's ratio, 0.497 for every anode. A single difference in the dual-wavelength $q$-space form (Zhang <em>et al.</em>, 2026) would leave a negative ghost of about $r^2 \approx 25\,\%$ of each strong peak at twice
                     the doublet separation, which the series does not. A flat background comes out at $1/(1+r)$ of its
                     level, the correct Kα<sub>1</sub>-only value.
                     <br><br>
@@ -683,7 +715,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                     It is enabled by default and strongly recommended. See the <a href="#refinement">Refinement section</a> for the full two-round strategy.
                 </li>
                 <li>
-                    <strong>Crystal systems to search:</strong>
+                    <strong>Crystal systems to search</strong> (Indexing tab)<strong>:</strong>
                     Checkboxes for Cubic, Hexagonal, Tetragonal, Orthorhombic, Monoclinic and Triclinic,
                     all searched on the GPU <span class="tag-gpu">GPU</span>. The systems are not mutually exclusive:
                     every checked system is searched in the same run, sequentially, in the order
@@ -692,14 +724,14 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                     already searches the next. Defaults: all checked except Triclinic.
                     <strong>Rhombohedral (R) lattices</strong> are found by the Hexagonal search and reported, refined
                     and analysed in <strong>hexagonal axes</strong> (system &ldquo;hexagonal&rdquo;, R centring). Such a
-                    cell carries an <strong>R</strong> badge in the solutions table, and its M(20) counts only the lines
+                    cell carries an <strong>R</strong> badge in the solutions list, and its M(20) counts only the lines
                     an R lattice allows (see <a href="#r-lattice">R lattices in hexagonal axes</a>).
                     Without WebGPU, Cubic, Tetragonal and Hexagonal fall back to the CPU search <span class="tag-cpu">CPU</span>
                     and the other three are disabled.
                 </li>
             </ul>
 
-            <h4 style="margin-top: 2em;">GPU Search Parameters</h4>
+            <h4 style="margin-top: 2em;">GPU Search Parameters (Indexing tab)</h4>
             <p>
                 When at least one system is checked (and WebGPU is available), a panel appears with four parameters
                 controlling the scope, speed, and memory usage of the GPU search. The same four values apply to every
@@ -712,8 +744,8 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                     used to construct trial matrices:
                     $$ N_{hkl} = \mathrm{round}\big(N_{max} \times \min(100,\; k \times \text{value}) / 100\big) $$
                     where $k$ is the number of unknown cell parameters and $N_{max}$ the system's maximum usable basis
-                    (table below), with a floor of $\max(10, 2k)$. Cubic always uses its whole list, $N_{hkl} = 752$: its search sends a few dozen candidates to refinement whatever the basis, so the full list costs nothing (it used to get 5 %, 38 hkl and 456 trials). For orthorhombic and monoclinic the floor is 76: the 36 axial reflections, which are always placed first (see <a href="#indexing-method">Axial front-loading</a>), plus at least 40 mixed ones. Without it a low setting gave monoclinic a basis made almost entirely of axials, which cannot determine $\beta$ (at 1 %/unknown it could not produce any cell). The value can be set from 1 to 16 (typically 2&ndash;12).
-                    At the default of 5 the old hand-tuned defaults are reproduced: orthorhombic 15% (329), monoclinic 20%
+                    (table below), with a floor of $\max(10, 2k)$. Cubic always uses its whole list, $N_{hkl} = 752$: its search sends a few dozen candidates to refinement whatever the basis, so the full list costs nothing . For orthorhombic and monoclinic the floor is 76: the 36 axial reflections, which are always placed first (see <a href="#indexing-method">Axial front-loading</a>), plus at least 40 mixed ones. Below it a monoclinic basis would be made almost entirely of axials, which cannot determine $\beta$. The value can be set from 1 to 16 (typically 2&ndash;12).
+                    At the default of 5 the basis is: orthorhombic 15% (329), monoclinic 20%
                     (114), triclinic 30% (37).
                     Brutus generates a candidate list of simple HKLs and sorts it by $h^2+k^2+l^2$. For
                     <strong>orthorhombic and monoclinic</strong> the list is then re-ordered so that all <em>axial</em>
@@ -799,12 +831,18 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
             </div>
 
  
-            <h4>3. Solutions Tab</h4>
+            <h4>Solutions tab</h4>
             <ul>
                 <li>
-                    <strong>Solutions table (The Ledger):</strong>
-                    Shows valid solutions found during your session, including crystal system, unit-cell parameters (a, b, c, α, β, γ), volume, and M(20).
-                    Solutions are ranked by M(20) in descending order, can be ranked by Volume or System by clicking on the top label.
+                    <strong>The list (the ledger).</strong>
+                    One accordion per solution found during the session, only one open at a time. The closed line shows the crystal system, the key cell parameters, the volume and M(20), then badges: <strong>R</strong> (rhombohedral lattice in hexagonal axes), <strong>&equiv;</strong> (see below), <strong>MC</strong> (cell polished by Refine), <strong>SG</strong> / <strong>SG?</strong> (refined under a Space Group MC class; <em>SG?</em> when its margin was not decisive), and the symbol of the space group attached to the solution (with <em>+n</em> when there are several). <code>Sort by</code> orders the list by M(20) (default, highest first), volume or crystal system, in either direction.
+                </li>
+                <li>
+                    <strong>An open solution</strong> lists its <em>Symmetry</em>, <em>Cell</em> (a, b, c, &alpha;, &beta;, &gamma;), <em>Volume</em>, <em>M(20)</em>, the refined <em>Zero</em> when there is one, the <em>Niggli</em> reduced cell (computed on the metric of the solved lattice, see <a href="#advanced-topics">Niggli Cell Reduction</a>) and its <em>Space groups</em>. A solution can hold <strong>several space groups</strong>: those chosen with Explore Space Group or reached with Convert, each with a radio button (the one selected is the one drawn as <strong>Sim</strong> on the plot) and a &times; to remove it, and, below them, what Test Space Group proposed (the extinction class and its member groups, and whether the margin was decisive). Opening a solution also shows its Sim markers: those of the chosen group, or of the first group of the proposed class when none was chosen.
+                </li>
+                <li>
+                    <strong>Selection.</strong>
+                    Opening an accordion selects its solution and closes the others; closing it deselects the solution, which removes its markers and switches the Solution menu off. A solution selected before a run is not kept across a new run.
                 </li>
                 <li>
                     <strong>&equiv; badge (same lattice, two descriptions):</strong>
@@ -817,32 +855,64 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 </li>
                 <li>
                     <strong>Cumulative Search Behaviour:</strong>
-                    The table acts as a cumulative record across searches. If you run a search for Orthorhombic cells and
+                    The list acts as a cumulative record across searches. If you run a search for Orthorhombic cells and
                     then a second search for Monoclinic cells, previous results are <strong>retained</strong>. New solutions are
-                    added to the existing list and the entire table is re-ranked by M(20). This allows direct comparison
+                    added to the existing list and the entire list is re-ranked by M(20). This allows direct comparison
                     across crystal systems. The list is only cleared when you load a new data file.
-                </li>
-                <li>
-                    <strong>Context Menu (Right-Click):</strong>
-                    Right-clicking a solution row opens a menu with six options:
-                    <ul>
-                        <li><strong>Erase Solution:</strong> Permanently removes that solution from the ledger.</li>
-                        <li><strong>Swap hkl:</strong> Opens a dialog to manually correct peak assignments for the selected cell.</li>
-                        <li><strong>Refine MC:</strong> Runs a Monte Carlo stochastic search to polish the cell and escape local minima.</li>
-                        <li><strong>Space Group MC:</strong> Re-refines the cell once per <em>extinction class</em> of its crystal system, each time with that class&rsquo;s forbidden reflections removed from the calculated line list, and ranks the classes by a log-odds score. This is the only ranking of space-group hypotheses Brutus makes. See <a href="#space-group-mc">Space Group MC</a>.</li>
-                        <li><strong>Export pdCIF:</strong> Saves the raw diffraction data, refined cell parameters, zero offset, and selected space group into a standard Powder CIF (<code>.cif</code>) file.</li>
-                        <li><strong>Generate Report:</strong> Creates a PDF report for that solution only. It also works while a run is in progress; the main button then stays <code>Stop</code>.</li>
-                    </ul>
                 </li>
             </ul>
 
-            <h3>Results Area</h3>
+            <h4 id="solution-menu">The Solution menu</h4>
+            <p>
+                The menu acts on the open solution and is disabled when none is open or a search is running.
+            </p>
+            <ul>
+                <li><strong>Refine:</strong> a Monte-Carlo search around the cell, constrained to its crystal system, with the zero error refined as an extra parameter when <em>Refine Zero Error</em> is on (<a href="#advanced-topics">Monte Carlo Cell Polish</a>). The result is added above its parent only if it improves M(20).</li>
+                <li><strong>Test Space Group:</strong> the Space Group MC (<a href="#space-group-mc">refining under each hypothesis</a>). <em>Add as solution</em> in its window adds the chosen class as a new solution, which then appears in the report.</li>
+                <li><strong>Convert&hellip;:</strong> carry the cell to a subgroup or a supergroup of its space group, see <a href="#sg-convert">Convert</a>.</li>
+                <li><strong>Explore Space Group&hellip;:</strong> the crystal-system filter opens on that of the cell; choose a space group by hand, see <a href="#sg-explore">Explore Space Group</a>.</li>
+                <li><strong>Export pdCIF:</strong> saves the raw diffraction data, the refined cell, the zero offset, the wavelength and the space group into a Powder CIF (see <a href="#saving-data">Saving &amp; Converting Data</a>).</li>
+                <li><strong>Report PDF:</strong> the PDF report of this solution only. (The <strong>Report</strong> button in the title bar does the same when a solution is open, and reports all listed solutions otherwise.)</li>
+                <li><strong>Erase:</strong> permanently removes the solution from the list (a partner of an &equiv; pair loses its badge).</li>
+            </ul>
+            <div class="callout-note">
+                <strong>Swap hkl</strong> (<a href="#swap-hkl">the combinatorial swap search and the manual dialog</a>) has no menu entry: the dialog (<code>js/dialogs/swap-hkl.js</code>) and the swap search are still in the code and the report still lists swapped solutions, but nothing in the window opens the dialog now.
+            </div>
+
+            <h3>Right panel</h3>
+            <p>Three tabs, <strong>Plot</strong>, <strong>Log</strong> and <strong>History</strong>, and the About view (opened from the title bar).</p>
+            <ul>
+                <li>
+                    <strong>Log.</strong>
+                    Every message of the program with its time, and a narrated account of each run: the pattern and the number of peaks used in the 2&theta; window; the radiation, wavelength and K&alpha;<sub>2</sub> treatment; the tolerances (2&theta; error, maximum volume, impurity peaks, zero error); the systems searched, highest symmetry first, and whether each runs on the GPU or the CPU; the GPU settings (HKL basis, Depth, FoM tolerance, candidates). Then, for each system, the plan (HKL basis size and its share of the maximum, number of peaks, trials planned), and when it ends its time, the trials searched, whether the candidate buffer filled or the search was stopped or failed, and the number of candidate cells sent to refinement. At the end: the total trials and time, the sieve (cells before and after), the time of the systematic-absence analysis and the best M(20). Conversions, space groups added to a solution and opened projects are logged too.
+                </li>
+                <li>
+                    <strong>History.</strong>
+                    One entry per completed run, with the date, the file and the number of solutions. <em>Restore run</em>, at the right of the entry, reloads that run&rsquo;s pattern, peaks, parameters and solutions so that its solutions can be compared. It is unavailable during a run, and the history is saved in the project. When the history reaches 100&nbsp;MB the program offers, once, to remove the oldest runs; it asks before saving a project larger than 10&nbsp;MB.
+                </li>
+                <li id="status-bar">
+                    <strong>Status bar.</strong>
+                    One line, laid out on the split between the two panels. Under the controls panel, the current status: the last message of the program, the progress line during a run, or the number of peaks and solutions. Where the plot starts, the position under the plot pointer (2&theta;, d, Q and hkl); with the panels swapped it is at the left, under the plot. Then the open solution (system, cell, angles, M(20)), and the right side the version of the program (<code>Brutus v&lt;version&gt;</code>, from <code>version.json</code>).
+                </li>
+            </ul>
+
+            <h3>Plot</h3>
             <ul>
                 <li>
                     <strong>Chart:</strong>
-                    Shows the experimental diffraction pattern, observed peaks (red ticks), and calculated peaks for the
-                    selected solution (blue ticks). A good solution exhibits visually convincing overlap across the full
-                    angular range.
+                    Shows the experimental diffraction pattern, the experimentally detected peaks (red ticks), the reflections calculated for the
+                    open solution (blue ticks) and the reflections simulated for its space group (green ticks, labelled
+                    <code>Sim:</code> in the plot). A good solution exhibits visually convincing overlap across the full
+                    angular range. There is no legend and no grid inside the plot: the toggles of the strip below take their place.
+                </li>
+                <li>
+                    <strong>The strip above the plot.</strong>
+                    <code>Linear</code>, <code>&radic;I</code> and <code>log I</code> choose the intensity scale. The toggles show or hide
+                    <strong>Background</strong> (the rolling-ball background of the peak finder), <strong>Data</strong> (the experimental
+                    pattern), <strong>Exp</strong> (the experimentally detected peaks of the peak table), <strong>Sol</strong> (the reflections
+                    calculated from the open solution) and <strong>Sim</strong> (the reflections simulated for the space group of the
+                    open solution). <code>X</code> and <code>Snap</code> are described below. <code>Save PNG</code> writes the plot as it is
+                    shown, on the background colour of the current theme. The <em>i</em> at the right lists the mouse controls. The position under the pointer (2&theta;, d and Q, and hkl when snapping to a calculated line) is shown in the status bar, under the plot.
                 </li>
         
                 <li>
@@ -857,9 +927,9 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 </li>
                 <li>
                     <strong>Axis selectors.</strong>
-                    The toolbar above the chart chooses how the pattern is displayed. <code>X</code> offers
-                    2θ (the default), θ, d-spacing, or Q&nbsp;=&nbsp;4π·sinθ/λ. <code>Y</code> offers linear
-                    intensity, √I (the default), or logarithmic intensity.
+                    The strip above the chart chooses how the pattern is displayed. <code>X</code> offers
+                    2θ (the default), θ, d-spacing, or Q&nbsp;=&nbsp;4π·sinθ/λ. the intensity scale (the buttons at the left of the strip) is linear,
+                    √I (the default) or logarithmic.
                     <br><br>
                     These controls change the <em>view</em> only. Peak positions are stored in 2θ and
                     intensities in raw counts no matter what is on screen, so indexing, refinement, the peak
@@ -886,12 +956,11 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                     limited by the pointer, not by the data. The <code>Snap</code> selector controls where a
                     <code>Ctrl + Click</code> actually lands:
                     <ul>
-                        <li><strong>Off</strong> (default): exactly where you clicked. The readout reports the cursor's 2θ, d and Q with no snapping.</li>
+                        <li><strong>Off</strong> (default): exactly where you clicked. The readout in the status bar reports the cursor's 2θ, d and Q with no snapping.</li>
                         <li><strong>Obs</strong>: the observed peak position — the highest measured point within the snap window.</li>
                         <li><strong>Calc</strong>: the nearest calculated reflection of the selected solution; the readout additionally shows its Miller indices.</li>
                     </ul>
-                    A dashed guide shows the target as you move the pointer, and the readout beside the
-                    selectors reports its 2θ, d and Q, plus the Miller indices when the target is a calculated
+                    A dashed guide shows the target as you move the pointer, and the readout in the status bar, under the plot, reports its 2θ, d and Q, plus the Miller indices when the target is a calculated
                     (Calc) line. Snapping to an observed peak also gives the new peak a real height, which the
                     space-group analysis needs in order to tell a weak reflection from a strong one. Hold
                     <code>Shift</code> while clicking to bypass snapping for a single peak.
@@ -911,24 +980,24 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
             <h2>Saving &amp; Converting Data</h2>
             <p>
                 Brutus can export the pattern it is displaying, which makes it a convenient
-                format converter as well as an indexer. The <code>Save as</code> button sits next to
-                <code>Load File</code> and becomes active once a data file has been loaded. Clicking it
+                format converter as well as an indexer. <code>File &rarr; Export pattern&hellip;</code> becomes
+                active once a data file has been loaded. Choosing it
                 opens a small dialog where you choose an output format; pressing <code>Save</code> then hands
                 off to the browser's own save dialog, so you pick the folder and file name in the normal way.
             </p>
             <p>
-                Below the two buttons, a chip shows the loaded file and its size. Long names are shortened
+                On the Data tab, the Pattern accordion is titled with the loaded file. Long names are shortened
                 from the <em>middle</em> so the extension stays visible, and the full name is available on
-                hover. The <strong>&times;</strong> on the chip unloads the file: it aborts any indexing run
+                hover. <strong>File &rarr; Unload pattern</strong> unloads the file: it aborts any indexing run
                 in flight, discards the peaks, solutions and run statistics, clears the pattern and returns
                 the window to its opening state. When there is something to lose it first opens a
-                confirmation dialog &mdash; the same panel as <code>Save as</code> &mdash; naming the file and
+                confirmation dialog &mdash; the same panel as <code>Export pattern</code> &mdash; naming the file and
                 listing exactly what will be discarded. With nothing to lose it simply unloads.
             </p>
             <p>
                 Loading replaces the session only once the new file has been read, parsed and checked. A file that
                 fails at any of those steps leaves everything as it was &mdash; pattern, peaks, solutions and the
-                chip's name &mdash; and reports the error, so <code>Save as</code> can never write the previous data
+                accordion's title &mdash; and reports the error, so <code>Export pattern</code> can never write the previous data
                 under the new file's name. The file picker is re-armed every time, so the same file can be chosen
                 again after you have fixed it.
             </p>
@@ -1001,7 +1070,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 <tr><td>Powder CIF (pdCIF)</td><td><code>.cif</code></td><td>yes</td><td>per-point 2θ</td></tr>
             </table>
             <p style="margin-top:0.6rem;">
-                <strong>Exporting to pdCIF:</strong> While the <code>Save as</code> button exports the current view of the pattern, you can also export a complete <strong>Powder CIF (pdCIF)</strong> directly from a solved cell. Right-click any solution in the Solutions tab and select <strong>Export pdCIF</strong>. This saves the unstripped raw data within your indexed 2θ range, the refined unit cell, the applied zero offset (mapped safely to <code>_pd_calib_2theta_offset</code>), the wavelength (including Kα<sub>1</sub>/Kα<sub>2</sub> doublet ratios), and the selected space group in a standard format ready for deposition or Rietveld refinement.
+                <strong>Exporting to pdCIF:</strong> While <code>Export pattern</code> exports the current view of the pattern, you can also export a complete <strong>Powder CIF (pdCIF)</strong> directly from a solved cell. Open the solution and choose <strong>Solution &rarr; Export pdCIF</strong>. This saves the unstripped raw data within your indexed 2θ range, the refined unit cell, the applied zero offset (mapped safely to <code>_pd_calib_2theta_offset</code>), the wavelength (including Kα<sub>1</sub>/Kα<sub>2</sub> doublet ratios), and the space group in a standard format ready for deposition or Rietveld refinement. The space group written is the one drawn as Sim (the one most recently chosen for the solution, with an H&ndash;M symbol), and any others the solution holds are listed in a comment; a converted subgroup that could not be named, or a bare extinction class, is not a single space group and is left as <code>?</code> with the details in the comments.
             </p>
             <p style="margin-top:0.6rem;">
                 For the formats that record a wavelength, the value written is the one in the
@@ -1166,8 +1235,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                     $\sin\theta' = \sin\theta\,\lambda/\lambda_{K\alpha1}$, which gives exactly its λ<sub>Kα1</sub>
                     $Q$; the zero error is then subtracted in that frame, which differs from subtracting it first by
                     $Z(\lambda/\lambda_{K\alpha1} - 1)/\cos^2\theta$ &mdash; 0.0005° for $Z$ = 0.1° at 130° with Cu.
-                    (Until 13 October 2026 only the displayed $d$ used λ<sub>Kα1</sub>; see
-                    <a href="#ka2-flagged">Flagged or stripped?</a>)
+                    (See <a href="#ka2-flagged">Flagged or stripped?</a>)
                 </li>
                 <li><strong>PDF Report Table Markers (*1 and *2):</strong> In the final PDF report, reflection pairs belonging to the same doublet are explicitly distinguished:
                     <ul>
@@ -1191,24 +1259,22 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 peaks. Stripping moves <em>every</em> peak to its Kα<sub>1</sub> position and sets the wavelength to
                 λ<sub>Kα1</sub>. Flagging treats at λ<sub>Kα1</sub> only the parents of the Kα<sub>2</sub> peaks it
                 identified, and every other peak at λ<sub>avg</sub>, which is right for an unresolved doublet.
-                Until 13 October 2026 the parents were only <em>displayed</em> with λ<sub>Kα1</sub> and fitted with
-                λ<sub>avg</sub>, so on resolved doublets the cell came out too large by
+                Fitting a resolved parent at λ<sub>avg</sub> instead would make the cell too large by
                 λ<sub>avg</sub>/λ<sub>Kα1</sub> &minus; 1 (0.083&nbsp;% for Cu, 0.057&ndash;0.073&nbsp;% for Cr, Fe
                 and Co, 0.20&nbsp;% for Mo, 0.26&nbsp;% for Ag) with a normal-looking M(20).
                 <br><br>
                 Measured on synthetic Cu Kα patterns of a cubic cell with $a$ = 5.4309&nbsp;Å:
                 <table style="margin-top:0.75rem;">
-                    <thead><tr><th>Pattern</th><th>Flagged, before</th><th>Flagged, now</th><th>Stripped</th></tr></thead>
+                    <thead><tr><th>Pattern</th><th>Flagged</th><th>Stripped</th></tr></thead>
                     <tbody>
-                        <tr><td>Sharp, every doublet resolved, zero 0.06°</td><td>5.4354</td><td>5.4309</td><td>5.4309</td></tr>
-                        <tr><td>Unresolved at low angle, resolved at high angle, zero 0.04°</td><td>5.4361, $Z$ 0.053°</td><td>5.4305, $Z$ 0.032°</td><td>5.4309, $Z$ 0.039°</td></tr>
-                        <tr><td>Sharp, but the 111 Kα<sub>2</sub> shoulder not picked, zero 0</td><td>5.4354, M(20) 4147</td><td>5.4307, M(20) 593</td><td>5.4309, M(20) 18059</td></tr>
+                        <tr><td>Sharp, every doublet resolved, zero 0.06°</td><td>5.4309</td><td>5.4309</td></tr>
+                        <tr><td>Unresolved at low angle, resolved at high angle, zero 0.04°</td><td>5.4305, $Z$ 0.032°</td><td>5.4309, $Z$ 0.039°</td></tr>
+                        <tr><td>Sharp, but the 111 Kα<sub>2</sub> shoulder not picked, zero 0</td><td>5.4307, M(20) 593</td><td>5.4309, M(20) 18059</td></tr>
                     </tbody>
                 </table>
                 The last row shows the limit of flagging. Its 111 peak is a resolved Kα<sub>1</sub> line whose
                 Kα<sub>2</sub> shoulder the peak finder did not pick, so nothing marks it as Kα<sub>1</sub> and it
-                stays at λ<sub>avg</sub>. It used to disappear into a cell scaled by 0.08&nbsp;%; it now stands out as
-                the one misfit, and M(20) falls. Adding the missed shoulder with <code>Ctrl + Click</code>
+                stays at λ<sub>avg</sub>. It stands out as the one misfit, and M(20) falls. Adding the missed shoulder with <code>Ctrl + Click</code>
                 (<code>Snap</code> off) lets the pair be recognised: $a$ = 5.4309&nbsp;Å, M(20) 4148. A partly
                 resolved peak, whose maximum sits between the two lines, has no single right wavelength at all.
                 <br><br>
@@ -1623,7 +1689,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 With zero refinement disabled, only one pairing/fit is performed and no fitted zero
                 correction is attached. With it enabled, the same up-to-two-round strategy applies to every system,
                 whether the candidate came from the GPU or from the CPU fallback. GPU
-                candidates are refined in parallel by a pool of dedicated Web Workers (see <a href="#overview">Architecture</a>).
+                candidates are refined in parallel by a pool of dedicated Web Workers (see <a href="#introduction">Architecture</a>).
             </p>
 
             <p>
@@ -1659,7 +1725,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
             </table>
             <p>
                 The same thresholds decide whether a system can be searched at all: a checked system with fewer peaks
-                in the 2θ window than its minimum is skipped with a message, and <code>Start Indexing</code> asks for
+                in the 2θ window than its minimum is skipped with a message, and the <code>Index</code> button asks for
                 more peaks only when no checked system can run.
             </p>
 
@@ -1731,7 +1797,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 (e.g. $C(124, 6) \approx 4.47 \times 10^9$ already overflows, so Triclinic stops at 123). Because
                 <code>HKL Basis</code> is a percentage of $N_{max} = \min(\text{list length}, \text{u32 ceiling})$, capped
                 at 100%, no setting can exceed the ceiling. A <strong>pre-flight check</strong> still recomputes
-                $C(N_{hkl}, k)$ for every checked system and would disable the <em>Start Indexing</em> button (red,
+                $C(N_{hkl}, k)$ for every checked system and would disable the <em>Index</em> button (its tooltip then says
                 "Too Large") should a list ever grow past it.
             </p>
             <p>
@@ -1743,7 +1809,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 would need on the order of a billion dispatches: it never errors, it just never finishes. The pre-flight
                 check therefore estimates the dispatch count of <em>every checked system</em> and treats it like the u32
                 ceiling: a warning in the status line above a soft threshold (100,000 dispatches), and a red
-                <em>Start Indexing</em> button above a hard one (2 million), naming the system concerned. It also blocks a
+                <em>Index</em> button above a hard one (2 million), naming the system concerned. It also blocks a
                 peak count whose combinations exceed the WebGPU limit of 65,535 workgroups. If you see a &ldquo;too
                 slow&rdquo; block, lower <strong>Depth</strong> first — it has a much larger effect on dispatch count than
                 <strong>HKL Basis</strong> — or uncheck triclinic.
@@ -1886,15 +1952,25 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
         <section id="evaluating-solutions">
             <h2>Evaluating Solutions</h2>
             <p>
-                The indexing search usually produces several candidate cells. To keep the live ledger bounded, whenever
-                the in-memory list grows past 500 entries it is sorted by M(20) and pruned back to the best 400. This
-                reservoir caps memory by retaining the higher-M(20) candidates, so lower-ranked cells can
-                be discarded before the final sieve. During indexing, at most 50 rows are rendered in the
-                Solutions table. At the end
-                of the run a final de-duplication pass (<code>applyFinalSieve</code>) removes symmetry-equivalent and
-                transformed duplicates, so the displayed set is typically a few tens of distinct cells ranked by M(20).
-                Selecting the correct one requires interpreting figures of merit and checking the refined fit visually.
+                The indexing search usually produces several candidate cells. Selecting the correct one requires interpreting
+                figures of merit and checking the refined fit visually.
             </p>
+            <h3 id="how-many-solutions">How many solutions are kept</h3>
+            <p>
+                Every system feeds one common list, ranked by M(20). Each cut below keeps a <strong>reserved share for every system
+                that has cells</strong>, then fills the remaining places with the best of the rest, whatever their system. The share is the
+                cap divided by the number of systems present in the list at that moment, so it adapts: with one system that system
+                may use the whole cap, with six each is guaranteed a sixth. In order:
+            </p>
+            <ol>
+                <li><strong>Candidate buffer, per system.</strong> The GPU search of each system stores at most <code>Candidates (kCells)</code> candidate cells (default 100, i.e. 100,000; the buffer starts empty for every system). When it fills, that system&rsquo;s search ends early and the run moves on, so a system cannot take space from another here; the Log and the status line say when a buffer filled and how much of the search was done.</li>
+                <li><strong>Acceptance.</strong> A candidate is refined on the CPU and enters the list only if its M(20) is above 2.0 (and, with the impurity allowance, if at most that many of the peaks scored are unindexed). A cell already in the list (same cell, same input data) is not added twice; the better copy is kept.</li>
+                <li><strong>Working list.</strong> When the list passes 500 entries it is cut to 400: each system present keeps its best 400/<em>n</em> cells (<em>n</em> systems present, e.g. 133 each for three), and the other places go to the best remaining cells by M(20). The Solutions tab shows at most 50 rows while the run goes on.</li>
+                <li><strong>Final sieve</strong> (<code>applyFinalSieve</code>, <a href="#final-sieve">described below</a>), at the end of the run, over the list including the solutions of earlier runs of the session: equivalent descriptions of one lattice are merged first, which removes most of the duplicates a system produces.</li>
+                <li><strong>Final cap: 50 solutions.</strong> Each system present keeps its best 50/<em>n</em> cells (for example 16 each for three systems, 8 for six); the places a system does not fill go to the best remaining cells by M(20). The two cells of an &equiv; pair are kept together, so the list can exceed 50 by a few. The Log gives the number of solutions per system after the sieve.</li>
+            </ol>
+            <p>
+                So at most about 50 solutions are listed after a run, and every system that produced a cell is represented. The reserve is a guarantee of presence, not of quality: a system that produced only poor cells (M(20) a few units) still gets its share, below the strong cells of the others in the list, and its cells are the ones to treat with suspicion. If the list is dominated by cells of one system, that is because the other systems produced fewer than their share.</p>
 
             <h3>de Wolff Figure of Merit: M(20) / M(N)</h3>
             <p>
@@ -1953,8 +2029,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 before the M(20) threshold: an R lattice that scores below 2.0 on the full list is still caught.
             </p>
             <p>
-                Measured on synthetic patterns: corundum M(20) 124 &rarr; 232 (now ranked first, ahead of a
-                monoclinic sub-cell at 226 that previously outranked it), Bi<sub>2</sub>Te<sub>3</sub> 76 &rarr; 164;
+                Measured on synthetic patterns: counting only the R lines gives corundum M(20) 232 (ranked first, ahead of a monoclinic sub-cell at 226) and Bi<sub>2</sub>Te<sub>3</sub> 164;
                 ZnO (primitive hexagonal) is correctly left as P.
             </p>
             <ul>
@@ -2154,7 +2229,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
         0.497. A stripping residual has neither property: the companion it would have matched has already been
         removed, and residuals sit immediately beside the parent on <em>either</em> side, not at the
         Kα<sub>2</sub> offset. Running the test on stripped data would therefore flag mostly <em>genuine</em>
-        reflections that happen to fall near the old Kα<sub>2</sub> position of a strong neighbour — silently
+        reflections that happen to fall near the original Kα<sub>2</sub> position of a strong neighbour — silently
         removing real evidence.
     </p>
     <p>
@@ -2202,18 +2277,14 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
         <a href="#space-group-mc">Space Group MC</a>, not by the centering line.
     </p>
     <div class="callout-note">
-        <strong>This applies to <em>F</em> and <em>I</em> too, and it did not always.</strong> The candidate
-        pool used to collapse to <em>F</em> or <em>I</em> <em>alone</em> when either survived, while the
-        <em>A</em>/<em>B</em>/<em>C</em> and <em>R</em> branches kept <em>P</em> beside them. That single letter
-        was a hard commit: the pool is the candidate filter for the extinction test <em>and</em> for the
-        compatibility list, so a wrong <em>I</em> verdict did not demote the primitive settings, it
-        <strong>deleted</strong> them — and a group that was never a candidate looks exactly like a group that
-        was ruled out. This is the same pseudo-symmetry trap described just above: no measured reflection
-        happens to fall in the forbidden parity class, <em>I</em> comes back clean, and the true primitive cell
-        is the thing that disappears from the report. <em>F</em> and <em>I</em> qualify on the same bar
-        <em>A</em>/<em>B</em>/<em>C</em> do — zero hard violations, which <em>P</em> also has by construction —
-        so they are no longer treated as more certain. The <strong>Lattice Centering</strong> line is unchanged
-        by this: it is built after <em>P</em> is stripped.
+        <strong><em>F</em> and <em>I</em> qualify like <em>A</em>/<em>B</em>/<em>C</em>.</strong> The candidate pool always keeps
+        <em>P</em> beside <em>F</em>, <em>I</em>, <em>A</em>/<em>B</em>/<em>C</em> and <em>R</em>: all of them qualify on the same bar
+        &mdash; zero hard violations, which <em>P</em> also has by construction &mdash; so none is treated as more certain than
+        <em>P</em>. That matters because the pool is the candidate filter for the extinction test <em>and</em> for the
+        compatibility list: a wrong <em>I</em> verdict must not <strong>delete</strong> the primitive settings, since a group that was
+        never a candidate looks exactly like a group that was ruled out. This is the pseudo-symmetry trap described just
+        above: no measured reflection happens to fall in the forbidden parity class, <em>I</em> comes back clean, and the true
+        primitive cell would disappear from the report. The <strong>Lattice Centering</strong> line is built after <em>P</em> is stripped.
     </div>
     <p>
         <strong>How to read this.</strong> A genuine centering produces a condition on
@@ -2298,9 +2369,9 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
         shifting the whole score against the rule-free baseline.
     </p>
     <div class="callout-note">
-        <strong>This score no longer orders anything.</strong> The confirmation figure of merit described here
-        is still computed, and it still feeds the <em>explains n/N absences</em> tag printed beside each
-        setting, but it no longer sorts the report's space-group list — see
+        <strong>This score does not order anything.</strong> The confirmation figure of merit described here
+        feeds the <em>explains n/N absences</em> tag printed beside each
+        setting, but it does not sort the report's space-group list — see
         <a href="#sg-compatibility-list">A compatibility list, not a ranking</a> below. Ranking space-group
         hypotheses happens in one place only, the <a href="#space-group-mc">Space Group MC</a>.
     </div>
@@ -2359,9 +2430,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
         The database carries 25 distinct zone labels across the 530 settings. Twelve of them &mdash;
         <em>(-2k)kl</em>, <em>0k-k</em>, <em>0kk</em>, <em>h(-2h)l</em>, <em>h-h-h</em>, <em>h-h0</em>,
         <em>h-hh</em>, <em>h0-h</em>, <em>h0h</em>, <em>hh-h</em>, <em>hk-h</em> and <em>hk-k</em> &mdash;
-        are spellings the old label-matching table had no entry for at all, so a condition carried on any of
-        them matched nothing and was skipped in silence. Those are largely the trigonal and hexagonal
-        families, which is why those two systems are where the operator treatment changes the most.
+        are spellings that a table of condition labels would have no entry for; the operator treatment needs none. They are largely the trigonal and hexagonal families.
     </p>
     <p>
         <strong>What this changes in practice.</strong> Every setting is now held to every absence it actually
@@ -2402,9 +2471,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
         <strong>Settings in other axes are not candidates.</strong> The indexer produces b-unique monoclinic
         cells and indexes every R lattice in hexagonal axes, so a-/c-unique monoclinic settings and the
         rhombohedral-axes settings of the seven R groups (Hall symbol with <code>3*</code>) are skipped:
-        their conditions refer to different indices. The automatic analysis used to rank the
-        rhombohedral-axes copies as hexagonal candidates; since they forbid almost nothing in hexagonal
-        indices, every R group appeared only through that duplicate, never through its true setting.
+        their conditions refer to different indices. The rhombohedral-axes copies are not offered as hexagonal candidates: they forbid almost nothing in hexagonal indices, so every R group would appear only through that duplicate, never through its true setting.
     </p>
 
     <h4>Rewarding settings that explain the observed absences</h4>
@@ -2447,8 +2514,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
     <h4 id="sg-compatibility-list">A compatibility list, not a ranking</h4>
     <p>
         Everything above establishes <em>which</em> settings the observed absences contradict, and by how many
-        reflections. That much is sound, and it is what the PDF report prints. What Brutus no longer does here
-        is put those settings in preference order.
+        reflections. That much is sound, and it is what the PDF report prints. Brutus does not put those settings in preference order.
     </p>
     <p>
         The reason is structural, and it is worth being blunt about. A confirmation score counts reflections
@@ -2478,8 +2544,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
         score-ordered list drops settings for scoring reasons while presenting itself as a list of what is
         merely compatible, and &ldquo;never a candidate&rdquo; reads far too easily as &ldquo;ruled out&rdquo;.
         The cap never cuts a setting with zero hard violations: all of those are kept (up to 150), and
-        settings with violations fill the list up to 40. A fixed cap of 40 on a list ordered by
-        <em>descending</em> number used to drop the low-numbered compatible settings &mdash; F222, Fmm2,
+        settings with violations fill the list up to 40. A fixed cap of 40 on a list ordered by number would drop the low-numbered compatible settings &mdash; F222, Fmm2,
         Ccc2, Aba2, Iba2, I4, I4<sub>1</sub>&hellip; &mdash; on patterns that obey them exactly.
         The report states how many settings it shows out of how many were found.
     </p>
@@ -2488,7 +2553,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
         It refits the cell once per hypothesis, merges the settings your data cannot separate, applies no
         centering pre-filter, and scores a likelihood ratio you can read as odds.
     </p>
-    <h4>Swap hkl &mdash; correcting an assignment by hand</h4>
+    <h4 id="swap-hkl">Swap hkl &mdash; correcting an assignment by hand</h4>
     <p>
         Indexing assigns each observed peak to the <em>nearest</em> calculated line. When two lines straddle a
         peak that choice can be decided by a few thousandths of a degree, and it can be wrong
@@ -2497,7 +2562,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
         only ever sees assignments that some space group forbids. The decision is therefore yours.
     </p>
     <p>
-        Right-click a solution and choose <strong>Swap hkl</strong>. The dialog shows the assignment the
+        The <strong>Swap hkl</strong> dialog (which currently has no menu entry, see <a href="#solution-menu">The Solution menu</a>) shows the assignment the
         refit will actually use, including the one-line-per-peak rule: where two peaks compete for the same
         calculated line the closer one keeps it and the other is shown unindexed, rather than both being
         fitted to the same reflection. The dialog lists every peak in the 2&theta; range
@@ -2675,7 +2740,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 alone, and the least constrained candidate tends to win by default.
             </p>
             <p>
-                <strong>Space Group MC</strong> (right-click a solution) asks the opposite question:
+                <strong>Space Group MC</strong> (<strong>Solution &rarr; Test Space Group</strong>) asks the opposite question:
                 <em>if this space group were true, how well would the pattern index?</em> For each candidate
                 the forbidden reflections are deleted from the calculated line list, the cell is re-refined
                 against what remains, and the evidence is recounted. Every number in the resulting row (the
@@ -2867,7 +2932,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                     &mdash; each clean absence is worth almost nothing, which is correct: in a sparse pattern
                     a missing line proves very little. When $p$ approaches 1, each clean absence is worth a
                     couple of nats. Adding a restriction that deletes an unobserved line therefore buys
-                    $\ln[1/(1-p)]$ and no more, instead of the free $M(20)$ increase it used to buy.
+                    $\ln[1/(1-p)]$ and no more, instead of a free $M(20)$ increase.
                     <br><br>
                     Where no per-position weight is available the contribution is
                     $\bar{p}\,\ln[(1-\varepsilon_0)/(1-p)]$ &mdash; the same term scaled by the mean
@@ -2902,11 +2967,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                     allowed line inside the window), so they do not depend on how large the pattern is. The
                     rate for a strong, clean, unexplained peak is different in kind &mdash; it is a rate
                     <em>per forbidden position</em> &mdash; and is therefore derived as roughly one stray peak
-                    across the whole pattern, $N_{stray}/N_{pos}$. It used to be pinned at 0.02, which on a
-                    pattern with 700 resolvable positions asserts that fourteen spurious peaks are expected;
-                    the derived value there is 0.0014, making each hard violation cost 5.3 nats instead of
-                    2.6. On a small pattern of about 50 positions it returns 0.02 and reproduces the old
-                    behaviour exactly. $N_{pos}$ is counted once on the parent lattice and shared, so
+                    across the whole pattern, $N_{stray}/N_{pos}$. A fixed 0.02 would assert, on a pattern with 700 resolvable positions, that fourteen spurious peaks are expected; the derived value there is 0.0014, making each hard violation cost 5.3 nats instead of 2.6. On a small pattern of about 50 positions it returns 0.02. $N_{pos}$ is counted once on the parent lattice and shared, so
                     $\varepsilon_0$ is a property of the pattern and identical for every row.
                     <br><br>
                     The $\min(0,\cdot)$ is not decoration. The ratio $\varepsilon_i/p_i$ exceeds one whenever
@@ -2921,18 +2982,14 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 </li>
                 <li>
                     <strong>Peaks nothing explains.</strong> Each unindexed peak contributes
-                    $\ln \varepsilon_u$ with $\varepsilon_u = 0.15$. These used to be excluded from the
-                    ranking on the grounds that every class carries them equally &mdash; true of the old
-                    fixed-cell scoring, but false as soon as each class gets its own refined cell.
+                    $\ln \varepsilon_u$ with $\varepsilon_u = 0.15$. They are part of the ranking: each class refines its own cell, so the classes do not carry them equally.
                 </li>
                 <li>
                     <strong>Parameter charge.</strong> $k$ is the number of refined parameters (cell
                     parameters, plus the zero error if you are refining it), $n_{\text{obs}}$ the number of
                     observed peaks, and $n_{\text{con}}$ the number of lines actually constraining the fit.
                     The BIC part, $-\tfrac{1}{2}k\ln n_{\text{obs}}$, is the same for every row and cancels
-                    out of every comparison, which is as it should be &mdash; charging it on the
-                    <em>indexed</em> count instead, as an earlier version did, handed a discount to exactly
-                    the restrictive classes that match fewest peaks. What does not cancel is the small-sample
+                    out of every comparison, which is as it should be &mdash; charging it on the <em>indexed</em> count instead would hand a discount to exactly the restrictive classes that match fewest peaks. What does not cancel is the small-sample
                     correction $k(k+1)/(n_{\text{con}}-k-1)$, which blows up as the number of constraining
                     lines approaches the number of free parameters. That is the &ldquo;absorb the error into
                     my own zero-point&rdquo; case: a class with very few allowed lines can fit almost anything,
@@ -3171,10 +3228,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 least-squares refit against its own restricted line list, and keeps the result. That cell
                 <em>is</em> the hypothesis &mdash; the cell fitted to the lines the hypothesis allows &mdash;
                 so it is accepted whether or not $M(20)$ happened to rise; judging a hypothesis on a cell
-                fitted to reflections it forbids is the exact bias this tool exists to remove. (Earlier
-                versions scored every class on the parent cell as it stood, which re-imported that bias
-                wholesale: the correct class could be demoted at stage 1 and never reach the Monte Carlo pass
-                at all.)
+                fitted to reflections it forbids is the exact bias this tool exists to remove. 
             </p>
             <p>
                 <strong>Stage 2</strong> spends the annealing budget on the shortlist. It offers three
@@ -3251,9 +3305,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                     column changes the view only; it never changes the verdict.
                 </li>
                 <li>
-                    <strong>Clean is the positive evidence.</strong> The old table could only ever punish a
-                    class for an absence that failed; it had no way to reward one for an absence that held.
-                    The <em>Clean</em> column is that missing half. A class with <code>0/0</code> is making no
+                    <strong>Clean is the positive evidence.</strong> A count of violations alone can only punish a class for an absence that failed. The <em>Clean</em> column is the other half: absences that held. A class with <code>0/0</code> is making no
                     testable claim at all within your measured range.
                 </li>
                 <li>
@@ -3352,20 +3404,57 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 work, reduced to what peak <em>positions</em> alone can support.
             </div>
 
+            <h3 id="sg-explore">Explore Space Group</h3>
+            <p>
+                <strong>Solution &rarr; Explore Space Group&hellip;</strong> opens a browser of the 530 settings of the 230 groups of
+                <code>sg_ops.json</code>. Filter by crystal system, centring, international number, Hermann&ndash;Mauguin
+                symbol, Hall symbol or setting; selecting a setting shows its point group, its Hall symbol and its reflection
+                conditions. <strong>Add to solution</strong> attaches the setting to the open solution and draws its allowed reflections
+                (<strong>Sim</strong>, green ticks) next to the observed peaks and the solution&rsquo;s own blue ticks. <strong>Remove from
+                solution</strong> removes the setting currently drawn. A solution can hold several groups; the radio buttons in the open
+                solution choose which one is drawn.
+            </p>
+            <p>
+                This is a fixed-cell extinction comparison. It uses the displayed cell axes, the wavelength and the zero correction,
+                without refining the cell or converting its basis, so a monoclinic or rhombohedral setting needs a cell expressed in those
+                axes. Groups with identical extinctions cannot be separated by it. Positions alone cannot establish a space group.
+                The groups attached to a solution are saved in the project, listed in the PDF report and written to the pdCIF.
+            </p>
+
+            <h3 id="sg-convert">Convert: subgroups and supergroups</h3>
+            <p>
+                <strong>Solution &rarr; Convert&hellip;</strong> carries the open cell to a maximal subgroup of its space group, or to
+                another group that is a subgroup or a supergroup of it, and adds the result as a new solution above its parent.
+                Brutus holds cells, not atoms, so only the cell and the group are converted; nothing else is moved or merged.
+            </p>
+            <ol>
+                <li><strong>Current space group.</strong> The group in which the cell axes are expressed. The dialog starts from the group chosen for the solution, else from the first group of the class that Test Space Group proposed, else from the first setting of the cell&rsquo;s crystal system; the filter narrows the list. The conversion is only meaningful if the cell axes really are those of this setting.</li>
+                <li><strong>Maximal subgroups.</strong> The list comes from the operators of the group (<code>js/convert/sg_subgroups.js</code>, from Powder6, after International Tables A1 and the Bilbao SUBGROUPGRAPH): <em>translationengleiche</em> (t) subgroups keep the lattice and lose point-group operators, <em>klassengleiche</em> (k) subgroups keep the point group and lose lattice translations (index 2, 3 or 4, so their cell is larger). Each row gives the relation and index, the group, the new axes (a&prime;, b&prime;, c&prime;) in terms of the old ones, the new cell and its volume. Conjugate subgroups with the same name, index and cell are listed once, as <em>&times;n equivalent</em>.</li>
+                <li><strong>Naming.</strong> The operators alone give a subgroup, not its name. Brutus looks for a setting of <code>sg_ops.json</code> with the same number of operators and the same number of rotations, and tries changes of basis (the unimodular matrices with entries &minus;1, 0, 1, and those combined with the centring conversions) and origin shifts (eighths and twelfths of a cell edge) until the operators coincide (<code>SGConvert.findTransforms</code>). The t subgroups are named first. The search runs in the background, rows are named as they are found, and it stops after 30 s; a row left <em>not named</em> can still be used, and then carries a label such as <em>subgroup (klassengleiche, index 3) of &hellip;</em> with no symbol.</li>
+                <li><strong>Another group.</strong> Choose any setting as the target; the dialog lists up to eight changes of axes (and origin) that make it a subgroup, a supergroup or the same group as the current one. It does not find a sublattice of index 2 to 4 that way; use the subgroup list for those.</li>
+            </ol>
+            <p>
+                <strong>The new solution</strong> takes the transformed cell (a&prime;, b&prime;, c&prime;, &alpha;&prime;, &beta;&prime;, &gamma;&prime; from the metric, <em>G&prime; = P<sup>T</sup> G P</em>), its volume, and the group as its space group. Its crystal system is worked out from the metric (lengths within 0.4&nbsp;%, angles within 0.12&deg;), not taken from the group, and a monoclinic cell with a unique axis other than b is therefore listed as triclinic. Its <strong>M(20) is the parent&rsquo;s and is not recomputed</strong>: for an index above 1 the new cell has more lines than the parent, so its true M(20) would be lower. The solution records what it came from (<code>convertedFrom</code>), the report says so, and the Log and a message state it.
+            </p>
+            <div class="callout-note">
+                <strong>Moyo.</strong> Powder6 names a subgroup by handing a test structure to the Moyo symmetry library (WebAssembly). Brutus does not use Moyo: it has no atoms to hand it, and the program ships no such library. Its subgroup lists and change-of-basis search are Powder6&rsquo;s own JavaScript, and the naming is the operator matching against <code>sg_ops.json</code> described above, which is why a few rows can stay unnamed.
+            </div>
+
+            <h3 id="projects">Projects</h3>
+            <p>
+                <strong>File &rarr; Save project&hellip;</strong> downloads a <code>.brutus</code> file: JSON with <code>format: "brutus-project"</code> and <code>version: 1</code>, holding the state (file name, the original and the working pattern, the peak list and whether it was edited by hand, every solution with its space groups, the one drawn as Sim and its conversion record, the selected solution, the background, the input fields and the systems checked, the plot axes and view, and the statistics of the last run), the run history and the log. <strong>Open project&hellip;</strong> validates all of it before replacing anything (a bad file leaves the session as it was), then restores the pattern, peaks, solutions and plot without re-running peak detection or indexing. Both are refused while a search runs. Nothing is uploaded; the file is local.
+            </p>
+
             <h3 id="sg-in-the-report">What the PDF report says about space groups</h3>
             <p>
-                The report used to carry a ranking of its own, and it was not the one on screen. Two different
-                algorithms were answering two different questions on two different sets of peaks, so a user who
-                ran the Space Group MC, picked a class, and then generated a report could find the report
-                leading with a different group entirely. That has been removed. The report now has exactly one
-                source of ranking authority, and it is the Space Group MC.
+                The report has exactly one source of ranking authority, the Space Group MC. It reproduces that run&rsquo;s conclusion and recomputes nothing.
             </p>
             <p>
                 Each solution&rsquo;s detail page carries two blocks, in this order:
             </p>
             <h4>1. Space Group Determination</h4>
             <p>
-                Printed only when the cell came from a Space Group MC run (via <strong>Add as solution</strong>).
+                First, <strong>the space groups attached to the solution</strong> by Explore Space Group or Convert: each with its label and Hall symbol and where it came from, and, for a converted cell, the parent cell, the relation and the new axes, with the note that M(20) is the parent&rsquo;s. Then, when the cell came from a Space Group MC run (via <strong>Add as solution</strong>), the determination below.
                 It is a verbatim reproduction of what that run concluded &mdash; the report recomputes nothing
                 and re-orders nothing. It gives:
             </p>
@@ -3388,7 +3477,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 over one that was.
             </p>
             <p>
-                When no Space Group MC was run, the block says so plainly and points you at the tool. It does
+                When no Space Group MC was run and no group was attached, the block says so plainly and points you at the tool. It does
                 not substitute a weaker determination.
             </p>
             <h4>2. Space groups compatible with the observed absences</h4>
@@ -3404,10 +3493,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                 built from. The Space Group MC excludes K&alpha;<sub>2</sub>-suspect peaks and applies no
                 centering pre-filter; the compatibility list, the <strong>Lattice Centering</strong> line and
                 the <strong>Possible Extinctions</strong> list elsewhere in the report do neither. They can
-                therefore still disagree about the detected centering or the detected conditions &mdash; just
-                no longer about which space group wins, because only one of them now claims a winner, and no
-                longer about whether a given reflection is forbidden, because both now put that question to
-                the same symmetry operators.
+                therefore still disagree about the detected centering or the detected conditions &mdash; but not about which space group wins, because only the Space Group MC claims a winner, nor about whether a given reflection is forbidden, because both put that question to the same symmetry operators.
             </div>
         </section>
 
@@ -3694,14 +3780,12 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
             </p>
             <p>
                 The dialog asks for <strong>Iterations</strong> (annealing steps per run, default 1000) and
-                <strong>Restarts</strong> (independent runs, default 8). It works on the solution you right-clicked,
+                <strong>Restarts</strong> (independent runs, default 8). It works on the open solution (<strong>Solution &rarr; Refine</strong>),
                 captured when the dialog opens, so a table re-sorted or still filling while it is open cannot change
                 the target. Peaks are those of the 2&theta; window minus the Kα<sub>2</sub>-suspect ones, as in indexing,
                 so the result's M(20) is directly comparable with its parent's; the space-group analysis of the result
                 still sees the suspects, as soft evidence. With <code>Refine Zero-Point Error</code> on, the zero error
-                walks in steps of about 0.01° within &plusmn;0.2° of the <em>parent's</em> refined zero (it used to be
-                &plusmn;0.2° around zero, which pinned every trial at the bound for a parent with a larger zero error and
-                guaranteed &ldquo;no improvement&rdquo;). A result is added, directly above its parent, only if it beats
+                walks in steps of about 0.01° within &plusmn;0.2° of the <em>parent's</em> refined zero (so a parent with a larger zero error is not pinned at a bound). A result is added, directly above its parent, only if it beats
                 the parent's M(20).
             </p>
             <p>
@@ -3735,9 +3819,7 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
                     symmetries the higher M(20) wins. If the less symmetric cell's M(20) is more than twice as high,
                     <strong>both are kept</strong>, each marked &equiv; with the other's system (<code>[=xxxx]</code>
                     in the PDF report): the sieve cannot tell a real distortion from extra parameters fitting the
-                    noise, so you decide. Until 14 October 2026 the higher M(20) always won, and a description with
-                    more free parameters can score a little higher by fitting the noise: on Si a tetragonal cell
-                    with $c = a + 0.001$&nbsp;Å (M(20) 1518) replaced the cubic one (1054). A genuine distortion
+                    noise, so you decide. The higher M(20) alone is not used, because a description with more free parameters can score a little higher by fitting the noise: on Si a tetragonal cell with $c = a + 0.001$&nbsp;Å scores M(20) 1518 against the cubic cell&rsquo;s 1054. A genuine distortion
                     inside the 0.2&nbsp;% tolerance fits clearly better instead &mdash; $c/a = 1.0005$ measured to
                     0.002° gave the tetragonal cell 3&ndash;4 times the cubic M(20), and a larger one leaves the
                     cubic cell unable to fit at all &mdash; while the extra parameter alone gave at most 1.4 times
@@ -3900,11 +3982,11 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
 
             <h3>Stopping and restarting a search</h3>
             <p>
-                Start is locked as soon as startup begins, including GPU initialization. Stop cancels that
+                Index is locked as soon as startup begins, including GPU initialization, and turns into Stop (Esc does the same); the rest of the window is locked until the run ends. Stop cancels that
                 run and terminates its CPU/refinement workers. A new search has its own cancellation state
                 and re-initialises the refinement pool for itself; late results and callbacks from the stopped
                 run are ignored, and so is its clean-up, which therefore cannot release the pool under the new
-                run (that used to leave a run started straight after Stop refining nothing).
+                run .
                 GPU commands already submitted may still finish on the device, but their cancelled results
                 do not enter the new run. Existing accepted solutions are retained for review.
             </p>
@@ -4048,12 +4130,26 @@ python3 tests/bump_version.py --check    # report, change nothing</code></pre>
             </ol>
 
             <div class="footer">
-                <p>Help guide generated with the help of an AI, based on source code analysis. Last revised 14 October 2026; aligned with application build 20261014.</p>
+                <p>This guide was written with the help of an AI from an analysis of the source code. It describes the current program; the version is shown at the bottom right of the program window.</p>
             </div>
         </section>
 
     </main>
+    </div>
 
+    <script>
+        (function () {
+            var toggle = document.getElementById('theme-toggle');
+            function apply(dark) { document.documentElement.dataset.theme = dark ? 'dark' : 'light'; toggle.checked = dark; }
+            apply(document.documentElement.dataset.theme === 'dark');
+            toggle.addEventListener('change', function () {
+                apply(toggle.checked);
+                try { localStorage.setItem('brutus-theme', toggle.checked ? 'dark' : 'light'); } catch (e) {}
+            });
+            // The program and this guide share the choice: change it in one and the other follows.
+            window.addEventListener('storage', function (e) { if (e.key === 'brutus-theme') apply(e.newValue === 'dark'); });
+        })();
+    </script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const sections = document.querySelectorAll('section');

@@ -35,7 +35,7 @@ const read = (p) => readFileSync(join(ROOT, p), 'utf8').replace(/\r\n/g, '\n');
 
 // ---- the three load orders -------------------------------------------------
 const html = read('index.html');
-const htmlScripts = [...html.matchAll(/<script\s+src="([^"?]+)(?:\?[^"]*)?"[^>]*>/g)]
+const htmlScripts = [...html.matchAll(/<script[^>]*?src="([^"?]+)(?:\?[^"]*)?"[^>]*>/g)]
     .map(m => m[1]).filter(p => p.startsWith('js/'));
 const manifestSrc = read('js/crystallography/manifest.js');
 const manifestFiles = [...manifestSrc.matchAll(/^\s*'([^']+\.js)',\s*$/gm)].map(m => 'js/crystallography/' + m[1]);

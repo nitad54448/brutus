@@ -68,8 +68,10 @@ const initializeChart = () => {
         data: {
             datasets: [
                 { label: 'Intensity', data: experimentalPoints, borderColor: 'rgba(107, 114, 128, 0.7)', showLine: true, borderWidth: 0.75, pointRadius: 1.5, pointHoverRadius: 4, pointBackgroundColor: 'rgba(107, 114, 128, 0.7)' },
-                { type: 'bar', label: 'Observed Peaks', data: [], backgroundColor: 'rgba(239, 68, 68, 0.7)', barThickness: 1 },
-                { type: 'bar', label: 'Calculated Peaks', data: [], backgroundColor: 'rgba(59, 130, 246, 0.9)', barThickness: 1 }
+                { type: 'bar', grouped: false, label: 'Observed Peaks', data: [], backgroundColor: 'rgba(239, 68, 68, 0.7)', barThickness: 1 },
+                { type: 'bar', grouped: false, label: 'Calculated Peaks', data: [], backgroundColor: 'rgba(59, 130, 246, 0.9)', barThickness: 1 },
+                { type: 'bar', grouped: false, label: 'Manual space group', data: [], backgroundColor: '#15716a', barThickness: 1 },
+                { label: 'Background', data: [], borderColor: '#885d18', borderWidth: 1.2, borderDash: [5, 3], pointRadius: 0 }
             ]
         },
         options: {
@@ -84,7 +86,7 @@ const initializeChart = () => {
                         includeBounds: false,
                         callback: (value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: ax.digits })
                     },
-                    grid: { drawTicks: true, drawBorder: true }
+                    grid: { drawOnChartArea: false, drawTicks: true, drawBorder: true }
                 },
                 y: {
                     title: { display: true, text: ay.label },
@@ -103,7 +105,7 @@ const initializeChart = () => {
                             return real.toLocaleString(undefined, { maximumFractionDigits: Math.abs(real) < 10 ? 2 : 0 });
                         }
                     },
-                    grid: { drawTicks: true, drawBorder: true }
+                    grid: { drawOnChartArea: false, drawTicks: true, drawBorder: true }
                 }
             },
             plugins: {
@@ -128,7 +130,7 @@ const initializeChart = () => {
                     }
                 },
 
-                legend: { position: 'top' },
+                legend: { display: false },   // the Data / Exp / Sol / Sim / Background toggles of the plot strip say the same
                 tooltip: {
                     callbacks: {
                         // Every abscissa flavour is shown at once, so switching the
@@ -147,16 +149,16 @@ const initializeChart = () => {
                                 `d ${isFinite(dsp) ? dsp.toFixed(5) : '-'} \u00C5   Q ${Q.toFixed(4)} \u00C5\u207B\u00B9`
                             ];
                             const di = item.datasetIndex;
-                            if ((di === 1 || di === 2) && currentHklList && currentHklList.length) {
+                            if ((di === 1 || di === 2 || di === 3) && (di === 3 ? manualSG.lines : currentHklList).length) {
                                 let best = null, bd = Infinity;
-                                for (const hkl of currentHklList) {
+                                for (const hkl of (di === 3 ? manualSG.lines : currentHklList)) {
                                     const diff = Math.abs(tth - hkl.tth);
                                     if (diff < bd) { bd = diff; best = hkl; }
                                 }
                                 // A calculated tick is its own line, so it must match
                                 // essentially exactly; an observed peak only has to be
                                 // inside the matching window (1.5 x 2-theta error).
-                                const tol = (di === 2) ? 1e-4 : getTthError() * 1.5;
+                                const tol = (di === 2 || di === 3) ? 1e-4 : getTthError() * 1.5;
                                 if (best && bd < tol) {
                                     lines.push(`hkl (${best.h},${best.k},${best.l})`);
                                     if (di === 1) lines.push(`\u0394 from calc: ${(tth - best.tth).toFixed(4)}\u00B0`);
@@ -166,7 +168,7 @@ const initializeChart = () => {
                         },
                         label: function(context) {
                             const datasetLabel = context.dataset.label || '';
-                            if (datasetLabel === 'Observed Peaks' || datasetLabel === 'Calculated Peaks') return null;
+                            if (context.datasetIndex >= 1 && context.datasetIndex <= 3) return null;
                             const raw = context.raw || {};
                             const I = (typeof raw.I === 'number') ? raw.I : yAx().inv(context.parsed.y);
                             return `Intensity: ${Math.round(I)}`;
@@ -205,6 +207,7 @@ const updateAllMarkers = () => {
     } else {
         xrdChart.$selectedPeakTth = undefined;
     }
+    if (typeof updateWorkspaceDatasets === 'function') updateWorkspaceDatasets();
     xrdChart.update('none');
 };
 // ---- Calculated line list ------------------------------------------------
@@ -245,7 +248,7 @@ const placeKa1Lines = (lines, lambda, zero) => {
 // untouched value is kept as tth_calc for anything that wants the corrected
 // frame instead.
 const rebuildHklList = () => {
-    if (!selectedSolution || !workingExperimentalData.tth.length) { currentHklList = []; return; }
+    if (!selectedSolution || !workingExperimentalData.tth.length) { currentHklList = []; rebuildManualSG(); return; }
     const lambda = getLambda();
     const zero = selectedSolution.zero_correction || 0;
     const dataMax = workingExperimentalData.tth[workingExperimentalData.tth.length - 1];
@@ -255,11 +258,15 @@ const rebuildHklList = () => {
     const raw = generateHKL(maxTth, { ...selectedSolution, lambda }, selectedSolution.system) || [];
     currentHklList = raw.map(r => ({ ...r, tth_calc: r.tth, tth: r.tth + zero }));
     placeKa1Lines(currentHklList, lambda, zero);
+    rebuildManualSG();
+    if (typeof refreshWorkspaceStatus === 'function') refreshWorkspaceStatus();
 };
 // Single entry point for "this solution is now the displayed one", so the
 // line list can never drift out of step with the highlighted table row.
 const applySolutionSelection = (sol) => {
     selectedSolution = sol || null;
+    if (typeof syncSolutionAccordion === 'function') syncSolutionAccordion();
+    if (typeof refreshWorkspaceStatus === 'function') refreshWorkspaceStatus();
     rebuildHklList();
     updateAllMarkers();
 };

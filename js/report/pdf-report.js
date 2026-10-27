@@ -13,6 +13,8 @@ document.getElementById('ctx-report').addEventListener('click', () => {
     }
 });
 //main report function, on peut optimiser...
+// Above this many pages the user is asked before the report is saved.
+const REPORT_PAGE_WARN = 100;
 const generatePDFReport = async (singleSolution = null) => {
 const solutionsToReport = singleSolution ? [singleSolution] : displayedSolutions;    
 
@@ -311,7 +313,23 @@ try {
            .text('Space Group Determination:', margin, yPos);
         yPos += 6;
 
+        // A space group the user attached (Solution -> Explore Space Group or Convert).
+        const chosenGroups = solutionSGs(sol);
+        if (chosenGroups.length) {
+            chosenGroups.forEach((g, i) => {
+                wrap(`${chosenGroups.length > 1 ? `Space group ${i + 1} of ${chosenGroups.length}` : 'Selected space group'}: ${g.label}`, margin + 5, SIZE.BODY, 'bold');
+                if (g.hall) wrap(`Hall symbol: ${g.hall}`, margin + 5, SIZE.BODY);
+                if (g.source) wrap(`Source: ${g.source}.`, margin + 5, SIZE.BODY);
+            });
+            if (sol.convertedFrom) {
+                const f = sol.convertedFrom;
+                wrap(`Cell converted from the ${f.system} cell a ${Number(f.a).toFixed(4)}, b ${Number(f.b ?? f.a).toFixed(4)}, c ${Number(f.c ?? f.a).toFixed(4)} (${f.group}; ${f.relation}; axes ${f.basis}). M(20) is that of the parent cell.`, margin + 5, SIZE.BODY);
+            }
+            yPos += 2;
+        }
+
         if (!sol.sgClass) {
+            if (chosenGroups.length) { yPos += 2; return; }
             wrap('No space-group determination was performed for this cell. The list below states ' +
                  'which settings the observed absences are compatible with; it does not choose ' +
                  'between them. Run "Space Group MC" on this solution to compare the extinction ' +
@@ -1015,6 +1033,11 @@ try {
     });
 
     const filename = `Indexing-Report-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.pdf`;
+    const pages = doc.getNumberOfPages();
+    if (pages > REPORT_PAGE_WARN && !await showNotice('Large report', `This report has ${pages} pages (more than ${REPORT_PAGE_WARN}). It may be slow to open and print. Save it anyway?`, { confirmLabel: 'Save', cancelLabel: 'Cancel' })) {
+        showStatus('Report not saved.', 'info', 3000);
+        return;
+    }
     doc.save(filename);
     showStatus('PDF report generated and saved.', 'success');
 

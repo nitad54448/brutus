@@ -11,10 +11,8 @@ const ui = {
     // made `Load File` a different colour from `Save as`. It is now a
     // <button> with exactly the same classes, so they cannot drift.
     fileInputLabel: document.getElementById('load-file-button'),
-    fileName: document.getElementById('file-name-box'),
-    fileChipName: document.getElementById('file-chip-name'),
-    fileChipSize: document.getElementById('file-chip-size'),
-    fileChipClear: document.getElementById('file-chip-clear'),
+    fileName: document.getElementById('file-meta-acc'),
+    fileChipName: document.getElementById('file-meta-name'),
     unloadOverlay: document.getElementById('unload-overlay'),
     unloadFile: document.getElementById('unload-file'),
     unloadLosses: document.getElementById('unload-losses'),
@@ -60,8 +58,8 @@ const ui = {
     gpuBufferSize: document.getElementById('gpu-buffer-size'),
     progressBar: document.getElementById('progress-bar'),
     progressBarContainer: document.getElementById('progress-bar-container'),
-    solutionsTableBody: document.getElementById('solutions-table-body'),
-    solutionsTableHeaders: document.querySelectorAll('#solutions-table-container th'),
+    solutionsTableBody: document.getElementById('solutions-list'),
+    solutionsTableHeaders: [],
     solutionsLed: document.getElementById('solutions-led'),
     chartCanvas: document.getElementById('xrd-chart'),
     xAxisMode: document.getElementById('x-axis-mode'),
@@ -83,6 +81,8 @@ const ui = {
 const statusTextElement = document.getElementById('status-text');
 let statusTimeout;
 const showStatus = (message, type = 'info', duration = 4000) => {
+    if (typeof appendWorkspaceLog === 'function') appendWorkspaceLog(message, type);
+    if (typeof setWorkspaceState === 'function') setWorkspaceState(message);
     if (!ui.statusBar) {
         console.warn(`Status bar element (#status-box) not found. Message: "${message}"`);
         return;
@@ -107,11 +107,12 @@ ui.tabButtonsContainer.addEventListener('click', (e) => {
     document.getElementById(`${tabTarget}-tab-content`).classList.add('active');
 });
 const setUIState = (indexing) => {
+    if (typeof recordWorkspaceRun === 'function') recordWorkspaceRun(indexing);
     isIndexing = indexing; 
     document.body.style.cursor = indexing ? 'wait' : 'default';
     
     const controlsToDisable = [ 
-        ui.fileInput, ui.fileInputLabel, ui.fileChipClear, ui.peakThresholdSlider, ui.peakProminenceSlider,
+        ui.fileInput, ui.fileInputLabel, ui.peakThresholdSlider, ui.peakProminenceSlider,
         ui.ballRadiusSlider, ui.smoothingWidthSlider, ui.wavelength, ui.tthError, 
         ui.maxVolume, ui.impurityPeaksInput, ui.refineZeroCheckbox, 
         // GPU search settings: locked for the run, since each system is
@@ -180,4 +181,5 @@ const setUIState = (indexing) => {
             ui.wavelength.disabled = false;
         }
     }
+    if (typeof syncHeader === 'function') syncHeader();
 };

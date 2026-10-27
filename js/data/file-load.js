@@ -154,6 +154,7 @@ ui.fileInput.addEventListener('change', async (e) => {
     const fileRadiation = parsed.radiation ||
         (parsed.wavelength ? { single: parsed.wavelength } : null);
     const fileWl = fileRadiation ? classifyFileWavelength(fileRadiation) : { wavelength: null, presetMatch: null };
+    loadedFileMeta = { size: file.size, radiation: fileRadiation };
     if (fileWl.presetMatch) {
         ui.wavelengthPreset.value = fileWl.presetMatch;
         handleWavelengthPresetChange({ onLoad: true });
@@ -198,5 +199,7 @@ ui.fileInput.addEventListener('change', async (e) => {
           
     setupTthSliders();
     findPeaks();
+    if (typeof showWorkspaceView === 'function') showWorkspaceView('plot');
+    if (typeof renderFileMeta === 'function') renderFileMeta();
     
 });

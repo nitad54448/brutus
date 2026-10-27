@@ -43,6 +43,10 @@ const formatSystemSearchStats = (rows) => {
     }
     return out;
 };
+// The run is narrated in the Log tab: parameters first, then each system's plan and its time, then the totals.
+const runLog = (message) => { if (typeof appendWorkspaceLog === 'function') appendWorkspaceLog(message); };
+const fmtDuration = (ms) => ms >= 60000 ? `${Math.floor(ms / 60000)} min ${Math.round(ms % 60000 / 1000)} s` : `${(ms / 1000).toFixed(1)} s`;
+const fmtCount = (v) => Math.round(v).toLocaleString('en-US');
 const fmtSearchedPercent = (fraction) => {
     const pct = fraction * 100;
     if (pct >= 10 || pct === 0) return pct.toFixed(0) + '%';
@@ -289,6 +293,17 @@ const baseParams = {
     min_volume: 20.0
 };
 
+{
+    const preset = ui.wavelengthPreset.options[ui.wavelengthPreset.selectedIndex];
+    runLog(`Pattern ${loadedFileName}: ${filteredPeaks.length} peaks used between ${ui.tthMinSlider.value} and ${ui.tthMaxSlider.value}° 2θ ` +
+           `(${pickedPeaks.length} picked${pickedPeaks.some(p => p.ka2Suspect) ? ', Kα2 suspects left out' : ''}).`);
+    runLog(`Radiation: ${preset ? preset.text : ''}, λ = ${baseParams.wavelength.toFixed(5)} Å; Kα2 ${ui.stripKa2Checkbox.checked ? 'stripped' : 'not stripped'}.`);
+    runLog(`Tolerances: 2θ error ${baseParams.tth_error}°, maximum volume ${baseParams.max_volume} Å³, ` +
+           `${baseParams.impurity_peaks} impurity peak(s) allowed, zero error ${baseParams.refineZero ? 'refined' : 'fixed'}.`);
+    runLog(`Systems, highest symmetry first: ${systemsToSearch.map(s => `${SEARCH_SYSTEMS[s].label} (${webgpuSystems.includes(s) ? 'GPU' : workerSystems.includes(s) ? 'CPU' : 'not run'})`).join(', ')}.`);
+    if (lastGpuRunSettings) runLog(`GPU search: HKL basis ${lastGpuRunSettings.perUnknown}% per unknown, depth ${lastGpuRunSettings.depth}, ` +
+           `FoM tolerance ${lastGpuRunSettings.fom}, up to ${fmtCount(lastGpuRunSettings.candidates)} candidate cells per system.`);
+}
 // Stable data provenance: repeated searches on identical inputs can share
 // results, but changed peaks/wavelength/tolerance cannot suppress each other.
 fitContext = JSON.stringify({ peaks: baseParams.peaks, wavelength: baseParams.wavelength,
@@ -399,6 +414,7 @@ if (workerSystems.length > 0) {
             const worker = new Worker(workerURL);
             activeWorkers.push(worker);
             const workerT0 = performance.now();
+            runLog(`${SEARCH_SYSTEMS[system].label}: CPU search started.`);
 
             // Both 'done' and onerror used to decrement workersRemaining and
             // test it against 0 independently. terminate() makes the race
@@ -450,6 +466,7 @@ if (workerSystems.length > 0) {
                     }
 
                     stat.timeMs = performance.now() - workerT0;
+                    runLog(`${SEARCH_SYSTEMS[system].label}: CPU search finished after ${fmtDuration(stat.timeMs)}; ${fmtCount(stat.done)} trials.`);
                     console.log(`[perf] CPU worker '${system}': ${(performance.now() - workerT0).toFixed(0)} ms`);
                     settleWorker();
                 }
@@ -523,6 +540,7 @@ const runGpuSystem = async (system, absoluteTaskIndex) => {
     const stat = systemStat(system);
     if (filteredPeaks.length < minPeaks || plan.nPeaks < K_VALUE) {
         stat.note = `skipped (needs ${minPeaks} peaks)`;
+        runLog(`${sys.label}: skipped, ${filteredPeaks.length} peaks available and ${minPeaks} needed.`);
         showStatus(`${sys.label} search requires at least ${minPeaks} peaks. Skipping.`, "error");
         taskProgress[absoluteTaskIndex] = 100;
         updateProgressBar();
@@ -557,6 +575,7 @@ const runGpuSystem = async (system, absoluteTaskIndex) => {
         Object.assign(stat, { taskIndex: absoluteTaskIndex, nHkl: nSearch, nPeaks: max_p, total: taskTotalTrials });
         console.log(`[perf] GPU task '${sys.label}': ${nSearch} hkl (${plan.percent.toFixed(1)}% of ${plan.max}), ` +
                     `${max_p} peaks, ${taskTotalTrials.toLocaleString()} trials`);
+        runLog(`${sys.label}: GPU search started. ${nSearch} hkl (${plan.percent.toFixed(1)}% of ${plan.max}), lowest ${max_p} peaks, ${fmtCount(taskTotalTrials)} trials planned.`);
 
         // 4. Execution
         const progressCallback = getGpuProgressCallback(sys.shortLabel, absoluteTaskIndex);
@@ -635,6 +654,13 @@ const runGpuSystem = async (system, absoluteTaskIndex) => {
         const tGpuEnd = performance.now();
         stat.candidates = cellsDispatchedToRefine;
         stat.timeMs = tGpuEnd - tGpuStart;
+        {
+            const searched = taskTotals[absoluteTaskIndex] ? taskTotals[absoluteTaskIndex] * ((taskProgress[absoluteTaskIndex] || 0) / 100) : 0;
+            runLog(`${sys.label}: ${stat.note === 'failed' ? 'FAILED' : runStopSignal.stop ? 'stopped' : 'finished'} after ${fmtDuration(stat.timeMs)}. ` +
+                   `${fmtCount(searched)} of ${fmtCount(taskTotals[absoluteTaskIndex] || 0)} trials searched` +
+                   `${stat.truncated !== null && stat.truncated !== undefined ? ` (candidate buffer full at ${fmtSearchedPercent(stat.truncated)})` : ''}; ` +
+                   `${fmtCount(cellsDispatchedToRefine)} candidate cells sent to refinement.`);
+        }
         console.log(`[perf] GPU task '${sys.label}': ${(tGpuEnd - tGpuStart).toFixed(0)} ms (${cellsDispatchedToRefine} candidate cells sent to refinement)`);
         updateProgressBar();
     }
@@ -863,6 +889,8 @@ if (lastSystemSearchStats.length) {
 lastIndexingStats = finalStatus; 
 lastRunTotals = { done: totalActualTrials, total: gpuSettings ? totalMaxTrials : null,
                   time: durationStr, failures: indexingFailures.slice() };
+runLog(`Search ${stoppedByUser ? 'stopped' : 'complete'}: ${fmtCount(totalActualTrials)}${gpuSettings ? ' of ' + fmtCount(totalMaxTrials) : ''} trials in ${fmtDuration(durationMs)}; ` +
+       `${fmtCount(solutions.length)} candidate cells reached the list before the final sieve.`);
 
 
 // Update screen status temporarily
@@ -873,9 +901,16 @@ const _perfSieveEnd = perfStart('applyFinalSieve');
 const _nBeforeSieve = solutions.length;
 solutions = applyFinalSieve(solutions); 
 _perfSieveEnd(`(${_nBeforeSieve} -> ${solutions.length})`);
+{
+    const perSystem = {};
+    for (const x of solutions) perSystem[x.system] = (perSystem[x.system] || 0) + 1;
+    runLog(`Final sieve: ${_nBeforeSieve} cells -> ${solutions.length} distinct solutions (` +
+           `${Object.entries(perSystem).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}).`);
+}
 
 // Space Group Analysis
 if (statusTextElement) statusTextElement.textContent = 'Analyzing space groups...';
+const _tSgStart = performance.now();
 
 const tthMinVal = parseFloat(ui.tthMinSlider.value);
 const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
@@ -931,6 +966,8 @@ if (spaceGroupData) {
     });
 }
 _perfSgEnd(`(${solutions.length} solutions)`);
+runLog(`Systematic-absence analysis of ${solutions.length} solutions took ${fmtDuration(performance.now() - _tSgStart)}.` +
+       ` Best M(20): ${solutions.length ? Math.max(...solutions.map(x => x.m20 || 0)).toFixed(1) : '-'}.`);
                             
 // Clear status text on screen
 if (statusTextElement) statusTextElement.textContent = '';

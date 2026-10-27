@@ -34,9 +34,10 @@ const snapToData = (tth) => {
     return { tth: X[best], height: Math.max(0, Y[best]), kind: 'data' };
 };
 const snapToHkl = (tth) => {
-    if (!currentHklList || !currentHklList.length) return null;
+    const snapLines = typeof manualSG !== 'undefined' && manualSG.owner === selectedSolution && manualSG.lines.length ? manualSG.lines : currentHklList;
+    if (!snapLines || !snapLines.length) return null;
     let best = null, bd = Infinity;
-    for (const h of currentHklList) { const d = Math.abs(h.tth - tth); if (d < bd) { bd = d; best = h; } }
+    for (const h of snapLines) { const d = Math.abs(h.tth - tth); if (d < bd) { bd = d; best = h; } }
     if (!best || bd > SNAP_WINDOW_DEG) return null;
     return { tth: best.tth, kind: 'hkl', hkl: best };
 };
@@ -102,7 +103,7 @@ resizer.addEventListener('mousedown', (e) => { e.preventDefault(); document.body
         // the CSS max nor a hard min consistent with the stylesheet.
         const maxByViewport = window.innerWidth - 350;
         const upper = Math.min(PANEL_MAX, maxByViewport);
-        const width = Math.max(PANEL_MIN, Math.min(moveEvent.clientX, upper));
+        const width = Math.max(PANEL_MIN, Math.min(document.body.classList.contains('panels-swapped') ? window.innerWidth - moveEvent.clientX : moveEvent.clientX, upper));
         leftPanel.style.width = `${width}px`;
     };
     const upHandler = () => { document.body.style.cursor = 'default'; window.removeEventListener('mousemove', moveHandler); window.removeEventListener('mouseup', upHandler); };

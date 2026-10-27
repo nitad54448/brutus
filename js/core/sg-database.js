@@ -38,6 +38,8 @@ async function loadSpaceGroupData() {
                             "v4 file. Rebuild with build_sg_db.py.");
         }
         spaceGroupData = data;
+        populateManualSG();
+        rebuildManualSG();
         const nSettings = Object.values(data.space_groups)
             .reduce((n, g) => n + ((g.settings || []).length), 0);
         console.log(`Space group database loaded: ${nSettings} settings, ` +

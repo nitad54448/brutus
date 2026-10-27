@@ -4,31 +4,16 @@
 // Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
-ui.solutionsTableHeaders.forEach(header => {
-    header.addEventListener('click', () => {
-        const column = header.dataset.sort;
-        if (!column) return;
-
-        if (sortState.column === column) {
-            sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
-        } else {
-            sortState.column = column;
-            sortState.direction = (column === 'm20' || column === 'volume') ? 'desc' : 'asc';
-        }
-
-        sortSolutions();
-  //          const selectedSystems = Array.from(ui.systemCheckboxes)
-  //                                       .filter(cb => cb.checked)
-  //                                       .map(cb => cb.value);
-        // A COPY, not an alias. handleNewSolution does
-        // `solutions = solutions.slice(...)` when pruning, which rebinds
-        // `solutions` to a new array and leaves an aliased
-        // displayedSolutions pointing at the stale one -- after which the
-        // rendered table and the array the context menu indexes into are
-        // two different lists.
-        displayedSolutions = [...solutions];
-        updateSolutionsTable();
-    });
+// Sorting: the Solutions tab has one select, "<column>:<direction>".
+const solutionsSortSelect = document.getElementById('solutions-sort');
+if (solutionsSortSelect) solutionsSortSelect.addEventListener('change', () => {
+    const [column, direction] = solutionsSortSelect.value.split(':');
+    sortState.column = column; sortState.direction = direction;
+    sortSolutions();
+    // A COPY, not an alias: handleNewSolution rebinds `solutions` when pruning,
+    // which would leave an aliased displayedSolutions pointing at a stale array.
+    displayedSolutions = [...solutions];
+    updateSolutionsTable();
 });
 // New function to centralize updates (Throttled with requestAnimationFrame)
 const handleNewSolution = (newSolution, runToken = indexingRunToken, fitContext = null) => {
@@ -82,7 +67,7 @@ if (!isDuplicate) {
         // decides which solutions survive the prune.
         const rank = (x) => (x && isFinite(x.m20)) ? x.m20 : -Infinity;
         solutions.sort((a, b) => rank(b) - rank(a));
-        solutions = solutions.slice(0, PRUNE_TO_COUNT);
+        solutions = selectWithSystemReserve(solutions, PRUNE_TO_COUNT);
     }
 }
 
@@ -198,6 +183,26 @@ const rhombohedralIsCubic = (r, cub) => {
     const rp = primitiveComparison(r, RHOMBOHEDRAL_FROM_HEX);
     return !!rp && CUBIC_PRIMITIVE.some(P => equivalentLattices(rp, primitiveComparison(cub, P)));
 };
+// Every system that has cells keeps a reserved share of the list, so that the cells of one system, which can be
+// many and score well, never push another system out altogether. The share is the cap divided by the number of
+// systems present in `ranked` (best first), so it adapts: with one system that system gets the whole cap, with
+// six systems each is guaranteed cap/6. The slots a system does not use go to the best of the rest, by rank.
+// The order of `ranked` is kept.
+const FINAL_SOLUTION_CAP = 50;
+const selectWithSystemReserve = (ranked, cap) => {
+    if (ranked.length <= cap) return ranked.slice();
+    const groups = new Map();
+    for (const s of ranked) {
+        const key = s.system || '?';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(s);
+    }
+    const reserve = Math.max(1, Math.floor(cap / groups.size));
+    const chosen = new Set();
+    for (const g of groups.values()) g.slice(0, reserve).forEach(s => chosen.add(s));
+    for (const s of ranked) { if (chosen.size >= cap) break; chosen.add(s); }
+    return ranked.filter(s => chosen.has(s));
+};
 const applyFinalSieve = (candidates) => {
     const valid = candidates.filter(s => s && Number.isFinite(s.volume) &&
         s.volume > 0 && Number.isFinite(s.m20) && s.m20 > 0);
@@ -277,7 +282,7 @@ const applyFinalSieve = (candidates) => {
                              `description that fits better (marked ≡): choose between them.` : ''), 'success');
     }
     // Existing final result cap, which never keeps one of a pair without the other.
-    const out = kept.slice(0, 50);
+    const out = selectWithSystemReserve(kept, FINAL_SOLUTION_CAP);
     const inOut = new Set(out);
     for (let grew = true; grew; ) {
         grew = false;
@@ -303,105 +308,172 @@ const sortSolutions = () => {
         }
     });
 };
+// One accordion per solution, one open at a time. The open one is the selected
+// solution: its calculated lines are drawn on the plot, and the Solution menu acts on it.
+// A solution can hold several space groups (chosen in Explore, or reached by Convert); one of them
+// is the one simulated on the plot (sol.simSG, a setting_id). Older projects held a single sol.spaceGroup.
+const solutionSGs = (sol) => {
+    if (sol.spaceGroup && !sol.spaceGroups) { sol.spaceGroups = [sol.spaceGroup]; }
+    delete sol.spaceGroup;
+    return sol.spaceGroups || (sol.spaceGroups = []);
+};
+const sgKey = (sg) => sg.setting_id || sg.label;
+const addSolutionSG = (sol, sg) => {
+    const list = solutionSGs(sol), at = list.findIndex(x => sgKey(x) === sgKey(sg));
+    if (at >= 0) list[at] = sg; else list.push(sg);
+    sol.simSG = sg.setting_id || '';
+};
+const removeSolutionSG = (sol, index) => {
+    const list = solutionSGs(sol), [gone] = list.splice(index, 1);
+    if (gone && sol.simSG === gone.setting_id) sol.simSG = list.length ? (list[list.length - 1].setting_id || '') : '';
+};
+// The setting simulated for a solution: the chosen one, else the first group the space-group scan proposed.
+const defaultSimSetting = (sol) => {
+    if (!sol) return '';
+    const list = solutionSGs(sol);
+    if (list.length) {
+        const hit = list.find(x => x.setting_id && x.setting_id === sol.simSG) || list[list.length - 1];
+        return hit.setting_id || '';
+    }
+    if (sol.sgMembers && sol.sgMembers.length && typeof manualSG !== 'undefined') {
+        const m = /^(.*?)(?: \((\d+)\))?$/.exec(String(sol.sgMembers[0]));
+        const name = m[1].replace(/\s/g, ''), num = m[2];
+        const pool = manualSG.entries.filter(e => !num || String(e.group.number) === num);
+        const hit = pool.find(e => String(e.setting.hm || e.setting.symbol).replace(/\s/g, '') === name) || pool[0];
+        return hit ? hit.setting.setting_id : '';
+    }
+    return '';
+};
+const solutionBadges = (sol) => {
+    let sysBadges = '';
+    if (sol.lattice === 'R') sysBadges += ` <span class="sol-badge" title="Rhombohedral (R) lattice in hexagonal axes: lines with -h+k+l and h-k+l both non-multiples of 3 are absent, and M20 counts only the R lines">R</span>`;
+    sysBadges += symPairBadges(sol).replace(/<br>/g, ' ');
+    const nSwaps = (sol.manualSwaps || []).length;
+    if (nSwaps > 0) sysBadges += ` <span class="sol-badge swap" title="${(sol.manualSwaps||[]).map(x=>x.from+'->'+x.to+' @ '+x.tth.toFixed(3)).join('; ')}">swap&times;${nSwaps}</span>`;
+    if (sol.mcPolished && !sol.sgClass) {
+        const from = (sol.mcFrom && isFinite(sol.mcFrom.m20)) ? sol.mcFrom.m20.toFixed(2) : '?';
+        sysBadges += ` <span class="sol-badge mc" title="Monte-Carlo polished: M20 ${from} -> ${sol.m20.toFixed(2)}">MC</span>`;
+    }
+    if (sol.sgClass) {
+        const decisive = isFinite(sol.sgMargin) && sol.sgMargin >= SG_DECISIVE_NATS;
+        sysBadges += ` <span class="sol-badge sg${decisive ? '' : ' sg-tied'}" title="Refined under ${sol.sgClass}">SG${decisive ? '' : '?'}</span>`;
+    }
+    const sgs = solutionSGs(sol);
+    if (sgs.length) sysBadges += ` <span class="sol-badge sg" title="${sgs.map(x => x.label).join('; ')}">${sgs[0].symbol || 'SG'}${sgs.length > 1 ? ` +${sgs.length - 1}` : ''}</span>`;
+    return sysBadges;
+};
+// The space group attached to a solution, as text: the one the user chose
+// (Explore, Convert) first, then what Test Space Group established.
+const solutionSpaceGroupText = (sol) => {
+    const sgs = solutionSGs(sol);
+    if (sgs.length) return sgs.map(x => x.label + (x.source ? ` (${x.source})` : '')).join('; ');
+    if (sol.sgClass) {
+        const decisive = isFinite(sol.sgMargin) && sol.sgMargin >= SG_DECISIVE_NATS;
+        const members = sol.sgMembers && sol.sgMembers.length ? ` — ${sol.sgMembers.join(', ')}` : '';
+        return `class ${sol.sgClass}${members}${decisive ? '' : ' (not decisive)'}`;
+    }
+    return '';
+};
+const niggliText = (sol) => {
+    try {
+        if (!sol._niggli) sol._niggli = reduceToNiggliCell(sol).cell;
+        const n = sol._niggli;
+        return `a ${n.a.toFixed(4)}, b ${n.b.toFixed(4)}, c ${n.c.toFixed(4)} Å; α ${n.alpha.toFixed(3)}, β ${n.beta.toFixed(3)}, γ ${n.gamma.toFixed(3)}°; V ${getVolumeTriclinic(n).toFixed(2)} Å³`;
+    } catch (e) { return 'not available'; }
+};
+// The space groups of a solution: one radio per group (the one drawn as Sim markers), a remove button each,
+// then what the space-group scan proposed.
+const solutionSGHtml = (sol) => {
+    const sgs = solutionSGs(sol), shown = defaultSimSetting(sol);
+    const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    let html = sgs.map((g, i) => `<div class="sg-item"><label title="Show this group's simulated reflections (Sim)">` +
+        `<input type="radio" name="sim-${solutions.indexOf(sol)}" data-sg-show="${i}"${g.setting_id && g.setting_id === shown ? ' checked' : ''}> ${esc(g.label)}</label>` +
+        `<button type="button" class="sg-remove" data-sg-remove="${i}" title="Remove from this solution" aria-label="Remove">&times;</button>` +
+        (g.source ? `<div class="sg-src">${esc(g.source)}</div>` : '') + `</div>`).join('');
+    if (sol.sgClass) {
+        const decisive = isFinite(sol.sgMargin) && sol.sgMargin >= SG_DECISIVE_NATS;
+        html += `<div class="sg-src">Proposed by Test Space Group: class ${esc(sol.sgClass)}${sol.sgMembers && sol.sgMembers.length ? ' &mdash; ' + esc(sol.sgMembers.join(', ')) : ''}${decisive ? '' : ' (not decisive)'}</div>`;
+    }
+    return html || '<span class="sol-none">none &mdash; Solution &rarr; Test Space Group or Explore Space Group</span>';
+};
+const solutionBodyHtml = (sol) => {
+    const b = sol.b ?? sol.a, c = sol.c ?? sol.a;
+    const al = sol.alpha ?? 90, be = sol.beta ?? 90, ga = sol.gamma ?? (sol.system === 'hexagonal' ? 120 : 90);
+    const row = (k, v, cls = '') => `<dt>${k}</dt><dd${cls ? ` class="${cls}"` : ''}>${v}</dd>`;
+    return '<dl class="sol-dl">' +
+        row('Symmetry', sol.system + (sol.lattice === 'R' ? ', R lattice (hexagonal axes)' : '')) +
+        row('Cell', `a ${sol.a.toFixed(4)}, b ${b.toFixed(4)}, c ${c.toFixed(4)} Å<br>α ${al.toFixed(3)}, β ${be.toFixed(3)}, γ ${ga.toFixed(3)}°`) +
+        row('Volume', `${sol.volume.toFixed(2)} Å³`) +
+        row('M(20)', sol.m20.toFixed(2)) +
+        (sol.zero_correction ? row('Zero', `${sol.zero_correction.toFixed(4)}°`) : '') +
+        row('Niggli', niggliText(sol)) +
+        row('Space groups', solutionSGHtml(sol)) +
+        '</dl>';
+};
+const solutionSummaryHtml = (sol) => {
+    const cellText = (({
+        cubic: s => `a ${s.a.toFixed(3)}`,
+        tetragonal: s => `a ${s.a.toFixed(3)}, c ${s.c.toFixed(3)}`,
+        hexagonal: s => `a ${s.a.toFixed(3)}, c ${s.c.toFixed(3)}`,
+    })[sol.system] || (s => `${s.a.toFixed(2)}, ${(s.b ?? s.a).toFixed(2)}, ${(s.c ?? s.a).toFixed(2)}`))(sol);
+    return `<span class="sol-sys">${sol.system}</span><span class="sol-cell">${cellText}</span>` +
+        `<span class="sol-v">V ${sol.volume.toFixed(0)}</span><span class="sol-m">M20 ${sol.m20.toFixed(1)}</span>${solutionBadges(sol)}`;
+};
 const updateSolutionsTable = () => {
-    // Build the entire table markup in memory first
-    const rowsHtml = displayedSolutions.map((sol, index) => {
+    const html = displayedSolutions.map((sol, index) => {
         if (!sol || !sol.system) return '';
-        let paramsCell = '', anglesCell = '';
-        switch(sol.system) {
-            case 'cubic': paramsCell = `a = ${sol.a.toFixed(4)}`; anglesCell = `90, 90, 90`; break;
-            case 'tetragonal': paramsCell = `a = ${sol.a.toFixed(4)}, c = ${sol.c.toFixed(4)}`; anglesCell = `90, 90, 90`; break;
-            case 'hexagonal': paramsCell = `a = ${sol.a.toFixed(4)}, c = ${sol.c.toFixed(4)}`; anglesCell = `90, 90, 120`; break;
-            case 'orthorhombic': paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; anglesCell = `90, 90, 90`; break;
-            case 'monoclinic': paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; anglesCell = `90, ${sol.beta.toFixed(3)}, 90`; break;
-            case 'triclinic': 
-                paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; 
-                anglesCell = `&alpha; = ${sol.alpha.toFixed(3)}<br>&beta; = ${sol.beta.toFixed(3)}<br>&gamma; = ${sol.gamma.toFixed(3)}`; 
-                break;
-            default: paramsCell = `${sol.a.toFixed(4)}`; anglesCell = `-`;
-        }
-        if (sol.zero_correction) {
-            anglesCell += `<br><span style="font-size:0.9em; color: var(--text-dark);">(Z=${sol.zero_correction.toFixed(4)}°)</span>`;
-        }
-        const isSelected = (selectedSolution === sol) ? ' class="selected"' : '';
-        // Mark solutions produced by Explore Group, with the number of swaps
-        // applied, so a derived cell is never mistaken for an independent hit.
-        const nSwaps = (sol.manualSwaps || []).length;
-        let sysCell = sol.system.substring(0,4);
-        // A hexagonal cell that is an R lattice (M20 counted on R lines only).
-        if (sol.lattice === 'R') sysCell += ` <span class="sol-badge" title="Rhombohedral (R) lattice in hexagonal axes: lines with -h+k+l and h-k+l both non-multiples of 3 are absent, and M20 counts only the R lines">R</span>`;
-        // Two descriptions of one lattice, both kept by the final sieve because
-        // the lower-symmetry one fits more than SIEVE_SYMMETRY_M20_RATIO times
-        // better: each row names the other, and the user decides.
-        sysCell += symPairBadges(sol);
-        if (nSwaps > 0) {
-            sysCell += `<br><span class="sol-badge swap" title="${(sol.manualSwaps||[]).map(x=>x.from+'->'+x.to+' @ '+x.tth.toFixed(3)).join('; ')}">swap&times;${nSwaps}</span>`;
-        }
-        // Cells improved by the Monte-Carlo polish are flagged so a derived
-        // solution is never mistaken for an independent hit.
-        // Suppressed when an SG badge is also due: a cell adopted from the
-        // space-group scan is nearly always MC-polished as well, and two
-        // badges saying almost the same thing crowd the column. The M20
-        // provenance is folded into the SG tooltip instead, so nothing is lost.
-        if (sol.mcPolished && !sol.sgClass) {
-            const from = (sol.mcFrom && isFinite(sol.mcFrom.m20)) ? sol.mcFrom.m20.toFixed(2) : '?';
-            sysCell += `<br><span class="sol-badge mc" title="Monte-Carlo polished: M20 ${from} -> ${sol.m20.toFixed(2)}">MC</span>`;
-        }
-        // Refined under a space-group hypothesis: the forbidden reflections
-        // were removed from the line list before fitting, so the cell, the
-        // pairing and M20 only mean anything alongside the class they assume.
-        if (sol.sgClass) {
-            const bits = [`Refined under ${sol.sgClass}`];
-            if (sol.sgMembers && sol.sgMembers.length) bits.push(sol.sgMembers.join(', '));
-            if (sol.sgConditions && sol.sgConditions.length) bits.push(sol.sgConditions.join(' ; '));
-            // The margin decides whether this badge is a result or a guess.
-            // A class that led its table by half a nat was not established by
-            // the data, and the badge must not let the cell quietly acquire
-            // the authority of one that was.
-            const ev = sol.sgEvidence;
-            if (ev) {
-                bits.push(`${ev.clean}/${ev.informative} forbidden lines clean, ` +
-                          `${ev.hardViolations} hard violation(s)` +
-                          (ev.softViolations ? ` (+${ev.softViolations} soft)` : '') +
-                          (ev.unindexed ? `, ${ev.unindexed} unindexed` : ''));
-                bits.push(ev.wilson ? 'absences weighted per reflection (Wilson)'
-                                    : (isFinite(ev.pHat) ? `p(line observed) = ${(ev.pHat * 100).toFixed(0)}%` : ''));
-                if (ev.mode !== 'mc') bits.push('stage-1 (least-squares) result only');
-            }
-            const decisive = isFinite(sol.sgMargin) && sol.sgMargin >= SG_DECISIVE_NATS;
-            if (isFinite(sol.sgMargin)) {
-                bits.push(decisive
-                    ? `${sol.sgMargin.toFixed(1)} nats ahead of the runner-up`
-                    : `NOT decisive: only ${sol.sgMargin.toFixed(1)} nats ahead of the runner-up, ` +
-                      `so the absences do not choose between this class and the next`);
-            }
-            if (sol.mcPolished && sol.mcFrom && isFinite(sol.mcFrom.m20)) {
-                bits.push(`MC: M20 ${sol.mcFrom.m20.toFixed(2)} -> ${sol.m20.toFixed(2)}`);
-            }
-            sysCell += `<br><span class="sol-badge sg${decisive ? '' : ' sg-tied'}" ` +
-                       `title="${bits.join(' | ')}">SG${decisive ? '' : '?'}</span>`;
-        }
-        return `<tr data-index="${index}"${isSelected}><td>${sysCell}</td><td>${paramsCell}</td><td>${anglesCell}</td><td>${sol.volume.toFixed(2)}</td><td>${sol.m20.toFixed(2)}</td></tr>`;
+        const open = selectedSolution === sol;
+        return `<details class="sol-acc" data-index="${index}"${open ? ' open' : ''}><summary>${solutionSummaryHtml(sol)}</summary>` +
+            `<div class="sol-body">${open ? solutionBodyHtml(sol) : ''}</div></details>`;
     }).join('');
-    
-    // Single DOM write
-    ui.solutionsTableBody.innerHTML = rowsHtml;
-    
-    ui.solutionsTableHeaders.forEach(h => {
-        h.classList.remove('sort-asc', 'sort-desc');
-        if (h.dataset.sort === sortState.column) {
-           h.classList.add(sortState.direction === 'asc' ? 'sort-asc' : 'sort-desc');
-        }
-    });
+    ui.solutionsTableBody.innerHTML = html || '<p class="hint sol-empty">No solutions yet. Index a pattern to list candidate cells here.</p>';
+};
+// Opening an accordion selects its solution and closes the others. Driven by the click on the
+// summary (not by the details toggle event, which also fires when a table is rendered with one open).
+ui.solutionsTableBody.addEventListener('click', (e) => {
+    const summary = e.target.closest('details.sol-acc > summary');
+    if (!summary) return;
+    e.preventDefault();
+    const det = summary.parentElement;
+    if (det.open) {
+        // Closing the open solution deselects it: no markers, and the Solution menu is off.
+        const open = displayedSolutions[parseInt(det.dataset.index)];
+        det.open = false;
+        if (open && open === selectedSolution) applySolutionSelection(null);
+        return;
+    }
+    const sol = displayedSolutions[parseInt(det.dataset.index)];
+    if (sol) applySolutionSelection(sol);   // syncSolutionAccordion opens this one and closes the others
+});
+// Space groups of the open solution: show one as Sim markers, or remove one.
+const afterSGChange = (sol) => {
+    manualSGSelect.value = defaultSimSetting(sol);
+    rebuildManualSG(); updateAllMarkers(); updateSolutionsTable();
 };
 ui.solutionsTableBody.addEventListener('click', (e) => {
-    const row = e.target.closest('tr'); if (!row) return;
-    document.querySelectorAll('#solutions-table-body tr').forEach(r => r.classList.remove('selected'));
-    row.classList.add('selected');
-    const index = parseInt(row.dataset.index);
-    // applySolutionSelection rebuilds the line list with the refined zero
-    // folded in. The old inline version also took its 2-theta ceiling from
-    // the current x-axis maximum, so zooming in and then picking a solution
-    // silently truncated the calculated pattern at the edge of the view.
-    applySolutionSelection(displayedSolutions[index]);
+    const rm = e.target.closest('[data-sg-remove]');
+    if (!rm || isIndexing) return;
+    const sol = displayedSolutions[parseInt(rm.closest('details.sol-acc').dataset.index)];
+    if (!sol) return;
+    removeSolutionSG(sol, Number(rm.dataset.sgRemove));
+    afterSGChange(sol);
 });
+ui.solutionsTableBody.addEventListener('change', (e) => {
+    const pick = e.target.closest('[data-sg-show]');
+    if (!pick || isIndexing) return;
+    const sol = displayedSolutions[parseInt(pick.closest('details.sol-acc').dataset.index)];
+    if (!sol) return;
+    sol.simSG = solutionSGs(sol)[Number(pick.dataset.sgShow)].setting_id || '';
+    afterSGChange(sol);
+});
+// Keeps the accordions in step when a solution is selected from elsewhere.
+const syncSolutionAccordion = () => {
+    ui.solutionsTableBody.querySelectorAll('details.sol-acc').forEach(det => {
+        const sol = displayedSolutions[parseInt(det.dataset.index)];
+        const want = !!sol && sol === selectedSolution;
+        if (want && !det.open) det.open = true;
+        else if (!want && det.open) det.open = false;
+        const body = det.querySelector('.sol-body');
+        if (want && body && !body.firstChild) body.innerHTML = solutionBodyHtml(sol);
+    });
+};

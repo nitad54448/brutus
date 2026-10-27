@@ -156,6 +156,3 @@ const throttledSetStatusText = throttle((message) => {
 // so new code cannot pick the wrong formula by accident.
 const scatteringQ = (tth_deg, lambda) =>
     4 * Math.PI * Math.sin(tth_deg * Math.PI / 360) / lambda;
-// Inverse: 2-theta in DEGREES from a scattering vector in A^-1.
-const tthFromScatteringQ = (q, lambda) =>
-    2 * Math.asin(Math.min(1, Math.max(0, q * lambda / (4 * Math.PI)))) * 180 / Math.PI;

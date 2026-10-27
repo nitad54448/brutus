@@ -15,9 +15,11 @@
 // same things. Two copies of a reset list is how one of them ends up forgetting
 // a field.
 const resetSessionState = () => {
+if (typeof workspaceRunStarted !== 'undefined') workspaceRunStarted = null;
 abortActiveIndexing();
 
 pickedPeaks = [];
+if (typeof calculatedBackground !== 'undefined') calculatedBackground = [];
 peaksManuallyEdited = false;
 solutions = [];
 displayedSolutions = [];
@@ -44,6 +46,7 @@ updatePeakTable();
 updateSolutionsTable();
 updateStartIndexingButtonState();
 ui.solutionsLed.className = 'led-indicator gray';
+if (typeof refreshWorkspaceStatus === 'function') refreshWorkspaceStatus();
 ui.reportButton.disabled = true; // solutions is now empty (abortActiveIndexing() set this from the pre-reset count)
 };
 // Middle truncation. CSS text-overflow cuts the END, which removes the
@@ -65,21 +68,21 @@ if (bytes < 1024) return `${bytes} B`;
 if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
 return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
-// Single place that paints the chip, so the empty and loaded states cannot
+// Single place that paints the file accordion's title, so the empty and loaded states cannot
 // disagree about which classes are set.
 const renderFileChip = (name, sizeBytes) => {
 if (!ui.fileName || !ui.fileChipName) return;
 if (!name) {
+    if (typeof setWorkspaceState === 'function') setWorkspaceState('');
     ui.fileName.classList.add('is-empty');
     ui.fileChipName.textContent = 'No file loaded';
-    ui.fileName.title = '';
-    if (ui.fileChipSize) ui.fileChipSize.textContent = '';
+    ui.fileChipName.title = '';
+    ui.fileName.open = false;
     return;
 }
 ui.fileName.classList.remove('is-empty');
-ui.fileChipName.textContent = truncateMiddle(name);
-ui.fileName.title = name;   // full name on hover
-if (ui.fileChipSize) ui.fileChipSize.textContent = formatFileSize(sizeBytes);
+ui.fileChipName.textContent = truncateMiddle(name, 34);
+ui.fileChipName.title = name;   // full name on hover
 };
 // Full unload: session state AND the data itself, back to the pristine
 // first-load view. Everything the load path switches ON is switched off here,
@@ -117,6 +120,8 @@ if (ui.resultsContainer) ui.resultsContainer.style.display = 'none';
 if (ui.placeholder) ui.placeholder.style.display = '';
 
 renderFileChip(null);
+if (typeof refreshWorkspaceStatus === 'function') refreshWorkspaceStatus();
+if (typeof showWorkspaceView === 'function') showWorkspaceView('plot');
 showStatus('File unloaded.', 'info', 2000);
 };
 // Unloading throws away peaks and solutions, so confirm when there is
@@ -145,13 +150,6 @@ const openUnloadDialog = () => {
 const closeUnloadDialog = () => {
     if (ui.unloadOverlay) ui.unloadOverlay.classList.remove('open');
 };
-if (ui.fileChipClear) ui.fileChipClear.addEventListener('click', () => {
-    // Nothing to lose: unload straight away rather than making the user
-    // dismiss a dialog to discard nothing.
-    const atRisk = (solutions.length > 0) || (pickedPeaks.length > 0) || isIndexing;
-    if (!atRisk) { clearLoadedFile(); return; }
-    openUnloadDialog();
-});
 if (ui.unloadCancel)  ui.unloadCancel.addEventListener('click', closeUnloadDialog);
 if (ui.unloadConfirm) ui.unloadConfirm.addEventListener('click', () => {
     closeUnloadDialog();
@@ -164,4 +162,31 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && ui.unloadOverlay && ui.unloadOverlay.classList.contains('open')) {
         closeUnloadDialog();
     }
+});
+
+// An in-page notice or question, drawn like the other dialogs (never the browser's own alert / confirm, which
+// ignore the theme). Resolves true on OK, false on Cancel, Escape or a click outside. With confirmLabel
+// only (cancelLabel null) it is a plain notice.
+const showNotice = (title, message, { confirmLabel = 'OK', cancelLabel = 'Cancel' } = {}) => new Promise(resolve => {
+    const overlay = document.getElementById('notice-overlay');
+    if (!overlay) { resolve(true); return; }   // markup missing: do not block the user
+    const ok = document.getElementById('notice-confirm'), cancel = document.getElementById('notice-cancel');
+    document.getElementById('notice-title').textContent = title;
+    document.getElementById('notice-text').textContent = message;
+    ok.textContent = confirmLabel;
+    cancel.textContent = cancelLabel || '';
+    cancel.hidden = !cancelLabel;
+    const finish = result => {
+        overlay.classList.remove('open');
+        ok.removeEventListener('click', onOk); cancel.removeEventListener('click', onCancel);
+        overlay.removeEventListener('click', onOutside); document.removeEventListener('keydown', onKey);
+        resolve(result);
+    };
+    const onOk = () => finish(true), onCancel = () => finish(false);
+    const onOutside = e => { if (e.target === overlay) finish(false); };
+    const onKey = e => { if (e.key === 'Escape') finish(false); };
+    ok.addEventListener('click', onOk); cancel.addEventListener('click', onCancel);
+    overlay.addEventListener('click', onOutside); document.addEventListener('keydown', onKey);
+    overlay.classList.add('open');
+    ok.focus();
 });

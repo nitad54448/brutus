@@ -76,5 +76,4 @@ const PRUNE_TO_COUNT = 400; // Prune down to this many
 const MAX_DISPLAYED_SOLUTIONS = 50;
 // 1. Declare the throttle flag right above the function
 let isTableUpdateScheduled = false;
-//  systematic absences
-const max_hkl_analysis = 10;
+let calculatedBackground = [];

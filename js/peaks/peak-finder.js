@@ -187,6 +187,7 @@ function findPeaks() {
     // minR = 0 so the slider's zero position genuinely disables smoothing.
     const smoothRadii = (smoothQ > 0) ? qRadiusToPoints(tth, smoothQ, lambdaForBg, 0) : null;
     const background = rollingBallBackground(intensity, ballRadii, smoothRadii);
+    calculatedBackground = Array.from(background);
     const backgroundCorrected = intensity.map((y, i) => Math.max(0, y - background[i]));
     const windowSize = Math.max(5, Math.min(11, Math.floor(n / 100)));
     const smoothed = savitzkyGolay(backgroundCorrected, windowSize, 2);

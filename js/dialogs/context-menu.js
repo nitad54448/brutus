@@ -12,32 +12,15 @@ let ctxMenuTargetIndex = -1;
 // erase / swap / MC / report acting on the row the user actually clicked.
 const ctxTargetSolution = () =>
     (ctxMenuTargetIndex > -1 ? (displayedSolutions[ctxMenuTargetIndex] || null) : null);
-// 1. Show Menu on Right Click
-ui.solutionsTableBody.addEventListener('contextmenu', (e) => {
-    const row = e.target.closest('tr');
-    if (!row) return;
-    
-    e.preventDefault(); // Stop default browser menu
-    
-    // Select the row visually (optional, but good UX)
-    document.querySelectorAll('#solutions-table-body tr').forEach(r => r.classList.remove('selected'));
-    row.classList.add('selected');
-    
-    // Store the index. Row indices address displayedSolutions; every action
-    // below resolves through ctxTargetSolution() so it can never act on a
-    // different element of `solutions` if the two lists drift apart.
-    ctxMenuTargetIndex = parseInt(row.dataset.index);
-    // Right-clicking a row selects it too, so it must refresh the calculated
-    // lines exactly like a left click. It used to assign selectedSolution on
-    // its own and leave currentHklList pointing at the previously selected
-    // cell, drawing one solution's ticks over another's.
-    applySolutionSelection(displayedSolutions[ctxMenuTargetIndex]);
-    
-    // Position and show menu
-    contextMenu.style.top = `${e.pageY}px`;
-    contextMenu.style.left = `${e.pageX}px`;
-    contextMenu.style.display = 'block';
-});
+// 1. The actions are reached from the Solution menu in the header (js/core/shell.js),
+// which points ctxMenuTargetIndex at the selected solution and clicks the matching
+// ctx-* element below. The element stays hidden: it is only the hook.
+const solutionMenuTarget = (id) => {
+    if (typeof isIndexing !== 'undefined' && isIndexing) return;
+    if (!selectedSolution) return;
+    ctxMenuTargetIndex = displayedSolutions.indexOf(selectedSolution);
+    document.getElementById(id).click();
+};
 // 2. Hide Menu on any click elsewhere
 document.addEventListener('click', () => {
     contextMenu.style.display = 'none';

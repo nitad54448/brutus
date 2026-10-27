@@ -287,15 +287,6 @@ function sgIntensityContext(peaks) {
 // the value of its own evidence -- the same failure that made M20 useless for
 // ranking, in a new costume.
 
-// Complementary error function, Numerical Recipes erfcc. |error| < 1.2e-7.
-function sgErfc(x) {
-    const z = Math.abs(x);
-    const t = 1 / (1 + 0.5 * z);
-    const r = t * Math.exp(-z * z - 1.26551223 + t * (1.00002368 + t * (0.37409196 +
-              t * (0.09678418 + t * (-0.18628806 + t * (0.27886807 + t * (-1.13520398 +
-              t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))));
-    return x >= 0 ? r : 2 - r;
-}
 // THE INTENSITY WEIGHT OF A POWDER LINE
 //
 // The expected line intensity is
@@ -320,7 +311,7 @@ function sgErfc(x) {
 // right that a hypothesis able to set its own intensity scale is the M20
 // failure in a new costume, and a hypothesis-free weight cannot be gamed.
 //
-// It is also why centricity stays out, though sgOpsIsCentric exists. An
+// It is also why centricity stays out. An
 // extinction class is not a space group: C2, Cm and C2/m share one class with
 // three different point groups and three different centricities, so "is this
 // class centric" has no answer. The note at the calibration step reached the
