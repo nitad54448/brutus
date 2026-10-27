@@ -216,9 +216,6 @@
         .solutions-table tbody tr:hover { background-color: var(--light-bg); }
         .solutions-table tbody tr.selected { background-color: var(--primary-accent); color: white;}
 
-        .bottom-actions { margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--light-bg); }
-
-
         #status-box {
             position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 6px;
             color: white; font-size: 0.8rem; font-weight: 500; z-index: 1000;

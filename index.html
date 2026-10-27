@@ -438,11 +438,11 @@
                 </div>
             </div>
 
-            <div class="bottom-actions">
+            <!-- Legacy controls remain available to the header and status bar. -->
+            <div hidden>
                 <div id="progress-bar-container" class="hidden">
                     <div id="progress-bar"></div>
                 </div>
-                <!-- min-height, not height: a fixed 1.2em let a two-line warning run underneath the Start / Report buttons. Grows to 3 lines, then scrolls. -->
                 <p id="status-text"></p>
                 <div hidden style="display: flex; gap: 0.5rem;">
                     <button id="start-indexing-button" class="btn btn-primary btn-like flex-1" disabled>Find Peaks to Start</button>
