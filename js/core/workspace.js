@@ -43,7 +43,7 @@ function workspaceControls() {
         .filter(el => !['file', 'search'].includes(el.type) && !el.id.startsWith('manual-sg') && el.id !== 'solutions-sort');
 }
 function captureWorkspace() {
-    return JSON.parse(JSON.stringify({ filename: loadedFileName, full: fullExperimentalData,
+    return JSON.parse(JSON.stringify({ filename: loadedFileName, fileMeta: loadedFileMeta, full: fullExperimentalData,
         working: workingExperimentalData, peaks: pickedPeaks, edited: peaksManuallyEdited,
         solutions, selected: solutions.indexOf(selectedSolution), background: calculatedBackground,
         controls: Object.fromEntries(workspaceControls().map(el => [el.id, { value: el.value, checked: el.checked }])),
@@ -75,6 +75,7 @@ function restoreWorkspace(data) {
     fileLoadToken++;
     resetSessionState();
     loadedFileName = data.filename;
+    loadedFileMeta = data.fileMeta || null;
     fullExperimentalData = data.full;
     workingExperimentalData = data.working;
     pickedPeaks = data.peaks;
@@ -199,7 +200,11 @@ function showWorkspaceView(view) {
     workspaceNode('btn-about').setAttribute('aria-pressed', String(view === 'about'));
     ui.resultsContainer.style.display = view === 'plot' && workingExperimentalData.tth.length ? 'flex' : 'none';
     ui.placeholder.style.display = view === 'plot' && !workingExperimentalData.tth.length ? '' : 'none';
-    workspaceNode('workspace-views').querySelectorAll('button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.view === view)));
+    workspaceNode('workspace-views').querySelectorAll('button').forEach(button => {
+        const active = button.dataset.view === view;
+        button.setAttribute('aria-selected', String(active));
+        button.tabIndex = active ? 0 : -1;
+    });
     if (view === 'history') renderWorkspaceHistory();
     if (view === 'plot' && xrdChart) xrdChart.resize();
 }
@@ -253,6 +258,16 @@ workspaceNode('swap-panels').addEventListener('click', e => {
     if (xrdChart) xrdChart.resize();
 });
 workspaceNode('workspace-views').addEventListener('click', e => { if (e.target.dataset.view) showWorkspaceView(e.target.dataset.view); });
+workspaceNode('workspace-views').addEventListener('keydown', e => {
+    const tabs = [...e.currentTarget.querySelectorAll('[role="tab"]')];
+    const index = tabs.indexOf(e.target);
+    if (index < 0 || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault();
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 :
+        (index + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    showWorkspaceView(tabs[next].dataset.view);
+    tabs[next].focus();
+});
 ['show-background', 'show-data', 'show-exp', 'show-sol', 'show-sim'].forEach(id => workspaceNode(id).addEventListener('change', updateAllMarkers));
 workspaceNode('menu-unload').addEventListener('click', openUnloadDialog);
 workspaceNode('file-menu-items').addEventListener('click', e => { if (e.target.closest('button')) workspaceNode('file-menu').open = false; });
@@ -293,6 +308,9 @@ workspaceNode('project-input').addEventListener('change', async e => {
 // Powder6-style group browser: filters, a list of settings, and explanation.
 let browserSetting = null;
 function renderSGBrowser() {
+    browserSetting = null;
+    workspaceNode('sg-browser-apply').disabled = true;
+    workspaceNode('sg-browser-detail').textContent = 'Select a setting to inspect its symmetry and reflection conditions.';
     const query = workspaceNode('sg-browser-query').value.toLowerCase().replace(/\s/g, '');
     const system = workspaceNode('sg-filter-system').value;
     const centering = workspaceNode('sg-filter-centering').value;

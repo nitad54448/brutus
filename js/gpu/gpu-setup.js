@@ -331,15 +331,31 @@ function updateGpuStatusText() {
     // Capped by the peaks actually picked, so the panel shows the search that
     // will run; with no peaks yet it shows the nominal plan.
     const available = countIndexablePeaks() || Infinity;
-    const lines = checkedSystems().map(s => {
+    const table = document.createElement('table');
+    table.setAttribute('aria-label', 'Planned searches');
+    const head = table.createTHead().insertRow();
+    for (const label of ['System', 'HKL (%)', 'Peaks', 'Trials']) {
+        const th = document.createElement('th');
+        th.scope = 'col'; th.textContent = label; head.appendChild(th);
+    }
+    const body = table.createTBody();
+    for (const s of checkedSystems()) {
         const p = planGpuSearch(s, available);
         // The percentage actually used (the minimum basis or the cap can
         // override the requested one), rounded like the input itself.
         const pct = p.percent >= 10 ? p.percent.toFixed(0) : p.percent.toFixed(1);
-        return `${p.cfg.shortLabel}: ${p.nHkl} hkl (${pct}%) · ` +
-               `${p.nPeaks} peaks · ${p.trials.toLocaleString('en-US', { maximumFractionDigits: 0 })} trials`;
-    });
-    box.textContent = lines.join('\n');
+        const row = body.insertRow();
+        const label = document.createElement('th');
+        label.scope = 'row'; label.textContent = p.cfg.shortLabel; row.appendChild(label);
+        row.insertCell().textContent = `${p.nHkl} (${pct}%)`;
+        row.insertCell().textContent = p.nPeaks;
+        const trials = row.insertCell();
+        trials.textContent = p.trials.toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 });
+        const exact = p.trials.toLocaleString('en-US', { maximumFractionDigits: 0 }) + ' trials';
+        trials.title = exact;
+        trials.setAttribute('aria-label', exact);
+    }
+    box.replaceChildren(table);
 }
 /**
  * Shows or hides the GPU-specific parameter inputs based on checkbox state.

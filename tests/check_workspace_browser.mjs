@@ -46,9 +46,23 @@ try {
         ui.fileInput.dispatchEvent(new Event('change')); await new Promise(r => setTimeout(r, 500));
     })()`);
     assert.ok(await evaluate('workingExperimentalData.tth.length > 0'));
+    // Projects retain file metadata; older projects must not inherit another file's metadata.
+    assert.ok(await evaluate(`(() => {
+        const data = captureWorkspace();
+        const expected = JSON.stringify(loadedFileMeta);
+        loadedFileMeta = { size: 999, radiation: { single: 9 } };
+        restoreWorkspace(data);
+        if (JSON.stringify(loadedFileMeta) !== expected) return false;
+        delete data.fileMeta; restoreWorkspace(data);
+        if (loadedFileMeta !== null) return false;
+        data.fileMeta = JSON.parse(expected); restoreWorkspace(data);
+        return JSON.stringify(loadedFileMeta) === expected;
+    })()`));
     await evaluate(`solutions = [{system:'cubic', a:5, b:5, c:5, alpha:90, beta:90, gamma:90, m20:50, volume:125}]; displayedSolutions = [...solutions]; updateSolutionsTable(); applySolutionSelection(solutions[0]);`);
     await evaluate(`document.getElementById('browse-sg').click()`);
     assert.equal(await evaluate("document.getElementById('sg-browser').open"), true);
+    await evaluate(`document.querySelector('#sg-browser-list button').click(); document.getElementById('sg-browser-query').value = 'no matching group'; renderSGBrowser();`);
+    assert.ok(await evaluate(`browserSetting === null && document.getElementById('sg-browser-apply').disabled && document.getElementById('sg-browser-list').children.length === 0`));
     await evaluate(`document.getElementById('sg-browser-query').value = '225'; renderSGBrowser(); document.querySelector('#sg-browser-list button').click(); document.getElementById('sg-browser-apply').click();`);
     assert.ok(await evaluate('manualSG.lines.length > 0 && xrdChart.data.datasets[3].data.length > 0'));
     await evaluate(`document.getElementById('show-background').checked = true; updateAllMarkers()`);
@@ -97,6 +111,44 @@ try {
     await evaluate(`applySolutionSelection(null)`);
     assert.equal(await evaluate(`[...document.querySelectorAll('[data-sol-action]')].every(b => b.disabled)`), true);
     await evaluate(`applySolutionSelection(displayedSolutions[0])`);
+    // Refinement takes keyboard focus, traps Tab and returns focus on closing.
+    await evaluate(`document.getElementById('solution-menu').open = true; document.querySelector('[data-sol-action=refine]').focus(); document.querySelector('[data-sol-action=refine]').click()`);
+    assert.equal(await evaluate(`document.activeElement.id`), 'mc-iterations');
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', modifiers: 8 });
+    assert.equal(await evaluate(`document.activeElement.id`), 'mc-apply');
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab' });
+    assert.equal(await evaluate(`document.activeElement.id`), 'mc-iterations');
+    await evaluate(`document.getElementById('help-guide').focus()`);
+    assert.equal(await evaluate(`document.activeElement.id`), 'mc-iterations');
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+    assert.ok(await evaluate(`!document.getElementById('mc-overlay').classList.contains('open') && document.activeElement.matches('#solution-menu > summary, [data-sol-action=refine]') && document.activeElement.getClientRects().length > 0`));
+    // Result tabs expose selection and support arrow, Home and End navigation.
+    await evaluate(`showWorkspaceView('plot'); document.getElementById('view-tab-plot').focus()`);
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight' });
+    assert.ok(await evaluate(`workspaceView === 'log' && document.activeElement.id === 'view-tab-log' && document.activeElement.getAttribute('aria-selected') === 'true' && !document.getElementById('log-view').hidden`));
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'End', code: 'End' });
+    assert.equal(await evaluate(`workspaceView`), 'history');
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Home', code: 'Home' });
+    assert.equal(await evaluate(`workspaceView`), 'plot');
+    // Render the GPU plan in this CPU-only browser and check a narrow controls panel.
+    assert.ok(await evaluate(`(() => {
+        const supported = webGPUSupportsCompute;
+        webGPUSupportsCompute = true;
+        updateGpuStatusText();
+        webGPUSupportsCompute = supported;
+        const rows = [...document.querySelectorAll('#gpu-plan tbody tr')];
+        const panel = document.getElementById('controls-panel');
+        const width = panel.style.width;
+        const container = document.getElementById('gpu-params-container');
+        const hidden = container.classList.contains('hidden');
+        container.classList.remove('hidden');
+        panel.style.width = '320px';
+        document.querySelector('[data-tab=parameters]').click();
+        const box = document.getElementById('gpu-plan');
+        const fits = box.scrollWidth <= box.clientWidth;
+        panel.style.width = width; container.classList.toggle('hidden', hidden);
+        return fits && rows.length > 0 && rows.every(row => row.cells.length === 4 && row.cells[3].title.endsWith(' trials'));
+    })()`));
     // Convert lists the maximal subgroups of the chosen group (naming runs on in the background).
     await evaluate(`document.querySelector('[data-sol-action=convert]').click()`);
     await pause(1500);

@@ -83,7 +83,7 @@ body.app-shell { background: var(--paper); color: var(--text-light); }
 #workspace-file { overflow-wrap: anywhere; }
 #workspace-views { display: flex; gap: 4px; border-bottom: 1px solid var(--border-color); padding-bottom: 5px; flex-shrink: 0; margin-bottom: 5px; }
 #workspace-views button, .workspace-view button, dialog button { background: var(--medium-bg); color: var(--text-light); border: 1px solid var(--border-color); border-radius: 4px; padding: 6px 12px; cursor: pointer; font: inherit; }
-#workspace-views button[aria-pressed="true"], #sg-browser-list button[aria-pressed="true"] { background: var(--selection); border-color: var(--primary-accent); }
+#workspace-views button[aria-selected="true"], #sg-browser-list button[aria-pressed="true"] { background: var(--selection); border-color: var(--primary-accent); }
 .workspace-view { flex: 1; min-height: 0; overflow: auto; padding: 12px; }
 [hidden] { display: none !important; }
 #workspace-log { padding-left: 22px; }
@@ -168,7 +168,7 @@ body.is-indexing #xrd-chart { cursor: progress; }
 #workspace-views { display: flex; gap: 0; border-bottom: 1px solid var(--border-color); padding: 0 8px; margin: 0; flex-shrink: 0; background: var(--panel); }
 #workspace-views button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 9px 14px; font: inherit; font-size: 13px; color: var(--text-dark); cursor: pointer; }
 #workspace-views button:hover { background: var(--selection); color: var(--text-light); }
-#workspace-views button[aria-pressed="true"] { color: var(--primary-accent); border-bottom-color: var(--primary-accent); background: none; }
+#workspace-views button[aria-selected="true"] { color: var(--primary-accent); border-bottom-color: var(--primary-accent); background: none; }
 .plot-pane { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; width: 100%; position: relative; }
 .plot-host { flex: 1 1 auto; min-height: 0; position: relative; padding: 4px 8px 8px; }
 #chart-toolbar.ptools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; background: var(--paper) !important; border-bottom: 0 !important; color: var(--text-medium) !important; font-size: 12px !important; }

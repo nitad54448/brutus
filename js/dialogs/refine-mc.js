@@ -20,9 +20,13 @@ let mcParent = null;
 const mcOverlay = document.getElementById('mc-overlay');
 const mcMsg = document.getElementById('mc-msg');
 const mcApplyBtn = document.getElementById('mc-apply');
+let mcReturnFocus = null;
 const closeMcModal = () => {
     if (mcRunning) return;               // don't close mid-run
     mcOverlay.classList.remove('open');
+    if (mcReturnFocus?.isConnected && mcReturnFocus.getClientRects().length) mcReturnFocus.focus();
+    if (document.activeElement !== mcReturnFocus || mcOverlay.contains(document.activeElement))
+        document.querySelector('#solution-menu > summary').focus();
 };
 document.getElementById('ctx-mc').addEventListener('click', () => {
     const parent = ctxTargetSolution();
@@ -47,8 +51,10 @@ document.getElementById('ctx-mc').addEventListener('click', () => {
         .forEach(id => document.getElementById(id).classList.remove('invalid'));
     mcApplyBtn.disabled = false;
     mcApplyBtn.textContent = 'Apply';
+    mcReturnFocus = document.activeElement;
     mcOverlay.classList.add('open');
     contextMenu.style.display = 'none';
+    document.getElementById('mc-iterations').focus();
 });
 // Clear the error highlight as soon as the user starts fixing a field.
 ['mc-iterations', 'mc-restarts'].forEach(id => {
@@ -58,7 +64,18 @@ document.getElementById('ctx-mc').addEventListener('click', () => {
 document.getElementById('mc-cancel').addEventListener('click', closeMcModal);
 mcOverlay.addEventListener('click', (e) => { if (e.target === mcOverlay) closeMcModal(); });
 document.addEventListener('keydown', (e) => {
+    if (!mcOverlay.classList.contains('open')) return;
     if (e.key === 'Escape' && mcOverlay.classList.contains('open')) closeMcModal();
+    if (e.key === 'Tab') {
+        const controls = [...mcOverlay.querySelectorAll('input, button')].filter(el => !el.disabled);
+        const first = controls[0], last = controls[controls.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+});
+document.addEventListener('focusin', e => {
+    if (mcOverlay.classList.contains('open') && !mcOverlay.contains(e.target))
+        document.getElementById('mc-iterations').focus();
 });
 mcApplyBtn.addEventListener('click', () => {
     if (mcRunning) return;
@@ -201,7 +218,7 @@ mcApplyBtn.addEventListener('click', () => {
         displayedSolutions = [...solutions];
         updateSolutionsTable();
         updateAllMarkers();
-        mcOverlay.classList.remove('open');
+        closeMcModal();
         showStatus(
             `MC refined: M20 ${(parent.m20 || 0).toFixed(2)} -> ${res.m20.toFixed(2)}`,
             'success', 8000);

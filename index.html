@@ -454,14 +454,14 @@
         <div id="drag-handle"></div>
 
         <div id="results-area">
-            <nav id="workspace-views" class="panel-tabs" role="tablist" aria-label="Result views"><button type="button" role="tab" data-view="plot" aria-pressed="true">Plot</button><button type="button" role="tab" data-view="log" aria-pressed="false">Log</button><button type="button" role="tab" data-view="history" aria-pressed="false">History</button></nav>
+            <nav id="workspace-views" class="panel-tabs" role="tablist" aria-label="Result views"><button type="button" role="tab" id="view-tab-plot" data-view="plot" aria-controls="results-container" aria-selected="true" tabindex="0">Plot</button><button type="button" role="tab" id="view-tab-log" data-view="log" aria-controls="log-view" aria-selected="false" tabindex="-1">Log</button><button type="button" role="tab" id="view-tab-history" data-view="history" aria-controls="history-view" aria-selected="false" tabindex="-1">History</button></nav>
             <div id="placeholder" class="placeholder">
                 <svg xmlns="http://www.w3.org/2000/svg" class="placeholder-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                 <h2>Awaiting data</h2>
                 <p>Load a pattern from File &rarr; Load pattern to begin.</p>
             </div>
-            <section id="log-view" class="workspace-view" hidden aria-label="Log"><ol id="workspace-log"></ol></section>
-            <section id="history-view" class="workspace-view" hidden aria-label="History"><p class="hint">Completed indexing runs. Restore a run to compare its solutions.</p><div id="workspace-history"></div></section>
+            <section id="log-view" class="workspace-view" hidden role="tabpanel" aria-labelledby="view-tab-log" tabindex="0"><ol id="workspace-log"></ol></section>
+            <section id="history-view" class="workspace-view" hidden role="tabpanel" aria-labelledby="view-tab-history" tabindex="0"><p class="hint">Completed indexing runs. Restore a run to compare its solutions.</p><div id="workspace-history"></div></section>
             <section id="about-view" class="workspace-view" hidden aria-label="About">
                 <article class="about">
                     <h1>About Brutus</h1>
@@ -479,7 +479,7 @@
                     <p class="hint">Projects (File &rarr; Save project) are JSON files: pattern, peaks, solutions with their space groups, settings, run history and log.</p>
                 </article>
             </section>
-            <div id="results-container" class="plot-pane" style="display: none;">
+            <div id="results-container" role="tabpanel" aria-labelledby="view-tab-plot" tabindex="0" class="plot-pane" style="display: none;">
                 <div id="chart-toolbar" class="ptools">
                     <div class="seg" role="group" aria-label="Intensity scale">
                         <button type="button" data-yscale="linear" aria-pressed="false" title="Linear intensity">Linear</button><button type="button" data-yscale="sqrt" aria-pressed="true" title="Square-root intensity: weak peaks next to strong ones stay visible">&radic;I</button><button type="button" data-yscale="log" aria-pressed="false" title="Logarithmic intensity">log I</button>
@@ -543,7 +543,7 @@
     <div id="ctx-report">Generate Report</div>
 </div>
 <div id="mc-overlay">
-  <div id="mc-modal">
+  <div id="mc-modal" role="dialog" aria-modal="true" aria-labelledby="mc-title" aria-describedby="mc-sub" tabindex="-1">
     <h3 id="mc-title">Refine MC</h3>
     <p id="mc-sub">Monte-Carlo search around the selected cell, constrained to its
        crystal system. Zero is refined as an extra parameter when "Refine Zero" is on.

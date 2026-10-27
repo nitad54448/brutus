@@ -94,6 +94,7 @@ resetSessionState();
 fullExperimentalData = { tth: [], intensity: [] };
 workingExperimentalData = { tth: [], intensity: [] };
 loadedFileName = '';
+loadedFileMeta = null;
 
 // Re-arm the input: without this, re-selecting the SAME file fires no
 // change event and Load File appears dead.
