@@ -311,6 +311,7 @@ to different indices, and applying it would be wrong.
 |---|---|
 | `index.html` | the application: the markup and the ordered list of scripts, which the loader runs in order with the version from `js/core/version.js` |
 | `js/core/version.js` | the single source of truth for the application version (`APP_VERSION`); everything else reads it |
+| `js/crystallography/limits.js` | shared runtime limits, numerical policy thresholds, input bounds and defaults; loaded before the application and in both workers |
 | `brutus_help.html` | full technical documentation |
 | `js/core/workspace.js`, `js/core/shell.js` | the window around the plot: log, history, projects, theme, title-bar menus, Index / Stop and the run lock, plot strip, metadata, status bar |
 | `js/convert/`, `js/dialogs/convert.js` | Convert: `sg_subgroups.js` and `sg_convert.js` (maximal subgroups and basis transformations) and the dialog that uses them |
@@ -331,9 +332,13 @@ to different indices, and applying it would be wrong.
 | `tests/check_sg_ops.mjs` | validates the database against the application |
 | `tests/check_pipeline.mjs` | verifies the app (`js/indexing/run.js`), the engine and the shaders still agree on how the HKL basis is packed, for all six systems |
 | `tests/check_manual_sg.mjs` | checks that all 530 settings calculate, the F extinctions, Pa-3 and the filter restoration |
-| `tests/check_workspace_browser.mjs` | smoke test of the real page in headless Chrome (Chrome path is set at the top of the file) |
+| `tests/check_workspace_browser.mjs` | real-page tests including project precision, restored PDF analysis, import security and irregular XRDML round trips; `BRUTUS_CHROME` overrides the browser path, and `BRUTUS_TEST_GPU=1` also compiles and dispatches all six GPU solvers |
 | `tests/check_load_order.mjs` | checks that the scripts in `index.html` and the worker manifest load in a safe order (nothing runs before what it uses is defined) and that the two lists agree. Needs `npm install --no-save typescript` |
 | `tests/check_ui_regressions.mjs` | checks file-load races, scan sorting, numeric inputs, Kα₂ tolerance updates, indexing locks and Save-dialog keyboard behavior. Run with `node --test tests/check_ui_regressions.mjs`; no dependencies needed |
+| `tests/check_parser_regressions.mjs` | malformed input rejection, pdCIF tokenization, explicit-angle exports and consistent space-group identifiers |
+| `tests/check_project_regressions.mjs` | lossless project values, absence Sets and infinite margins, import validation and rollback, and escaped solution markup |
+| `tests/check_science_boundaries.mjs` | exact fits, uncertainty at the monoclinic 90° fold, geometric volumes and bounds after refinement |
+| `tests/check_device_loss.mjs` | interruption bookkeeping, partial-result analysis, and protection from stale GPU/run callbacks |
 | `tests/regression_test.mjs` | Node regression tests of the crystallography code: known cubic, tetragonal, hexagonal and orthorhombic cells, Niggli reduction, error propagation against Monte Carlo, Kα₁ lines indexed with λ(Kα₁), and the final sieve keeping the most symmetric description of a lattice, or both when a less symmetric one fits clearly better (about three minutes) |
 
 Run the scripts in `tests/` from the app folder, the one holding `index.html`
@@ -346,6 +351,18 @@ completes, every candidate cell is nonsense, and you get no solutions and no
 error. Run `check_load_order.mjs` after moving code between files or adding a
 script: the scripts share one global scope, and a name used before the script
 that defines it has run fails only when that code path executes.
+
+Change application policy in `js/crystallography/limits.js`. Numeric controls
+receive their bounds and defaults from that file; CPU refinement, Monte Carlo,
+swap fitting and GPU dispatch read the same physical limits. GPU angle bounds
+travel in the shared uniform buffer. Matrix dimensions, format widths and other
+mathematical/protocol constants remain beside their algorithms.
+
+Project saving retains the measured and fitted numerical precision. Invalid
+projects are validated before replacement, with rollback if restoration fails.
+UXD, XRDML and GSAS exports preserve irregular angle coordinates; Bruker XML
+export requires a regular grid. Recognized invalid or unsupported data files
+report their parser error instead of being retried as generic two-column data.
 
 ### A note on the browser cache
 

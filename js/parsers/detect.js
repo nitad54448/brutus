@@ -8,7 +8,7 @@
         const name = fileName.toLowerCase();
         const lines = fileContent.trim().split(/\r?\n/);
         const firstLine = lines.length > 0 ? lines[0].trim() : '';
-        const upperContent = fileContent.substring(0, 500).toUpperCase(); // Check first 500 chars
+        const upperContent = fileContent.substring(0, BRUTUS_LIMITS.parsers.formatSniffChars).toUpperCase();
 
         // Parser Registry
         const PARSER_REGISTRY = [
@@ -50,18 +50,11 @@
             }
         ];
         
-        // registres
+        // A matching reader owns the file. An unsupported or damaged known
+        // format must not be reinterpreted as generic angle/intensity data.
         for (const rule of PARSER_REGISTRY) {
-            try {
-                if (rule.test(name, fileContent, firstLine, upperContent, lines)) {
-                    if (rule.parser.length > 1) {
-                         return rule.parser(fileContent, fileName);
-                    }
-                    return rule.parser(fileContent);
-                }
-            } catch (e) {
-                console.warn(`Parser ${rule.parser.name} failed, trying next...`, e.message);
-            }
+            if (rule.test(name, fileContent, firstLine, upperContent, lines))
+                return rule.parser(fileContent, fileName);
         }
 
         // Fallback for all other 2-column-like formats (.xy, .csv, .txt, .dat, .asc, etc.)

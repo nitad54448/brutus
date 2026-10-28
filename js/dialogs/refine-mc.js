@@ -85,8 +85,9 @@ mcApplyBtn.addEventListener('click', () => {
     // --- read and validate the three parameters -------------------------
     const mcInputIds = ['mc-iterations', 'mc-restarts'];
     mcInputIds.forEach(id => document.getElementById(id).classList.remove('invalid'));
-    const readInt = (id, lo, hi, label) => {
+    const readInt = (id, label) => {
         const el = document.getElementById(id);
+        const lo = Number(el.min), hi = Number(el.max);
         const raw = el.value.trim();
         const v = Math.trunc(Number(raw));
         let error = null;
@@ -95,8 +96,8 @@ mcApplyBtn.addEventListener('click', () => {
         if (error) { el.classList.add('invalid'); return { error }; }
         return { value: v };
     };
-    const rIt  = readInt('mc-iterations', 50, 20000, 'Iterations');
-    const rRes = readInt('mc-restarts', 1, 20, 'Restarts');
+    const rIt  = readInt('mc-iterations', 'Iterations');
+    const rRes = readInt('mc-restarts', 'Restarts');
     for (const r of [rIt, rRes]) {
         if (r.error) { mcMsg.classList.remove('info'); mcMsg.textContent = r.error; return; }
     }
@@ -116,7 +117,7 @@ mcApplyBtn.addEventListener('click', () => {
     // sees them, as soft evidence, as it does after indexing.
     const inRange = pickedPeaks.filter(p => p.tth >= tMin && p.tth <= tMax);
     const pk = inRange.filter(p => !p.ka2Suspect);
-    const minReq = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7, triclinic: 7 }[parent.system] || 6;
+    const minReq = BRUTUS_LIMITS.search.minIndexed[parent.system];
     if (pk.length < minReq) {
         mcMsg.classList.remove('info');
         mcMsg.textContent = `Not enough peaks in the 2-theta range (need at least ${minReq} for ${parent.system}).`;
@@ -143,7 +144,7 @@ mcApplyBtn.addEventListener('click', () => {
             original_indices: sorted.original_indices,
             tth_obs_rad: sorted.tth_obs_rad,
             peaks_sorted_by_q: sorted.peaks_sorted_by_q,
-            N_FOR_M20: 20,
+            N_FOR_M20: BRUTUS_LIMITS.search.meritPeaks,
             q_max: 1 / (d_min * d_min),
             d_min: d_min,
             foundSolutions: [],

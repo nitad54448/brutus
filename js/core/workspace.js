@@ -26,7 +26,7 @@ function refreshWorkspaceStatus() {
 }
 function appendWorkspaceLog(message, type = 'info') {
     workspaceLog.push({ time: new Date().toISOString(), message: String(message), type });
-    if (workspaceLog.length > 1000) workspaceLog.shift();
+    if (workspaceLog.length > BRUTUS_LIMITS.workspace.logEntries) workspaceLog.shift();
     renderWorkspaceLog();
     refreshWorkspaceStatus();
 }
@@ -42,11 +42,21 @@ function workspaceControls() {
     return [...document.querySelectorAll('#controls-panel input[id], #controls-panel select[id], #chart-toolbar select[id], #chart-toolbar input[id]')]
         .filter(el => !['file', 'search'].includes(el.type) && !el.id.startsWith('manual-sg') && el.id !== 'solutions-sort');
 }
+// JSON has no Set or infinite-number values. Keep the project format portable
+// while retaining the MC's meaningful "only surviving class" infinite margin.
+function workspaceJsonReplacer(key, value) {
+    if (value instanceof Set) return [...value];
+    if (key === 'sgMargin' && (value === Infinity || value === -Infinity)) return String(value);
+    return value;
+}
+function workspaceJsonReviver(key, value) {
+    if (key === 'sgMargin' && (value === 'Infinity' || value === '-Infinity')) return Number(value);
+    return value;
+}
 function captureWorkspace() {
-    const r6 = v => typeof v === 'number' && Number.isFinite(v) ? Number(v.toFixed(6)) : v;
-    const roundObj = x => Array.isArray(x) ? x.map(roundObj) :
-        (x && typeof x === 'object') ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, roundObj(v)])) : r6(x);
-    return JSON.parse(JSON.stringify(roundObj({ filename: loadedFileName, fileMeta: loadedFileMeta, full: fullExperimentalData,
+    // Persist the measured/fitted numbers unchanged. Rounding belongs in the
+    // display, and Sets used by absence analysis need an explicit JSON form.
+    return JSON.parse(JSON.stringify({ filename: loadedFileName, fileMeta: loadedFileMeta, full: fullExperimentalData,
         working: workingExperimentalData, peaks: pickedPeaks, edited: peaksManuallyEdited,
         solutions, selected: solutions.indexOf(selectedSolution), background: calculatedBackground,
         controls: Object.fromEntries(workspaceControls().map(el => [el.id, { value: el.value, checked: el.checked }])),
@@ -54,14 +64,28 @@ function captureWorkspace() {
         manualSetting: manualSGSelect.value, xAxisMode, yAxisMode,
         stats: { lastDurationStr, lastIndexingStats, lastGpuRunSettings, lastTruncatedSystems, lastSystemSearchStats, lastRunTotals },
         view: xrdChart ? { xMin: xrdChart.scales.x.min, xMax: xrdChart.scales.x.max,
-            yMin: xrdChart.scales.y.min, yMax: xrdChart.scales.y.max } : null })));
+            yMin: xrdChart.scales.y.min, yMax: xrdChart.scales.y.max } : null },
+        workspaceJsonReplacer), workspaceJsonReviver);
 }
 function validateWorkspace(data) {
+    const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+    const invalid = field => { throw Error(`Invalid project ${field}.`); };
+    const numbers = (object, keys) => keys.forEach(key => {
+        if (object[key] != null && !Number.isFinite(object[key])) invalid(key);
+    });
+    const strings = (object, keys) => keys.forEach(key => {
+        if (object[key] != null && typeof object[key] !== 'string') invalid(key);
+    });
+    const arrays = (object, keys, check = () => true) => keys.forEach(key => {
+        if (object[key] != null && (!Array.isArray(object[key]) || !object[key].every(check))) invalid(key);
+    });
+    const systems = ['triclinic','monoclinic','orthorhombic','tetragonal','hexagonal','cubic'];
     const patternValid = pattern => pattern && Array.isArray(pattern.tth) && Array.isArray(pattern.intensity) &&
         pattern.tth.length === pattern.intensity.length && pattern.tth.every((t, i) =>
             Number.isFinite(t) && (i === 0 || t >= pattern.tth[i - 1])) && pattern.intensity.every(Number.isFinite);
     if (!data || !patternValid(data.full) || !patternValid(data.working) || typeof data.filename !== 'string' ||
-        !Array.isArray(data.peaks) || !data.peaks.every(p => p && Number.isFinite(p.tth) && Number.isFinite(p.height)) ||
+        !Array.isArray(data.peaks) || !data.peaks.every(p => p && Number.isFinite(p.tth) && p.tth > 0 && p.tth < 180 &&
+            Number.isFinite(p.height) && Number.isFinite(p.d) && p.d > 0 && Number.isFinite(p.q) && p.q >= 0) ||
         !Array.isArray(data.solutions) || !data.solutions.every(s => s &&
             ['triclinic','monoclinic','orthorhombic','tetragonal','hexagonal','cubic'].includes(s.system) &&
             Number.isFinite(s.a) && s.a > 0 && Number.isFinite(s.volume) && s.volume > 0 && Number.isFinite(s.m20) &&
@@ -72,9 +96,116 @@ function validateWorkspace(data) {
         !Array.isArray(data.background) || !data.background.every(Number.isFinite) ||
         (data.background.length && data.background.length !== data.working.tth.length)) throw Error('Invalid project data.');
     if (!Number.isInteger(data.selected) || data.selected < -1 || data.selected >= data.solutions.length) throw Error('Invalid selected solution.');
+    data.peaks.forEach(p => {
+        numbers(p, ['lambda', 'ka2ParentIdx']);
+        if (p.lambda != null && p.lambda <= 0) invalid('peak wavelength');
+        if (p.ka2ParentIdx != null && (!Number.isInteger(p.ka2ParentIdx) || p.ka2ParentIdx < 0 || p.ka2ParentIdx >= data.peaks.length)) invalid('peak parent');
+    });
+    const checkGroup = group => {
+        if (!record(group) || typeof group.label !== 'string') invalid('space group');
+        strings(group, ['symbol', 'hall', 'setting_id', 'source']);
+        if (group.number != null && (!Number.isInteger(group.number) || group.number < 1 || group.number > 230)) invalid('space-group number');
+    };
+    const checkCellNumbers = cell => {
+        if (!record(cell) || !systems.includes(cell.system)) invalid('cell');
+        numbers(cell, ['a','b','c','alpha','beta','gamma','volume','m20']);
+        for (const key of ['a', 'b', 'c']) if (cell[key] != null && cell[key] <= 0) invalid(key);
+        for (const key of ['alpha','beta','gamma']) if (cell[key] != null && (cell[key] <= 0 || cell[key] >= 180)) invalid(key);
+    };
+    data.solutions.forEach(sol => {
+        checkCellNumbers(sol);
+        numbers(sol, ['zero_correction','fN_20','fN_all','m_all','n_20','n_all','sgScore']);
+        if (sol.sgMargin != null && !Number.isFinite(sol.sgMargin) && sol.sgMargin !== Infinity && sol.sgMargin !== -Infinity) invalid('space-group margin');
+        strings(sol, ['sgClass','sgHall','sgSettingId','simSG','lattice']);
+        arrays(sol, ['sgMembers','sgConditions'], value => typeof value === 'string');
+        arrays(sol, ['_symAlt','_symAltOf'], cell => { checkCellNumbers(cell); return true; });
+        if (sol.spaceGroups != null) {
+            if (!Array.isArray(sol.spaceGroups)) invalid('space groups');
+            sol.spaceGroups.forEach(checkGroup);
+        }
+        if (sol.spaceGroup != null) checkGroup(sol.spaceGroup);
+        for (const key of ['errors','mcFrom','convertedFrom','sgEvidence','analysis','_niggli']) {
+            if (sol[key] != null && !record(sol[key])) invalid(key);
+        }
+        if (sol.mcFrom) numbers(sol.mcFrom, ['m20']);
+        if (sol.errors && !Object.values(sol.errors).every(value => value == null || Number.isFinite(value))) invalid('uncertainties');
+        if (sol.analysis) {
+            strings(sol.analysis, ['centering']);
+            arrays(sol.analysis, ['detectedExtinctions'], value => typeof value === 'string');
+            arrays(sol.analysis, ['hklList','compatibleSettings','rankedSpaceGroups'], record);
+            for (const reflection of sol.analysis.hklList || []) {
+                if (!['h','k','l','tth','d','q'].every(key => Number.isFinite(reflection[key]))) invalid('reflection');
+            }
+            for (const group of sol.analysis.compatibleSettings || sol.analysis.rankedSpaceGroups || []) {
+                strings(group, ['symbol','settingId','standardSymbol','pointGroup']);
+                numbers(group, ['number','hardViolations','softViolations','extinctionsTotal','extinctionsExplained']);
+                arrays(group, ['extinctionsUnexplained','violatedReflectionsHard','violatedReflectionsSoft'], value => typeof value === 'string');
+            }
+            if (sol.analysis.centeringViolationDetails != null) {
+                if (!record(sol.analysis.centeringViolationDetails)) invalid('centering details');
+                for (const list of Object.values(sol.analysis.centeringViolationDetails)) {
+                    if (!Array.isArray(list) || !list.every(record)) invalid('centering details');
+                    for (const reflection of list) if (!['h','k','l','tth'].every(key => Number.isFinite(reflection[key]))) invalid('centering reflection');
+                }
+            }
+            const ambiguous = sol.analysis.ambiguousHkls;
+            // Earlier version-1 projects serialized Sets as {}. Recover those
+            // as empty sets; new projects retain their reflection keys.
+            if (ambiguous != null && !(ambiguous instanceof Set) &&
+                !(Array.isArray(ambiguous) && ambiguous.every(value => typeof value === 'string')) &&
+                !(record(ambiguous) && Object.keys(ambiguous).length === 0)) invalid('ambiguous reflections');
+        }
+    });
+    if (data.controls != null) {
+        if (!record(data.controls)) invalid('controls');
+        Object.values(data.controls).forEach(saved => {
+            if (!record(saved) || typeof saved.value !== 'string' ||
+                (saved.checked != null && typeof saved.checked !== 'boolean')) invalid('control value');
+        });
+    }
+    arrays(data, ['systems'], value => record(value) && systems.includes(value.value) && typeof value.checked === 'boolean');
+    strings(data, ['manualSetting','xAxisMode','yAxisMode']);
+    if (data.fileMeta != null) {
+        if (!record(data.fileMeta)) invalid('file metadata');
+        numbers(data.fileMeta, ['size']);
+        if (data.fileMeta.radiation != null) {
+            if (!record(data.fileMeta.radiation)) invalid('radiation');
+            numbers(data.fileMeta.radiation, ['single','ka1','ka2','ratio']);
+        }
+    }
+    if (data.stats != null) {
+        if (!record(data.stats)) invalid('run statistics');
+        strings(data.stats, ['lastDurationStr','lastIndexingStats']);
+        arrays(data.stats, ['lastTruncatedSystems','lastSystemSearchStats'], record);
+        for (const key of ['lastGpuRunSettings','lastRunTotals']) if (data.stats[key] != null && !record(data.stats[key])) invalid(key);
+        if (data.stats.lastGpuRunSettings) numbers(data.stats.lastGpuRunSettings, ['perUnknown','depth','fom','candidates']);
+        if (data.stats.lastRunTotals) {
+            numbers(data.stats.lastRunTotals, ['done','total']);
+            strings(data.stats.lastRunTotals, ['time']);
+            arrays(data.stats.lastRunTotals, ['failures'], value => typeof value === 'string');
+        }
+        for (const row of data.stats.lastSystemSearchStats || []) {
+            if (typeof row.label !== 'string') invalid('system label');
+            strings(row, ['system','mode','note']);
+            numbers(row, ['nHkl','nPeaks','total','done','candidates','timeMs','truncated']);
+        }
+    }
+    if (data.view != null && (!record(data.view) ||
+        !['xMin','xMax','yMin','yMax'].every(key => Number.isFinite(data.view[key])) ||
+        data.view.xMin >= data.view.xMax || data.view.yMin >= data.view.yMax)) invalid('plot bounds');
 }
 function restoreWorkspace(data) {
-    validateWorkspace(data); // Validate before replacing anything.
+    validateWorkspace(data);
+    const previous = captureWorkspace();
+    try { applyWorkspace(structuredClone(data)); }
+    catch (error) {
+        // Rendering or GPU/browser failures must not turn a failed import into
+        // a partially replaced session. The previous state is already trusted.
+        try { applyWorkspace(previous); } catch (restoreError) { console.error('Could not restore previous workspace:', restoreError); }
+        throw error;
+    }
+}
+function applyWorkspace(data) {
     fileLoadToken++;
     resetSessionState();
     loadedFileName = data.filename;
@@ -94,8 +225,8 @@ function restoreWorkspace(data) {
         const saved = data.systems?.find(s => s.value === el.value);
         if (saved) el.checked = !!saved.checked;
     }
-    xAxisMode = AXIS_X[data.xAxisMode] ? data.xAxisMode : 'tth';
-    yAxisMode = AXIS_Y[data.yAxisMode] ? data.yAxisMode : 'sqrt';
+    xAxisMode = Object.hasOwn(AXIS_X, data.xAxisMode) ? data.xAxisMode : 'tth';
+    yAxisMode = Object.hasOwn(AXIS_Y, data.yAxisMode) ? data.yAxisMode : 'sqrt';
     ui.xAxisMode.value = xAxisMode; ui.yAxisMode.value = yAxisMode;
     if (data.stats) {
         lastDurationStr = data.stats.lastDurationStr || '';
@@ -106,6 +237,15 @@ function restoreWorkspace(data) {
         lastRunTotals = data.stats.lastRunTotals || null;
     }
     solutions = data.solutions;
+    for (const sol of solutions) if (sol.analysis) {
+        const ambiguous = sol.analysis.ambiguousHkls;
+        sol.analysis.ambiguousHkls = ambiguous instanceof Set ? ambiguous : new Set(Array.isArray(ambiguous) ? ambiguous : []);
+    }
+    // Old version-1 saves converted Infinity to null. Leave those margins
+    // unavailable rather than letting legacy coercive formatters read zero.
+    for (const sol of solutions) for (const key of ['sgMargin','sgScore','zero_correction']) {
+        if (sol[key] === null) delete sol[key];
+    }
     displayedSolutions = solutions.slice(0, MAX_DISPLAYED_SOLUTIONS);
     foundSolutionMap.clear();
     solutions.forEach(sol => foundSolutionMap.set(getSolutionKey(sol), sol));
@@ -147,8 +287,8 @@ function restoreWorkspace(data) {
 }
 // The run history is kept in memory. Once, when it reaches this size, the user is offered to prune the oldest runs
 // (a history this large can exhaust the browser's memory). A saved project larger than the second limit is confirmed.
-const HISTORY_WARN_BYTES = 100 * 1024 * 1024;
-const PROJECT_WARN_BYTES = 10 * 1024 * 1024;
+const HISTORY_WARN_BYTES = BRUTUS_LIMITS.workspace.historyWarnBytes;
+const PROJECT_WARN_BYTES = BRUTUS_LIMITS.workspace.projectWarnBytes;
 let historyWarned = false;
 const formatMB = bytes => (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 async function checkHistorySize() {
@@ -191,7 +331,7 @@ function renderWorkspaceHistory() {
         button.disabled = isIndexing;
         button.addEventListener('click', () => {
             if (isIndexing) return;
-            restoreWorkspace(structuredClone(workspaceHistory[index].state));
+            restoreWorkspace(workspaceHistory[index].state);
             appendWorkspaceLog(`Restored run from ${entry.started}.`);
         });
         row.append(text, button); area.append(row);
@@ -278,7 +418,7 @@ workspaceNode('menu-unload').addEventListener('click', openUnloadDialog);
 workspaceNode('save-project').addEventListener('click', async () => {
     if (isIndexing) { showStatus('Wait for indexing to finish before saving a project.'); return; }
     const project = { format: 'brutus-project', version: 1, state: captureWorkspace(), history: workspaceHistory, log: workspaceLog };
-    const blob = new Blob([JSON.stringify(project)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(project, workspaceJsonReplacer)], { type: 'application/json' });
     if (blob.size > PROJECT_WARN_BYTES && !await showNotice('Large project', `This project file will be ${formatMB(blob.size)} (more than ${formatMB(PROJECT_WARN_BYTES)}), mostly run history. Save it anyway?`, { confirmLabel: 'Save', cancelLabel: 'Cancel' })) return;
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a'); link.href = url;
@@ -291,7 +431,7 @@ workspaceNode('project-input').addEventListener('change', async e => {
     const file = e.target.files[0]; if (!file) return;
     const token = ++fileLoadToken;
     try {
-        const project = JSON.parse(await file.text());
+        const project = JSON.parse(await file.text(), workspaceJsonReviver);
         if (token !== fileLoadToken || isIndexing) return;
         if (project.format !== 'brutus-project' || project.version !== 1) throw Error('Unsupported project format or version.');
         validateWorkspace(project.state);
@@ -300,7 +440,7 @@ workspaceNode('project-input').addEventListener('change', async e => {
         if (!project.log.every(entry => entry && typeof entry.message === 'string' && Number.isFinite(Date.parse(entry.time)))) throw Error('Invalid project log.');
         restoreWorkspace(project.state);
         workspaceHistory = project.history;
-        workspaceLog.splice(0, workspaceLog.length, ...project.log.slice(-1000));
+        workspaceLog.splice(0, workspaceLog.length, ...project.log.slice(-BRUTUS_LIMITS.workspace.logEntries));
         renderWorkspaceHistory(); renderWorkspaceLog();
         appendWorkspaceLog(`Opened project ${file.name}.`);
     } catch (error) { showStatus(`Could not open project: ${error.message}`, 'error'); }

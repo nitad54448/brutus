@@ -204,8 +204,8 @@ function sgObservableMerge(classes, frame) {
 // back-reflection region of any power to falsify a rule. The threshold and the
 // window match that function exactly so the two analyses cannot disagree about
 // which peaks are weak.
-const SG_LOW_INTENSITY_FRACTION = 0.05;
-const SG_LOCAL_WINDOW_DEG = 15.0;
+const SG_LOW_INTENSITY_FRACTION = BRUTUS_LIMITS.absences.lowIntensityFraction;
+const SG_LOCAL_WINDOW_DEG = BRUTUS_LIMITS.absences.localWindowDeg;
 function sgIntensityContext(peaks) {
     const heighted = (peaks || []).filter(
         p => typeof p.height === 'number' && isFinite(p.height) && p.height > 0);
@@ -349,8 +349,8 @@ function sgLorentzPol(tthDeg) {
     if (!(Math.abs(d) > 1e-9)) return null;
     return (1 + c2 * c2) / d;
 }
-const SG_WILSON_MIN_PEAKS  = 12;    // below this there are not enough shells
-const SG_WILSON_MIN_SHELLS = 3;     // fewer than three and there is no curve
+const SG_WILSON_MIN_PEAKS  = BRUTUS_LIMITS.absences.wilsonMinPeaks;    // below this there are not enough shells
+const SG_WILSON_MIN_SHELLS = BRUTUS_LIMITS.absences.wilsonMinShells;     // fewer than three and there is no curve
 // Build the Wilson context from the observed peaks and the UNFILTERED line list.
 // Returns null whenever the data cannot support it, in which case every caller
 // falls back to the single global p and behaves exactly as before.
@@ -400,7 +400,7 @@ function sgWilsonContext(frame, data, state, system) {
     // The fit uses ln<I>, not <ln I>: the mean of the logarithm is biased low by
     // roughly Euler's constant for an exponential variate, and the bias enters
     // the scale K directly.
-    const NB = Math.max(4, Math.min(12, Math.floor(pts.length / 8)));
+    const NB = Math.max(BRUTUS_LIMITS.absences.wilsonMinBins, Math.min(BRUTUS_LIMITS.absences.wilsonMaxBins, Math.floor(pts.length / BRUTUS_LIMITS.absences.wilsonPointsPerBin)));
     let s2min = Infinity, s2max = -Infinity;
     for (const t of pts) { if (t.s2 < s2min) s2min = t.s2; if (t.s2 > s2max) s2max = t.s2; }
     if (!(s2max > s2min)) return null;
@@ -574,7 +574,7 @@ function sgWilsonContext(frame, data, state, system) {
         const tgt = Math.min(0.98, Math.max(0.02, target));
         if (!zs || !zs.length || !isFinite(tgt)) return null;
         let lamLo = 1e-3, lamHi = 1e3, lam = 1;
-        for (let it = 0; it < 60; it++) {
+        for (let it = 0; it < BRUTUS_LIMITS.absences.wilsonFitIterations; it++) {
             lam = Math.sqrt(lamLo * lamHi);
             const mp = meanPOf(zs, lam);
             if (mp === null) return null;

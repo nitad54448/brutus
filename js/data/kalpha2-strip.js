@@ -24,7 +24,7 @@ const stripZhang = (tth, intensity, ka1, ka2, ratio) => {
     // below 8 the series has not converged and broad peaks show a residual.
     // This was briefly exposed as a slider and removed: the value is flat
     // for sharp peaks, where the limit is interpolation order, not K.
-    const K_TERMS = 8;
+    const K_TERMS = BRUTUS_LIMITS.peak.ka2Terms;
 
     // Step 1: Coordinate mapping to q-space for both wavelengths
     const q_a1 = new Float64Array(n);

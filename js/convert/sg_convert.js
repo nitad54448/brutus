@@ -121,7 +121,7 @@
   }
   function findTransforms(fromOps, toOps, cell, opts) {
     opts = opts || {};
-    var maxMisfit = opts.maxMisfit != null ? opts.maxMisfit : 0.03, limit = opts.limit || 8, out = [];
+    var maxMisfit = opts.maxMisfit != null ? opts.maxMisfit : BRUTUS_LIMITS.conversion.maxMisfit, limit = opts.limit || BRUTUS_LIMITS.conversion.resultLimit, out = [];
     var oldIdx = index(fromOps), newIdx = index(toOps), oldRot = new Set(fromOps.map(function (o) { return rotKey(o.r); })), newRot = new Set(toOps.map(function (o) { return rotKey(o.r); }));
     var shifts = shiftList();
     (opts.matrices || candidates()).forEach(function (P) {

@@ -84,11 +84,13 @@ const calculateFiguresOfMerit = (q_calc_sorted, peaks_for_merit, impurity_peaks,
     if (N - N_indexed > impurity_peaks || N_indexed === 0) return { m20: 0, fN: 0 };
     const avg_delta_q = sum_delta_q / N_indexed;
     const N_calc_M = countLE(q_calc_sorted, q_n);
-    const mN = (N_calc_M > 0 && avg_delta_q > 1e-12) ? (q_n / (2 * avg_delta_q * N_calc_M)) : 0;
+    // An exact fit is the best fit, not a failed one. Keep the score finite
+    // because downstream ranking deliberately rejects non-finite merits.
+    const mN = N_calc_M > 0 ? q_n / (2 * Math.max(avg_delta_q, BRUTUS_LIMITS.meritResidualFloor) * N_calc_M) : 0;
     const avg_delta_tth = sum_delta_tth / N_indexed;
     const q_limit_fN = (4 * Math.sin(tth_n_deg * RAD / 2)**2) / (wavelength**2);
     const N_calc_FN = countLE(q_calc_sorted, q_limit_fN * 1.0001);
-    const fN = (N_calc_FN > 0 && avg_delta_tth > 1e-12) ? ((1 / avg_delta_tth) * (N_indexed / N_calc_FN)) : 0;
+    const fN = N_calc_FN > 0 ? N_indexed / (Math.max(avg_delta_tth, BRUTUS_LIMITS.meritResidualFloor) * N_calc_FN) : 0;
     return { m20: mN, fN: fN };
 };
 const solveLeastSquares = (M, q_vec, weights) => {
@@ -146,7 +148,7 @@ const propagateCellErrorsNumerically = (params, V, toVec, names) => {
     const J = names.map(() => new Array(n).fill(0));
     for (let j = 0; j < n; j++) {
         const original = vals[j];
-        const step = (Math.abs(original) * 1e-5) || 1e-7;
+        const step = (Math.abs(original) * BRUTUS_LIMITS.derivativeRelativeStep) || BRUTUS_LIMITS.derivativeAbsoluteStep;
         vals[j] = original + step;
         const forward = toVec(vals);
         vals[j] = original - step;
@@ -187,7 +189,11 @@ const propagateErrors = (system, fitResult, cell) => {
             case 'monoclinic': {
                 const toVec = (p) => {
                     const c = extractCellFromFit(p, 'monoclinic');
-                    return c ? [c.a, c.b, c.c, c.beta] : null;
+                    if (!c) return null;
+                    // The canonical beta is folded into [90, 180). That fold
+                    // has a cusp at 90 degrees and would erase its derivative.
+                    const beta = Math.acos(-p[3] / (2 * Math.sqrt(p[0] * p[2]))) * DEG;
+                    return [c.a, c.b, c.c, beta];
                 };
                 Object.assign(errors, propagateCellErrorsNumerically(
                     fitResult.solution.slice(0, 4), V, toVec, ['s_a', 's_b', 's_c', 's_beta']));
@@ -218,7 +224,7 @@ const hkl_search_list_cache = {};
 const get_hkl_search_list = (system) => {
     if (hkl_search_list_cache[system]) return hkl_search_list_cache[system];
     const hkls = []; 
-    const max_mono = 6, max_tri = 5;
+    const max_mono = BRUTUS_LIMITS.hkl.monoclinic, max_tri = BRUTUS_LIMITS.hkl.triclinic;
 
     if (system === 'monoclinic') {
         const max_h = max_mono;
@@ -231,7 +237,7 @@ const get_hkl_search_list = (system) => {
                 }
             }
         }
-        const max_axial_mono = 12;
+        const max_axial_mono = BRUTUS_LIMITS.hkl.monoclinicAxial;
         for (let n = max_h + 1; n <= max_axial_mono; n++) {
             hkls.push([n, 0, 0]);
             hkls.push([0, n, 0]);
@@ -242,7 +248,7 @@ const get_hkl_search_list = (system) => {
             if (h === 0 && k === 0 && l === 0) continue; if (l === 0 && k < 0) continue; if (l === 0 && k === 0 && h <= 0) continue; hkls.push([h, k, l]);
         }
     } else if (system === 'orthorhombic') {
-        const max_h = 12;
+        const max_h = BRUTUS_LIMITS.hkl.orthorhombic;
         for (let h = 0; h <= max_h; h++)
             for (let k = 0; k <= max_h; k++)
                 for (let l = 0; l <= max_h; l++)
@@ -250,14 +256,14 @@ const get_hkl_search_list = (system) => {
                         hkls.push([h,k,l]);
     } else if (system === 'tetragonal' || system === 'hexagonal') {
         const hex = system === 'hexagonal';
-        const max_h = 12, max_l = 24, max_S = 144;
+        const max_h = BRUTUS_LIMITS.hkl.highSymH, max_l = BRUTUS_LIMITS.hkl.highSymL, max_S = BRUTUS_LIMITS.hkl.highSymS;
         const seen = new Set();
         for (let h = 0; h <= max_h; h++) for (let k = 0; k <= h; k++) {
             const S = hex ? h * h + h * k + k * k : h * h + k * k;
             if (S > max_S) continue;
             for (let l = 0; l <= max_l; l++) {
                 if (h === 0 && k === 0 && l === 0) continue;
-                const key = S * 64 + l;
+                const key = `${S},${l}`;
                 if (seen.has(key)) continue;
                 seen.add(key);
                 hkls.push([h, k, l]);
@@ -268,7 +274,7 @@ const get_hkl_search_list = (system) => {
         hkls.sort((a, b) => sKey(a) - sKey(b));
         return hkl_search_list_cache[system] = hkls;
     } else if (system === 'cubic') {
-        const max_h = 30, max_N = 900;
+        const max_h = BRUTUS_LIMITS.hkl.cubicH, max_N = BRUTUS_LIMITS.hkl.cubicN;
         const seen = new Set();
         for (let h = 0; h <= max_h; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= k; l++) {
             const N = h * h + k * k + l * l;

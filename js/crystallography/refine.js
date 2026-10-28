@@ -30,20 +30,21 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     
     const { system } = initialParams;
 
-    const min_lp_check = 2.0, max_lp_check = 50.0;
+    const limits = getPhysicalLimits(data);
+    const min_lp_check = limits.minAxis, max_lp_check = limits.maxAxis;
     const axes_to_check = [initialParams.a, initialParams.b ?? initialParams.a, initialParams.c ?? initialParams.a];
     const angles_to_check = [initialParams.alpha ?? 90, initialParams.beta ?? 90, initialParams.gamma ?? 90];
 
     // Explicitly validate both linear dimensions and angles against NaN/Infinity and physical limits
     if (axes_to_check.some(p => !isFinite(p) || p < min_lp_check || p > max_lp_check) ||
-        angles_to_check.some(a => !isFinite(a) || a < 10.0 || a > 170.0)) {
+        angles_to_check.some(a => !isFinite(a) || a < limits.minAngle || a > limits.maxAngle)) {
         bump('axisRange');
         return exitFunction(); 
     }
     
     const initial_cell_volume = getVolume(initialParams);
     // !(vol >= 20) safely catches NaN, 0, and negative volumes
-    if (!(initial_cell_volume >= 20) || !(initial_cell_volume <= max_volume) || !isFinite(initial_cell_volume)) {
+    if (!(initial_cell_volume >= limits.minVolume) || !(initial_cell_volume <= max_volume) || !isFinite(initial_cell_volume)) {
         if (isFinite(initial_cell_volume)) {
             if (initial_cell_volume > max_volume) {
                 bump('volumeTooLarge');
@@ -63,7 +64,7 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     }
 
     const local_get_q_tolerance = (idx) => get_q_tolerance(idx, tth_obs_rad, wavelength, tth_error);
-    const min_indexed = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7, triclinic: 7 };
+    const min_indexed = BRUTUS_LIMITS.search.minIndexed;
     let final_solution_to_post = null;
     const n_20 = Math.min(N_FOR_M20, peaks_sorted_by_q.length);
     const n_all = peaks_sorted_by_q.length;
@@ -153,6 +154,10 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
 
             if (!refined_cell) bump('extractFailed');
             if (refined_cell) {
+                if (!cellWithinPhysicalLimits(refined_cell, data)) {
+                    bump('refinedOutOfRange');
+                    return exitFunction();
+                }
                 if (refineZero) {
                     refined_cell.zero_correction = fitResult_with_zero_final.solution[fitResult_with_zero_final.solution.length - 1] * DEG;
                 }
@@ -240,20 +245,26 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
 // --- cpu index, with status, hmax changed to 40 for cubic
 function indexCubic(data, state, postMessage_func) {
     const { peaks } = data; const { q_obs, refineAndTestSolution } = state;
-    const h_max = 40;
-    const peak_depth = Math.min(peaks.length, 12);
-    const hkls = []; for (let h = 1; h <= h_max; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= k; l++) { if (!h && !k && !l) continue; hkls.push([h,k,l]); }
-    
-    const totalTrialsToRun = peak_depth * hkls.length;
+    const h_max = BRUTUS_LIMITS.hkl.cpuCubicH;
+    const peak_depth = Math.min(peaks.length, BRUTUS_LIMITS.search.cpuPeakDepth);
+    // Only h²+k²+l² enters the cubic solve. Several triples have the same
+    // norm, so evaluating each of those triples repeats the identical fit.
+    const norms = new Set();
+    for (let h = 1; h <= h_max; h++) {
+        for (let k = 0; k <= h; k++) {
+            for (let l = 0; l <= k; l++) norms.add(h * h + k * k + l * l);
+        }
+    }
+    const totalTrialsToRun = peak_depth * norms.size;
     let totalTrialsCompleted = 0;
         
     let trialsBatch = 0; let lastReportTime = performance.now();
     for (let i = 0; i < peak_depth; i++) {
-        for (const hkl of hkls) {
-            refineAndTestSolution({ a: Math.sqrt((hkl[0]*hkl[0] + hkl[1]*hkl[1] + hkl[2]*hkl[2]) / q_obs[i]), system: 'cubic' });
+        for (const norm of norms) {
+            refineAndTestSolution({ a: Math.sqrt(norm / q_obs[i]), system: 'cubic' });
             trialsBatch++; 
 
-            if (trialsBatch % 5000 === 0 && performance.now() - lastReportTime >= 50) {
+            if (trialsBatch % BRUTUS_LIMITS.search.progressTrials === 0 && performance.now() - lastReportTime >= BRUTUS_LIMITS.search.progressIntervalMs) {
                 postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
                 totalTrialsCompleted += trialsBatch;
                 const progress = (totalTrialsCompleted / totalTrialsToRun) * 80;
@@ -267,15 +278,12 @@ function indexCubic(data, state, postMessage_func) {
 }
 function indexTetragonalOrHexagonal(data, state, postMessage_func, system) {
     const { peaks } = data; const { q_obs, refineAndTestSolution } = state;
-    const max_hkl = 12, i_depth = Math.min(12, peaks.length), j_depth = Math.min(12, peaks.length);
+    const { minAxis: min_lp, maxAxis: max_lp } = getPhysicalLimits(data);
+    const max_hkl = BRUTUS_LIMITS.hkl.highSymH;
+    const i_depth = Math.min(BRUTUS_LIMITS.search.cpuPeakDepth, peaks.length), j_depth = i_depth;
     const hkls = []; for (let h = 0; h <= max_hkl; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= max_hkl; l++) { if (!h && !k && !l) continue; hkls.push([h,k,l]); }
 
-    let totalPeakCombos = 0;
-    for (let i = 0; i < i_depth; i++) {
-        for (let j = i + 1; j < j_depth; j++) {
-            totalPeakCombos++;
-        }
-    }
+    const totalPeakCombos = i_depth * (i_depth - 1) / 2;
     const totalTrialsToRun = totalPeakCombos * hkls.length * hkls.length;
     let totalTrialsCompleted = 0;
 
@@ -290,7 +298,7 @@ function indexTetragonalOrHexagonal(data, state, postMessage_func, system) {
                     
                     trialsBatch++; 
 
-                    if (trialsBatch % 5000 === 0 && performance.now() - lastReportTime >= 50) {
+                    if (trialsBatch % BRUTUS_LIMITS.search.progressTrials === 0 && performance.now() - lastReportTime >= BRUTUS_LIMITS.search.progressIntervalMs) {
                         postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
                         totalTrialsCompleted += trialsBatch;
                         const progress = (totalTrialsCompleted / totalTrialsToRun) * 80;
@@ -306,7 +314,6 @@ function indexTetragonalOrHexagonal(data, state, postMessage_func, system) {
                     if (a_term_inv > 0 && c_term_inv > 0) {
                         const a = system === 'tetragonal' ? 1 / Math.sqrt(a_term_inv) : Math.sqrt(4 / (3 * a_term_inv));
                         const c = 1 / Math.sqrt(c_term_inv);
-                        const min_lp = 2.0, max_lp = 50.0;
                         if (a < min_lp || a > max_lp || c < min_lp || c > max_lp || (a != a) || (c != c)) {
                             continue;
                         }

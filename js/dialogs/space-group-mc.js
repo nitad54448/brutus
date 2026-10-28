@@ -68,7 +68,7 @@ const sgBuildInputs = () => {
     const inRange = pickedPeaks.filter(p => p.tth >= tMin && p.tth <= tMax);
     const pk = inRange.filter(p => !p.ka2Suspect);
     const nGhosts = inRange.length - pk.length;
-    if (pk.length < 6) return { error: 'Not enough peaks in the 2-theta range (need at least 6).' };
+    if (pk.length < BRUTUS_LIMITS.dialogs.sgMinPeaks) return { error: `Not enough peaks in the 2-theta range (need at least ${BRUTUS_LIMITS.dialogs.sgMinPeaks}).` };
     if (!isFinite(wl) || wl <= 0) return { error: 'Invalid wavelength.' };
 
     // Ka1 lines (p.lambda) are mapped to this wavelength inside
@@ -84,7 +84,7 @@ const sgBuildInputs = () => {
             original_indices: sorted.original_indices,
             tth_obs_rad: sorted.tth_obs_rad,
             peaks_sorted_by_q: sorted.peaks_sorted_by_q,
-            N_FOR_M20: 20,
+            N_FOR_M20: BRUTUS_LIMITS.search.meritPeaks,
             q_max: 1 / (d_min * d_min),
             d_min: d_min,
             foundSolutions: [],
@@ -309,14 +309,9 @@ sgRunBtn.addEventListener('click', () => {
     const parent = sgParent;
     if (!parent) { closeSgModal(); return; }
 
-    const readInt = (id, lo, hi, dflt) => {
-        const el = document.getElementById(id);
-        const v = Math.trunc(Number(el.value));
-        return (isFinite(v) && v >= lo && v <= hi) ? v : dflt;
-    };
-    const nIter = readInt('sg-iterations', 50, 20000, 600);
-    const nRes  = readInt('sg-restarts', 1, 20, 4);
-    const topN  = readInt('sg-top', 1, 50, 8);
+    const nIter = readNumberInput(document.getElementById('sg-iterations'), { integer: true });
+    const nRes = readNumberInput(document.getElementById('sg-restarts'), { integer: true });
+    const topN = readNumberInput(document.getElementById('sg-top'), { integer: true });
 
     const inp = sgBuildInputs();
     if (inp.error) { sgSay(inp.error, true); return; }
@@ -377,7 +372,7 @@ sgRunBtn.addEventListener('click', () => {
     // extinctions is pulled toward forbidden reflections, so the correct
     // class can be demoted at stage 1 and never reach the Monte-Carlo pass
     // at all. One LS solve per class is cheap and breaks that loop.
-    const STAGE1_CHUNK = 4;
+    const STAGE1_CHUNK = BRUTUS_LIMITS.dialogs.sgStageChunk;
     let i = 0;
 
     const noteFor = (ranked) => {
@@ -466,7 +461,7 @@ sgRunBtn.addEventListener('click', () => {
     // The extras are capped, because each one costs a full Monte-Carlo run
     // and the user set "Refine top" expecting a bounded wait. If the cap
     // binds, the lower-priority centerings are the ones dropped.
-    const SHORTLIST_EXTRA_MAX = 4;
+    const SHORTLIST_EXTRA_MAX = BRUTUS_LIMITS.dialogs.sgShortlistExtra;
     const pickShortlist = (ranked, n) => {
         const ok = ranked.filter(r => !r.error);
         const out = [];

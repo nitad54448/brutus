@@ -42,9 +42,12 @@ lastTruncatedSystems = [];
 lastSystemSearchStats = [];
 lastRunTotals = null;
 
-if (ui.peakProminenceSlider) { ui.peakProminenceSlider.value = '25'; if (ui.peakProminenceValue) ui.peakProminenceValue.textContent = '25'; }
-if (ui.ballRadiusSlider) { ui.ballRadiusSlider.value = '0.100'; if (ui.ballRadiusValue) ui.ballRadiusValue.textContent = '0.100'; }
-if (ui.smoothingWidthSlider) { ui.smoothingWidthSlider.value = '0.010'; if (ui.smoothingWidthValue) ui.smoothingWidthValue.textContent = '0.010'; }
+for (const [slider, label, digits] of [[ui.peakProminenceSlider, ui.peakProminenceValue, 0],
+    [ui.ballRadiusSlider, ui.ballRadiusValue, 3], [ui.smoothingWidthSlider, ui.smoothingWidthValue, 3]]) {
+    if (!slider) continue;
+    slider.value = slider.defaultValue;
+    if (label) label.textContent = Number(slider.value).toFixed(digits);
+}
 if (ui.peakThresholdSlider && typeof valueToLogSlider === 'function' && typeof initialPeakThreshold === 'number') {
     ui.peakThresholdSlider.value = valueToLogSlider(initialPeakThreshold);
     if (ui.peakThresholdValue) ui.peakThresholdValue.textContent = initialPeakThreshold.toFixed(1);

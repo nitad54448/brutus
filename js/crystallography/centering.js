@@ -105,7 +105,7 @@ function determineCentering(indexed_hkls, system) {
     const violationsHard = {};
     const violationsSoft = {};
     const violationDetails = {};
-    const MAX_DETAILS_TO_STORE = 2;
+    const MAX_DETAILS_TO_STORE = BRUTUS_LIMITS.absences.detailsToStore;
     for (const [key, test] of Object.entries(centeringTests)) {
         const allowedForSystem = validBravaisCenterings[system] || ['P'];
         if (allowedForSystem.includes(key)) {
@@ -137,8 +137,8 @@ function determineCentering(indexed_hkls, system) {
             // alone. Ka2 ghosts, weak tails and overlaps do not preferentially
             // land on the forbidden parity class; a large soft pile is evidence
             // that the centering is simply wrong.
-            const CONSENSUS_MIN_COUNT = 5;
-            const CONSENSUS_MIN_FRACTION = 0.15;
+            const CONSENSUS_MIN_COUNT = BRUTUS_LIMITS.absences.consensusMinCount;
+            const CONSENSUS_MIN_FRACTION = BRUTUS_LIMITS.absences.consensusMinFraction;
             let effectiveHard = hardViolatingPeaks;
             let effectiveSoft = softViolatingPeaks;
             if (effectiveHard.length === 0 &&
@@ -301,9 +301,9 @@ function detectExtinctions(indexed_hkls, system, spaceGroupData, allowedCenterin
     // subsumption pass then deleted the real 0kl: k=2n and 0kl: l=2n because
     // both follow from it; and every candidate group was marked down for
     // failing to explain a condition none of them can have.
-    const MIN_VERIFIED_ABSENCES = 1;        // rules forbidding <= half a zone
-    const MIN_VERIFIED_ABSENCES_STRONG = 2; // 4n, 3n, compound "h, l=2n", ...
-    const CHANCE_LEVEL = 0.05;
+    const MIN_VERIFIED_ABSENCES = BRUTUS_LIMITS.absences.minVerified;        // rules forbidding <= half a zone
+    const MIN_VERIFIED_ABSENCES_STRONG = BRUTUS_LIMITS.absences.minVerifiedStrong; // 4n, 3n, compound "h, l=2n", ...
+    const CHANCE_LEVEL = BRUTUS_LIMITS.absences.chanceLevel;
 
     const obsTth = Array.isArray(evidence?.obsTth) ? evidence.obsTth.filter(Number.isFinite) : [];
     const indexWindow = Number.isFinite(evidence?.indexWindow) ? evidence.indexWindow : 0;
@@ -333,7 +333,7 @@ function detectExtinctions(indexed_hkls, system, spaceGroupData, allowedCenterin
     const allowedFraction = (zone, cond) => {
         const key = zone + '|' + cond;
         if (allowedFractionCache[key] !== undefined) return allowedFractionCache[key];
-        const R = 8;
+        const R = BRUTUS_LIMITS.absences.probeRange;
         let total = 0, allowed = 0;
         for (let h = -R; h <= R; h++) for (let k = -R; k <= R; k++) for (let l = -R; l <= R; l++) {
             if (h === 0 && k === 0 && l === 0) continue;
@@ -434,8 +434,8 @@ function detectExtinctions(indexed_hkls, system, spaceGroupData, allowedCenterin
         // reasonable, forgiving a systematic trend is not. Overlap is uncorrelated
         // with index parity, so if many reflections in the zone all break the same
         // rule, the rule is genuinely broken however excusable each case looks.
-        const EXT_CONSENSUS_MIN_COUNT = 5;
-        const EXT_CONSENSUS_MIN_FRACTION = 0.15;
+        const EXT_CONSENSUS_MIN_COUNT = BRUTUS_LIMITS.absences.consensusMinCount;
+        const EXT_CONSENSUS_MIN_FRACTION = BRUTUS_LIMITS.absences.consensusMinFraction;
         const consensusBroken = forgiven >= EXT_CONSENSUS_MIN_COUNT &&
                                 forgiven >= EXT_CONSENSUS_MIN_FRACTION * refSetForRule.length;
         const allSatisfy = (hardFails === 0) && !consensusBroken;
@@ -490,7 +490,7 @@ function detectExtinctions(indexed_hkls, system, spaceGroupData, allowedCenterin
     const zonePoints = (zone) => {
         if (zoneLatticeCache[zone]) return zoneLatticeCache[zone];
         const pts = [];
-        const R = 8;
+        const R = BRUTUS_LIMITS.absences.probeRange;
         for (let h = -R; h <= R; h++) for (let k = -R; k <= R; k++) for (let l = -R; l <= R; l++) {
             if (h === 0 && k === 0 && l === 0) continue;
             if (zoneApplies(zone, h, k, l)) pts.push([h, k, l]);

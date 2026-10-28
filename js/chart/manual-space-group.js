@@ -50,7 +50,7 @@ function rebuildManualSG() {
     try {
         const zero = selectedSolution.zero_correction || 0;
         const lambda = getLambda();
-        const maxTth = Math.min(179.9, workingExperimentalData.tth.at(-1) + Math.abs(zero) + 1);
+        const maxTth = Math.min(BRUTUS_LIMITS.physical.maxPlotTth, workingExperimentalData.tth.at(-1) + Math.abs(zero) + 1);
         manualSG.lines = manualSGReflections(selectedSolution, entry.setting, lambda, maxTth)
             .map(r => ({ ...r, tth_calc: r.tth, tth: r.tth + zero }));
         placeKa1Lines(manualSG.lines, lambda, zero);

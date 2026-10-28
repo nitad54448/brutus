@@ -11,7 +11,7 @@
 // nearest local maximum of the measured trace, or the nearest calculated
 // hkl line of the selected solution, whichever is closer. Hold Shift to
 // place a peak exactly where you clicked instead.
-const SNAP_WINDOW_DEG = 0.35;
+const SNAP_WINDOW_DEG = BRUTUS_LIMITS.peak.snapWindowDeg;
 const nearestDataIndex = (tth) => {
     const arr = workingExperimentalData.tth;
     if (!arr || !arr.length) return -1;

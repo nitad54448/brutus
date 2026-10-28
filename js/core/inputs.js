@@ -6,6 +6,15 @@
 // Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
+// Markup identifies controls; the shared definition supplies their bounds and
+// defaults. Workers and programmatic consumers use the same definition.
+for (const [id, spec] of Object.entries(BRUTUS_LIMITS.inputs)) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    for (const key of ['min', 'max', 'step']) if (spec[key] !== undefined) el[key] = String(spec[key]);
+    el.defaultValue = el.value = String(spec.value);
+}
+
 // Single source of truth for the "Impurity Peaks" value used at RUN TIME.
 // The input has min/max attributes, which are enforced on 'blur' and by
 // readNumberInput. Every place that actually starts a computation reads
@@ -13,7 +22,7 @@
 // Bounds come from the input's own min/max attributes so the runtime clamp
 // can never drift from the markup.
 function getImpurityPeaks() {
-    return readNumberInput(ui.impurityPeaksInput, { integer: true, fallback: 1 });
+    return readNumberInput(ui.impurityPeaksInput, { integer: true, fallback: BRUTUS_LIMITS.inputs['impurity-peaks'].value });
 }
 // Read a numeric <input> the way its markup says it may be read: parse it,
 // fall back to the markup default (the value="" attribute) when the field
@@ -35,18 +44,18 @@ function readNumberInput(el, { integer = false, fallback = NaN } = {}) {
     if (Number.isFinite(max) && v > max) v = max;
     return v;
 }
-function getWavelength()     { return readNumberInput(ui.wavelength, { fallback: 1.54184 }); }
-function getTthError()       { return readNumberInput(ui.tthError, { fallback: 0.04 }); }
-function getMaxVolume()      { return readNumberInput(ui.maxVolume, { fallback: 2000 }); }
-function getFomThreshold()   { return readNumberInput(ui.gpuFomThreshold, { fallback: 1.25 }); }
+function getWavelength()     { return readNumberInput(ui.wavelength, { fallback: BRUTUS_LIMITS.inputs.wavelength.value }); }
+function getTthError()       { return readNumberInput(ui.tthError, { fallback: BRUTUS_LIMITS.inputs['tth-error'].value }); }
+function getMaxVolume()      { return readNumberInput(ui.maxVolume, { fallback: BRUTUS_LIMITS.inputs['max-volume'].value }); }
+function getFomThreshold()   { return readNumberInput(ui.gpuFomThreshold, { fallback: BRUTUS_LIMITS.inputs['gpu-fom-threshold'].value }); }
 // The two global GPU search settings (9 Oct 2026); planGpuSearch() in
 // js/gpu/gpu-setup.js turns them into each system's basis size and peak count.
 //   HKL basis: percent of the system's maximum basis PER UNKNOWN cell
 //              parameter (cubic x1 ... triclinic x6).
 //   Depth:     peaks combined = number of unknowns + Depth.
-function getHklPercentPerUnknown() { return readNumberInput(ui.gpuHklPercent, { fallback: 5 }); }
-function getSearchDepth()    { return readNumberInput(ui.gpuDepth, { integer: true, fallback: 3 }); }
-function getCandidateCells() { return readNumberInput(ui.gpuBufferSize, { integer: true, fallback: 100 }) * 1000; }
+function getHklPercentPerUnknown() { return readNumberInput(ui.gpuHklPercent, { fallback: BRUTUS_LIMITS.inputs['gpu-hkl-percent'].value }); }
+function getSearchDepth()    { return readNumberInput(ui.gpuDepth, { integer: true, fallback: BRUTUS_LIMITS.inputs['gpu-depth'].value }); }
+function getCandidateCells() { return readNumberInput(ui.gpuBufferSize, { integer: true, fallback: BRUTUS_LIMITS.inputs['gpu-buffer-size'].value }) * 1000; }
 // Blur-time validation: rewrite the field with exactly the value the run
 // will use (readNumberInput), so what the user sees is what is searched.
 const inputsToValidate = [

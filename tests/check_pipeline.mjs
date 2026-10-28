@@ -10,6 +10,20 @@ const read = (f) => readFileSync(f, 'utf8').replace(/\r\n/g, '\n');
 const app = read('./js/indexing/run.js');
 const eng = read('./js/gpu/webgpu-engine.js');
 
+// The host buffer must cover the same uniform fields in every kernel.
+const uniformLayouts = ['highsym_solver', 'ortho_solver', 'monoclinic_solver', 'triclinic_solver'].map(name => {
+  const shader = read('./shaders/' + name + '.wgsl');
+  const config = /struct Config\s*\{([\s\S]*?)\}/.exec(shader)?.[1] || '';
+  return [...config.matchAll(/\b(\w+)\s*:\s*vec4<(u32|f32)>/g)].map(m => m[1] + ':' + m[2]);
+});
+const uniformBytes = Number(/const configBufferSize = (\d+);/.exec(eng)?.[1]);
+if (!uniformLayouts[0].length || uniformLayouts.some(layout => JSON.stringify(layout) !== JSON.stringify(uniformLayouts[0])) ||
+    uniformLayouts[0].length * 16 !== uniformBytes) {
+  console.error('FAIL: shader uniform layouts and host buffer size disagree');
+  process.exit(1);
+}
+console.log(`PASS: all shader Config layouts agree with the ${uniformBytes}-byte host buffer.`);
+
 // pull HKL_PACKERS + HKL_PACKING straight out of the app source
 const i0 = app.indexOf("const HKL_PACKING = 'products/v1';");
 const i1 = app.indexOf('};', app.indexOf('triclinic: { floats: 8')) + 2;

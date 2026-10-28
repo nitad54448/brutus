@@ -9,6 +9,7 @@
      * Includes validation logic for 2-theta (X) and step size (dX).
      */
     const parseDataFile = (text, fileName = "") => {
+        const limits = BRUTUS_LIMITS.parsers;
         const lines = text.trim().split(/\r?\n/);
         const tth = [], intensity = [];
         let last_x = -Infinity;
@@ -26,7 +27,7 @@
             if (headerWavelength !== null) return;
             const m = WAVELENGTH_RX.exec(line);
             const v = m ? parseFloat(m[1]) : NaN;
-            if (v > 0.1 && v < 5) headerWavelength = v;
+            if (v > limits.minHeaderWavelength && v < limits.maxHeaderWavelength) headerWavelength = v;
         };
 
         lines.forEach(line => {
@@ -84,7 +85,7 @@
                 const dX = x - last_x;
                 if (dX < 0) {
                     negative_steps++; // Data is descending
-                } else if (dX > 0 && (dX < 0.0001 || dX > 0.2)) { 
+                } else if (dX > 0 && (dX < limits.minTypicalStepDeg || dX > limits.maxTypicalStepDeg)) {
                     suspicious_steps++; // Step size is weird
                 }
             }
@@ -96,15 +97,15 @@
         });
 
         // Final checks (log warnings to console) 
-        if (tth.length > 10) { 
-            if (positive_x_values / tth.length < 0.5) {
+        if (tth.length > limits.genericWarningMinPoints) {
+            if (positive_x_values / tth.length < limits.positiveFraction) {
                 console.warn(`Data File (${fileName}) Warning: Most 2-theta (X) values are zero or negative. This is unusual for XRD data.`);
             }
-            if (negative_steps / tth.length > 0.8) {
+            if (negative_steps / tth.length > limits.descendingFraction) {
                  console.warn(`Data File (${fileName}) Warning: Data appears to be sorted in descending 2-theta order.`);
             }
-            if (suspicious_steps / tth.length > 0.2) {
-                console.warn(`Data File (${fileName}) Warning: Many data points have a step size outside the typical range (0.0001° - 0.2°). Check file format.`);
+            if (suspicious_steps / tth.length > limits.suspiciousFraction) {
+                console.warn(`Data File (${fileName}) Warning: Many data points have a step size outside the typical range (${limits.minTypicalStepDeg}° - ${limits.maxTypicalStepDeg}°). Check file format.`);
             }
         } else if (tth.length === 0) {
              throw new Error(`Could not parse any 2-column data from ${fileName}. File may be binary or have an unknown header.`);

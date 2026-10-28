@@ -19,18 +19,19 @@ const bigCombinations = (n, k) => {
 // Dispatch-count thresholds for checkGpuLimits(). A dispatch costs roughly a
 // GPU submit plus a fence wait, so ~1e5 of them is already a slow run and
 // ~2e6 is not going to finish in any session a person will sit through.
-const CHUNK_COUNT_WARN_LIMIT = 100000;
-const CHUNK_COUNT_HARD_LIMIT = 2000000;
+const CHUNK_COUNT_WARN_LIMIT = BRUTUS_LIMITS.gpu.chunkWarn;
+const CHUNK_COUNT_HARD_LIMIT = BRUTUS_LIMITS.gpu.chunkHard;
 // Dispatch geometry for one planned search. Must mirror
 // WebGPUEngine.SYSTEM_CONFIGS / _runSolver: every system now dispatches
 // 8 x 8 workgroups; triclinic keeps its smaller thread budget (TDR guard).
 const estimateGpuChunks = (plan) => {
     const totalHklCombos = bigCombinations(plan.nHkl, plan.K);
     const numPeakCombos = combinations(Math.max(plan.nPeaks, plan.K), plan.K);
-    const threadBudget = (plan.K === 6) ? 50000 : 500000;
-    const wgY = 8;
+    const cfg = WebGPUEngine.SYSTEM_CONFIGS[plan.system];
+    const threadBudget = cfg.maxThreadsPerDispatch;
+    const wgY = cfg.workgroupY;
     const maxHklPerDispatch = Math.floor(threadBudget / Math.max(1, numPeakCombos));
-    const wgCount = Math.max(1, Math.min(Math.ceil(maxHklPerDispatch / wgY), 16383));
+    const wgCount = Math.max(1, Math.min(Math.ceil(maxHklPerDispatch / wgY), BRUTUS_LIMITS.gpu.workgroupsYCap));
     const hklsPerChunk = wgCount * wgY;
     return { totalHklCombos, numPeakCombos, hklsPerChunk,
              estChunks: Number(totalHklCombos) / hklsPerChunk };
@@ -56,7 +57,7 @@ const checkGpuLimits = () => {
         // The X dimension is one workgroup per 8 peak combinations and the
         // engine refuses anything over the device limit (65,535 by default).
         // Block here, where it can still be fixed, rather than at run time.
-        if (Math.ceil(numPeakCombos / 8) > 65535) {
+        if (Math.ceil(numPeakCombos / WebGPUEngine.SYSTEM_CONFIGS[system].workgroupX) > BRUTUS_LIMITS.gpu.defaultWorkgroupsPerDimension) {
             blockStartButton("Start (**** Too Many Peaks)",
                 `Error: ${label} combines ${plan.nPeaks} peaks (${numPeakCombos.toLocaleString('en-US')} ` +
                 `combinations), over the GPU dispatch limit. Lower "Depth".`);

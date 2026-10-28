@@ -91,7 +91,8 @@ struct Config {
     // wavelength, tth_error, max_volume, fom_threshold
     f_params: vec4<f32>,
     // min_axis, max_axis, min_volume, pad
-    f_params2: vec4<f32>
+    f_params2: vec4<f32>,
+    f_params3: vec4<f32>
 };
 @group(0) @binding(6) var<uniform> config: Config;
 

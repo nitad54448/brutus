@@ -21,7 +21,7 @@ const WAVELENGTH_PRESETS = {
 // Kα average are only ~0.0013 Å apart for every anode, so the old 0.005
 // matched BOTH and, testing the average first, turned every Kα1 file into
 // a Kα-average one -- a 0.08% error on every d-spacing.
-const PRESET_MATCH_TOL = 3e-4;
+const PRESET_MATCH_TOL = BRUTUS_LIMITS.peak.wavelengthMatchTolerance;
 // Closest preset line to `wl` within PRESET_MATCH_TOL, or null.
 //   -> { element: 'Cu', line: 'ka1' | 'avg' | 'ka2', diff }
 const nearestPresetLine = (wl) => {
@@ -139,8 +139,8 @@ const ka2MatchTolerance = (parentTthDeg, preset) => {
  * If heights are unavailable we fall back to the old position-only
  * behaviour rather than silently rejecting everything.
  */
-const KA2_RATIO_MAX_FACTOR = 1.7;  // vs expected ratio -> ~0.85 of parent
-const KA2_RATIO_MIN_FACTOR = 0.35; // vs expected ratio -> ~0.17 of parent
+const KA2_RATIO_MAX_FACTOR = BRUTUS_LIMITS.peak.ka2RatioMaxFactor;  // vs expected ratio -> ~0.85 of parent
+const KA2_RATIO_MIN_FACTOR = BRUTUS_LIMITS.peak.ka2RatioMinFactor; // vs expected ratio -> ~0.17 of parent
 const ka2RatioIsPlausible = (parent, child, preset) => {
     const hp = parent?.intensity ?? parent?.height;
     const hc = child?.intensity ?? child?.height;

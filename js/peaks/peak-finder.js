@@ -372,8 +372,8 @@ if (denominator < -1e-10) {
     const lambda = getWavelength();
     const stripOn = !!ui.stripKa2Checkbox?.checked;
     const presetForMerge = stripOn ? null : getActiveKa2Preset();
-    const FLOOR = 0.02; // never tighter than this
-    const CEIL  = 0.10; // never looser than this
+    const FLOOR = BRUTUS_LIMITS.peak.positionToleranceFloor; // never tighter than this
+    const CEIL  = BRUTUS_LIMITS.peak.positionToleranceCeiling; // never looser than this
     const mergeThresholdAt = (tthDeg) => {
         const baseScale = 0.02 + 0.001 * tthDeg; // gentle linear ramp
         let mt = Math.min(CEIL, Math.max(FLOOR, baseScale));

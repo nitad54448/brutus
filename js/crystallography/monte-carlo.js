@@ -102,20 +102,14 @@ function mcStepScales(params, fracFallback) {
     return s;
 }
 // Reciprocal parameter vector -> cell, reusing the existing extractor.
-function mcParamsToCell(params, system, maxVolume, lattice) {
+function mcParamsToCell(params, system, maxVolume, lattice, data = {}) {
     if (!params || params.some(p => !isFinite(p))) return null;
     const cell = extractCellFromFit(params, system);
     if (!cell) return null;
     cell.system = system;
     if (lattice === 'R' && system === 'hexagonal') cell.lattice = 'R';
-    const axes = [cell.a, cell.b ?? cell.a, cell.c ?? cell.a];
-    if (axes.some(x => !isFinite(x) || x < 2.0 || x > 50.0)) return null;
-    const angs = [cell.alpha ?? 90, cell.beta ?? 90, cell.gamma ?? 90];
-    if (angs.some(x => !isFinite(x) || x < 10 || x > 170)) return null;
-    const vol = getVolume(cell);
-    if (!(vol >= 20) || !isFinite(vol)) return null;
-    if (maxVolume && !(vol <= maxVolume)) return null;
-    cell.volume = vol;
+    if (!cellWithinPhysicalLimits(cell, data, maxVolume)) return null;
+    cell.volume = getVolume(cell);
     return cell;
 }
 // Smooth guidance score.
@@ -193,13 +187,13 @@ function mcEvaluateCell(cell, ctx) {
 // Adaptive-step simulated annealing on the reciprocal parameter vector.
 function monteCarloPolish(sol, data, state, opts) {
     const o = opts || {};
-    const nIter        = o.iterations   ?? 400;
-    const fracRange    = o.range        ?? 0.01;
-    const T0           = o.T0           ?? 0.05;
-    const cooling      = o.cooling      ?? 0.995;
+    const nIter        = o.iterations   ?? BRUTUS_LIMITS.monteCarlo.iterations;
+    const fracRange    = o.range        ?? BRUTUS_LIMITS.monteCarlo.range;
+    const T0           = o.T0           ?? BRUTUS_LIMITS.monteCarlo.temperature;
+    const cooling      = o.cooling      ?? BRUTUS_LIMITS.monteCarlo.cooling;
     const seed         = o.seed         ?? 12345;
-    const zeroStepDeg  = o.zeroStep     ?? 0.01;
-    const zeroMaxDeg   = o.zeroMax      ?? 0.20;
+    const zeroStepDeg  = o.zeroStep     ?? BRUTUS_LIMITS.monteCarlo.zeroStep;
+    const zeroMaxDeg   = o.zeroMax      ?? BRUTUS_LIMITS.monteCarlo.zeroMax;
 
     try {
         const system = sol && sol.system;
@@ -224,7 +218,7 @@ function monteCarloPolish(sol, data, state, opts) {
         const nPar = p0.length;
         if (nPar !== MC_NPAR[system]) return null;
 
-        const rt = mcParamsToCell(p0, system, max_volume, sol.lattice);
+        const rt = mcParamsToCell(p0, system, max_volume, sol.lattice, data);
         if (!rt) return null;
         const drift = Math.abs(rt.a - sol.a) / Math.max(sol.a, 1e-9);
         if (!(drift < 1e-6)) return null;
@@ -237,7 +231,7 @@ function monteCarloPolish(sol, data, state, opts) {
         const z0 = refineZero ? (sol.zero_correction || 0) : 0;
 
         // --- reference state -------------------------------------------------
-        const baseCell = mcParamsToCell(p0, system, max_volume, sol.lattice);
+        const baseCell = mcParamsToCell(p0, system, max_volume, sol.lattice, data);
         if (!baseCell) return null;
         if (refineZero) baseCell.zero_correction = z0;
         const baseEval = mcEvaluateCell(baseCell, ctx);
@@ -275,7 +269,7 @@ function monteCarloPolish(sol, data, state, opts) {
                 if (trialZ > z0 + zeroMaxDeg) trialZ = z0 + zeroMaxDeg;
             }
 
-            const trialCell = mcParamsToCell(trialP, system, max_volume, sol.lattice);
+            const trialCell = mcParamsToCell(trialP, system, max_volume, sol.lattice, data);
             if (!trialCell) continue;
             if (refineZero) trialCell.zero_correction = trialZ;
 
@@ -321,7 +315,7 @@ function monteCarloPolish(sol, data, state, opts) {
 
         if (!(bestM20 > startM20 + 1e-6)) return null;
 
-        bestCell = mcParamsToCell(bestP, system, max_volume, sol.lattice);
+        bestCell = mcParamsToCell(bestP, system, max_volume, sol.lattice, data);
         if (!bestCell) return null;
         if (refineZero) bestCell.zero_correction = bestZ;
 
@@ -358,8 +352,8 @@ function monteCarloPolish(sol, data, state, opts) {
 // Multi-restart driver.
 function monteCarloRefineCell(sol, data, state, opts) {
     const o = opts || {};
-    const restarts = Math.max(1, o.restarts ?? 2);
-    const perRun = Math.max(200, o.iterations ?? 700);
+    const restarts = Math.max(1, o.restarts ?? BRUTUS_LIMITS.monteCarlo.restarts);
+    const perRun = Math.max(BRUTUS_LIMITS.monteCarlo.minIterations, o.iterations ?? BRUTUS_LIMITS.monteCarlo.refineIterations);
     let best = null, bestM20 = -Infinity, bestMAll = -Infinity;
 
     for (let r = 0; r < restarts; r++) {
@@ -431,8 +425,7 @@ function mcErrorsAtFixedCell(cell, data, state, ctx) {
         const { wavelength, refineZero } = data;
         const { peaks_sorted_by_q } = state;
         const system = cell.system;
-        const minIndexed = { cubic: 4, tetragonal: 5, hexagonal: 5,
-                             orthorhombic: 6, monoclinic: 7, triclinic: 7 };
+        const minIndexed = BRUTUS_LIMITS.search.minIndexed;
 
         const refl = generateHKL_for_worker(cell, state.q_max, state.d_min, wavelength);
         if (!refl || refl.length === 0) return null;
@@ -469,8 +462,7 @@ function mcLeastSquaresPolish(cell, data, state, ctx) {
         const { wavelength, refineZero } = data;
         const { peaks_sorted_by_q } = state;
         const system = cell.system;
-        const minIndexed = { cubic: 4, tetragonal: 5, hexagonal: 5,
-                             orthorhombic: 6, monoclinic: 7, triclinic: 7 };
+        const minIndexed = BRUTUS_LIMITS.search.minIndexed;
 
         const refl = generateHKL_for_worker(cell, state.q_max, state.d_min, wavelength);
         if (!refl || refl.length === 0) return null;
@@ -494,14 +486,14 @@ function mcLeastSquaresPolish(cell, data, state, ctx) {
         if (fit.solution.some(x => !isFinite(x))) return null;
 
         const nCellPar = MC_NPAR[system];
-        const out = extractCellFromFit(fit.solution.slice(0, nCellPar), system);
+        const out = mcParamsToCell(fit.solution.slice(0, nCellPar), system, data.max_volume, cell.lattice, data);
         if (!out) return null;
         out.system = system;
         if (cell.lattice === 'R' && system === 'hexagonal') out.lattice = 'R';
         if (refineZero) {
             if (useZeroColumn) {
                 const zNew = fit.solution[fit.solution.length - 1] * DEG;
-                if (!isFinite(zNew) || Math.abs(zNew) > 1.0) return null;
+                if (!isFinite(zNew) || Math.abs(zNew) > BRUTUS_LIMITS.monteCarlo.polishZeroMax) return null;
                 out.zero_correction = zNew;
             } else {
                 out.zero_correction = z;

@@ -390,14 +390,14 @@ class WebGPUEngine {
     // How often to yield. Yielding on every chunk is wasteful when chunks are
     // short; ~16 ms is one display frame, which is as often as a repaint can
     // possibly matter.
-    static YIELD_INTERVAL_MS = 16;
+    static YIELD_INTERVAL_MS = BRUTUS_LIMITS.gpu.yieldIntervalMs;
 
     // How many chunk dispatches to queue before stalling for a counter readback.
     // Each sync point costs a full CPU<->GPU round trip (onSubmittedWorkDone +
     // mapAsync), which used to be paid once per chunk. Larger values amortise
     // that further but delay the max_solutions early-out and coarsen the
     // candidate count in the status line; 8 keeps both within a frame or two.
-    static CHUNKS_PER_SYNC = 8;
+    static CHUNKS_PER_SYNC = BRUTUS_LIMITS.gpu.chunksPerSync;
 
     // === Unified Solver (replaces runOrthoSolver / runMonoclinicSolver / runTriclinicSolver) ===
     //
@@ -420,7 +420,7 @@ class WebGPUEngine {
             peakComboStride: 1,
             workgroupX: 8,
             workgroupY: 8,
-            maxThreadsPerDispatch: 500_000,
+            maxThreadsPerDispatch: BRUTUS_LIMITS.gpu.threadsPerDispatch,
             systemName: 'cubic',
             parseCell: (r, off) => ({ a: r[off+0], system: 'cubic' }),
         },
@@ -431,7 +431,7 @@ class WebGPUEngine {
             peakComboStride: 2,
             workgroupX: 8,
             workgroupY: 8,
-            maxThreadsPerDispatch: 500_000,
+            maxThreadsPerDispatch: BRUTUS_LIMITS.gpu.threadsPerDispatch,
             systemName: 'tetragonal',
             parseCell: (r, off) => ({ a: r[off+0], c: r[off+1], system: 'tetragonal' }),
         },
@@ -442,7 +442,7 @@ class WebGPUEngine {
             peakComboStride: 2,
             workgroupX: 8,
             workgroupY: 8,
-            maxThreadsPerDispatch: 500_000,
+            maxThreadsPerDispatch: BRUTUS_LIMITS.gpu.threadsPerDispatch,
             systemName: 'hexagonal',
             parseCell: (r, off) => ({ a: r[off+0], c: r[off+1], system: 'hexagonal' }),
         },
@@ -453,7 +453,7 @@ class WebGPUEngine {
             peakComboStride: 3,
             workgroupX: 8,
             workgroupY: 8,
-            maxThreadsPerDispatch: 500_000,
+            maxThreadsPerDispatch: BRUTUS_LIMITS.gpu.threadsPerDispatch,
             systemName: 'orthorhombic',
             parseCell: (r, off) => ({ a: r[off+0], b: r[off+1], c: r[off+2], system: 'orthorhombic' }),
         },
@@ -464,7 +464,7 @@ class WebGPUEngine {
             peakComboStride: 4,
             workgroupX: 8,
             workgroupY: 8,
-            maxThreadsPerDispatch: 500_000,
+            maxThreadsPerDispatch: BRUTUS_LIMITS.gpu.threadsPerDispatch,
             systemName: 'monoclinic',
             parseCell: (r, off) => ({ a: r[off+0], b: r[off+1], c: r[off+2], beta: r[off+3], system: 'monoclinic' }),
         },
@@ -475,7 +475,7 @@ class WebGPUEngine {
             peakComboStride: 6,
             workgroupX: 8,                  // Must match triclinic_solver.wgsl @workgroup_size.
             workgroupY: 8,                  // Was 4 x 4 = 16 lanes: half/quarter of each SIMD group idle.
-            maxThreadsPerDispatch: 50_000,  // Triclinic: TDR protection
+            maxThreadsPerDispatch: BRUTUS_LIMITS.gpu.triclinicThreadsPerDispatch,  // Triclinic: TDR protection
             systemName: 'triclinic',
             parseCell: (r, off) => ({
                 a: r[off+0], b: r[off+1], c: r[off+2],
@@ -563,7 +563,7 @@ class WebGPUEngine {
         const binomialData = this.generateBinomialTable(n_search, K_VALUE);
         const totalHklCombos = binomialData[n_search * (K_VALUE + 1) + K_VALUE];
 
-        const maxSolutions = baseParams.max_solutions || 20000;
+        const maxSolutions = baseParams.max_solutions || BRUTUS_LIMITS.gpu.defaultCandidates;
         const solutionStructSize = cfg.structFloats * 4; // bytes per cell
         const resultsBytes = maxSolutions * solutionStructSize;
         const devLimits = this.device.limits || {};
@@ -579,7 +579,7 @@ class WebGPUEngine {
         const numPeakCombos = peakCombos.length / cfg.peakComboStride;
         const maxHklPerDispatch = Math.floor(cfg.maxThreadsPerDispatch / Math.max(1, numPeakCombos));
         let safeWorkgroupsY = Math.ceil(maxHklPerDispatch / cfg.workgroupY);
-        safeWorkgroupsY = Math.max(1, Math.min(safeWorkgroupsY, 16383));
+        safeWorkgroupsY = Math.max(1, Math.min(safeWorkgroupsY, BRUTUS_LIMITS.gpu.workgroupsYCap));
         const hklsPerChunk = safeWorkgroupsY * cfg.workgroupY;
         // Clamp X against the device's per-dimension dispatch limit. Y is
         // already clamped to 16383 above; X never was, and it grows as
@@ -590,7 +590,7 @@ class WebGPUEngine {
         // Throwing (rather than clamping) is deliberate: a clamped X would
         // silently drop peak combinations from the search.
         const maxWgPerDim = (this.device.limits &&
-                             this.device.limits.maxComputeWorkgroupsPerDimension) || 65535;
+                             this.device.limits.maxComputeWorkgroupsPerDimension) || BRUTUS_LIMITS.gpu.defaultWorkgroupsPerDimension;
         const workgroupsX = Math.ceil(numPeakCombos / cfg.workgroupX);
         if (workgroupsX > maxWgPerDim) {
             throw new Error(
@@ -615,23 +615,22 @@ class WebGPUEngine {
                 });
             } catch (_) {}
         }
-        if (totalChunks > 200000) {
+        if (totalChunks > BRUTUS_LIMITS.gpu.chunkLog) {
             console.warn(
                 `[WebGPUEngine] ${cfg.systemName}: ${totalChunks.toLocaleString()} dispatches ` +
                 `(${hklsPerChunk} hkl/chunk x ${numPeakCombos} peak combos). This will be very slow. ` +
                 `Reduce "Peaks to Combine" or "HKL Basis Size".`);
         }
 
-        // 64, not 48: Config gained a fourth vec4<f32> holding the physical
-        // limits (min_axis, max_axis, min_volume) that extractCell* used to
-        // hard-code while the app kept its own copy of the same numbers.
-        const configBufferSize = 64;
+        // Five vec4s: two integer groups, search parameters, physical lengths
+        // and volume, then angle bounds. This layout matches every WGSL Config.
+        const configBufferSize = 80;
         const configData = new ArrayBuffer(configBufferSize);
         const configViewU32 = new Uint32Array(configData);
         const configViewF32 = new Float32Array(configData);
 
-        const userPeaksSetting = baseParams.gpu_peaks_count || 7;
-        const targetFomCount = Math.max(10, userPeaksSetting);
+        const userPeaksSetting = baseParams.gpu_peaks_count || BRUTUS_LIMITS.search.defaultGpuFomPeaks;
+        const targetFomCount = Math.max(BRUTUS_LIMITS.search.minGpuFomPeaks, userPeaksSetting);
         const finalFomCount = Math.min(qObsArray.length, targetFomCount);
 
         configViewU32[0] = 0;                                   // z_offset (overwritten per chunk)
@@ -654,13 +653,13 @@ class WebGPUEngine {
         // f_params2: physical limits, previously hard-coded inside every shader.
         // Defaults reproduce the old literals exactly, so behaviour is unchanged
         // unless the caller deliberately overrides them.
-        const minAxis   = Number.isFinite(baseParams.min_axis)   ? baseParams.min_axis   : 2.0;
-        const maxAxis   = Number.isFinite(baseParams.max_axis)   ? baseParams.max_axis   : 50.0;
-        const minVolume = Number.isFinite(baseParams.min_volume) ? baseParams.min_volume : 20.0;
+        const { minAxis, maxAxis, minVolume } = getPhysicalLimits(baseParams);
         configViewF32[12] = minAxis;
         configViewF32[13] = maxAxis;
         configViewF32[14] = minVolume;
-        configViewF32[15] = 0;
+        configViewF32[15] = BRUTUS_LIMITS.physical.maxMonoclinicBeta;
+        configViewF32[16] = BRUTUS_LIMITS.physical.gpuMinTriclinicAngle;
+        configViewF32[17] = BRUTUS_LIMITS.physical.gpuMaxTriclinicAngle;
 
         let solutionsReadCount = 0;
         let stoppedEarly = false;
@@ -761,21 +760,9 @@ class WebGPUEngine {
 
                 configViewU32[0] = i * hklsPerChunk;
                 dispatchedEnd = Math.min(totalHklCombos, (i + 1) * hklsPerChunk);
-                // Write the WHOLE 64-byte struct, even though only z_offset (the
-                // first u32) changes from chunk to chunk.
-                //
-                // Trimming this to a 4-byte partial write is the obvious
-                // micro-optimisation and it MEASURED SLOWER: triclinic went from
-                // ~1.2 s to ~1.6 s, which at ~2,000 chunks is ~0.2 ms of extra
-                // stall per dispatch. The likely reason is that a full-extent
-                // write can be serviced by renaming/discarding the buffer's
-                // backing allocation, so consecutive chunks do not serialise on
-                // it, whereas a partial write has to PRESERVE the other 60 bytes
-                // and therefore takes a real read-modify-write dependency on the
-                // uniform the previous dispatch is still reading. 60 bytes of
-                // redundant upload is far cheaper than a per-chunk barrier.
-                //
-                // Do not "optimise" this again without timing it.
+                // Upload the complete uniform. Full writes let the driver
+                // replace its backing allocation; a partial write may have to
+                // wait for the preceding dispatch to release the same buffer.
                 this.device.queue.writeBuffer(configBuffer, 0, configData);
 
                 const commandEncoder = this.device.createCommandEncoder();

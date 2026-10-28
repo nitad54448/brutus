@@ -14,7 +14,7 @@
 // identically in every combination - only the tick formatter converts back
 // to real units. Nothing downstream of the plot ever sees a transformed
 // value, so indexing, refinement and the report are untouched by the view.
-const LOG_FLOOR = 0.1;                 // counts: keeps log10 finite at zero
+const LOG_FLOOR = BRUTUS_LIMITS.peak.logIntensityFloor;                 // counts: keeps log10 finite at zero
 const DEG_PER_RAD = 180 / Math.PI;
 const getLambda = () => getWavelength();
 const AXIS_X = {

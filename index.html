@@ -14,6 +14,7 @@
     <!-- Crystallography: the same files run in both workers, which load them
          through js/crystallography/manifest.js. Keep the two lists in step
          (check_load_order.mjs compares them). -->
+    <script type="application/x-brutus" src="js/crystallography/limits.js"></script>
     <script type="application/x-brutus" src="js/crystallography/metric.js"></script>
     <script type="application/x-brutus" src="js/crystallography/hkl.js"></script>
     <script type="application/x-brutus" src="js/crystallography/cell.js"></script>
@@ -251,7 +252,7 @@
 </div>
 <div>
     <label for="wavelength" class="control-label">Wavelength (Å)</label>
-    <input type="number" id="wavelength" value="1.54184" step="0.00001" min="0.1" class="control-input">
+    <input type="number" id="wavelength" class="control-input">
 </div>
     </div>
     
@@ -266,18 +267,18 @@
     <div class="parameter-grid">
         <div>
             <label for="max-volume" class="control-label">Max Volume (Å³)</label>
-            <input type="number" id="max-volume" value="2000" step="100" min="25" max="12500" class="control-input">
+            <input type="number" id="max-volume" class="control-input">
         </div>
         <div>
             <label for="impurity-peaks" class="control-label">Impurity Peaks</label>
-            <input type="number" id="impurity-peaks" value="1" min="0" max="3" step="1" class="control-input">
+            <input type="number" id="impurity-peaks" class="control-input">
         </div>
     </div>
 
     <div class="parameter-grid" style="margin-top: 1rem; align-items: end;">
         <div>
             <label for="tth-error" class="control-label">2θ Error (°)</label>
-            <input type="number" id="tth-error" value="0.04" step="0.002" min="0.0001" class="control-input">
+            <input type="number" id="tth-error" class="control-input">
         </div>
         <label class="checkbox-label" style="padding-bottom: 0.5rem;">
             <input type="checkbox" id="refine-zero-checkbox" checked>
@@ -297,7 +298,7 @@
                             <div class="slider-group">
                                 <label for="peak-threshold-slider" class="control-label">Min peak (%)</label>
                                 <div class="slider-value-track">
-                                    <input type="range" id="peak-threshold-slider" class="custom-slider" min="0" max="100" value="56">
+                                    <input type="range" id="peak-threshold-slider" class="custom-slider">
                                     <span id="peak-threshold-value" class="slider-value-display">2.0</span>
                                 </div>
                             </div>
@@ -305,7 +306,7 @@
                             <div class="slider-group">
                                 <label for="peak-prominence-slider" class="control-label" title="Rejects a maximum unless the valley beside it drops by at least this fraction of its own height. A fully resolved peak scores near 100%, an unresolved shoulder about 50%, a noise spike on a flank about 25%. Unlike a minimum-separation rule this keeps genuinely resolved close reflections. 0 disables the test.">Prom. (%)</label>
                                 <div class="slider-value-track">
-                                    <input type="range" id="peak-prominence-slider" class="custom-slider" min="0" max="90" value="25" step="5">
+                                    <input type="range" id="peak-prominence-slider" class="custom-slider">
                                     <span id="peak-prominence-value" class="slider-value-display">25</span>
                                 </div>
                             </div>
@@ -313,7 +314,7 @@
                             <div class="slider-group">
                                 <label for="ball-radius-slider" class="control-label" title="Rolling-ball background window, expressed in reciprocal space (Q = 4&#960;sin&#952;/&#955;). Independent of the scan step, so the same value gives the same background on data measured at any resolution.">Radius (&#197;&#8315;&#185;)</label>
                                 <div class="slider-value-track">
-                                    <input type="range" id="ball-radius-slider" class="custom-slider" min="0.005" max="0.300" value="0.100" step="0.005">
+                                    <input type="range" id="ball-radius-slider" class="custom-slider">
                                     <span id="ball-radius-value" class="slider-value-display">0.100</span>
                                 </div>
                             </div>
@@ -321,7 +322,7 @@
                             <div class="slider-group">
                                 <label for="smoothing-width-slider" class="control-label" title="Moving-average half-width applied before the rolling-ball erosion, in reciprocal space (Q = 4&#960;sin&#952;/&#955;). Same units as Radius, so the two are directly comparable: keep this well below Radius or the smoothing erodes the peaks. 0 disables smoothing.">Smooth. (&#197;&#8315;&#185;)</label>
                                 <div class="slider-value-track">
-                                    <input type="range" id="smoothing-width-slider" class="custom-slider" min="0" max="0.060" value="0.010" step="0.002">
+                                    <input type="range" id="smoothing-width-slider" class="custom-slider">
                                     <span id="smoothing-width-value" class="slider-value-display">0.010</span>
                                 </div>
                             </div>
@@ -366,21 +367,21 @@
                      at 5, cubic uses 5%, hexagonal 10%, orthorhombic 15%,
                      monoclinic 20%, triclinic 30%. -->
                 <label for="gpu-hkl-percent" class="control-label" title="HKL basis searched, in percent of each system's maximum, per unknown cell parameter. The search basis is (number of unknowns) x this value %: at 5, tetragonal/hexagonal 10%, orthorhombic 15%, monoclinic 20%, triclinic 30%. Cubic always searches its whole list (752 hkl), which costs next to nothing. Typical range 2 to 12.">HKL Basis (% / unknown)</label>
-                <input type="number" id="gpu-hkl-percent" value="5" min="1" max="16" step="0.5" class="control-input">
+                <input type="number" id="gpu-hkl-percent" class="control-input">
             </div>
             <div>
                 <label for="gpu-depth" class="control-label" title="Peaks combined per system. Orthorhombic, monoclinic, triclinic: number of unknowns + Depth (Depth 3: 6, 7, 9). Cubic, hexagonal, tetragonal: 3 x (unknowns + Depth), cheap with 1-2 unknowns (Depth 3: 12 and 15). Capped by the number of peaks available.">Depth (extra peaks)</label>
-                <input type="number" id="gpu-depth" value="3" min="0" max="12" step="1" class="control-input">
+                <input type="number" id="gpu-depth" class="control-input">
             </div>
         </div>
         <div class="parameter-grid" style="margin-top: 0.75rem;">
             <div>
                 <label for="gpu-fom-threshold" class="control-label">FoM Tolerance</label>
-                <input type="number" id="gpu-fom-threshold" value="1.25" min="0.10" max="5.0" step="0.1" class="control-input">
+                <input type="number" id="gpu-fom-threshold" class="control-input">
             </div>
             <div>
                 <label for="gpu-buffer-size" class="control-label">Candidates (kCells)</label>
-                <input type="number" id="gpu-buffer-size" value="100" min="1" max="500" step="1" class="control-input">
+                <input type="number" id="gpu-buffer-size" class="control-input">
             </div>
         </div>
         <!-- Per-system plan, filled by updateGpuStatusText() -->
@@ -525,14 +526,14 @@
        The result is added as a new solution only if it improves M20.</p>
     <div id="mc-params">
       <label for="mc-iterations">Iterations
-        <span class="mc-hint">annealing steps per run; below ~200 the walk has not cooled</span>
+        <span class="mc-hint">annealing steps per run; the minimum gives the walk time to cool</span>
       </label>
-      <input id="mc-iterations" type="number" min="50" max="20000" step="50" value="1000">
+      <input id="mc-iterations" type="number">
 
       <label for="mc-restarts">Restarts
         <span class="mc-hint">independent runs; more restarts = less seed dependence</span>
       </label>
-      <input id="mc-restarts" type="number" min="1" max="20" step="1" value="8">
+      <input id="mc-restarts" type="number">
     </div>
     <div id="mc-msg"></div>
     <div id="mc-buttons">
@@ -565,15 +566,15 @@
     <div id="sg-params">
       <label for="sg-iterations">Iterations
         <span class="sg-hint">annealing steps per run</span>
-        <input id="sg-iterations" type="number" min="50" max="20000" step="50" value="600">
+        <input id="sg-iterations" type="number">
       </label>
       <label for="sg-restarts">Restarts
         <span class="sg-hint">independent runs per class</span>
-        <input id="sg-restarts" type="number" min="1" max="20" step="1" value="4">
+        <input id="sg-restarts" type="number">
       </label>
       <label for="sg-top">Refine top classes
         <span class="sg-hint">centering, unrestricted and the cleanest class are included</span>
-        <input id="sg-top" type="number" min="1" max="50" step="1" value="8">
+        <input id="sg-top" type="number">
       </label>
     </div>
     <div id="sg-table-wrap">

@@ -9,7 +9,7 @@
 // observed peaks, which is conservative (it can only shrink the range in which
 // the extinction test counts verified absences).
 function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, wavelength, tthError, tthMax, impurity_peaks, tthMin) {
-    const MAX_VIOLATIONS = 2;
+    const MAX_VIOLATIONS = BRUTUS_LIMITS.absences.maxViolations;
     const fallbackResult = {
         centering: 'Unknown',
         rankedSpaceGroups: [],
@@ -56,8 +56,8 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
     // artefact than a genuine reflection contradicting the space group.
     // The baseline must be LOCAL in 2theta, not a fraction of the global
     // maximum.
-    const LOW_INTENSITY_FRACTION = 0.05;
-    const LOCAL_WINDOW_DEG = 15.0;
+    const LOW_INTENSITY_FRACTION = BRUTUS_LIMITS.absences.lowIntensityFraction;
+    const LOCAL_WINDOW_DEG = BRUTUS_LIMITS.absences.localWindowDeg;
 
     const heightedPeaks = obs_peaks.filter(p => typeof p.height === 'number' && isFinite(p.height));
     let globalMaxHeight = 0;
@@ -154,7 +154,7 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
         ((a.hardViolations || 0) - (b.hardViolations || 0)) ||
         ((b.number || 0) - (a.number || 0)) ||
         String(a.symbol || '').localeCompare(String(b.symbol || '')));
-    const SG_LIST_CAP = 40, SG_LIST_CEILING = 150;
+    const SG_LIST_CAP = BRUTUS_LIMITS.absences.listCap, SG_LIST_CEILING = BRUTUS_LIMITS.absences.listCeiling;
     const nClean = compatibleSorted.filter(s => !(s.hardViolations > 0)).length;
     const compatibleSettings = compatibleSorted.slice(0, Math.min(SG_LIST_CEILING, Math.max(SG_LIST_CAP, nClean)));
 
@@ -175,4 +175,4 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
 }
 // How much worse than the assigned reflection an allowed alternative may fit
 // and still count as a genuine competitor.
-const AMBIGUITY_MARGIN = 2.0;
+const AMBIGUITY_MARGIN = BRUTUS_LIMITS.absences.ambiguityMargin;

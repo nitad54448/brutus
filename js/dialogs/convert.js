@@ -28,7 +28,7 @@ const convertCell = (sol) => ({ a: sol.a, b: sol.b ?? sol.a, c: sol.c ?? sol.a, 
     gamma: sol.gamma ?? (sol.system === 'hexagonal' ? 120 : 90) });
 // The crystal system a cell has, to a tolerance: a converted cell carries no label of its own.
 const convertClassify = (c) => {
-    const L = (x, y) => Math.abs(x - y) / Math.max(x, y) < 0.004, A = (x, y) => Math.abs(x - y) < 0.12;
+    const L = (x, y) => Math.abs(x - y) / Math.max(x, y) < BRUTUS_LIMITS.conversion.axisRelativeTolerance, A = (x, y) => Math.abs(x - y) < BRUTUS_LIMITS.conversion.angleToleranceDeg;
     const r90 = [c.alpha, c.beta, c.gamma].map(v => A(v, 90));
     if (L(c.a, c.b) && L(c.b, c.c) && r90.every(Boolean)) return 'cubic';
     if (L(c.a, c.b) && r90.every(Boolean)) return 'tetragonal';
@@ -54,7 +54,7 @@ const convertMatrixList = (extra) => {
     const key = JSON.stringify(extra);
     if (convertMatrixCache.has(key)) return convertMatrixCache.get(key);
     const U = SGConvert.candidates(), list = U.slice();
-    for (const K of extra) for (const u of U.slice(0, 600)) list.push(SGConvert.mul3(u, K));
+    for (const K of extra) for (const u of U.slice(0, BRUTUS_LIMITS.conversion.matrixCandidates)) list.push(SGConvert.mul3(u, K));
     convertMatrixCache.set(key, list);
     return list;
 };
@@ -168,7 +168,7 @@ async function convertSubgroups(token, from, fromOps, cell) {
                 break;
             }
             await convertYield();
-            if (performance.now() - t0 > 30000) { status.textContent = 'Naming stopped after 30 s; the remaining subgroups are listed without a name.'; convertMerge(); convertRender(); return; }
+            if (performance.now() - t0 > BRUTUS_LIMITS.conversion.namingTimeMs) { status.textContent = `Naming stopped after ${BRUTUS_LIMITS.conversion.namingTimeMs / 1000} s; the remaining subgroups are listed without a name.`; convertMerge(); convertRender(); return; }
         }
         convertRender();
     }
@@ -185,7 +185,7 @@ async function convertOther(token, from, fromOps, cell) {
     await convertYield();
     if (token !== convertState.token) return;
     const found = SGConvert.findTransforms(fromOps, convertSettingOps(to.setting), cell,
-        { matrices: convertMatrixList(convertCentringMatrices()), limit: 8, maxMisfit: Infinity });
+        { matrices: convertMatrixList(convertCentringMatrices()), limit: BRUTUS_LIMITS.conversion.resultLimit, maxMisfit: Infinity });
     if (token !== convertState.token) return;
     convertState.rows = found.map(f => ({ relation: f.relation, P: f.P, p: f.p, basis: `${SGConvert.formatBasis(f.P)}; origin ${SGConvert.formatShift(f.p)}`,
         cell: SGConvert.transformCell(cell, f.P), name: `${to.group.number} ${to.setting.hm || to.setting.symbol}`, entry: to }));

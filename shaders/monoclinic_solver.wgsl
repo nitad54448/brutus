@@ -80,7 +80,8 @@ struct Config {
     // These were hard-coded as 2.0 / 50.0 / 20.0 in extractCell*, in all three
     // shaders, while the JS app kept its own copy of the same three numbers.
     // Two sources for one limit is how limits drift apart.
-    f_params2: vec4<f32>  // Indices 12-15
+    f_params2: vec4<f32>, // Indices 12-15: min/max axis, min volume, max monoclinic beta
+    f_params3: vec4<f32>  // Indices 16-19: min/max triclinic angle, reserved, reserved
 };
 
 
@@ -222,7 +223,7 @@ fn extractCell(params: Vec4) -> RawMonoSolution {
 
     var beta_calc = acos(cosBeta_calc) * DEG;
     if (beta_calc < 90.0) { beta_calc = 180.0 - beta_calc; }
-    if (beta_calc > 150.0) { return RawMonoSolution(0.0, 0.0, 0.0, 0.0); }
+    if (beta_calc > config.f_params2.w) { return RawMonoSolution(0.0, 0.0, 0.0, 0.0); }
 
     let sinBetaSq = 1.0 - cosBeta_calc * cosBeta_calc; 
     if (sinBetaSq <= 1e-6) { return RawMonoSolution(0.0, 0.0, 0.0, 0.0); }

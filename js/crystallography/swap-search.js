@@ -30,21 +30,7 @@
 // is no longer true, which is why the refit is the discriminator.
 // ============================================================================
 
-const SWAP_CFG = {
-    MAX_PEAKS:  1e9,   // how many low-angle peaks may be relabelled (no cap)
-    ALT_WINDOW: 2.5,   // candidate window, in units of the user's q tolerance
-    MAX_ALT:    4,     // distinct labels kept per peak (after row dedup)
-    MAX_FREE:   8,     // peaks allowed to vary simultaneously (product dims)
-    MAX_FITS:   150,   // stage-1 cheap LS fits per ROUND (rounds do the depth)
-    MAX_EVALS:  16,    // stage-2 full M20 evaluations per parent solution
-    MAX_POST:   3,     // best N of those actually posted to the UI
-    KEEP_RATIO: 1.0,   // post only if m20 >= KEEP_RATIO * parent m20
-    LOSE_SLACK: 1,     // a child may index at most this many fewer lines overall
-    ROUNDS:     4,     // re-centre and search again on the improved cell
-    ROUND_GAIN: 1.02,  // M20 gain needed to justify another round
-    TOP_N:      40,    // only the best N parents get a swap search at all
-    DEBUG:      false,
-};
+const SWAP_CFG = BRUTUS_LIMITS.swap;
 class _SwapHeap {
     constructor() { this.a = []; }
     get size() { return this.a.length; }
@@ -112,9 +98,8 @@ function _swapCheapFit(labels, ctx) {
     if (refineZero) cell.zero_correction = fit.solution[fit.solution.length - 1] * DEG;
     else if (ctx.z) cell.zero_correction = ctx.z;
 
-    const V = getVolume(cell);
-    if (!(V >= 20) || !(V <= maxVolume) || !isFinite(V)) return null;
-    cell.volume = V;
+    if (!cellWithinPhysicalLimits(cell, ctx.data, maxVolume)) return null;
+    cell.volume = getVolume(cell);
     cell.nPaired = M.length;
 
     cell._resid = isFinite(fit.wrms) ? fit.wrms : Infinity;
@@ -169,7 +154,7 @@ function _swapRound(sol, data, state, cfg) {
     } = state;
 
     const system = sol && sol.system;
-    const MIN_INDEXED = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7, triclinic: 7 }[system];
+    const MIN_INDEXED = BRUTUS_LIMITS.search.minIndexed[system];
     if (!MIN_INDEXED) return [];
 
     const nAll = peaks_sorted_by_q.length;
@@ -283,7 +268,7 @@ function _swapRound(sol, data, state, cfg) {
         fits++;
         const cell = _swapCheapFit(labels, {
             lines, system, refineZero, rhs, wts, zcol, nAll, need,
-            maxVolume: max_volume, z, qc, qL, lattice: sol.lattice,
+            maxVolume: max_volume, data, z, qc, qL, lattice: sol.lattice,
         });
         if (!cell) continue;
 

@@ -34,16 +34,12 @@ const getExportPattern = () => {
     if (tth.length === 0) return null;
     return { tth, intensity };
 };
-// Wavelength currently in effect (for formats that store it).
-const getExportWavelength = () => {
-    return getWavelength();
-};
 // Radiation to record in exported files. An average preset with no
 // stripping means the exported pattern still holds the Kα doublet, so the
 // file says so (both lines and their ratio); otherwise it is monochromatic
 // at the current wavelength. Re-importing then restores the same preset.
 const getExportRadiation = () => {
-    const lambda = getExportWavelength();
+    const lambda = getWavelength();
     const [element, type] = String(ui.wavelengthPreset ? ui.wavelengthPreset.value : 'custom').split('_');
     const p = WAVELENGTH_PRESETS[element];
     const stripped = !!(ui.stripKa2Checkbox && ui.stripKa2Checkbox.checked);
@@ -53,11 +49,20 @@ const getExportRadiation = () => {
     return { doublet: false, lambda };
 };
 const num = (v, dp = 6) => Number(v).toFixed(dp);
+const patternStepIsIrregular = (pattern = getExportPattern()) => {
+    const t = pattern && pattern.tth;
+    if (!t || t.length < 3) return false;
+    const step = (t[t.length - 1] - t[0]) / (t.length - 1);
+    return t.some((value, i) => Math.abs(value - (t[0] + i * step)) > BRUTUS_LIMITS.exportUniformGridToleranceDeg);
+};
 const buildExportContent = (fmt, pattern) => {
     const { tth, intensity } = pattern;
     const n = tth.length;
-    const lambda = getExportWavelength();
+    const lambda = getWavelength();
     const step = n > 1 ? (tth[n - 1] - tth[0]) / (n - 1) : 0;
+    const irregular = patternStepIsIrregular(pattern);
+    if (fmt === 'brukerxml' && irregular)
+        throw new Error('Bruker XML export requires evenly spaced angles. Choose XY, CSV, UXD, XRDML or GSAS to preserve this scan.');
     let out = [];
 
     switch (fmt) {
@@ -82,26 +87,27 @@ const buildExportContent = (fmt, pattern) => {
             } else {
                 out.push(`_WL1=${num(lambda, 6)}`);
             }
-            out.push(`_START=${num(tth[0], 6)}`);
-            out.push(`_STEPSIZE=${num(step, 6)}`);
             out.push('_STEPCOUNT=' + n);
-            out.push('_COUNTS');
-            // 5 values per line, matching common UXD style
-            for (let i = 0; i < n; i += 5) {
-                out.push(intensity.slice(i, i + 5).map(v => num(v, 3)).join(' '));
-            }
+            out.push('_2THETACOUNTS');
+            for (let i = 0; i < n; i++) out.push(`${tth[i]} ${intensity[i]}`);
             return { text: out.join('\n') + '\n', ext: 'uxd', mime: 'text/plain' };
         }
         case 'gsas': {
+            if (irregular) {
+                out.push('Exported by Brutus');
+                out.push(`BANK 1 ${n} ${n} CONST ${tth[0] * 100} ${step * 100} 0 0 FXYE`);
+                for (let i = 0; i < n; i++)
+                    out.push(`${tth[i] * 100} ${intensity[i]} ${Math.sqrt(Math.max(1, intensity[i]))}`);
+                return { text: out.join('\n') + '\n', ext: 'esd', mime: 'text/plain' };
+            }
             // GSAS ESD: title, BANK line, then five (Y, sigma) pairs per
             // record in 10F8.x fields -- intensity FIRST, which is how GSAS,
             // GSAS-II and FullProf read it. This used to write (sigma, Y) in
             // 12-character fields to suit this app's old reader, so every
             // other program took the sigma column for the pattern.
             //
-            // CONST start/step are centidegrees, now with 6 decimals: with
-            // toFixed(2) a 0.0131303 deg step became 0.0131 deg, a 2-theta
-            // drift of ~0.1 deg over a few thousand points.
+            // CONST start/step are centidegrees. Retain full precision:
+            // rounding a step accumulates an angle error across the scan.
             const f8 = (v) => {                   // right-justified 8-char field
                 if (!Number.isFinite(v)) v = 0;
                 for (const dp of [2, 1]) {
@@ -123,16 +129,15 @@ const buildExportContent = (fmt, pattern) => {
             if (buf.length) dataLines.push(buf);
             const lines = [
                 'Exported by Brutus'.padEnd(80),
-                `BANK 1 ${n} ${dataLines.length} CONST ${(tth[0] * 100).toFixed(6)} ` +
-                    `${(step * 100).toFixed(6)} 0 0 ESD`,
+                `BANK 1 ${n} ${dataLines.length} CONST ${tth[0] * 100} ` +
+                    `${step * 100} 0 0 ESD`,
                 ...dataLines,
             ];
             return { text: lines.join('\n') + '\n', ext: 'esd', mime: 'text/plain' };
         }
         case 'xrdml': {
             const positions = `        <positions axis="2Theta" unit="deg">\n` +
-                `          <startPosition>${num(tth[0], 6)}</startPosition>\n` +
-                `          <endPosition>${num(tth[n - 1], 6)}</endPosition>\n` +
+                `          <listPositions>${tth.join(' ')}</listPositions>\n` +
                 `        </positions>`;
             const counts = intensity.map(v => Math.round(v)).join(' ');
             const rad = getExportRadiation();
@@ -163,6 +168,10 @@ ${positions}
         }
         case 'brukerxml': {
             const counts = intensity.map(v => Math.round(v)).join(' ');
+            const rad = getExportRadiation();
+            const wavelengthAttributes = rad.doublet
+                ? `kAlpha1="${num(rad.ka1, 6)}" kAlpha2="${num(rad.ka2, 6)}" ratioKAlpha2KAlpha1="${num(rad.ratio, 4)}"`
+                : `kAlpha1="${num(lambda, 6)}"`;
             const xml =
 `<?xml version="1.0" encoding="utf-8"?>
 <RawDataFile>
@@ -171,14 +180,12 @@ ${positions}
       <ScanInformation>
         <ScanAxes>
           <ScanAxisInfo AxisName="TwoTheta">
-            <Start axis="TwoTheta">${num(tth[0], 6)}</Start>
-            <startPosition axis="TwoTheta">${num(tth[0], 6)}</startPosition>
-            <increment axis="TwoTheta">${num(step, 6)}</increment>
+            <Start axis="TwoTheta">${tth[0]}</Start>
+            <startPosition axis="TwoTheta">${tth[0]}</startPosition>
+            <increment axis="TwoTheta">${step}</increment>
           </ScanAxisInfo>
         </ScanAxes>
-        <usedWavelength ${(() => { const rad = getExportRadiation(); return rad.doublet
-            ? `kAlpha1="${num(rad.ka1, 6)}" kAlpha2="${num(rad.ka2, 6)}" ratioKAlpha2KAlpha1="${num(rad.ratio, 4)}"`
-            : `kAlpha1="${num(lambda, 6)}"`; })()} />
+        <usedWavelength ${wavelengthAttributes} />
       </ScanInformation>
       <Datum>
         <dataPoints>
@@ -211,31 +218,16 @@ const triggerDownload = (text, filename, mime) => {
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
-// Formats that do not store an explicit per-point 2θ column, so they must
-// assume a constant step and/or embed a single wavelength. We warn the user
-// what metadata is being written into these on their behalf.
+// Export capabilities shown in the save dialog. Bruker XML currently uses
+// start/step metadata; the other formats retain explicit irregular positions.
 const SAVE_FORMAT_META = {
-    xrdml:     { wavelength: true,  constStep: true,  label: 'XRDML' },
+    xrdml:     { wavelength: true,  constStep: false, label: 'XRDML' },
     brukerxml: { wavelength: true,  constStep: true,  label: 'Bruker XML' },
-    uxd:       { wavelength: true,  constStep: true,  label: 'UXD' },
-    gsas:      { wavelength: false, constStep: true,  label: 'GSAS ESD' },
+    uxd:       { wavelength: true,  constStep: false, label: 'UXD' },
+    gsas:      { wavelength: false, constStep: false, label: 'GSAS' },
     xy:        { wavelength: false, constStep: false, label: 'XY' },
     csv:       { wavelength: false, constStep: false, label: 'CSV' },
     dat:       { wavelength: false, constStep: false, label: 'DAT' }
-};
-// True when the exported (currently visible) 2θ grid is not evenly spaced.
-// Constant-step formats would silently resample such data onto a regular grid.
-const patternStepIsIrregular = () => {
-    const p = getExportPattern();
-    const t = p ? p.tth : null;
-    if (!t || t.length < 3) return false;
-    const step = (t[t.length - 1] - t[0]) / (t.length - 1);
-    if (!(Math.abs(step) > 0)) return false;
-    const tol = Math.abs(step) * 0.02; // 2% of the nominal step
-    for (let i = 1; i < t.length; i++) {
-        if (Math.abs((t[i] - t[i - 1]) - step) > tol) return true;
-    }
-    return false;
 };
 const updateSaveInfo = () => {
     const fmt = ui.saveFormatSelect.value;
@@ -261,12 +253,12 @@ const updateSaveInfo = () => {
         }
     }
     if (meta.wavelength) {
-        const w = getExportWavelength();
+        const w = getWavelength();
         notes.push(`${meta.label} stores a wavelength — the value from the wavelength box (${w.toFixed(5)} Å) will be written.`);
     }
-    if (meta.constStep && patternStepIsIrregular()) {
-        notes.push(`${meta.label} assumes a constant 2θ step; this scan is not evenly spaced, so intensities will be written against a uniform start/step and positions may shift slightly.`);
-    }
+    const incompatible = meta.constStep && patternStepIsIrregular(p);
+    if (incompatible) notes.push(`${meta.label} requires evenly spaced angles. Choose XY, CSV, UXD, XRDML or GSAS to preserve this scan.`);
+    ui.saveMenuConfirm.disabled = !!incompatible;
     ui.saveMenuMsg.innerHTML = notes.length ? 'Info: ' + notes.join('<br>Info: ') : '';
 };
 let saveMenuReturnFocus = null;
@@ -327,17 +319,17 @@ const doSave = async () => {
     const pattern = getExportPattern();
     if (!pattern) { showStatus('No data to save.', 'error'); return; }
 
-    const fmt = ui.saveFormatSelect.value;
-    const { text, ext, mime } = buildExportContent(fmt, pattern);
-    const suggestedName = `${baseNameNoExt(loadedFileName) || 'pattern'}.${ext}`;
-
     ui.saveMenuConfirm.disabled = true;
-    const savedName = await saveTextToFile(text, suggestedName, ext, mime);
-    ui.saveMenuConfirm.disabled = false;
-
-    if (savedName === null) return; // user cancelled the native dialog
-    closeSaveMenu();
-    showStatus(`Saved ${savedName} (${pattern.tth.length} points).`, 'info', 4000);
+    try {
+        const { text, ext, mime } = buildExportContent(ui.saveFormatSelect.value, pattern);
+        const suggestedName = `${baseNameNoExt(loadedFileName) || 'pattern'}.${ext}`;
+        const savedName = await saveTextToFile(text, suggestedName, ext, mime);
+        if (savedName === null) return; // user cancelled the native dialog
+        closeSaveMenu();
+        showStatus(`Saved ${savedName} (${pattern.tth.length} points).`, 'info', 4000);
+    } catch (error) {
+        showStatus(`Could not export pattern: ${error.message}`, 'error');
+    } finally { updateSaveInfo(); }
 };
 if (ui.saveAsButton)      ui.saveAsButton.addEventListener('click', openSaveMenu);
 if (ui.saveFormatSelect)  ui.saveFormatSelect.addEventListener('change', updateSaveInfo);

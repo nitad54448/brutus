@@ -21,7 +21,7 @@ const extractCellFromFit = (params, system) => {
                 if (Math.abs(cosBeta_calc) >= 1) return null;
                 let beta_calc = Math.acos(cosBeta_calc) * DEG;
                 if (beta_calc < 90.0) beta_calc = 180.0 - beta_calc;
-                if (beta_calc < 90.0 || beta_calc > 150.0) return null;
+                if (beta_calc < 90.0 || beta_calc > BRUTUS_LIMITS.physical.maxMonoclinicBeta) return null;
                 cell.beta = beta_calc; const sinBetaSq = Math.sin(cell.beta * RAD)**2;
                 if (sinBetaSq <= 1e-6) return null;
                 cell.a = 1/Math.sqrt(A * sinBetaSq); cell.b = 1/Math.sqrt(B); cell.c = 1/Math.sqrt(C * sinBetaSq);
@@ -53,6 +53,18 @@ const getVolume = (cell) => {
         case 'triclinic':
         default: return getVolumeTriclinic(cell);
     }
+};
+// Apply the same bounds after every fit, not just to its starting candidate.
+const cellWithinPhysicalLimits = (cell, data = {}, maxVolume = data.max_volume) => {
+    if (!cell) return false;
+    const limits = getPhysicalLimits(data);
+    const axes = [cell.a, cell.b ?? cell.a, cell.c ?? cell.a];
+    const angles = [cell.alpha ?? 90, cell.beta ?? 90, cell.gamma ?? (cell.system === 'hexagonal' ? 120 : 90)];
+    if (axes.some(v => !Number.isFinite(v) || v < limits.minAxis || v > limits.maxAxis) ||
+        angles.some(v => !Number.isFinite(v) || v < limits.minAngle || v > limits.maxAngle)) return false;
+    const volume = getVolume(cell);
+    return Number.isFinite(volume) && volume >= limits.minVolume &&
+        (!Number.isFinite(maxVolume) || volume <= maxVolume);
 };
 const getCellGeometryKey = (cell) => {
     const P = 4;

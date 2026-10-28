@@ -14,7 +14,7 @@ document.getElementById('ctx-report').addEventListener('click', () => {
 });
 //main report function, on peut optimiser...
 // Above this many pages the user is asked before the report is saved.
-const REPORT_PAGE_WARN = 100;
+const REPORT_PAGE_WARN = BRUTUS_LIMITS.workspace.reportPageWarn;
 const generatePDFReport = async (singleSolution = null) => {
 const solutionsToReport = singleSolution ? [singleSolution] : displayedSolutions;    
 
@@ -429,8 +429,8 @@ try {
         // determination, and the report must not let the bold class name
         // above imply that it was.
         const marg = sol.sgMargin;
-        const decisiveNats = (typeof SG_DECISIVE_NATS === 'number') ? SG_DECISIVE_NATS : 2.3;
-        if (isFinite(marg)) {
+        const decisiveNats = BRUTUS_LIMITS.absences.decisiveNats;
+        if (Number.isFinite(marg)) {
             const odds = Math.exp(Math.min(30, marg));
             if (marg >= decisiveNats) {
                 wrap(`Margin: ${marg.toFixed(1)} nats ahead of the runner-up ` +
@@ -451,14 +451,14 @@ try {
         const ev = sol.sgEvidence;
         if (ev) {
             const bits = [];
-            if (isFinite(ev.clean) && isFinite(ev.informative)) {
+            if (Number.isFinite(ev.clean) && Number.isFinite(ev.informative)) {
                 bits.push(`${ev.clean}/${ev.informative} forbidden lines clean`);
             }
-            if (isFinite(ev.hardViolations)) {
+            if (Number.isFinite(ev.hardViolations)) {
                 bits.push(`${ev.hardViolations} hard violation(s)` +
                           (ev.softViolations ? ` (+${ev.softViolations} soft)` : ''));
             }
-            if (isFinite(ev.unindexed)) bits.push(`${ev.unindexed} unindexed peak(s)`);
+            if (Number.isFinite(ev.unindexed)) bits.push(`${ev.unindexed} unindexed peak(s)`);
             if (bits.length) wrap(`Evidence: ${bits.join(', ')}.`, margin + 5, SIZE.BODY);
 
             // How the number was arrived at matters as much as the number.
@@ -466,13 +466,13 @@ try {
             how.push(ev.wilson
                 ? 'absences weighted per reflection (Wilson |E|^2)'
                 : 'absences weighted uniformly (no intensity weighting)');
-            if (isFinite(ev.pHat)) how.push(`p(line observed) = ${(ev.pHat * 100).toFixed(0)}%`);
+            if (Number.isFinite(ev.pHat)) how.push(`p(line observed) = ${(ev.pHat * 100).toFixed(0)}%`);
             how.push(ev.mode === 'mc'
                 ? 'cell refined by Monte-Carlo under this hypothesis'
                 : 'cell refined by least squares only (stage 1; not directly comparable with fully refined classes)');
             wrap(`Method: ${how.join('; ')}.`, margin + 5, SIZE.SMALL, 'italic');
         }
-        if (isFinite(sol.sgScore)) {
+        if (Number.isFinite(sol.sgScore)) {
             wrap(`Log-odds score: ${sol.sgScore.toFixed(2)} nats (relative; only differences are meaningful).`,
                  margin + 5, SIZE.SMALL, 'italic');
         }
@@ -663,7 +663,7 @@ try {
 
             const symmetryOrder = { 'cubic': 6, 'hexagonal': 5, 'tetragonal': 4, 'orthorhombic': 3, 'monoclinic': 2, 'triclinic': 1 };
             const currentOrder = symmetryOrder[sol.system] || 1;
-            const niggliSym = getSymmetry(nCell.a, nCell.b, nCell.c, nCell.alpha, nCell.beta, nCell.gamma, 0.25);
+            const niggliSym = getSymmetry(nCell.a, nCell.b, nCell.c, nCell.alpha, nCell.beta, nCell.gamma, BRUTUS_LIMITS.symmetryTolerance);
             const detectedHigherSyms = [];
             
             if (symmetryOrder[niggliSym] > currentOrder) {
@@ -699,12 +699,12 @@ try {
                 
                 doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY);
                 doc.setTextColor(220, 38, 38); 
-                doc.text("HIGHER SYMMETRY DETECTED IN CONVENTIONAL CELL METRIC", margin, yPos);
+                doc.text("POSSIBLE HIGHER METRIC SYMMETRY", margin, yPos);
                 doc.setTextColor(0, 0, 0); 
                 yPos += 4.5;
                 
                 doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.SMALL);
-                doc.text(`This ${sol.system} cell reduces to a metric tensor consistent with higher symmetry:`, margin + 2, yPos);
+                doc.text(`Heuristic comparison: absolute tolerance ${BRUTUS_LIMITS.symmetryTolerance} A for lengths and degrees for angles.`, margin + 2, yPos);
                 yPos += 4;
                 
                 uniqSyms.forEach(sym => {
@@ -730,7 +730,7 @@ try {
                 });
                 
                 doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
-                doc.text("Note: Consider refining in the higher symmetry system to reduce degrees of freedom.", margin + 2, yPos);
+                doc.text("Test and refine these possibilities before assigning a higher symmetry.", margin + 2, yPos);
                 doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
                 yPos += 4;
             }
@@ -882,7 +882,7 @@ try {
                  // candidate" gets mistaken for "the correct group was ruled
                  // out".
                  const nTotal = sol.analysis.compatibleSettingsTotal;
-                 if (isFinite(nTotal) && nTotal > sgList.length) {
+                 if (Number.isFinite(nTotal) && nTotal > sgList.length) {
                      if (yPos > 280) { doc.addPage(); yPos = 20; }
                      doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
                      doc.text(`Showing ${sgList.length} of ${nTotal} compatible settings ` +

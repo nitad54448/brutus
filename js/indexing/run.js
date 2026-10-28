@@ -164,6 +164,20 @@ const mySessionToken = ++indexingRunToken;
 const runStopSignal = { stop: false };
 gpuStopSignal = runStopSignal;
 indexingFailures = [];
+// Clear provenance before the first await: device initialization itself can
+// be interrupted, and must never reuse the previous run's report totals.
+lastDurationStr = '';
+lastIndexingStats = '';
+lastRunTotals = null;
+lastGpuRunSettings = null;
+lastTruncatedSystems = [];
+lastSystemSearchStats = [];
+cumulativeTrials = 0;
+gpuTotalTrials = 0;
+taskProgress = [];
+taskTotals = [];
+gpuDiagnostics = [];
+cpuDiagnostics = [];
 let fitContext = null;
 const isCurrentRun = () => mySessionToken === indexingRunToken && !runStopSignal.stop;
 const failRun = message => recordIndexingFailure(message, mySessionToken);
@@ -206,13 +220,10 @@ const filteredPeaks = pickedPeaks.filter(
     p => p.tth >= tthMinVal && p.tth <= tthMaxVal && !p.ka2Suspect
 );
 
-if (filteredPeaks.length < 3) {
-    showStatus("Please find at least 3 peaks in the selected range.", 'error');
+if (filteredPeaks.length < BRUTUS_LIMITS.search.minPeaks) {
+    showStatus(`Please find at least ${BRUTUS_LIMITS.search.minPeaks} peaks in the selected range.`, 'error');
     return;
 }
-
-gpuDiagnostics = [];
-cpuDiagnostics = [];
 
 const webgpuSystems = [];
 const workerSystems = [];
@@ -249,10 +260,7 @@ updateSolutionsTable();
 updateAllMarkers();
 showStatus(`Indexing started...`, 'info');
 
-cumulativeTrials = 0;
-gpuTotalTrials = 0;
 indexingStartTime = performance.now();
-lastTruncatedSystems = [];
 lastSystemSearchStats = systemsToSearch.map(s => ({
     system: s, label: SEARCH_SYSTEMS[s].label,
     mode: webgpuSystems.includes(s) ? 'GPU' : (workerSystems.includes(s) ? 'CPU' : null),
@@ -278,14 +286,10 @@ const baseParams = {
     refineZero: !!ui.refineZeroCheckbox.checked,
     fom_threshold: getFomThreshold(),
     max_solutions: getCandidateCells(),
-    // Physical plausibility limits. extractCell* in all the shaders used
-    // to hard-code 2.0 / 50.0 / 20.0 while refineAndTestSolution kept its
-    // own copies of the same three numbers; the shader side now reads them
-    // from here (config.f_params2) so there is one place to change them.
-    // These values reproduce the previous behaviour exactly.
-    min_axis: 2.0,
-    max_axis: 50.0,
-    min_volume: 20.0
+    // The same definitions drive CPU refinement and shader uniforms.
+    min_axis: BRUTUS_LIMITS.physical.minAxis,
+    max_axis: BRUTUS_LIMITS.physical.maxAxis,
+    min_volume: BRUTUS_LIMITS.physical.minVolume
 };
 
 {
@@ -371,7 +375,7 @@ if (webgpuSystems.length > 0) {
     // Initialize (or re-initialize) the refinement worker pool with the constants
     // that apply to this whole run. Each worker keeps its own foundSolutionMap;
     // cross-worker duplicates are resolved by applyFinalSieve at the end of the run.
-    const N_FOR_M20 = Math.min(20, filteredPeaks.length);
+    const N_FOR_M20 = Math.min(BRUTUS_LIMITS.search.meritPeaks, filteredPeaks.length);
     const d_min = baseParams.wavelength / (2 * Math.sin(tth_max_deg * Math.PI / 360));
     const q_max = 1 / (d_min * d_min);
     runPool.init({
@@ -381,7 +385,7 @@ if (webgpuSystems.length > 0) {
         tth_obs_rad,
         peaks_sorted_by_q,
         N_FOR_M20,
-        min_m20: 2.0,
+        min_m20: BRUTUS_LIMITS.search.minM20,
         q_max,
         d_min,
     });
@@ -679,7 +683,7 @@ if (webgpuSystems.length > 0) {
         // faster than the workers could refine them, drainMs > 0.
         if (statusTextElement) statusTextElement.textContent = 'Refining candidate cells...';
         const tDrainStart = performance.now();
-        await runPool.drain(30000, poolMark);
+        await runPool.drain(BRUTUS_LIMITS.workers.stallMs, poolMark);
         if (!isCurrentRun()) return;
         console.log(`[perf] pool-drain after the last GPU system: ${(performance.now() - tDrainStart).toFixed(0)} ms  |  workers: ${REFINE_POOL_SIZE}`);
     })();
@@ -710,11 +714,7 @@ if (webgpuSystems.length > 0 && solutions.length > 0 && !runStopSignal.stop) {
     // handful of genuinely distinct parents the per-parent budget can be
     // several times the default and still cost a fraction of the old pass.
     const nP = postParents.length;
-    const swapCfg = nP <= 8
-        ? { MAX_FITS: 600, MAX_FREE: 16, MAX_EVALS: 32, MAX_POST: 5, ROUNDS: 6 }
-        : nP <= 20
-            ? { MAX_FITS: 300, MAX_FREE: 12, MAX_EVALS: 24, ROUNDS: 5 }
-            : {};   // many distinct lattices: fall back to the defaults
+    const swapCfg = BRUTUS_LIMITS.postProcessBudgets.find(budget => nP <= budget.maxParents)?.config || {};
     console.log(`[post-process] ${solutions.length} solutions -> ${nP} distinct parents ` +
                 `(budget: ${swapCfg.MAX_FITS || 'default'} fits/round)`);
     if (nP > 0) await new Promise(resolve => {
@@ -886,7 +886,7 @@ if (lastSystemSearchStats.length) {
 lastIndexingStats = finalStatus; 
 lastRunTotals = { done: totalActualTrials, total: gpuSettings ? totalMaxTrials : null,
                   time: durationStr, failures: indexingFailures.slice() };
-runLog(`Search ${stoppedByUser ? 'stopped' : 'complete'}: ${fmtCount(totalActualTrials)}${gpuSettings ? ' of ' + fmtCount(totalMaxTrials) : ''} trials in ${fmtDuration(durationMs)}; ` +
+runLog(`Search ${indexingFailures.length ? 'interrupted' : stoppedByUser ? 'stopped' : 'complete'}: ${fmtCount(totalActualTrials)}${gpuSettings ? ' of ' + fmtCount(totalMaxTrials) : ''} trials in ${fmtDuration(durationMs)}; ` +
        `${fmtCount(solutions.length)} candidate cells reached the list before the final sieve.`);
 
 
@@ -980,13 +980,13 @@ updateSolutionsTable();
 
 // Final Toast Message / LED
 if (solutions.length > 0) {
-    const message = stoppedByUser ? 
+    const message = indexingFailures.length ? 'Indexing interrupted.' : stoppedByUser ?
         'Indexing stopped by user.' : 
         'Indexing complete.';
     showStatus(`${message} Found ${solutions.length} potential solution(s).`, 'success');
     ui.solutionsLed.className = 'led-indicator green';
 } else {
-    const message = stoppedByUser ? 'Indexing stopped by user.' : 'Indexing finished.';
+    const message = indexingFailures.length ? 'Indexing interrupted.' : stoppedByUser ? 'Indexing stopped by user.' : 'Indexing finished.';
     // Say WHY. A bare "no solutions" leaves the user guessing between Max
     // Volume, 2θ Error, the peak list and the FoM threshold, and those are
     // not guessable. A stopped run is the one case with a known reason, so

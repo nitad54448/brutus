@@ -62,7 +62,7 @@ function sgHash(str) {
     return h >>> 0;
 }
 // Abstract fingerprint: what does this rule set forbid, arithmetically?
-const SG_SIG_RANGE = 6;
+const SG_SIG_RANGE = BRUTUS_LIMITS.absences.signatureRange;
 function sgBehaviourSignatureString(allowed) {
     const bits = [];
     for (let h = 0; h <= SG_SIG_RANGE; h++)
@@ -157,7 +157,7 @@ function sgExtinctionSymbol(allowed, system, centering, centPredIn) {
     if (!dirs) return cent + '?';
     if (!dirs.length) return cent;
 
-    const R = 8;
+    const R = BRUTUS_LIMITS.absences.probeRange;
     const zoneCache = new Map();
     const zone = (key) => {
         if (!key) return '-';

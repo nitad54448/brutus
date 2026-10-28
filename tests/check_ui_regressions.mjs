@@ -127,6 +127,7 @@ function harness() {
             scales: { x: { getValueForPixel: value => value } },
             data: { datasets: [] }, update() {}, resetZoom() {} }
     });
+    vm.runInContext(read('js/crystallography/limits.js'), context);
     return {
         context, ui, document, statuses,
         load: path => vm.runInContext(read(path), context, { filename: path }),

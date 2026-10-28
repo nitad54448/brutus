@@ -69,8 +69,7 @@ const SEARCH_ORDER = ['cubic', 'hexagonal', 'tetragonal', 'orthorhombic', 'monoc
 const isGpuOnlySystem = (system) => !!SEARCH_SYSTEMS[system] && !SEARCH_SYSTEMS[system].cpuFallback;
 // Minimum peaks a refined cell must index (refineAndTestSolution's
 // min_indexed); a search with fewer peaks than this cannot post anything.
-const MIN_PEAKS_FOR_SYSTEM = { cubic: 4, hexagonal: 5, tetragonal: 5,
-                               orthorhombic: 6, monoclinic: 7, triclinic: 7 };
+const MIN_PEAKS_FOR_SYSTEM = BRUTUS_LIMITS.search.minIndexed;
 
 /**
  * Asynchronously checks WebGPU compute capabilities on page load.
@@ -148,13 +147,20 @@ async function getWebGPUEngine() {
     const engine = new WebGPUEngine();
     await engine.init();
     engine.onDeviceLost = (info) => {
-        // Device loss used to be console-only, so a driver reset mid-run
-        // just looked like an indexing run that quietly produced nothing.
-        webGPUSupportsCompute = false;
-        showStatus(
-            `GPU device lost (${info && info.reason ? info.reason : 'unknown'}). ` +
-            `Reload the page to re-enable GPU searches.`, 'error', 12000);
-        gpuStopSignal.stop = true;
+        // Ignore notifications from an engine already replaced or destroyed.
+        if (sharedWebGPUEngine !== engine) return;
+        const message = `GPU device lost (${info && info.reason ? info.reason : 'unknown'}). Reload the page to re-enable GPU searches.`;
+        disableGpuOnlySystems();
+        if (isIndexing) {
+            recordIndexingFailure(message, indexingRunToken);
+            // The normal interruption path terminates workers, invalidates
+            // stale callbacks and finalizes the results and report statistics.
+            abortActiveIndexing(true);
+        } else {
+            showStatus(message, 'error', 12000);
+            toggleGpuParamsVisibility();
+            updateStartIndexingButtonState();
+        }
     };
     sharedWebGPUEngine = engine;
     return engine;
@@ -246,7 +252,7 @@ function combinations(n, k) {
 }
 // Minimum number of non-axial reflections kept after the front-loaded
 // axials (orthorhombic, monoclinic); see the floor in planGpuSearch.
-const MIN_MIXED_HKL = 40;
+const MIN_MIXED_HKL = BRUTUS_LIMITS.search.minMixedHkl;
 const _axialCountCache = {};
 // Axial reflections (two of h,k,l zero) in a system's search list: the ones
 // buildHklBasis moves to the front when splitSpecialHkls is set.
@@ -301,7 +307,7 @@ const planGpuSearch = (system, nPeaksAvailable = Infinity, settings = null) => {
     // term): at 1 %/unknown its 23-reflection basis was all axial and the
     // search could not produce a single cell; at 2 % only 9 were mixed. So
     // for those two systems the floor is all axials + MIN_MIXED_HKL mixed.
-    let floor = Math.max(10, 2 * K);
+    let floor = Math.max(BRUTUS_LIMITS.search.minBasis, 2 * K);
     if (cfg.splitSpecialHkls) floor = Math.max(floor, axialHklCount(system) + MIN_MIXED_HKL);
     // Cubic: its whole list, at any setting (see minPercent).
     if (cfg.minPercent) floor = Math.max(floor, Math.round(max * cfg.minPercent / 100));

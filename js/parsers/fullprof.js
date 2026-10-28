@@ -33,9 +33,9 @@
         // because the preamble is not standardised -- some files open with
         // '!COMM ...', some with '#', some with a bare title line carrying
         // no marker at all, and some with nothing.
-        const HEADER_SEARCH_LIMIT = 25;
+        const limits = BRUTUS_LIMITS.parsers;
         let i = -1, start = 0, step = 0, end = 0;
-        for (let j = 0; j < lines.length && j < HEADER_SEARCH_LIMIT; j++) {
+        for (let j = 0; j < lines.length && j < limits.fullprofHeaderSearchLines; j++) {
             const t = lines[j].trim();
             if (t === '') continue;
             const nums = t.split(/[\s,]+/).map(Number);
@@ -48,7 +48,7 @@
         if (i === -1) return null;
 
         const nExpected = Math.round((end - start) / step) + 1;
-        if (!(nExpected >= 2) || nExpected > 5e6) return null;
+        if (!(nExpected >= 2) || nExpected > limits.fullprofMaxPoints) return null;
 
         // Every remaining token must be a number, or this is not the format.
         const values = [];
@@ -81,8 +81,8 @@
         const slack = Math.max(2, maxOfArray(perLine));
         const countMatches = values.length >= nExpected - 1 && values.length <= nExpected + slack;
 
-        const packedLines = perLine.filter(n => n >= 4).length;
-        const isPacked = packedLines >= 2 && packedLines >= 0.8 * perLine.length;
+        const packedLines = perLine.filter(n => n >= limits.fullprofPackedMinColumns).length;
+        const isPacked = packedLines >= limits.fullprofPackedMinLines && packedLines >= limits.fullprofPackedFraction * perLine.length;
 
         if (!countMatches && !isPacked) return null;
 

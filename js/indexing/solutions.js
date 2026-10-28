@@ -113,7 +113,7 @@ if (!isTableUpdateScheduled) {
 // extra parameter fitting noise gave at most 1.4x in tests.
 const SIEVE_SYMMETRY_RANK = { cubic: 5, hexagonal: 4, tetragonal: 4,
     orthorhombic: 3, monoclinic: 2, triclinic: 1 };
-const SIEVE_SYMMETRY_M20_RATIO = 2;
+const SIEVE_SYMMETRY_M20_RATIO = BRUTUS_LIMITS.solutions.symmetryM20Ratio;
 // A pair kept for the user to decide is marked on both cells with plain
 // copies of the other's parameters (no object references: rows are copied,
 // sorted and erased independently). _symAltOf: on the more symmetric cell,
@@ -131,6 +131,10 @@ const fmtCellBrief = (s) => {
             `angles ${Number(s.alpha).toFixed(3)}, ${Number(s.beta).toFixed(3)}, ${Number(s.gamma).toFixed(3)}`;
     }
 };
+// Solution metadata can come from a project file. Use the same escaping for
+// both text and quoted attributes instead of maintaining partial local escapes.
+const escapeSolutionHtml = value => String(value ?? '').replace(/[&<>"']/g,
+    char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 // Results-table badges naming the other cell(s) of a pair; the tooltip lists them all.
 const symPairBadges = (sol) => {
     const cells = (list) => list.map(o => `the ${o.system} cell ${fmtCellBrief(o)} (M20 ${Number(o.m20).toFixed(2)})`)
@@ -138,15 +142,15 @@ const symPairBadges = (sol) => {
     const label = (list) => `≡ ${list[0].system.substring(0, 4)}${list.length > 1 ? ` +${list.length - 1}` : ''}`;
     let html = '';
     if (sol._symAltOf && sol._symAltOf.length) {
-        html += `<br><span class="sol-badge alt" title="Same lattice as ${cells(sol._symAltOf)}, listed too: ` +
+        html += `<br><span class="sol-badge alt" title="Same lattice as ${escapeSolutionHtml(cells(sol._symAltOf))}, listed too: ` +
                 `${sol._symAltOf.length > 1 ? 'those lower-symmetry descriptions fit' : 'that lower-symmetry description fits'} ` +
-                `clearly better. Choose between them.">${label(sol._symAltOf)}</span>`;
+                `clearly better. Choose between them.">${escapeSolutionHtml(label(sol._symAltOf))}</span>`;
     }
     if (sol._symAlt && sol._symAlt.length) {
-        html += `<br><span class="sol-badge alt" title="Same lattice as ${cells(sol._symAlt)}, ` +
+        html += `<br><span class="sol-badge alt" title="Same lattice as ${escapeSolutionHtml(cells(sol._symAlt))}, ` +
                 `${sol._symAlt.length > 1 ? 'which are' : 'which is'} more symmetric and listed too. This cell fits ` +
                 `clearly better: a real distortion, or noise taken up by its extra parameters? ` +
-                `Choose between them.">${label(sol._symAlt)}</span>`;
+                `Choose between them.">${escapeSolutionHtml(label(sol._symAlt))}</span>`;
     }
     return html;
 };
@@ -188,7 +192,7 @@ const rhombohedralIsCubic = (r, cub) => {
 // systems present in `ranked` (best first), so it adapts: with one system that system gets the whole cap, with
 // six systems each is guaranteed cap/6. The slots a system does not use go to the best of the rest, by rank.
 // The order of `ranked` is kept.
-const FINAL_SOLUTION_CAP = 50;
+const FINAL_SOLUTION_CAP = BRUTUS_LIMITS.solutions.finalCount;
 const selectWithSystemReserve = (ranked, cap) => {
     if (ranked.length <= cap) return ranked.slice();
     const groups = new Map();
@@ -359,15 +363,15 @@ const solutionBadges = (sol) => {
     if (sol.lattice === 'R') sysBadges += ` <span class="sol-badge" title="Rhombohedral (R) lattice in hexagonal axes: lines with -h+k+l and h-k+l both non-multiples of 3 are absent, and M20 counts only the R lines">R</span>`;
     sysBadges += symPairBadges(sol).replace(/<br>/g, ' ');
     if (sol.mcPolished && !sol.sgClass) {
-        const from = (sol.mcFrom && isFinite(sol.mcFrom.m20)) ? sol.mcFrom.m20.toFixed(2) : '?';
+        const from = (sol.mcFrom && Number.isFinite(sol.mcFrom.m20)) ? sol.mcFrom.m20.toFixed(2) : '?';
         sysBadges += ` <span class="sol-badge mc" title="Monte-Carlo polished: M20 ${from} -> ${sol.m20.toFixed(2)}">MC</span>`;
     }
     if (sol.sgClass) {
-        const decisive = isFinite(sol.sgMargin) && sol.sgMargin >= SG_DECISIVE_NATS;
-        sysBadges += ` <span class="sol-badge sg${decisive ? '' : ' sg-tied'}" title="Refined under ${sol.sgClass}">SG${decisive ? '' : '?'}</span>`;
+        const decisive = typeof sol.sgMargin === 'number' && sol.sgMargin >= SG_DECISIVE_NATS;
+        sysBadges += ` <span class="sol-badge sg${decisive ? '' : ' sg-tied'}" title="Refined under ${escapeSolutionHtml(sol.sgClass)}">SG${decisive ? '' : '?'}</span>`;
     }
     const sgs = solutionSGs(sol);
-    if (sgs.length) sysBadges += ` <span class="sol-badge sg" title="${sgs.map(x => x.label).join('; ')}">${sgs[0].symbol || 'SG'}${sgs.length > 1 ? ` +${sgs.length - 1}` : ''}</span>`;
+    if (sgs.length) sysBadges += ` <span class="sol-badge sg" title="${escapeSolutionHtml(sgs.map(x => x.label).join('; '))}">${escapeSolutionHtml(sgs[0].symbol || 'SG')}${sgs.length > 1 ? ` +${sgs.length - 1}` : ''}</span>`;
     return sysBadges;
 };
 // The space group attached to a solution, as text: the one the user chose
@@ -376,7 +380,7 @@ const solutionSpaceGroupText = (sol) => {
     const sgs = solutionSGs(sol);
     if (sgs.length) return sgs.map(x => x.label + (x.source ? ` (${x.source})` : '')).join('; ');
     if (sol.sgClass) {
-        const decisive = isFinite(sol.sgMargin) && sol.sgMargin >= SG_DECISIVE_NATS;
+        const decisive = typeof sol.sgMargin === 'number' && sol.sgMargin >= SG_DECISIVE_NATS;
         const members = sol.sgMembers && sol.sgMembers.length ? ` — ${sol.sgMembers.join(', ')}` : '';
         return `class ${sol.sgClass}${members}${decisive ? '' : ' (not decisive)'}`;
     }
@@ -393,13 +397,13 @@ const niggliText = (sol) => {
 // then what the space-group scan proposed.
 const solutionSGHtml = (sol) => {
     const sgs = solutionSGs(sol), shown = defaultSimSetting(sol);
-    const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const esc = escapeSolutionHtml;
     let html = sgs.map((g, i) => `<div class="sg-item"><label title="Show this group's simulated reflections (Sim)">` +
         `<input type="radio" name="sim-${solutions.indexOf(sol)}" data-sg-show="${i}"${g.setting_id && g.setting_id === shown ? ' checked' : ''}> ${esc(g.label)}</label>` +
         `<button type="button" class="sg-remove" data-sg-remove="${i}" title="Remove from this solution" aria-label="Remove">&times;</button>` +
         (g.source ? `<div class="sg-src">${esc(g.source)}</div>` : '') + `</div>`).join('');
     if (sol.sgClass) {
-        const decisive = isFinite(sol.sgMargin) && sol.sgMargin >= SG_DECISIVE_NATS;
+        const decisive = typeof sol.sgMargin === 'number' && sol.sgMargin >= SG_DECISIVE_NATS;
         html += `<div class="sg-src">Proposed by Test Space Group: class ${esc(sol.sgClass)}${sol.sgMembers && sol.sgMembers.length ? ' &mdash; ' + esc(sol.sgMembers.join(', ')) : ''}${decisive ? '' : ' (not decisive)'}</div>`;
     }
     return html || '<span class="sol-none">none &mdash; Solution &rarr; Test Space Group or Explore Space Group</span>';
@@ -409,7 +413,7 @@ const solutionBodyHtml = (sol) => {
     const al = sol.alpha ?? 90, be = sol.beta ?? 90, ga = sol.gamma ?? (sol.system === 'hexagonal' ? 120 : 90);
     const row = (k, v, cls = '') => `<dt>${k}</dt><dd${cls ? ` class="${cls}"` : ''}>${v}</dd>`;
     return '<dl class="sol-dl">' +
-        row('Symmetry', sol.system + (sol.lattice === 'R' ? ', R lattice (hexagonal axes)' : '')) +
+        row('Symmetry', escapeSolutionHtml(sol.system) + (sol.lattice === 'R' ? ', R lattice (hexagonal axes)' : '')) +
         row('Cell', `a ${sol.a.toFixed(4)}, b ${b.toFixed(4)}, c ${c.toFixed(4)} Å<br>α ${al.toFixed(3)}, β ${be.toFixed(3)}, γ ${ga.toFixed(3)}°`) +
         row('Volume', `${sol.volume.toFixed(2)} Å³`) +
         row('M(20)', sol.m20.toFixed(2)) +
@@ -424,7 +428,7 @@ const solutionSummaryHtml = (sol) => {
         tetragonal: s => `a ${s.a.toFixed(3)}, c ${s.c.toFixed(3)}`,
         hexagonal: s => `a ${s.a.toFixed(3)}, c ${s.c.toFixed(3)}`,
     })[sol.system] || (s => `${s.a.toFixed(2)}, ${(s.b ?? s.a).toFixed(2)}, ${(s.c ?? s.a).toFixed(2)}`))(sol);
-    return `<span class="sol-sys">${sol.system}</span><span class="sol-cell">${cellText}</span>` +
+    return `<span class="sol-sys">${escapeSolutionHtml(sol.system)}</span><span class="sol-cell">${cellText}</span>` +
         `<span class="sol-v">V ${sol.volume.toFixed(0)}</span><span class="sol-m">M20 ${sol.m20.toFixed(1)}</span>${solutionBadges(sol)}`;
 };
 const updateSolutionsTable = () => {

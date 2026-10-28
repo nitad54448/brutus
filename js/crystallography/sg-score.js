@@ -80,14 +80,7 @@
 // textbook rule that a single genuine reflection at a systematically absent
 // position rules a space group out. On a small pattern with ~50 positions it
 // returns 0.02 and reproduces the old behaviour exactly.
-const SG_EPS = {
-    weak:       0.25,   // below 5% of the local maximum
-    ka2:        0.50,   // Ka2 ghost
-    ambiguous:  0.50,   // an allowed line sits inside 1.5x the tolerance
-    unindexed:  0.15,   // peak the refined cell explains with nothing at all
-    hardFloor:  1e-4,   // never claim more certainty than this
-    hardCap:    0.05,   // nor less, however few positions there are
-};
+const SG_EPS = BRUTUS_LIMITS.absences.epsilon;
 // How much total evidence a pile of empty forbidden positions is allowed to be
 // worth, as a multiple of the decisive threshold. See the saturation note in
 // sgScoreFromStats(): absences are the one term that grows without bound with
@@ -103,14 +96,14 @@ const SG_EPS = {
 // (46 nats) the same pair reads 8.0 nats and the runaway cases are still bounded:
 // the PbSO4 I-centred class collects 346 raw nats of absence credit and still
 // cannot buy its way past seventy hard violations.
-const SG_CLEAN_CAP_MULT = 20;
+const SG_CLEAN_CAP_MULT = BRUTUS_LIMITS.absences.cleanCapMultiplier;
 // tanh() reaches 1.0 EXACTLY in double precision once its argument passes about
 // 19, so a pure saturation makes every heavily-restrictive row score identically
 // on absences and the ordering the cap was supposed to preserve is lost after
 // all -- silently, and only on the rows most likely to be wrong. A vanishing
 // linear term keeps the sequence strictly increasing forever: at 1e-3 nats per
 // nat it is a tie-break and nothing more, worth one nat against a thousand.
-const SG_CLEAN_LEAK = 1e-3;
+const SG_CLEAN_LEAK = BRUTUS_LIMITS.absences.cleanLeak;
 function sgBaseEps(nPositions, impurityAllowance) {
     const nPos = Math.max(1, nPositions || 0);
     // The user's impurity setting is their own estimate of how many foreign
@@ -518,7 +511,7 @@ function sgScoreClass(cls, sol, data, state, opts) {
         // list is fixed, so M20 is a legitimate comparison there, and it is the
         // only one of the two that can see the difference. The score leads; M20
         // speaks only when the score is silent.
-        const SG_SCORE_TIE_NATS = 0.5;      // well under SG_DECISIVE_NATS
+        const SG_SCORE_TIE_NATS = BRUTUS_LIMITS.absences.scoreTieNats;      // well under SG_DECISIVE_NATS
         const beats = (sA, mA, sB, mB) =>
             (sA > sB + SG_SCORE_TIE_NATS) ||
             (Math.abs(sA - sB) <= SG_SCORE_TIE_NATS && (mA || 0) > (mB || 0));
@@ -578,8 +571,8 @@ function sgScoreClass(cls, sol, data, state, opts) {
                 // null simply means "the parent cell was already the best under
                 // these rules".
                 mc = monteCarloRefineCell(sol, data, state, {
-                    iterations: o.iterations ?? 600,
-                    restarts: o.restarts ?? 4
+                    iterations: o.iterations ?? BRUTUS_LIMITS.inputs['sg-iterations'].value,
+                    restarts: o.restarts ?? BRUTUS_LIMITS.inputs['sg-restarts'].value
                     // The seed is deliberately left at its default: every class
                     // walks the SAME pseudo-random sequence, so a difference
                     // between two rows is a difference between hypotheses and
@@ -688,7 +681,7 @@ function sgMakeCtx(data, state) {
 // nRules tie-break that used to sit above it has been removed outright: it
 // rewarded restrictiveness for its own sake, which the likelihood already
 // accounts for wherever the data support it.
-const SG_DECISIVE_NATS = 2.3;   // ~10:1 odds; below this the table is a tie
+const SG_DECISIVE_NATS = BRUTUS_LIMITS.absences.decisiveNats;   // ~10:1 odds; below this the table is a tie
 function sgRankRows(rows, impurityAllowance, opts) {
     sgRescoreAll(rows, { ...(opts || {}), impurityAllowance });
     return rows.slice().sort((a, b) => {

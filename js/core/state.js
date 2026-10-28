@@ -68,12 +68,12 @@ let workerURL = null;
 // because the list was momentarily full of near-duplicates of each other.
 // The list is deduped by _solKey on insert and sieved at the end anyway, so
 // a larger reservoir costs a few hundred small objects and nothing else.
-const MAX_SOLUTIONS_BEFORE_PRUNING = 500;
-const PRUNE_TO_COUNT = 400; // Prune down to this many
+const MAX_SOLUTIONS_BEFORE_PRUNING = BRUTUS_LIMITS.solutions.reservoirMax;
+const PRUNE_TO_COUNT = BRUTUS_LIMITS.solutions.reservoirTrim; // Prune down to this many
 // The table is rebuilt from scratch on every animation frame during a run,
 // so the number of RENDERED rows is what actually costs time -- not the
 // number retained. Keep the display at the old order of magnitude.
-const MAX_DISPLAYED_SOLUTIONS = 50;
+const MAX_DISPLAYED_SOLUTIONS = BRUTUS_LIMITS.solutions.displayCount;
 // 1. Declare the throttle flag right above the function
 let isTableUpdateScheduled = false;
 let calculatedBackground = [];

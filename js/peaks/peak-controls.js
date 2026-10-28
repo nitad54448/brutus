@@ -5,8 +5,8 @@
 // top-level names are shared with the other app scripts.
 
 // echelle log, 0.1% c'est suffisant ?
-const minPeak = 0.1;
-const maxPeak = 20;
+const minPeak = BRUTUS_LIMITS.peak.minThreshold;
+const maxPeak = BRUTUS_LIMITS.peak.maxThreshold;
 const minLog = Math.log(minPeak);
 const maxLog = Math.log(maxPeak);
 const scale = (maxLog - minLog) / 100;
@@ -52,7 +52,7 @@ const debouncedUpdateAndRedraw = debounce(() => {
     }
 }, 250);
 // log slider, 
-const initialPeakThreshold = 2.0;
+const initialPeakThreshold = BRUTUS_LIMITS.peak.initialThreshold;
 ui.peakThresholdSlider.value = valueToLogSlider(initialPeakThreshold);
 ui.peakThresholdValue.textContent = initialPeakThreshold.toFixed(1);
 // sliders

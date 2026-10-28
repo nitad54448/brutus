@@ -3,6 +3,7 @@
 // files as <script> tags (check_load_order.mjs verifies that the two lists
 // agree); the workers load them with importBrutusCrystallography().
 const BRUTUS_CRYSTALLOGRAPHY_FILES = [
+    'limits.js',
     'metric.js',
     'hkl.js',
     'cell.js',

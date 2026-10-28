@@ -185,14 +185,14 @@ class RefinementWorkerPool {
     }
     mark() { return this.nextBatchId; }
     refine(cell) { return this.refineBatch([cell]); }
-    async drain(stallMs = 30000, sinceId = 0) {
+    async drain(stallMs = BRUTUS_LIMITS.workers.stallMs, sinceId = 0) {
         const outstanding = () => [...this.pendingResolvers.keys()].some(id => id >= sinceId);
         while (outstanding()) {
             await new Promise(resolve => {
                 let tick;
                 const wake = () => { clearTimeout(tick); resolve(); };
                 this._drainWake = wake;
-                tick = setTimeout(wake, 250);
+                tick = setTimeout(wake, BRUTUS_LIMITS.workers.pollMs);
             });
             this._drainWake = null;
             for (const w of [...this.workers]) {
@@ -217,7 +217,7 @@ class RefinementWorkerPool {
 // Leave two hardware threads for the UI and the GPU driver, and cap the
 // pool: past ~12 workers the GPU, not refinement, is the bottleneck,
 // while each worker still costs a full copy of the crystallography code.
-const REFINE_POOL_MAX = 12;
-const REFINE_POOL_SIZE = Math.max(1, Math.min(REFINE_POOL_MAX, (navigator.hardwareConcurrency || 4) - 2));
+const REFINE_POOL_MAX = BRUTUS_LIMITS.workers.maxPool;
+const REFINE_POOL_SIZE = Math.max(1, Math.min(REFINE_POOL_MAX, (navigator.hardwareConcurrency || BRUTUS_LIMITS.workers.defaultConcurrency) - BRUTUS_LIMITS.workers.reservedThreads));
 const refinementPool = new RefinementWorkerPool(REFINE_POOL_SIZE);
 console.log(`[perf] Refinement worker pool: ${REFINE_POOL_SIZE} workers (hardwareConcurrency=${navigator.hardwareConcurrency || 'unknown'})`);

@@ -19,7 +19,7 @@ ui.fileInput.addEventListener('change', async (e) => {
     // (after fixing it, or after a failed load) fires no 'change' event.
     e.target.value = '';
 
-    const MAX_FILE_SIZE_MB = 50;
+    const MAX_FILE_SIZE_MB = BRUTUS_LIMITS.workspace.fileMaxMB;
     if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
         showStatus(`Error: File is too large (>${MAX_FILE_SIZE_MB} MB).`, "error");
         ui.fileInputLabel.classList.add('error');

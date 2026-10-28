@@ -10,35 +10,47 @@
     // Values may carry s.u.'s in parentheses ("1234(35)"); loop rows may
     // wrap across lines, so loops are read token by token.
     const parsePdCifFile = (text) => {
-        const lines = text.split(/\r?\n/);
         const items = {};          // single-valued tags
         const loops = [];          // { tags: [...], values: [...] }
-        let loop = null;
-        let inTextField = false;
-        const tokenize = (line) => {
-            const out = [];
-            const re = /'([^']*)'|"([^"]*)"|(\S+)/g;
-            let m;
-            while ((m = re.exec(line)) !== null) out.push(m[1] ?? m[2] ?? m[3]);
-            return out;
-        };
-        for (const raw of lines) {
-            if (raw.startsWith(';')) { inTextField = !inTextField; continue; }   // multi-line text field
-            if (inTextField) continue;
-            const line = raw.trim();
-            if (line === '' || line.startsWith('#')) continue;
-            if (/^loop_$/i.test(line)) { loop = { tags: [], values: [] }; loops.push(loop); continue; }
-            if (/^data_/i.test(line)) { loop = null; continue; }
-            if (line.startsWith('_')) {
-                const toks = tokenize(line);
-                const tag = toks[0].toLowerCase();
-                if (loop && loop.values.length === 0 && toks.length === 1) { loop.tags.push(tag); continue; }
-                loop = null;
-                if (toks.length > 1) items[tag] = toks[1];
-                else items[tag] = null;   // value on a following line; not needed here
-                continue;
+        // Keep quoted/text-field tokens distinct from syntax. Comments start
+        // only outside strings, and a scalar value may be on the next line.
+        const tokens = [];
+        const source = text.replace(/\r\n?/g, '\n');
+        for (let i = 0; i < source.length;) {
+            if (/\s/.test(source[i])) { i++; continue; }
+            if (source[i] === '#') { while (i < source.length && source[i] !== '\n') i++; continue; }
+            if (source[i] === ';' && (i === 0 || source[i - 1] === '\n')) {
+                const end = source.indexOf('\n;', i + 1);
+                if (end < 0) throw new Error('pdCIF: unterminated text field.');
+                tokens.push({ value: source.slice(i + 1, end), quoted: true });
+                i = end + 2;
+            } else if (source[i] === "'" || source[i] === '"') {
+                const quote = source[i++], start = i;
+                while (i < source.length && !(source[i] === quote && (i + 1 === source.length || /\s/.test(source[i + 1])))) i++;
+                if (i === source.length) throw new Error('pdCIF: unterminated quoted value.');
+                tokens.push({ value: source.slice(start, i++), quoted: true });
+            } else {
+                const start = i;
+                while (i < source.length && !/\s/.test(source[i])) i++;
+                tokens.push({ value: source.slice(start, i), quoted: false });
             }
-            if (loop) loop.values.push(...tokenize(line));
+        }
+        const isTag = token => token && !token.quoted && token.value.startsWith('_');
+        const isSyntax = token => token && !token.quoted &&
+            (isTag(token) || /^(?:loop_|stop_|global_|data_.*|save_.*)$/i.test(token.value));
+        for (let i = 0; i < tokens.length;) {
+            const token = tokens[i++];
+            if (!token.quoted && /^loop_$/i.test(token.value)) {
+                const loop = { tags: [], values: [] };
+                while (isTag(tokens[i])) loop.tags.push(tokens[i++].value.toLowerCase());
+                if (!loop.tags.length) throw new Error('pdCIF: loop has no column tags.');
+                while (tokens[i] && !isSyntax(tokens[i])) loop.values.push(tokens[i++].value);
+                if (loop.values.length % loop.tags.length) throw new Error('pdCIF: incomplete data loop row.');
+                loops.push(loop);
+            } else if (isTag(token)) {
+                if (!tokens[i] || isSyntax(tokens[i])) throw new Error(`pdCIF: missing value for ${token.value}.`);
+                items[token.value.toLowerCase()] = tokens[i++].value;
+            }
         }
         const cifNumber = (v) => {
             if (v === undefined || v === null) return NaN;
@@ -85,17 +97,18 @@
         const radiation = {};
         const wlLoop = loops.find(lp => lp.tags.includes('_diffrn_radiation_wavelength'));
         if (wlLoop) {
-            const wl = column(wlLoop, '_diffrn_radiation_wavelength').filter(Number.isFinite);
+            const wl = column(wlLoop, '_diffrn_radiation_wavelength');
             const wt = column(wlLoop, '_diffrn_radiation_wavelength_wt');
-            if (wl.length >= 2) {
-                const order = wl.map((v, k) => [v, wt ? wt[k] : NaN]).sort((x, y) => x[0] - y[0]);
+            const order = wl.map((v, k) => [v, wt ? wt[k] : NaN])
+                .filter(([v]) => Number.isFinite(v)).sort((x, y) => x[0] - y[0]);
+            if (order.length >= 2) {
                 radiation.ka1 = order[0][0];
                 radiation.ka2 = order[1][0];
                 if (Number.isFinite(order[0][1]) && Number.isFinite(order[1][1]) && order[0][1] > 0) {
                     radiation.ratio = order[1][1] / order[0][1];
                 }
-            } else if (wl.length === 1) {
-                radiation.single = wl[0];
+            } else if (order.length === 1) {
+                radiation.single = order[0][0];
             }
         } else if (Number.isFinite(cifNumber(items['_diffrn_radiation_wavelength']))) {
             radiation.single = cifNumber(items['_diffrn_radiation_wavelength']);

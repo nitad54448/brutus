@@ -112,8 +112,8 @@ function createGhostLedger() {
 //
 // Trimming is safe: losing an old entry can at worst let one duplicate through
 // to the main thread, which dedups by _solKey anyway.
-const MAX_WORKER_LEDGER = 20000;
-const TRIM_LEDGER_TO   = 15000;
+const MAX_WORKER_LEDGER = BRUTUS_LIMITS.workers.ledgerMax;
+const TRIM_LEDGER_TO   = BRUTUS_LIMITS.workers.ledgerTrim;
 
 function trimLedgerIfNeeded() {
     if (foundSolutionMap.size <= MAX_WORKER_LEDGER) return;
@@ -146,7 +146,7 @@ function trimLedgerIfNeeded() {
 // accepted cell. Accumulate and post in chunks; flushing every
 // SOLUTION_FLUSH_SIZE keeps the UI updating during a long batch and bounds the
 // size of any single clone.
-const SOLUTION_FLUSH_SIZE = 64;
+const SOLUTION_FLUSH_SIZE = BRUTUS_LIMITS.workers.flushSize;
 let solutionBuffer = [];
 
 function flushSolutions(idField, idValue) {
@@ -171,13 +171,13 @@ function flushSolutions(idField, idValue) {
 // main thread force-resolved after the 30 s stall watchdog is distinguishable
 // from one that genuinely finished, and suppressed errors are still visible as
 // a number.
-const MAX_CELL_ERRORS_PER_BATCH = 5;
+const MAX_CELL_ERRORS_PER_BATCH = BRUTUS_LIMITS.workers.maxErrorsPerBatch;
 
 // Heartbeat period. The pool's drain() abandons a worker it has not heard from
 // in 30 s, and a long batch in which no cell is accepted posts nothing until
 // 'done' -- so a slow but healthy worker could be killed and its whole batch
 // dropped. A tiny message every couple of seconds keeps it visibly alive.
-const HEARTBEAT_MS = 2000;
+const HEARTBEAT_MS = BRUTUS_LIMITS.workers.heartbeatMs;
 let batchProcessed = 0;
 let batchErrors = 0;
 let batchErrorsPosted = 0;

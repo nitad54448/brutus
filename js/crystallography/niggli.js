@@ -56,8 +56,8 @@ function reduceToNiggliCell(sol, opts) {
 // ==========================================
 function niggliReduceFromCell(cell, opts = {}) {
     const { a, b, c, alpha, beta, gamma, centering = 'P' } = cell;
-    const maxIter = opts.maxIterations || 1000;
-    let eps = opts.eps || 1e-5; 
+    const maxIter = opts.maxIterations || BRUTUS_LIMITS.niggli.maxIterations;
+    let eps = opts.eps || BRUTUS_LIMITS.niggli.initialEpsilon;
 
     let B = cellToBasis(a, b, c, alpha, beta, gamma);
     let T = I3(); 
@@ -103,8 +103,8 @@ function niggliReduceFromCell(cell, opts = {}) {
         changed = false;
         iterations++;
 
-        if (iterations > 50) eps = 1e-4;
-        if (iterations > 200) eps = 1e-3;
+        if (iterations > BRUTUS_LIMITS.niggli.relaxAfter) eps = BRUTUS_LIMITS.niggli.relaxedEpsilon;
+        if (iterations > BRUTUS_LIMITS.niggli.relaxAgainAfter) eps = BRUTUS_LIMITS.niggli.finalEpsilon;
 
         // Step 1: Sort A <= B <= C (strictly preserving determinant = +1)
         if (A > Bm + eps || (Math.abs(A - Bm) <= eps && Math.abs(xi) > Math.abs(eta) + eps)) {
@@ -179,9 +179,9 @@ function niggliReduceFromCell(cell, opts = {}) {
 function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
     const results = { primitiveCells: [], centeredCells: {} };
     if (!niggliCell || typeof niggliCell !== 'object' || !niggliCell.a) { console.error("Invalid Niggli cell provided."); return results; }
-    const minAngle = 60.0, maxAngle = 150.0;
-    const niggliSystemGuess = getSymmetry(niggliCell.a, niggliCell.b, niggliCell.c, niggliCell.alpha, niggliCell.beta, niggliCell.gamma);
-    const niggliVolume = getVolume({ ...niggliCell, system: niggliSystemGuess });
+    const minAngle = BRUTUS_LIMITS.niggli.minEquivalentAngle, maxAngle = BRUTUS_LIMITS.niggli.maxEquivalentAngle;
+    // A loose symmetry guess must never choose the geometric volume formula.
+    const niggliVolume = getVolumeTriclinic(niggliCell);
     results.primitiveCells.push({ ...niggliCell, description: "Reduced Cell (Niggli, centering not applied)", centering: 'P', volume: niggliVolume });
     if (originalSystem) {
         const niggliBasis = cellToBasis(niggliCell.a, niggliCell.b, niggliCell.c, niggliCell.alpha, niggliCell.beta, niggliCell.gamma);
@@ -195,7 +195,7 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
                     if (Object.values(centeredCellParams).every(v => isFinite(v) && v > -1e-6) && [centeredCellParams.alpha, centeredCellParams.beta, centeredCellParams.gamma].every(a => a >= minAngle && a <= maxAngle)) {
                         const systemGuess = getSymmetry(centeredCellParams.a, centeredCellParams.b, centeredCellParams.c, centeredCellParams.alpha, centeredCellParams.beta, centeredCellParams.gamma);
                         const systemAllowed = (centeringType === 'I' && ['cubic', 'tetragonal', 'orthorhombic', 'monoclinic'].includes(systemGuess)) || (centeringType === 'F' && ['cubic', 'orthorhombic'].includes(systemGuess)) || (['A','B','C'].includes(centeringType) && ['orthorhombic', 'monoclinic'].includes(systemGuess)) || (centeringType === 'R' && ['hexagonal', 'trigonal'].includes(systemGuess));
-                        if (systemAllowed) { const centeredVolume = getVolume({ ...centeredCellParams, system: systemGuess }); results.centeredCells[centeringType] = { ...centeredCellParams, system: systemGuess, centering: centeringType, volume: centeredVolume, description: `Conventional ${centeringType}-centered` }; }
+                        if (systemAllowed) { const centeredVolume = getVolumeTriclinic(centeredCellParams); results.centeredCells[centeringType] = { ...centeredCellParams, system: systemGuess, centering: centeringType, volume: centeredVolume, description: `Conventional ${centeringType}-centered` }; }
                     }
                 } catch (error) { console.error(`Error transforming to ${centeringType}-centered cell:`, error); }
             }

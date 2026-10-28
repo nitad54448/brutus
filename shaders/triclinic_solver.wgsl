@@ -82,7 +82,8 @@ struct Config {
     // These were hard-coded as 2.0 / 50.0 / 20.0 in extractCell*, in all three
     // shaders, while the JS app kept its own copy of the same three numbers.
     // Two sources for one limit is how limits drift apart.
-    f_params2: vec4<f32>  // Indices 12-15
+    f_params2: vec4<f32>, // Indices 12-15: min/max axis, min volume, max monoclinic beta
+    f_params3: vec4<f32>  // Indices 16-19: min/max triclinic angle, reserved, reserved
 };
 
 
@@ -291,7 +292,7 @@ fn extractCell(params: Vec6) -> RawSolution {
     let beta = acos(beta_cos) * DEG;
     let gamma = acos(gamma_cos) * DEG;
 
-    if (alpha < 60.0 || alpha > 150.0 || beta < 60.0 || beta > 150.0 || gamma < 60.0 || gamma > 150.0) { 
+    if (alpha < config.f_params3.x || alpha > config.f_params3.y || beta < config.f_params3.x || beta > config.f_params3.y || gamma < config.f_params3.x || gamma > config.f_params3.y) {
         return RawSolution(0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0); 
     }
 

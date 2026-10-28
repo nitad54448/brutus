@@ -254,7 +254,7 @@ const rebuildHklList = () => {
     const dataMax = workingExperimentalData.tth[workingExperimentalData.tth.length - 1];
     // Generate past the end of the data by |Z| + 1 so that shifting the list
     // cannot leave the top of the pattern bare.
-    const maxTth = Math.min(179.9, dataMax + Math.abs(zero) + 1);
+    const maxTth = Math.min(BRUTUS_LIMITS.physical.maxPlotTth, dataMax + Math.abs(zero) + 1);
     const raw = generateHKL(maxTth, { ...selectedSolution, lambda }, selectedSolution.system) || [];
     currentHklList = raw.map(r => ({ ...r, tth_calc: r.tth, tth: r.tth + zero }));
     placeKa1Lines(currentHklList, lambda, zero);

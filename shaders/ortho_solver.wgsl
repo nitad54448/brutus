@@ -82,7 +82,8 @@ struct Config {
     // These were hard-coded as 2.0 / 50.0 / 20.0 in extractCell*, in all three
     // shaders, while the JS app kept its own copy of the same three numbers.
     // Two sources for one limit is how limits drift apart.
-    f_params2: vec4<f32>
+    f_params2: vec4<f32>,
+    f_params3: vec4<f32>
 };
 @group(0) @binding(6) var<uniform> config: Config;
 

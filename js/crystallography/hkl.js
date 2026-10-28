@@ -246,7 +246,7 @@ function generateHKL_for_analysis(params, lambda, maxTth, mode = 'full') {
         //   dq/d(2th) = 2 sin(2th)/lambda^2,
         //   sin(2th)  = lambda*sqrt(q)*sqrt(1 - lambda^2 q/4),
         // which needs no asin per reflection.
-        const DTTH_RAD = 1e-4 * Math.PI / 180;
+        const DTTH_RAD = BRUTUS_LIMITS.hkl.lineMergeToleranceDeg * RAD;
         const lam2 = lambda * lambda;
         const uniqueQ = [];
         for (let i = 0; i < reflections.length; i++) {

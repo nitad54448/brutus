@@ -21,7 +21,7 @@
             return m ? [m[1].toUpperCase(), m[2].trim().replace(/^'|'$/g, '')] : null;
         };
         const DATA_KEYS = { COUNTS: 'y', CPS: 'y', '2THETACOUNTS': 'xy', '2THETACPS': 'xy' };
-        for (const raw of lines) {
+        for (const [lineIndex, raw] of lines.entries()) {
             const line = raw.trim();
             if (line === '' || line.startsWith(';')) continue;
             const upper = line.toUpperCase();
@@ -47,8 +47,10 @@
                 continue;
             }
             if (!current) continue;
-            const nums = line.split(/[\s,]+/).map(Number).filter(Number.isFinite);
+            const nums = line.split(/[\s,]+/).map(Number);
+            if (!nums.every(Number.isFinite)) throw new Error(`UXD: invalid numeric data on line ${lineIndex + 1}.`);
             if (current.mode === 'xy') {
+                if (nums.length % 2) throw new Error(`UXD: incomplete angle/intensity pair on line ${lineIndex + 1}.`);
                 for (let i = 0; i + 1 < nums.length; i += 2) { current.tth.push(nums[i]); current.intensity.push(nums[i + 1]); }
             } else {
                 current.intensity.push(...nums);

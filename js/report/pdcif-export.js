@@ -73,7 +73,7 @@ const generatePdCIF = (sol) => {
     const chosenAll = solutionSGs(sol);
     const chosenSg = chosenAll.find(g => g.symbol && g.setting_id && g.setting_id === sol.simSG) || chosenAll.slice().reverse().find(g => g.symbol) || null;
     const mcRan = !!(chosenSg || sol.sgClass || (sol.sgMembers && sol.sgMembers.length));
-    const decisiveNats = (typeof SG_DECISIVE_NATS === 'number') ? SG_DECISIVE_NATS : 2.3;
+    const decisiveNats = BRUTUS_LIMITS.absences.decisiveNats;
 
     let sgName = null;          // a definite H-M symbol, or null
     let sgNumber = null;
@@ -126,7 +126,7 @@ const generatePdCIF = (sol) => {
     // string, which fails on whitespace and on symbols that collide across
     // settings. powder5 reads this tag in preference to the H-M string for
     // exactly that reason.
-    const sgHall = toAsciiSg(sol.sgHall).trim() || null;
+    const sgHall = toAsciiSg(chosenSg ? chosenSg.hall : sol.sgHall).trim() || null;
 
     for (const line of notes) cif += `# ${line}\n`;
     cif += `_space_group_name_H-M_alt       ${sgName ? `'${sgName}'` : '?'}\n`;

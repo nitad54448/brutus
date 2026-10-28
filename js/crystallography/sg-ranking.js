@@ -32,7 +32,7 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
     // the condition's selectivity times the number of observed reflections in
     // its zone, so a well-supported, highly restrictive condition counts for
     // more than a weakly-sampled one.
-    const EXT_WEIGHT = 0.5;
+    const EXT_WEIGHT = BRUTUS_LIMITS.absences.extinctionWeight;
     const detectedList = (Array.isArray(detectedExtinctions) ? detectedExtinctions : [])
         .map(s => { const p = String(s).split(': '); return p.length === 2 ? { zone: p[0].trim(), cond: p[1].trim() } : null; })
         .filter(Boolean);
@@ -47,7 +47,7 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
     const entails = (rules, zone, cond) => {
         const key = JSON.stringify(rules) + '|' + zone + '|' + cond;
         if (entailmentCache[key] !== undefined) return entailmentCache[key];
-        const R = 8;
+        const R = BRUTUS_LIMITS.absences.probeRange;
         let allowedAny = false, ok = true;
         for (let h = -R; h <= R && ok; h++) for (let k = -R; k <= R && ok; k++) for (let l = -R; l <= R && ok; l++) {
             if (h === 0 && k === 0 && l === 0) continue;
@@ -99,7 +99,7 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
                 const selectivity = (zone, cond) => {
                     const key = zone + '|' + cond;
                     if (selectivityCache[key] !== undefined) return selectivityCache[key];
-                    const R = 8;
+                    const R = BRUTUS_LIMITS.absences.probeRange;
                     let total = 0, allowed = 0;
                     for (let h = -R; h <= R; h++) for (let k = -R; k <= R; k++) for (let l = -R; l <= R; l++) {
                         if (h === 0 && k === 0 && l === 0) continue;
@@ -375,8 +375,8 @@ function countViolations(indexed_hkls, setting, system) {
     // genuinely broken and the demotions are concealing a real result. Promote
     // the whole soft pile to hard once it passes both an absolute and a
     // proportional floor.
-    const CONSENSUS_MIN_COUNT = 5;
-    const CONSENSUS_MIN_FRACTION = 0.15;
+    const CONSENSUS_MIN_COUNT = BRUTUS_LIMITS.absences.consensusMinCount;
+    const CONSENSUS_MIN_FRACTION = BRUTUS_LIMITS.absences.consensusMinFraction;
     const nExamined = indexed_hkls.length;
     if (hardCount === 0 && softCount >= CONSENSUS_MIN_COUNT &&
         softCount >= CONSENSUS_MIN_FRACTION * nExamined) {
