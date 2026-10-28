@@ -9,7 +9,7 @@
 //   - least-squares error propagation matches a Monte-Carlo estimate
 //     (orthorhombic and monoclinic);
 //   - Ka1 lines that carry their own wavelength (p.lambda) are indexed with
-//     it: cell, zero, Swap hkl rows and a manual refit;
+//     it: cell and zero;
 //   - the final sieve keeps the most symmetric description of a lattice, or
 //     both, marked as a pair, when a less symmetric one fits clearly better
 //     (js/indexing/solutions.js).
@@ -214,25 +214,6 @@ function esdCheck(system, cell, coeffs, hkls, names) {
     const old = fitWith(peaks.map(({ lambda, ...rest }) => rest), truth.a * KAVG / KA1);
     check('  the same peaks without p.lambda: rejected, or a cell too large (the old behaviour)',
           !old || old.a - truth.a > 1e-3, old ? `a=${old.a.toFixed(5)} M20=${old.m20.toFixed(1)}` : 'rejected (M20 = 0)');
-
-    // Swap hkl rows and refits: a Ka1 line is listed at its MEASURED 2-theta,
-    // against its line's Ka1 position, with a d-spacing from lambda(Ka1); and a
-    // manual assignment keyed by that measured value finds it.
-    const X = expose(['getPeakAssignments', 'refineWithManualHkl']);
-    if (p) {
-        const rows = X.getPeakAssignments(p, peaks, KAVG, 0.03, 140);
-        const ka1Rows = rows.filter(r => peaks.some(q => q.lambda && Math.abs(q.tth - r.tth) < 1e-9));
-        const worst = Math.max(...ka1Rows.map(r => Math.abs(r.diff)));
-        const worstD = Math.max(...ka1Rows.map(r => Math.abs(r.d_obs / r.d_calc - 1)));
-        check('getPeakAssignments: Ka1 rows at the measured 2-theta, residuals in their own frame',
-              ka1Rows.length === nKa1 && ka1Rows.every(r => r.indexed) && worst < 0.005 && worstD < 1e-4,
-              `${ka1Rows.length} Ka1 rows, max |diff| ${worst.toFixed(4)} deg, max |d_obs/d_calc - 1| ${worstD.toExponential(1)}`);
-        const top = ka1Rows[ka1Rows.length - 1];
-        const res = top && X.refineWithManualHkl(p, peaks, [{ tth: top.tth, h: top.h, k: top.k, l: top.l }], KAVG, 0.03, 140, true, 0);
-        check('refineWithManualHkl: override keyed by the measured 2-theta of a Ka1 line',
-              !!res && !res.error && near(res.cell.a, truth.a, 2e-4) && res.swaps.length === 1 && res.swaps[0].tth === top.tth,
-              res ? (res.error || `a=${res.cell.a.toFixed(5)} swap @ ${res.swaps[0].tth.toFixed(4)}`) : 'no Ka1 row');
-    }
 }
 
 // ---- 6. Final sieve: the more symmetric description of a lattice is kept ------

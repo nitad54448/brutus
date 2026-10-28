@@ -6,10 +6,6 @@
 // through manifest.js, so nothing here may touch the DOM.
 
 // --- SPACE GROUP / NIGGLI FUNCTIONS ---
-// These are all part of the crystallography scripts; 
-// ---
-const getSymmetryForEquivCells = (a, b, c, alpha, beta, gamma, tol = 0.25) => getSymmetry(a,b,c,alpha,beta,gamma,tol);
-const getVolumeForEquivCells = (cell) => getVolume(cell);
 function cellToBasis(a, b, c, alpha, beta, gamma) {
   const ca = Math.cos(alpha * RAD), cb = Math.cos(beta * RAD), cg = Math.cos(gamma * RAD), sg = Math.sin(gamma * RAD);
   const ax = a, ay = 0, az = 0; const bx = b * cg, by = b * sg, bz = 0;
@@ -43,36 +39,18 @@ function matMul3(M, C) {
   return out;
 }
 function I3() { return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]; }
-// Conventional-to-primitive transforms (columns = primitive vectors in terms of
-// the conventional a,b,c). All are right-handed (det > 0). The A/B/C matrices
-// preserve their own unique axis: A keeps a, B keeps b, C keeps c.
 const primitiveTransformByCentering = { P: [[1,0,0],[0,1,0],[0,0,1]], A: [[1, 0, 0], [0, 0.5, -0.5], [0, 0.5, 0.5]], B: [[0.5, 0, -0.5], [0, 1, 0], [0.5, 0, 0.5]], C: [[0.5, -0.5, 0], [0.5, 0.5, 0], [0, 0, 1]], I: [[-0.5,  0.5,  0.5], [ 0.5, -0.5,  0.5], [ 0.5,  0.5, -0.5]], F: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]], R: [[ 2/3, -1/3, -1/3], [ 1/3,  1/3, -2/3], [ 1/3,  1/3,  1/3]], };
 // ==========================================
-// 1. THE ADAPTER (Call this one from your main code)
+// 1. THE ADAPTER
 // ==========================================
 function reduceToNiggliCell(sol, opts) {
     const a = sol.a, b = sol.b || sol.a, c = sol.c || sol.a;
     const alpha = sol.alpha ?? 90;
     const beta = sol.beta ?? 90;
     const gamma = sol.gamma ?? (sol.system === 'hexagonal' ? 120 : 90);
-
-    // The Niggli cell and the higher-symmetry "squeeze" are questions about the
-    // METRIC of the lattice we actually solved. They must not be driven by
-    // sol.analysis.centering, which is a space-group *guess* from systematic
-    // absences. That guess is unreliable exactly when reduction matters most:
-    // a pseudo-symmetric cell (e.g. a hexagonal lattice forced into a monoclinic
-    // setting) produces a false centering, and applying the corresponding
-    // primitive transform extracts a half-volume SUBLATTICE with no relation to
-    // the true symmetry. Reduce the solved cell's own lattice; callers wanting a
-    // true-primitive reduction may pass opts.centering explicitly.
     const centering = opts && opts.centering ? opts.centering : 'P';
-
-    // Call the engine
     return niggliReduceFromCell({ a, b, c, alpha, beta, gamma, centering }, opts);
 }
-// ==========================================
-// 2. THE ENGINE (Robust Krivy-Gruber)
-// ==========================================
 // ==========================================
 // 2. THE ENGINE (Robust Krivy-Gruber)
 // ==========================================
@@ -81,11 +59,9 @@ function niggliReduceFromCell(cell, opts = {}) {
     const maxIter = opts.maxIterations || 1000;
     let eps = opts.eps || 1e-5; 
 
-    // Initialize Basis
     let B = cellToBasis(a, b, c, alpha, beta, gamma);
     let T = I3(); 
 
-    // Robust Centering Extraction (prioritize non-primitive centerings F, I, R, A, B, C over P)
     let centeringKey = 'P';
     if (centering) {
         const str = String(centering).toUpperCase();
@@ -104,7 +80,6 @@ function niggliReduceFromCell(cell, opts = {}) {
         T = matMul3(T, Cp);
     }
 
-    // Metric Tensor Components
     let A, Bm, C_val, xi, eta, zeta;
     const updateMetric = () => {
         const dot = (i, j) => B[0][i]*B[0][j] + B[1][i]*B[1][j] + B[2][i]*B[2][j];
@@ -128,9 +103,6 @@ function niggliReduceFromCell(cell, opts = {}) {
         changed = false;
         iterations++;
 
-        // Gradually relax the tolerance if a near-degenerate metric stalls the
-        // reduction, so ties resolve instead of cycling. Convergence is normally
-        // reached in well under 20 iterations; maxIter is the real ceiling.
         if (iterations > 50) eps = 1e-4;
         if (iterations > 200) eps = 1e-3;
 
@@ -152,21 +124,15 @@ function niggliReduceFromCell(cell, opts = {}) {
         const allPositive = (s_xi > 0 && s_eta > 0 && s_zeta > 0);
         const allNonPositive = (s_xi <= 0 && s_eta <= 0 && s_zeta <= 0);
         
-        if (allPositive || allNonPositive) {
-            // Already valid Type I (all > 0) or Type II (all <= 0), proceed to reduction steps
-        } else {
-            // Transform mixed signs or zero-with-positive to valid Type I or Type II (det = +1).
-            // Case 1: Two strictly negative, one strictly positive -> flip the two negatives to get Type I (+ + +)
+        if (!allPositive && !allNonPositive) {
             if (s_xi < 0 && s_eta < 0 && s_zeta > 0) { applyTrans([[-1, 0, 0], [0, -1, 0], [0, 0, 1]]); continue; }
             if (s_xi < 0 && s_eta > 0 && s_zeta < 0) { applyTrans([[-1, 0, 0], [0, 1, 0], [0, 0, -1]]); continue; }
             if (s_xi > 0 && s_eta < 0 && s_zeta < 0) { applyTrans([[1, 0, 0], [0, -1, 0], [0, 0, -1]]); continue; }
             
-            // Case 2: Two positive, one non-positive -> flip the two positives to get Type II (- - -)
             if (s_xi > 0 && s_eta > 0 && s_zeta <= 0) { applyTrans([[-1, 0, 0], [0, -1, 0], [0, 0, 1]]); continue; }
             if (s_xi > 0 && s_eta <= 0 && s_zeta > 0) { applyTrans([[-1, 0, 0], [0, 1, 0], [0, 0, -1]]); continue; }
             if (s_xi <= 0 && s_eta > 0 && s_zeta > 0) { applyTrans([[1, 0, 0], [0, -1, 0], [0, 0, -1]]); continue; }
             
-            // Case 3: One positive, two non-positive (with at least one zero) -> flip the positive to get Type II
             if (s_xi > 0 && s_eta <= 0 && s_zeta === 0) { applyTrans([[-1, 0, 0], [0, 1, 0], [0, 0, -1]]); continue; }
             if (s_xi > 0 && s_eta === 0 && s_zeta < 0)  { applyTrans([[-1, 0, 0], [0, -1, 0], [0, 0, 1]]); continue; }
             if (s_eta > 0 && s_xi <= 0 && s_zeta === 0) { applyTrans([[1, 0, 0], [0, -1, 0], [0, 0, -1]]); continue; }
@@ -191,13 +157,10 @@ function niggliReduceFromCell(cell, opts = {}) {
              applyTrans([[1, 0, 1], [0, 1, 1], [0, 0, 1]]); continue;
         }
     }
-    // The loop ends either because no transform fired this pass (changed stayed
-    // false -> reduced) or because the iteration ceiling was hit (not reduced).
     converged = !changed || iterations < maxIter;
     if (iterations >= maxIter) converged = false;
 
     const finalCell = basisToCell(B);
-    // Clean numerical dust around 90 degrees
     const cleanAngle = (ang) => Math.abs(ang - 90) < 1e-10 ? 90 : ang;
     finalCell.alpha = cleanAngle(finalCell.alpha);
     finalCell.beta = cleanAngle(finalCell.beta);
@@ -217,8 +180,8 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
     const results = { primitiveCells: [], centeredCells: {} };
     if (!niggliCell || typeof niggliCell !== 'object' || !niggliCell.a) { console.error("Invalid Niggli cell provided."); return results; }
     const minAngle = 60.0, maxAngle = 150.0;
-    const niggliSystemGuess = getSymmetryForEquivCells(niggliCell.a, niggliCell.b, niggliCell.c, niggliCell.alpha, niggliCell.beta, niggliCell.gamma);
-    const niggliVolume = getVolumeForEquivCells({ ...niggliCell, system: niggliSystemGuess });
+    const niggliSystemGuess = getSymmetry(niggliCell.a, niggliCell.b, niggliCell.c, niggliCell.alpha, niggliCell.beta, niggliCell.gamma);
+    const niggliVolume = getVolume({ ...niggliCell, system: niggliSystemGuess });
     results.primitiveCells.push({ ...niggliCell, description: "Reduced Cell (Niggli, centering not applied)", centering: 'P', volume: niggliVolume });
     if (originalSystem) {
         const niggliBasis = cellToBasis(niggliCell.a, niggliCell.b, niggliCell.c, niggliCell.alpha, niggliCell.beta, niggliCell.gamma);
@@ -230,9 +193,9 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
                 try {
                     const centeredBasis = rightMul(niggliBasis, transform); const centeredCellParams = basisToCell(centeredBasis);
                     if (Object.values(centeredCellParams).every(v => isFinite(v) && v > -1e-6) && [centeredCellParams.alpha, centeredCellParams.beta, centeredCellParams.gamma].every(a => a >= minAngle && a <= maxAngle)) {
-                        const systemGuess = getSymmetryForEquivCells(centeredCellParams.a, centeredCellParams.b, centeredCellParams.c, centeredCellParams.alpha, centeredCellParams.beta, centeredCellParams.gamma);
+                        const systemGuess = getSymmetry(centeredCellParams.a, centeredCellParams.b, centeredCellParams.c, centeredCellParams.alpha, centeredCellParams.beta, centeredCellParams.gamma);
                         const systemAllowed = (centeringType === 'I' && ['cubic', 'tetragonal', 'orthorhombic', 'monoclinic'].includes(systemGuess)) || (centeringType === 'F' && ['cubic', 'orthorhombic'].includes(systemGuess)) || (['A','B','C'].includes(centeringType) && ['orthorhombic', 'monoclinic'].includes(systemGuess)) || (centeringType === 'R' && ['hexagonal', 'trigonal'].includes(systemGuess));
-                        if (systemAllowed) { const centeredVolume = getVolumeForEquivCells({ ...centeredCellParams, system: systemGuess }); results.centeredCells[centeringType] = { ...centeredCellParams, system: systemGuess, centering: centeringType, volume: centeredVolume, description: `Conventional ${centeringType}-centered` }; }
+                        if (systemAllowed) { const centeredVolume = getVolume({ ...centeredCellParams, system: systemGuess }); results.centeredCells[centeringType] = { ...centeredCellParams, system: systemGuess, centering: centeringType, volume: centeredVolume, description: `Conventional ${centeringType}-centered` }; }
                     }
                 } catch (error) { console.error(`Error transforming to ${centeringType}-centered cell:`, error); }
             }

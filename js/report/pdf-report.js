@@ -117,7 +117,84 @@ try {
     doc.setFont(FONT.DATA, 'normal').text(loadedFileName || '', margin + 25, yPos);
     yPos += 10;
       
-    const imgData = xrdChart.toBase64Image('image/png', 1.0);      
+    // Temporarily restyle the chart for print/report visibility: dark high-contrast
+    // trace, thicker lines/ticks, and larger axis title and tick fonts.
+    const ds = xrdChart.data.datasets;
+    const savedStyles = {
+        ds0BorderColor: ds[0].borderColor,
+        ds0PointBg: ds[0].pointBackgroundColor,
+        ds0BorderWidth: ds[0].borderWidth,
+        ds0PointRadius: ds[0].pointRadius,
+        ds1BarThickness: ds[1].barThickness,
+        ds1Bg: ds[1].backgroundColor,
+        ds2BarThickness: ds[2].barThickness,
+        ds2Bg: ds[2].backgroundColor,
+        ds3BarThickness: ds[3].barThickness,
+        ds3Bg: ds[3].backgroundColor,
+        ds4BorderColor: ds[4].borderColor,
+        ds4BorderWidth: ds[4].borderWidth,
+        xTitleFont: { ...(xrdChart.options.scales.x.title.font || {}) },
+        xTitleColor: xrdChart.options.scales.x.title.color,
+        xTickFont: { ...(xrdChart.options.scales.x.ticks.font || {}) },
+        xTickColor: xrdChart.options.scales.x.ticks.color,
+        xGridColor: xrdChart.options.scales.x.grid.color,
+        yTitleFont: { ...(xrdChart.options.scales.y.title.font || {}) },
+        yTitleColor: xrdChart.options.scales.y.title.color,
+        yTickFont: { ...(xrdChart.options.scales.y.ticks.font || {}) },
+        yTickColor: xrdChart.options.scales.y.ticks.color,
+        yGridColor: xrdChart.options.scales.y.grid.color,
+    };
+    let imgData;
+    try {
+        ds[0].borderColor = '#111827';
+        ds[0].pointBackgroundColor = '#111827';
+        ds[0].borderWidth = 1.4;
+        ds[0].pointRadius = 0;
+        ds[1].barThickness = 2;
+        ds[1].backgroundColor = '#dc2626';
+        ds[2].barThickness = 2;
+        ds[2].backgroundColor = '#2563eb';
+        ds[3].barThickness = 2;
+        ds[3].backgroundColor = '#0f766e';
+        ds[4].borderColor = '#92400e';
+        ds[4].borderWidth = 1.6;
+        xrdChart.options.scales.x.title.font = { size: 18, weight: 'bold' };
+        xrdChart.options.scales.x.title.color = '#111827';
+        xrdChart.options.scales.x.ticks.font = { size: 15 };
+        xrdChart.options.scales.x.ticks.color = '#111827';
+        xrdChart.options.scales.x.grid.color = '#374151';
+        xrdChart.options.scales.y.title.font = { size: 18, weight: 'bold' };
+        xrdChart.options.scales.y.title.color = '#111827';
+        xrdChart.options.scales.y.ticks.font = { size: 15 };
+        xrdChart.options.scales.y.ticks.color = '#111827';
+        xrdChart.options.scales.y.grid.color = '#374151';
+        xrdChart.update('none');
+        imgData = xrdChart.toBase64Image('image/png', 1.0);
+    } finally {
+        ds[0].borderColor = savedStyles.ds0BorderColor;
+        ds[0].pointBackgroundColor = savedStyles.ds0PointBg;
+        ds[0].borderWidth = savedStyles.ds0BorderWidth;
+        ds[0].pointRadius = savedStyles.ds0PointRadius;
+        ds[1].barThickness = savedStyles.ds1BarThickness;
+        ds[1].backgroundColor = savedStyles.ds1Bg;
+        ds[2].barThickness = savedStyles.ds2BarThickness;
+        ds[2].backgroundColor = savedStyles.ds2Bg;
+        ds[3].barThickness = savedStyles.ds3BarThickness;
+        ds[3].backgroundColor = savedStyles.ds3Bg;
+        ds[4].borderColor = savedStyles.ds4BorderColor;
+        ds[4].borderWidth = savedStyles.ds4BorderWidth;
+        xrdChart.options.scales.x.title.font = savedStyles.xTitleFont;
+        xrdChart.options.scales.x.title.color = savedStyles.xTitleColor;
+        xrdChart.options.scales.x.ticks.font = savedStyles.xTickFont;
+        xrdChart.options.scales.x.ticks.color = savedStyles.xTickColor;
+        xrdChart.options.scales.x.grid.color = savedStyles.xGridColor;
+        xrdChart.options.scales.y.title.font = savedStyles.yTitleFont;
+        xrdChart.options.scales.y.title.color = savedStyles.yTitleColor;
+        xrdChart.options.scales.y.ticks.font = savedStyles.yTickFont;
+        xrdChart.options.scales.y.ticks.color = savedStyles.yTickColor;
+        xrdChart.options.scales.y.grid.color = savedStyles.yGridColor;
+        xrdChart.update('none');
+    }
     const imgProps = doc.getImageProperties(imgData);
     const availableWidth = pdfWidth - 2 * margin;
     const pdfHeight = doc.internal.pageSize.getHeight();
@@ -903,17 +980,9 @@ try {
         };
         const reportLines = [];
         const assignedHkls = new Set();
-    
-        const manualByTth = new Map();
-        (sol.manualSwaps || []).forEach(sw => {
-             if (sw && Number.isFinite(sw.h) && Number.isFinite(sw.k) && Number.isFinite(sw.l)) {
-                 manualByTth.set(Number(sw.tth).toFixed(4), sw);
-             }
-        });
 
         corrected_tth_obs.forEach((corr_peak) => {
              let bestMatchHkl = null; let minDiff = Infinity;
-             let isManual = false;
 
              if (corr_peak.ka2Suspect && corr_peak.ka2ParentIdx != null && pickedPeaks[corr_peak.ka2ParentIdx]) {
                  const parentPeak = pickedPeaks[corr_peak.ka2ParentIdx];
@@ -925,12 +994,6 @@ try {
                      const diff = Math.abs(hkl.tth - parentTthCorr);
                      if (diff < minParentDiff) { minParentDiff = diff; parentHkl = hkl; }
                  });
-
-                 const manParent = manualByTth.get(Number(parentPeak.tth).toFixed(4));
-                 if (manParent) {
-                     const forced = hklList.find(x => x.h === manParent.h && x.k === manParent.k && x.l === manParent.l);
-                     if (forced) parentHkl = forced;
-                 }
 
                  if (parentHkl && lambdaKa2 && parentHkl.d > 0) {
                      const sinTheta2 = lambdaKa2 / (2 * parentHkl.d);
@@ -946,25 +1009,18 @@ try {
                  }
              } else {
                  hklList.forEach(hkl => { const diff = Math.abs(hkl.tth - corr_peak.tth_fit); if (diff < minDiff) { minDiff = diff; bestMatchHkl = hkl; } });
-
-                 const _man = manualByTth.get(Number(corr_peak.tth).toFixed(4));
-                 if (_man) {
-                     const forced = hklList.find(x => x.h === _man.h && x.k === _man.k && x.l === _man.l);
-                     if (forced) { bestMatchHkl = forced; minDiff = Math.abs(forced.tth - corr_peak.tth_fit); isManual = true; }
-                 }
                  bestMatchHkl = lineFor(bestMatchHkl, corr_peak);
              }
 
              const indexWindow = tthError * 1.5;
 
-             if (bestMatchHkl && (isManual || minDiff < indexWindow) && corr_peak.tth_corr >= tthMinVal && corr_peak.tth_corr <= tthMaxVal) {
+             if (bestMatchHkl && minDiff < indexWindow && corr_peak.tth_corr >= tthMinVal && corr_peak.tth_corr <= tthMaxVal) {
                   reportLines.push({
                      h: bestMatchHkl.h, k: bestMatchHkl.k, l: bestMatchHkl.l,
                      tth_meas: corr_peak.tth, tth_corr: corr_peak.tth_corr,
                      tth_calc: bestMatchHkl.tth, d_calc: bestMatchHkl.d,
                      ka2Suspect: !!corr_peak.ka2Suspect,
-                     hasKa2Child: !!corr_peak.hasKa2Child,
-                     manual: isManual
+                     hasKa2Child: !!corr_peak.hasKa2Child
                   });
                   assignedHkls.add(`${bestMatchHkl.h},${bestMatchHkl.k},${bestMatchHkl.l}`);
              }
@@ -1010,9 +1066,6 @@ try {
             
              if (isAmbiguous) {
                  pdfLine += ' *';
-             }
-             if (line.manual) {
-                 pdfLine += '  (manual)';
              }
 
              doc.text(pdfLine, margin, yPos);

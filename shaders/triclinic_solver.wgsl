@@ -110,7 +110,6 @@ const DEG: f32 = 180.0 / PI;
 // SYSTEM_CONFIGS.triclinic.workgroupX/Y there (the engine checks, and refuses
 // to run on a mismatch).
 const WORKGROUP_SIZE_Y: u32 = 8u;
-const MAX_Y_WORKGROUPS: u32 = 16383u; 
 const MAX_FOM_PEAKS: u32 = 32u; 
 
 // Triclinic Constants for Combinadics
@@ -169,43 +168,12 @@ fn next_permutation6(p: ptr<function, array<u32, 6>>) -> bool {
 // float copies plus 719 redundant factorisations per invocation.
 //
 // It is replaced by a factor-once / substitute-many pair below. The split is
-// sound for the same reason it always was: everything the factorisation
-// decides -- the elimination multipliers
-//     fac = M[r*n+i] / pivot
-// and now also the pivot row -- depends only on M, never on the RHS. So it is
-// still computed once and replayed 720 times.
-//
-// It is NO LONGER bitwise identical to the original solve6x6, and deliberately
-// so: factor6x6 now does partial pivoting, which the original did not. See the
-// FIX note on factor6x6 -- the unpivoted version was silently discarding about
-// half of all non-singular hkl combinations.
+// both sound and fast: everything the factorisation decides -- the elimination
+// multipliers `fac = M[r*n+i] / pivot` and now also the pivot row -- depends
+// only on M, never on the RHS. So it is computed once and replayed 720 times.
 
 // Reduce A to upper-triangular U, recording the 15 elimination multipliers AND
 // the row chosen at each pivot step.
-//
-// --- FIX: this had no partial pivoting, and that was throwing away half the
-// --- triclinic search space -----------------------------------------------
-// solve4x4 in monoclinic_solver.wgsl pivots. This did not: it took U[i*n+i] as
-// the pivot and gave up the moment that entry was near zero. A row of this
-// matrix is (h^2, k^2, l^2, k*l, h*l, h*k), which is FULL of structural zeros
-// -- the very first basis reflection is (0,0,1), whose row is
-// [0,0,1,0,0,0] -- so a zero on the diagonal is the normal case here, not a
-// degenerate one. Rejecting on it is not a singularity test, it is an artefact
-// of the row ORDER the combinadic unranker happened to produce.
-//
-// Measured over 200k random 6-combinations of the default 123-reflection
-// triclinic basis: 9.2% of the systems are genuinely singular, but the
-// unpivoted factorisation rejected 61.5% of them. That is 52.3% of ALL
-// combinations -- perfectly well-conditioned systems -- discarded silently,
-// with no error and no counter anywhere. Every one of them was a cell the
-// search could have found and did not. With partial pivoting, 0 out of 50k
-// non-singular combinations are rejected.
-//
-// This deliberately breaks the "bitwise identical to the old solve6x6" property
-// the comment above claims, because the behaviour it was preserving was wrong.
-// The factor-once/substitute-many split itself is untouched and still correct:
-// the pivot choice, like the multipliers, depends only on M and never on the
-// RHS, so it is still computed once for all 720 permutations.
 //
 // Returns false only when the matrix is ACTUALLY singular (no usable pivot in
 // the whole column), in which case every permutation would have produced a zero

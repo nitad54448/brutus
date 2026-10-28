@@ -30,7 +30,7 @@ function getSpaceGroupFilter() { return _SG_FILTER; }
 // times too low, so R cells ranked below lower-symmetry sub-cells.
 // With the flag set, generateHKL_for_analysis emits only the R lines, and so
 // does every consumer that takes the cell: refinement and M(20)
-// (refineAndTestSolution), the swap search, Refine MC, Swap hkl, the chart
+// (refineAndTestSolution), the swap search, Refine MC, the chart
 // ticks and the report's hkl table.
 //
 // The obverse condition is -h+k+l = 3n, the reverse one h-k+l = 3n. The

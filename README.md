@@ -122,7 +122,7 @@ peaks (yellow rows) and keeps them out of indexing. Their Kα₁ parents (rows
 marked `*`) are pure Kα₁ lines, so they are indexed and refined with λ(Kα₁);
 every other peak uses the wavelength in the `Wavelength (Å)` box, the Kα
 average, which is right for an unresolved doublet. The same rule holds in the
-Refine MC, Swap hkl and Space Group MC dialogs, the absence analysis and the
+Refine MC and Space Group MC dialogs, the absence analysis and the
 PDF report, and the plot draws those lines at their Kα₁ positions. Keep the
 yellow rows in the list: they are what marks their parents as Kα₁ lines.
 
@@ -244,14 +244,12 @@ offers two tools for choosing a group by hand:
   they are saved in the project, listed in the PDF report and written to the
   pdCIF.
 - **Convert…** carries the cell to a maximal **subgroup** (translationengleiche
-  or klassengleiche, listed from the operators with Powder6's
+  or klassengleiche, listed from the operators with
   `sg_subgroups.js`) or to another group related by a change of axes
   (`sg_convert.js`), and adds the result as a new solution. The subgroups are
   named by matching their operators against `sg_ops.json`, which can leave a
   few unnamed (the search stops after 30 s). The M(20) of the new solution is
-  the parent's: it is not recomputed. Powder6's **Moyo** naming of subgroups
-  from a test structure is not part of Brutus: it has no atoms, so the library
-  and the structure code were left out of the copied conversion code.
+  the parent's: it is not recomputed.
 
 The technical guide (`Help` in the title bar) describes both in full.
 
@@ -286,7 +284,7 @@ check it without trusting me:
 ```bash
 python scripts/build_sg_db.py --self-test         # checks the maths, no cctbx needed
 python scripts/build_sg_db.py --check sg_ops.json # re-verifies a finished file
-node tests/check_sg_ops.mjs sg_ops.json   # checks the app can consume it
+node tests/check_sg_ops.mjs sg_ops.json           # checks the app can consume it
 ```
 
 `--self-test` builds eleven space groups by closing published generators,
@@ -311,18 +309,19 @@ to different indices, and applying it would be wrong.
 
 | File | |
 |---|---|
-| `index.html` | the application: the markup and the list of scripts, which a small loader runs in order with the version from `version.json` |
-| `version.json` | the version of the program, written once; everything else reads it |
+| `index.html` | the application: the markup and the ordered list of scripts, which the loader runs in order with the version from `js/core/version.js` |
+| `js/core/version.js` | the single source of truth for the application version (`APP_VERSION`); everything else reads it |
 | `brutus_help.html` | full technical documentation |
 | `js/core/workspace.js`, `js/core/shell.js` | the window around the plot: log, history, projects, theme, title-bar menus, Index / Stop and the run lock, plot strip, metadata, status bar |
-| `js/convert/`, `js/dialogs/convert.js` | Convert: `sg_subgroups.js` and `sg_convert.js` copied from Powder6 without its structure and Moyo parts (the headers list the changes) and the dialog that uses them |
+| `js/convert/`, `js/dialogs/convert.js` | Convert: `sg_subgroups.js` and `sg_convert.js` (maximal subgroups and basis transformations) and the dialog that uses them |
 | `js/core/`, `js/data/`, `js/parsers/`, `js/peaks/`, `js/chart/`, `js/dialogs/`, `js/report/`, `js/indexing/`, `js/main.js` | the UI: state, file readers, peak picking, chart, dialogs, exports and report, and the indexing orchestration (`js/indexing/run.js`) |
 | `js/crystallography/` | the crystallography: HKL generation, least squares, figures of merit, Niggli reduction, space-group analysis. The same files run on the main thread and in both workers; `manifest.js` lists them in load order |
 | `js/workers/` | `index-worker.js` (CPU search of cubic, tetragonal and hexagonal when WebGPU is not available, and post-processing) and `refinement-worker.js` (batch refinement; a pool of these runs alongside the GPU search) |
 | `js/gpu/` | `webgpu-engine.js` (device, buffers, dispatch chunking, combinadics), `gpu-setup.js` (the search plan: basis size, peaks and trials for each system) and `gpu-limits.js` (pre-flight checks and the Index button) |
 | `shaders/*.wgsl` | the compute kernels: `highsym_solver.wgsl` (cubic, tetragonal, hexagonal), `ortho_solver.wgsl`, `monoclinic_solver.wgsl`, `triclinic_solver.wgsl` |
 | `sg_ops.json` | the space-group database |
-| `workspace.css`, `dialogs.css`, `styles.css`, `inter-font.css`, `Inter-Variable.ttf`, `scripts/` | styling, the font, and the vendored libraries (Chart.js, zoom plugin, Hammer.js, jsPDF) |
+| `css/` | `styles.css`, `workspace.css`, `dialogs.css`, `inter-font.css`, and `Inter-Variable.ttf` (styling and bundled font) |
+| `vendor/` | third-party browser libraries (`chart.umd.js`, `hammer.min.js`, `chartjs-plugin-zoom.min.js`, `jspdf.umd.min.js`) |
 
 **Tooling** — not deployed, not needed to run anything:
 
@@ -330,7 +329,6 @@ to different indices, and applying it would be wrong.
 |---|---|
 | `scripts/build_sg_db.py` | builds `sg_ops.json` from cctbx |
 | `tests/check_sg_ops.mjs` | validates the database against the application |
-| `tests/bump_version.py` | writes the version in `version.json` |
 | `tests/check_pipeline.mjs` | verifies the app (`js/indexing/run.js`), the engine and the shaders still agree on how the HKL basis is packed, for all six systems |
 | `tests/check_manual_sg.mjs` | checks that all 530 settings calculate, the F extinctions, Pa-3 and the filter restoration |
 | `tests/check_workspace_browser.mjs` | smoke test of the real page in headless Chrome (Chrome path is set at the top of the file) |
@@ -355,13 +353,12 @@ The page, the two workers and the GPU shaders must all come from the same build:
 if the browser serves an old crystallography file to the workers while the page
 runs a new one, the result is not an obvious caching error but, for example, a
 results table and a PDF report that disagree. The version is therefore written
-once, in `version.json`. `index.html` reads it (never from the cache) before
-running any script and appends `?v=<version>` to each; through
-`js/core/version.js` the same number reaches the workers, the shaders and
+once, in `js/core/version.js` (`const APP_VERSION = '...'`). `index.html` loads
+`js/core/version.js` first and appends `APP_VERSION_QS` (`?v=<version>`) to each
+subsequent script; the same number reaches the workers, the shaders and
 `sg_ops.json`, and it is shown at the bottom right of the window and in the PDF
-report. Run `python3 tests/bump_version.py` from the app folder after any
-change; it edits `version.json` and nothing else. The app must be served over
-HTTP, as `sg_ops.json` already required.
+report. Edit `APP_VERSION` in `js/core/version.js` after any change. The app
+must be served over HTTP, as `sg_ops.json` already required.
 
 ---
 
@@ -393,7 +390,7 @@ Original Brutus material is licensed under a
 
 Bundled third-party components keep their own terms; see [LICENCE](LICENCE).
 
-*This document and most of the code porting was done by an AI. Last updated: 14 October 2026.*
+*This document and most of the code porting was done by an AI. Last updated: 28 October 2026.*
 
 ## Manual space-group comparison
 
@@ -417,15 +414,15 @@ comparison.
 
 ## Workspace and projects
 
-The title bar follows Powder6: **About** (shown in the right panel), **⇄ Panels**,
+The title bar holds **About** (shown in the right panel), **⇄ Panels**,
 the **File** and **Solution** menus, **Report**, **Index** and a Dark switch.
 **File** contains pattern loading, pattern export, project saving/loading and
 unloading. **Solution** acts on the solution open in the Solutions tab and is
 disabled without one: **Refine** (Monte-Carlo), **Test Space Group** (Space Group
 MC), **Convert…** (to a maximal subgroup, translationengleiche or klassengleiche,
-or to another group; the subgroup lists come from Powder6's `sg_subgroups.js` and
+or to another group; the subgroup lists come from `sg_subgroups.js` and
 `sg_convert.js`, the cell is converted and its M(20) is the parent's),
-**Explore Space Group…**, **Swap hkl…**, **Export pdCIF** and **Erase**.
+**Explore Space Group…**, **Export pdCIF** and **Erase**.
 
 The left panel is **Data** (pattern and its metadata, 2θ range, radiation, search
 parameters), **Peaks**, **Indexing** (crystal systems, GPU parameters) and
@@ -449,8 +446,8 @@ current status under the controls, the position under the plot pointer where the
 plot starts (at the left when the panels are swapped), then the open solution and
 the version (right).
 
-The version is written once, in `version.json`; `tests/bump_version.py` edits it.
-`index.html` reads it and stamps it on every script, worker, shader and the
+The version is written once, in `js/core/version.js` (`APP_VERSION`).
+`index.html` loads it first and stamps it on every script, worker, shader and the
 space-group file, and the window shows it at the bottom right.
 
 **Plot**, **Log** and **History** select result views. History records indexing

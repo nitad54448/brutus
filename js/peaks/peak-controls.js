@@ -40,8 +40,8 @@ const debouncedUpdateAndRedraw = debounce(() => {
     }
     // findPeaks() REPLACES pickedPeaks. A preset change or a typed wavelength
     // that leaves the plotted data untouched must not discard hand edits --
-    // the same rule as the wavelength 'change' handler below; the callers have
-    // already re-derived d / q and the Ka2 flags for the new wavelength.
+    // the same rule as the wavelength 'change' handler in js/core/inputs.js;
+    // the callers have already re-derived d / q and the Ka2 flags for the new wavelength.
     if (dataChanged || !peaksManuallyEdited) {
         findPeaks();
     } else {
@@ -98,7 +98,7 @@ ui.tthMinSlider.addEventListener('input', () => {
     if (minVal >= maxVal) { minVal = maxVal - parseFloat(ui.tthMinSlider.step); ui.tthMinSlider.value = minVal; }
     ui.tthMinValue.textContent = minVal.toFixed(2);
     updatePlotRange();
-    debouncedFindPeaks(); // 
+    debouncedFindPeaks();
 });
  ui.tthMaxSlider.addEventListener('input', () => {
     let minVal = parseFloat(ui.tthMinSlider.value);
@@ -106,29 +106,9 @@ ui.tthMinSlider.addEventListener('input', () => {
     if (maxVal <= minVal) { maxVal = minVal + parseFloat(ui.tthMaxSlider.step); ui.tthMaxSlider.value = maxVal; }
     ui.tthMaxValue.textContent = maxVal.toFixed(2);
     updatePlotRange();
-    debouncedFindPeaks(); // v114
+    debouncedFindPeaks();
 });
 ui.ballRadiusSlider.addEventListener('input', () => { ui.ballRadiusValue.textContent = parseFloat(ui.ballRadiusSlider.value).toFixed(3); debouncedFindPeaks(); });
-// The Q radius is converted to channels using lambda, so the background
-// window is no longer wavelength-independent the way a raw point count was:
-// r scales linearly with lambda, so switching Cu -> Mo roughly halves it.
-//
-// But findPeaks() REPLACES pickedPeaks, discarding manual additions,
-// deletions and userConfirmedReal flags. Silently destroying that work
-// because the user corrected a wavelength typo would be far worse than a
-// slightly stale background, so only re-detect when the list is still
-// purely automatic. Otherwise say the background is stale and let the user
-// decide -- any peak-finding slider re-runs the detection anyway.
-ui.wavelength.addEventListener('change', () => {
-    if (!workingExperimentalData || !workingExperimentalData.intensity.length) return;
-    if (!peaksManuallyEdited) {
-        debouncedFindPeaks();
-    } else {
-        showStatus('Wavelength changed. The background window is set in Q, so it is now stale — ' +
-                   'move a peak-finding slider to re-detect (this will discard manual peak edits).',
-                   'info', 9000);
-    }
-});
 ui.smoothingWidthSlider.addEventListener('input', () => { ui.smoothingWidthValue.textContent = parseFloat(ui.smoothingWidthSlider.value).toFixed(3); debouncedFindPeaks(); });
 ui.peakThresholdSlider.addEventListener('input', () => { const value = logSliderToValue(parseFloat(ui.peakThresholdSlider.value)); ui.peakThresholdValue.textContent = value.toFixed(1); debouncedFindPeaks(); });
 if (ui.peakProminenceSlider) {

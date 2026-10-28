@@ -1,6 +1,3 @@
-/* Copied from Powder6 (js/sg_convert.js), without its structure and Moyo parts (Brutus has no atoms). Brutus changes: findTransforms accepts opts.firstHit (stop at the first match), computes the cell only after the
- * rotation checks pass, and accepts opts.matrices (a list of basis changes to try
- * instead of the unimodular ones, used to relate groups with different centring) and candidates() is exported. */
 /* A cell carried to another space group by a change of basis (P, p), as in International Tables A, 1.5:
  *
  *   (a', b', c') = (a, b, c) P        p: the new origin in the old basis
@@ -85,14 +82,6 @@
     if (!ts) return false;
     return ts.some(function (t) { return isInt(op.t[0] - t[0]) && isInt(op.t[1] - t[1]) && isInt(op.t[2] - t[2]); });
   }
-  /** How the groups relate in the transformation: 'same', 'subgroup' (the new one is a subgroup of the old one), 'supergroup', or ''. */
-  function relation(fromOps, toOps, P, p) {
-    var Pi = inv3(P), oldIdx = index(fromOps), newIdx = index(toOps);
-    var sub = toOps.every(function (o) { return member(opToOld(o, P, p, Pi), oldIdx); });
-    // the old group is inside the new one only if its lattice is: the old lattice vectors are whole vectors of the new axes
-    var sup = Pi.every(isInt) && fromOps.every(function (o) { return member(opToNew(o, P, p, Pi), newIdx); });
-    return sub && sup ? 'same' : sub ? 'subgroup' : sup ? 'supergroup' : '';
-  }
 
   // ---------------------------------------------------------------- finding a transformation
   var unimodular = null;
@@ -108,8 +97,6 @@
     return unimodular;
   }
   function offDiagonal(P) { var n = 0; for (var i = 0; i < 9; i++) if (Math.abs(P[i] - I3[i]) > 1e-9) n++; return n; }
-  /* The worst relative misfit between a cell and the same cell made to obey a crystal system (lengths relative,
-     angles in degrees / 90): 0 when the cell already has the metric the new group demands. */
   function metricMisfit(cell, normalise) {
     if (!normalise) return 0;
     var n = normalise(cell);
@@ -117,16 +104,11 @@
     return Math.max(Math.abs(n.a - cell.a) / cell.a, Math.abs(n.b - cell.b) / cell.b, Math.abs(n.c - cell.c) / cell.c,
                     Math.abs(n.alpha - cell.alpha) / 90, Math.abs(n.beta - cell.beta) / 90, Math.abs(n.gamma - cell.gamma) / 90);
   }
-  /**
-   * The basis changes with entries -1, 0, 1 (determinant +1, so the hand is kept) and origin shifts in eighths that relate the
-   * two groups (same group, subgroup or supergroup), best first: the smallest metric misfit, then the fewest changed axes, then
-   * the smallest shift. opts: { normalise(cell) -> the cell the new system demands, maxMisfit (0.03), limit (8) }.
-   */
   var shiftCache = null;
   function shiftList() {
     if (shiftCache) return shiftCache;
     shiftCache = [];
-    // eighths (as Powder6) and twelfths, which the index-3 klassengleiche subgroups need
+    // eighths and twelfths, which the index-3 klassengleiche subgroups need
     var seen = {};
     [8, 12].forEach(function (n) {
       for (var i = 0; i < n; i++) for (var j = 0; j < n; j++) for (var k = 0; k < n; k++) {
@@ -147,7 +129,6 @@
       var Pi = inv3(P);
       if (!Pi) return;
       Pi = Pi.map(clean);
-      // the rotation parts first: they do not depend on the shift, nor on the cell
       var sub = toOps.every(function (o) { var r = mul3(mul3(P, o.r), Pi).map(clean); return intRot(r) && oldRot.has(rotKey(r)); });
       var sup = fromOps.every(function (o) { var r = mul3(mul3(Pi, o.r), P).map(clean); return intRot(r) && newRot.has(rotKey(r)); });
       if (!sub && !sup) return;
@@ -167,14 +148,11 @@
     out.sort(function (a, b) { return (Math.round(a.misfit * 1e4) - Math.round(b.misfit * 1e4)) || ((a.changed > 0) - (b.changed > 0)) || (Math.round(a.compact * 1e3) - Math.round(b.compact * 1e3)) || (acute(a.cell) - acute(b.cell)) || (a.changed - b.changed) || (a.shift - b.shift) || (rank[a.relation] - rank[b.relation]); });
     return out.slice(0, limit);
   }
-  // how far an origin shift is from none, a shift of 7/8 counting as -1/8
   function shiftSize(p) { return p.reduce(function (s, v) { var w = v - Math.floor(v); return s + Math.min(w, 1 - w); }, 0); }
-  // the convention for oblique cells is obtuse angles (monoclinic beta > 90)
   function acute(c) { return (c.alpha < 89.999) + (c.beta < 89.999) + (c.gamma < 89.999); }
-  // a smaller, less oblique cell first: the sum of the edges (relative) and the departure of the angles from 90 degrees
   function compactness(c) { return (c.a + c.b + c.c) / Math.cbrt(Math.max(1e-9, c.a * c.b * c.c)) + (Math.abs(c.alpha - 90) + Math.abs(c.beta - 90) + Math.abs(c.gamma - 90)) / 90; }
 
-  var api = { inv3: inv3, transformCell: transformCell, formatBasis: formatBasis, formatShift: formatShift, findTransforms: findTransforms, candidates: candidates };
+  var api = { inv3: inv3, mul3: mul3, mulv: mulv, transformCell: transformCell, formatBasis: formatBasis, formatShift: formatShift, findTransforms: findTransforms, candidates: candidates };
   root.SGConvert = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

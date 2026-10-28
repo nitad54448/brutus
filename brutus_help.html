@@ -18,7 +18,7 @@
     </script>
     <script id="MathJax-script" async
             src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
-    <!-- Theme: the same light and dark palettes as the program (workspace.css). The choice made in the program
+    <!-- Theme: the same light and dark palettes as the program (css/workspace.css). The choice made in the program
          (localStorage "brutus-theme") is applied before the first paint, and follows the program if it changes. -->
     <script>
         (function () {
@@ -27,7 +27,7 @@
             document.documentElement.dataset.theme = dark ? 'dark' : 'light';
         })();
     </script>
-    <link href="inter-font.css" rel="stylesheet">
+    <link href="css/inter-font.css" rel="stylesheet">
     <style>
         :root {
             --paper: #eceef0; --panel: #fbfcfc; --chrome: #d4dfea; --header-rule: #8fa8be;
@@ -259,12 +259,12 @@
                 Brutus runs entirely in the browser, requiring no installation, and it can be completely run locally in a server. The program is split across several files:
             </p>
             <ul>
-                <li><code>index.html</code> — the application markup and the list of scripts. It does not run the scripts itself: a short loader reads <code>version.json</code> and then runs every script listed in it, in the listed order, with <code>?v=&lt;version&gt;</code> appended. The list is written as <code>&lt;script type="application/x-brutus" src="..."&gt;</code> so that the browser does not run it before the loader does.</li>
-                <li><code>version.json</code> &mdash; the one place the version of the program is written. The loader, the workers, the shaders, <code>sg_ops.json</code>, the status-bar label and the PDF report all take it from here (see <a href="#build-scripts">Build and maintenance scripts</a>).</li>
+                <li><code>index.html</code> — the application markup and the list of scripts. It loads <code>js/core/version.js</code> synchronously first, then a short loader runs every script listed in it, in the listed order, with <code>?v=&lt;version&gt;</code> appended. The list is written as <code>&lt;script type="application/x-brutus" src="..."&gt;</code> so that the browser does not run it before the loader does.</li>
+                <li><code>js/core/version.js</code> &mdash; the single source of truth for the version of the program (<code>APP_VERSION</code>). The loader, the workers, the shaders, <code>sg_ops.json</code>, the status-bar label and the PDF report all take it from here (see <a href="#build-scripts">Build and maintenance scripts</a>).</li>
                 <li><code>js/core/workspace.js</code> and <code>js/core/shell.js</code> &mdash; the window around the plot. <code>workspace.js</code> holds the log, the run history, the project (<code>.brutus</code>) save and load, the theme and the space-group explorer; <code>shell.js</code> holds the title-bar buttons and menus, the Index / Stop button and the lock that applies during a run, the plot strip, the pattern metadata and the status bar.</li>
-                <li><code>js/convert/</code> &mdash; <code>sg_subgroups.js</code> and <code>sg_convert.js</code>, copied from Powder6 (the headers say what was changed): the maximal subgroups of a space group from its operators, and the change of basis that relates two groups. <code>js/dialogs/convert.js</code> is the dialog that uses them.</li>
-                <li><code>workspace.css</code>, <code>dialogs.css</code> &mdash; the light and dark themes and the layout of the window (palette taken from Powder6), and the styles of the Space Group MC window and of the Save-as, Unload and notice dialogs. <code>styles.css</code> is the older base stylesheet they sit on.</li>
-                <li><code>js/</code> (UI) — the user interface as a set of small classic scripts loaded in order by <code>index.html</code>: <code>js/core/</code> (state, status, input reading), <code>js/data/</code> (file loading, radiation presets, Kα2 stripping, export), <code>js/parsers/</code> (one reader per file format), <code>js/peaks/</code> (background, smoothing, peak picking, the peak table), <code>js/chart/</code> (Chart.js rendering and interaction), <code>js/indexing/</code> (search coordination, solution sieving, the results table), <code>js/dialogs/</code> (Refine MC, Swap hkl, Space Group MC), <code>js/report/</code> (pdCIF and PDF report) and <code>js/main.js</code> (startup).</li>
+                <li><code>js/convert/</code> &mdash; <code>sg_subgroups.js</code> and <code>sg_convert.js</code>: the maximal subgroups of a space group from its operators, and the change of basis that relates two groups. <code>js/dialogs/convert.js</code> is the dialog that uses them.</li>
+                <li><code>css/workspace.css</code>, <code>css/dialogs.css</code> &mdash; the light and dark themes and the layout of the window, and the styles of the modal dialogs and Space Group MC window. <code>css/styles.css</code> is the base stylesheet they sit on.</li>
+                <li><code>js/</code> (UI) — the user interface as a set of small classic scripts loaded in order by <code>index.html</code>: <code>js/core/</code> (state, status, input reading), <code>js/data/</code> (file loading, radiation presets, Kα2 stripping, export), <code>js/parsers/</code> (one reader per file format), <code>js/peaks/</code> (background, smoothing, peak picking, the peak table), <code>js/chart/</code> (Chart.js rendering and interaction), <code>js/indexing/</code> (search coordination, solution sieving, the results table), <code>js/dialogs/</code> (Refine MC, Space Group MC, Convert, context menu), <code>js/report/</code> (pdCIF and PDF report) and <code>js/main.js</code> (startup).</li>
                 <li><code>js/crystallography/</code> — all crystallographic mathematics: HKL generation, Q-calculation, least-squares solvers, figure-of-merit calculations, error propagation, Niggli reduction and the space-group analysis. The same files are loaded three ways: on the main thread (post-processing and helper maths), in the CPU index worker, and in each refinement worker; <code>manifest.js</code> lists them in load order for the workers.</li>
                 <li><code>js/workers/index-worker.js</code> — the post-processing pass over GPU solutions, and the CPU fallback search of cubic/tetragonal/hexagonal cells used only when WebGPU is unavailable.</li>
                 <li><code>js/workers/refinement-worker.js</code> — a thin batch-refinement worker. GPU-found candidate cells are refined (full weighted least-squares, M(20), error propagation) not on the main thread but across a <strong>pool of these workers</strong>, sized to <code>hardwareConcurrency − 2</code> (minimum 1, at most 12) to leave cores free for the UI and the GPU driver. The pool lives for the whole page and is re-initialised for each run. Candidate cells are streamed to the pool in round-robin batches while the GPU search is still running, so refinement overlaps GPU execution.</li>
@@ -277,8 +277,8 @@
                     dictionary-encoded against a shared table of the 64 distinct rotation matrices, so the
                     whole database is about 235&nbsp;KB &mdash; one fetch rather than the 530 the app would
                     otherwise need to build its extinction classes.</li>
-                <li><code>styles.css</code>, <code>inter-font.css</code>, and the vendored libraries under
-                    <code>scripts/</code> (Chart.js, Hammer, the Chart.js zoom plugin, jsPDF).</li>
+                <li><code>css/styles.css</code>, <code>css/inter-font.css</code>, and the vendored libraries under
+                    <code>vendor/</code> (Chart.js, Hammer, the Chart.js zoom plugin, jsPDF).</li>
                 <li><code>highsym_solver.wgsl</code> — one module with three entry points (<code>main_cubic</code>, <code>main_tetragonal</code>, <code>main_hexagonal</code>) for the systems with one or two unknowns. The 1×1 or 2×2 system is solved exactly (the 2×2 determinant of integer index products is an exact integer, so singular pairs are rejected without a tolerance), and both assignments of the two peaks are tried.</li>
                 <li><code>ortho_solver.wgsl</code>, <code>monoclinic_solver.wgsl</code>, <code>triclinic_solver.wgsl</code> — the WGSL compute kernels for the low-symmetry systems. Each unranks HKL combinations on the fly from a u32 combinadic (combinatorial-number-system) index, solves the per-trial linear system (3×3, 4×4, or 6×6), applies the geometric and figure-of-merit filters, and atomically appends surviving cells to the results buffer. Each invocation factors its coefficient matrix once and reuses it across the peak permutations: an explicit 3×3 inverse for orthorhombic, and Gaussian elimination with partial pivoting for monoclinic and triclinic. The latter replay the stored row swaps and multipliers for each right-hand side. Singular combinations are rejected before the permutation loop. The tables contain 6, 24 and 720 permutations respectively; an invocation exits after its first accepted candidate.</li>
             </ul>
@@ -369,14 +369,10 @@
                 symbol.
             </p>
 
-            <h4><code>version.json</code> and <code>bump_version.py</code> &mdash; the version</h4>
-            <pre><code>python3 tests/bump_version.py            # write today's date
-python3 tests/bump_version.py 20261101b  # write an explicit value
-python3 tests/bump_version.py --check    # print the current version</code></pre>
+            <h4><code>js/core/version.js</code> &mdash; the version</h4>
             <p>
-                The version is written in one file, <code>version.json</code> (<code>{"version": "20261027"}</code>), and
-                nowhere else; <code>bump_version.py</code> only edits that file. Run it after changing any JavaScript or
-                rebuilding the database.
+                The version is written in one file, <code>js/core/version.js</code> (<code>const APP_VERSION = '20261028';</code>), and
+                nowhere else. Update <code>APP_VERSION</code> after changing any JavaScript or rebuilding the database.
             </p>
 
             <h4>Verification scripts</h4>
@@ -390,11 +386,7 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
                 <code>tests/</code>.
             </p>
             <ul>
-                <li><code>node test_sg_ops.mjs</code> &mdash; derives reflection conditions from operators for
-                    ten space groups and checks them against the International Tables, using the operator
-                    core inside the shipping crystallography scripts rather than a copy of it. Covers
-                    screw axes, every glide, all centrings, the 4n d-glide conditions, and the trigonal and
-                    hexagonal zone families that a label-matching test gets wrong.</li>
+                <li><code>node tests/check_sg_ops.mjs sg_ops.json</code> &mdash; validates the space-group database against the application and checks reachability across all crystal systems.</li>
                 <li><code>node tests/check_pipeline.mjs</code> &mdash; confirms that <code>js/indexing/run.js</code>,
                     <code>js/gpu/webgpu-engine.js</code> and the four shaders still agree on how the HKL basis is
                     packed for each of the six systems, that every system in <code>SEARCH_ORDER</code> has a packer,
@@ -411,7 +403,7 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
                     with synthetic data of known answer: cubic, tetragonal and hexagonal searches through the
                     real CPU (fallback) worker, refinement of a perturbed orthorhombic cell, Niggli reduction, error
                     propagation compared with a Monte-Carlo estimate, Kα<sub>1</sub> lines indexed with
-                    λ<sub>Kα1</sub> (cell, zero, <em>Swap hkl</em> rows and a manual refit), and the final sieve
+                    λ<sub>Kα1</sub>, and the final sieve
                     keeping the most symmetric description of a lattice, or both descriptions when a less
                     symmetric one fits clearly better.</li>
             </ul>
@@ -425,18 +417,16 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
                 builds of the same file</strong>. That does not present as a caching problem: it presents as results that
                 disagree between the table and the report.
                 <p style="margin-top:0.75rem">
-                The loader in <code>index.html</code> fetches <code>version.json</code> (never from the cache), keeps it as
-                <code>window.BRUTUS_VERSION</code> and appends it to every script it runs. <code>js/core/version.js</code>
-                turns the same number into the query appended to everything the program builds itself: both workers (which
+                <code>index.html</code> loads <code>js/core/version.js</code> first, which defines <code>APP_VERSION</code>
+                and <code>APP_VERSION_QS</code> (<code>?v=&lt;version&gt;</code>), and the loader appends it to every script it runs.
+                The same query string is appended to everything the program loads itself: both workers (which
                 forward it to the crystallography files they import), the WGSL shaders and <code>sg_ops.json</code> &mdash; that
                 last one would otherwise be cached across a database rebuild and fail the operator check while the file on
                 disk was perfectly correct. The label at the bottom right of the window and the version line of the PDF report
-                show the same value. The page therefore has to be served over HTTP (it already had to be, to fetch
-                <code>sg_ops.json</code>); if <code>version.json</code> cannot be read, a warning goes to the console and
-                nothing is versioned.
+                show the same value. The page has to be served over HTTP (to fetch shaders and <code>sg_ops.json</code>).
                 </p>
                 <p style="margin-top:0.75rem">
-                Deploy the matching HTML, JavaScript, shaders and <code>version.json</code> together, change the version when
+                Deploy the matching HTML, JavaScript, shaders and <code>js/core/version.js</code> together, change <code>APP_VERSION</code> when
                 files change, and reload the page. Shader source is cached by URL for the page lifetime; compiled modules and
                 pipelines are cached on the GPU device.
                 </p>
@@ -515,7 +505,7 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
             <p>
                 The window has a <strong>title bar</strong>, a <strong>left panel</strong> of four tabs (the controls), a
                 <strong>right panel</strong> of three tabs (the results) separated by a draggable divider, and a
-                <strong>status bar</strong>. The layout and the light and dark palettes follow Powder6; <code>&#8644; Panels</code>
+                <strong>status bar</strong>. <code>&#8644; Panels</code>
                 swaps the two panels. Dialogs and menus use the same palette as the window.
             </p>
 
@@ -546,14 +536,14 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
                     <ul>
                         <li><code>Radius</code> – rolling-ball background radius, in reciprocal space
                             ($Q = 4\pi\sin\theta/\lambda$, Å⁻¹). Larger values handle broader, slowly varying
-                            backgrounds. Default 0.050 Å⁻¹.</li>
+                            backgrounds. Default 0.100 Å⁻¹.</li>
                         <li><code>Smoothing</code> – half-width of the moving average applied <em>inside</em> the
                             background estimator, before the rolling ball runs. Same units as <code>Radius</code>
                             (Å⁻¹), so the two are directly comparable. It suppresses noise spikes that would
                             otherwise drag the estimated background down into the baseline. Set to 0 to disable.
-                            Default 0.012 Å⁻¹.
+                            Default 0.010 Å⁻¹.
                             <div class="callout-warning"><strong>Keep <code>Smoothing</code> well below
-                            <code>Radius</code></strong> — roughly a factor of 4 at the defaults. If the smoothing
+                            <code>Radius</code></strong> — roughly a factor of 10 at the defaults. If the smoothing
                             window approaches the ball radius, the moving average flattens the very peaks the ball
                             is supposed to pass underneath, and the background is subtracted from the peaks
                             themselves.</div></li>
@@ -563,7 +553,7 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
                             question from <code>Min peak (%)</code>: that one asks <em>is this tall enough?</em>,
                             this one asks <em>is this actually resolved?</em> A bump riding on the flank of a
                             strong peak can easily be tall enough while having almost no prominence.
-                            Default 0, which disables the test. See below for how to choose a value.</li>
+                            Default 25% (set to 0 to disable the test). See below for how to choose a value.</li>
                     </ul>
                     <div class="callout-note">
                         <strong>Why Å⁻¹ and not data points?</strong>
@@ -648,7 +638,7 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
                 <li>
                     <strong>Wavelength (Å):</strong>
                     Displays the wavelength used for all Q-space calculations &mdash; the search, the refinement and the
-                    Refine MC, Swap hkl and Space Group MC dialogs use it for every peak except the Kα<sub>1</sub> parents
+                    Refine MC and Space Group MC dialogs use it for every peak except the Kα<sub>1</sub> parents
                     of flagged Kα<sub>2</sub> peaks, which use λ<sub>Kα1</sub>. Updated automatically when a preset is chosen
                     and depends on the <code>Strip K-alpha2</code> setting:
                     <ul>
@@ -875,9 +865,6 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
                 <li><strong>Report PDF:</strong> the PDF report of this solution only. (The <strong>Report</strong> button in the title bar does the same when a solution is open, and reports all listed solutions otherwise.)</li>
                 <li><strong>Erase:</strong> permanently removes the solution from the list (a partner of an &equiv; pair loses its badge).</li>
             </ul>
-            <div class="callout-note">
-                <strong>Swap hkl</strong> (<a href="#swap-hkl">the combinatorial swap search and the manual dialog</a>) has no menu entry: the dialog (<code>js/dialogs/swap-hkl.js</code>) and the swap search are still in the code and the report still lists swapped solutions, but nothing in the window opens the dialog now.
-            </div>
 
             <h3>Right panel</h3>
             <p>Three tabs, <strong>Plot</strong>, <strong>Log</strong> and <strong>History</strong>, and the About view (opened from the title bar).</p>
@@ -892,7 +879,7 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
                 </li>
                 <li id="status-bar">
                     <strong>Status bar.</strong>
-                    One line, laid out on the split between the two panels. Under the controls panel, the current status: the last message of the program, the progress line during a run, or the number of peaks and solutions. Where the plot starts, the position under the plot pointer (2&theta;, d, Q and hkl); with the panels swapped it is at the left, under the plot. Then the open solution (system, cell, angles, M(20)), and the right side the version of the program (<code>Brutus v&lt;version&gt;</code>, from <code>version.json</code>).
+                    One line, laid out on the split between the two panels. Under the controls panel, the current status: the last message of the program, the progress line during a run, or the number of peaks and solutions. Where the plot starts, the position under the plot pointer (2&theta;, d, Q and hkl); with the panels swapped it is at the left, under the plot. Then the open solution (system, cell, angles, M(20)), and the right side the version of the program (<code>Brutus v&lt;version&gt;</code>, from <code>js/core/version.js</code>).
                 </li>
             </ul>
 
@@ -1221,14 +1208,14 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
                     and marked with ⚠. These are <strong>excluded</strong> from the combinatorial indexing search
                     and from the M(20) Figure of Merit calculation, and count only as "soft" violations
                     during space-group analysis (subject to the consensus override described in the
-                    space-group section). <em>Refine MC</em>, <em>Swap hkl</em> and <em>Space Group MC</em> exclude
+                    space-group section). <em>Refine MC</em> and <em>Space Group MC</em> exclude
                     them from their refits and figures of merit in the same way, so a child cell's M(20) is
                     comparable with its parent's.
                 </li>
                 <li><strong>Kα<sub>1</sub> Wavelength for Parent Peaks:</strong> The parent peak of each Kα<sub>2</sub>
                     ghost is identified and numbered with a <code>*</code>. It is a pure Kα<sub>1</sub> line, so it is
                     indexed, refined and reported with λ<sub>Kα1</sub>: the search, the least-squares refinement, the
-                    <em>Refine MC</em>, <em>Swap hkl</em> and <em>Space Group MC</em> dialogs, the absence analysis, the
+                    <em>Refine MC</em> and <em>Space Group MC</em> dialogs, the absence analysis, the
                     peak table, the PDF report and the plotted line all use it. Every other peak uses the wavelength in
                     the <code>Wavelength (Å)</code> box. The fit itself works at one wavelength, so a parent enters it
                     at the 2θ where its $d$-spacing appears at that wavelength,
@@ -2034,7 +2021,7 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
             </p>
             <ul>
                 <li><strong>Where the R line list is used:</strong> refinement and M(20)/F(N), the post-processing swap
-                    search, Refine MC, Swap hkl (assignments and refit), the calculated tick marks on the chart and the
+                    search, Refine MC, the calculated tick marks on the chart and the
                     hkl table of the PDF report. Cells derived from an R cell by these tools stay R.</li>
                 <li><strong>Where it is not:</strong> the automatic space-group analysis and Space Group MC always use
                     the full hexagonal lattice, because they detect R centring precisely by finding the R-forbidden
@@ -2553,60 +2540,6 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
         It refits the cell once per hypothesis, merges the settings your data cannot separate, applies no
         centering pre-filter, and scores a likelihood ratio you can read as odds.
     </p>
-    <h4 id="swap-hkl">Swap hkl &mdash; correcting an assignment by hand</h4>
-    <p>
-        Indexing assigns each observed peak to the <em>nearest</em> calculated line. When two lines straddle a
-        peak that choice can be decided by a few thousandths of a degree, and it can be wrong
-        <strong>without producing any violation at all</strong>: in a permissive space group both candidates
-        are allowed, so nothing flags it. No rule-driven search can find those cases, because such a search
-        only ever sees assignments that some space group forbids. The decision is therefore yours.
-    </p>
-    <p>
-        The <strong>Swap hkl</strong> dialog (which currently has no menu entry, see <a href="#solution-menu">The Solution menu</a>) shows the assignment the
-        refit will actually use, including the one-line-per-peak rule: where two peaks compete for the same
-        calculated line the closer one keeps it and the other is shown unindexed, rather than both being
-        fitted to the same reflection. The dialog lists every peak in the 2&theta; range
-        with its current indices, observed <em>d</em>, calculated 2&theta; and the residual; the table scrolls
-        when the list is long, and the line above it says how many peaks it holds and how many are unindexed.
-        Kα<sub>2</sub>-suspect peaks are neither listed nor refitted, because indexing leaves them out too: fitted
-        as real reflections they would distort the cell, and counted as unindexed lines they would make the
-        child's M(20) incomparable with its parent's. Edit any indices you
-        disagree with; edited fields are highlighted. <strong>Apply</strong> re-fits the cell (and the zero
-        error, if that refinement is enabled) with your assignments imposed and adds the result to the
-        solutions list as an ordinary solution, tagged <em>swap&times;n</em>, directly above its parent; the
-        status line reports the swaps and the change in M(20). <strong>Cancel</strong> discards
-        everything.
-    </p>
-    <p>
-        Because the new solution is ordinary in every respect &mdash; its $M$ and $F$ are computed against the
-        full calculated line list, exactly like any other entry &mdash; you can compare it directly with its
-        parent. A correct swap improves the figures; a wrong one degrades them visibly, which is the point.
-        Applying <em>Swap hkl</em> to a swapped solution again lets you build up several changes step by step,
-        with the effect of each one visible.
-    </p>
-    <p>
-        The swapped assignments are carried on the new solution and honoured everywhere it is used: the
-        space-group analysis re-runs against them, and the <em>hkl</em> table in the report shows them marked
-        <em>(manual)</em> rather than silently reverting to nearest-line matching &mdash; which would otherwise
-        reproduce the very mistake you corrected, since the whole reason for swapping is that the nearest line
-        was the wrong one.
-    </p>
-    <p>
-        Several mistakes are caught before refinement: an incomplete row (<em>h</em>, <em>k</em> and
-        <em>l</em> must all be given); assigning a reflection that another peak already holds, which would
-        otherwise be quietly averaged into a distorted cell; two edits aimed at the same peak; and an edit
-        whose peak is no longer inside the 2&theta; range. The duplicate check is made against
-        <strong>every</strong> peak the refit will use, recomputed when you press <em>Apply</em> rather than read
-        from the rows on screen. A manual assignment is
-        honoured even when it is not the nearest line and even when it falls outside the indexing window
-        &mdash; overruling the nearest-line rule is exactly what the command is for.
-    </p>
-    <p>
-        <strong>Worked example.</strong> In PbSO<sub>4</sub> (anglesite) the peak at 16.423&deg; indexes as
-        (1,0,0) at 0.015&deg; rather than (0,1,1) at &minus;0.002&deg; in the reduced setting. Swapping it and
-        re-refining recovers a &minus;0.012&deg; zero shift that the original assignment had been masking, and
-        returns a cell within 0.002 &Aring; of the published one.
-    </p>
     <h4>Nothing is re-indexed automatically</h4>
     <p>
         Indexing is <strong>extinction-blind</strong>: each observed peak is assigned to the <em>nearest</em>
@@ -2617,7 +2550,7 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
         space group.
     </p>
     <p>
-        Brutus does <strong>not</strong> correct this by itself, and that is a deliberate choice.
+        Brutus does <strong>not</strong> correct this by itself during absence analysis, and that is a deliberate choice.
         Re-assigning such peaks automatically once the rules are known, then re-fitting the cell to match,
         would alter a solution the user never asked to change; with several peaks involved the resulting
         corrections are hard to interpret; and it would still miss the cases that matter most — an assignment
@@ -2626,9 +2559,7 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
         of thoroughness while leaving the hardest errors untouched.
     </p>
     <p>
-        The report therefore shows exactly what the indexer decided, with no silent edits. Where a decision
-        looks wrong, correct it deliberately with <strong>Swap hkl</strong>, which leaves the original solution
-        untouched and adds the corrected one alongside it for comparison.
+        The report therefore shows exactly what the indexer decided, with no silent edits.
     </p>
     <p>
         This is not in tension with the automatic <a href="#advanced-topics">combinatorial swap search</a>,
@@ -3429,16 +3360,13 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
             </p>
             <ol>
                 <li><strong>Current space group.</strong> The group in which the cell axes are expressed. The dialog starts from the group chosen for the solution, else from the first group of the class that Test Space Group proposed, else from the first setting of the cell&rsquo;s crystal system; the filter narrows the list. The conversion is only meaningful if the cell axes really are those of this setting.</li>
-                <li><strong>Maximal subgroups.</strong> The list comes from the operators of the group (<code>js/convert/sg_subgroups.js</code>, from Powder6, after International Tables A1 and the Bilbao SUBGROUPGRAPH): <em>translationengleiche</em> (t) subgroups keep the lattice and lose point-group operators, <em>klassengleiche</em> (k) subgroups keep the point group and lose lattice translations (index 2, 3 or 4, so their cell is larger). Each row gives the relation and index, the group, the new axes (a&prime;, b&prime;, c&prime;) in terms of the old ones, the new cell and its volume. Conjugate subgroups with the same name, index and cell are listed once, as <em>&times;n equivalent</em>.</li>
+                <li><strong>Maximal subgroups.</strong> The list comes from the operators of the group (<code>js/convert/sg_subgroups.js</code>, after International Tables A1 and the Bilbao SUBGROUPGRAPH): <em>translationengleiche</em> (t) subgroups keep the lattice and lose point-group operators, <em>klassengleiche</em> (k) subgroups keep the point group and lose lattice translations (index 2, 3 or 4, so their cell is larger). Each row gives the relation and index, the group, the new axes (a&prime;, b&prime;, c&prime;) in terms of the old ones, the new cell and its volume. Conjugate subgroups with the same name, index and cell are listed once, as <em>&times;n equivalent</em>.</li>
                 <li><strong>Naming.</strong> The operators alone give a subgroup, not its name. Brutus looks for a setting of <code>sg_ops.json</code> with the same number of operators and the same number of rotations, and tries changes of basis (the unimodular matrices with entries &minus;1, 0, 1, and those combined with the centring conversions) and origin shifts (eighths and twelfths of a cell edge) until the operators coincide (<code>SGConvert.findTransforms</code>). The t subgroups are named first. The search runs in the background, rows are named as they are found, and it stops after 30 s; a row left <em>not named</em> can still be used, and then carries a label such as <em>subgroup (klassengleiche, index 3) of &hellip;</em> with no symbol.</li>
                 <li><strong>Another group.</strong> Choose any setting as the target; the dialog lists up to eight changes of axes (and origin) that make it a subgroup, a supergroup or the same group as the current one. It does not find a sublattice of index 2 to 4 that way; use the subgroup list for those.</li>
             </ol>
             <p>
                 <strong>The new solution</strong> takes the transformed cell (a&prime;, b&prime;, c&prime;, &alpha;&prime;, &beta;&prime;, &gamma;&prime; from the metric, <em>G&prime; = P<sup>T</sup> G P</em>), its volume, and the group as its space group. Its crystal system is worked out from the metric (lengths within 0.4&nbsp;%, angles within 0.12&deg;), not taken from the group, and a monoclinic cell with a unique axis other than b is therefore listed as triclinic. Its <strong>M(20) is the parent&rsquo;s and is not recomputed</strong>: for an index above 1 the new cell has more lines than the parent, so its true M(20) would be lower. The solution records what it came from (<code>convertedFrom</code>), the report says so, and the Log and a message state it.
             </p>
-            <div class="callout-note">
-                <strong>Moyo.</strong> Powder6 names a subgroup by handing a test structure to the Moyo symmetry library (WebAssembly). Brutus does not use Moyo: it has no atoms to hand it, and the program ships no such library. Its subgroup lists and change-of-basis search are Powder6&rsquo;s own JavaScript, and the naming is the operator matching against <code>sg_ops.json</code> described above, which is why a few rows can stay unnamed.
-            </div>
 
             <h3 id="projects">Projects</h3>
             <p>
@@ -3657,8 +3585,7 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
                 is to relabel, refit the cell, and rescore.
             </p>
             <p>
-                A manual swap is available: move one peak to a neighbouring reflection,
-                or exchange the hkl of the two closest peaks. An automatic swap search is applied to up to the best 40 eligible parent cells during post-processing.
+                An automatic swap search is applied to up to the best 40 eligible parent cells during post-processing.
             </p>
 
             <h4>What is enumerated</h4>
@@ -3940,7 +3867,7 @@ python3 tests/bump_version.py --check    # print the current version</code></pre
                     With stripping off, only the Kα<sub>1</sub> parents of <em>flagged</em> Kα<sub>2</sub> peaks are
                     indexed with λ<sub>Kα1</sub>. A resolved Kα<sub>1</sub> line whose Kα<sub>2</sub> shoulder was not
                     picked, or a partly resolved peak, stays at the average wavelength and misfits by up to a third of
-                    the doublet splitting. Look for it in the report or the <em>Swap hkl</em> table, add a missed
+                    the doublet splitting. Look for it in the report, add a missed
                     shoulder with <code>Ctrl + Click</code> so the pair is recognised, or strip Kα<sub>2</sub> &mdash;
                     see <a href="#ka2-flagged">Flagged or stripped?</a>
                 </li>

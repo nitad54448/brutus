@@ -7,8 +7,8 @@ Commons terms below do not apply to those components.
 
 Other bundled components
 ------------------------
-The libraries in scripts/ (Chart.js, chartjs-plugin-zoom, Hammer.js,
-jsPDF) and the Inter font (Inter-Variable.ttf) are distributed under
+The libraries in vendor/ (Chart.js, chartjs-plugin-zoom, Hammer.js,
+jsPDF) and the Inter font (css/Inter-Variable.ttf) are distributed under
 their own licences, whose notices are kept in or with those files.
 Preserve them when redistributing.
 

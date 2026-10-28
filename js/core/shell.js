@@ -62,7 +62,12 @@ document.querySelectorAll('[data-sol-action]').forEach(b => b.addEventListener('
 }));
 // A run owns the window: Esc stops it, and nothing else is accepted meanwhile.
 document.addEventListener('keydown', e => {
-    if (!isIndexing) return;
+    if (!isIndexing) {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.menubar details[open]').forEach(d => { d.open = false; });
+        }
+        return;
+    }
     if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); ui.reportButton.click(); return; }
     if (e.ctrlKey || e.metaKey || e.key === 'Enter' || e.key === 'Delete') { e.preventDefault(); e.stopImmediatePropagation(); }
 }, true);
@@ -90,7 +95,7 @@ new MutationObserver(renderWorkspaceState).observe(statusTextElement, { childLis
 for (const el of [ui.startIndexingButton, ui.reportButton])
     headerObserver.observe(el, { attributes: true, childList: true, characterData: true, subtree: true });
 const baseRefreshStatus = refreshWorkspaceStatus;
-refreshWorkspaceStatus = function () { baseRefreshStatus(); syncHeader(); renderFileMeta(); };
+refreshWorkspaceStatus = function () { baseRefreshStatus(); syncHeader(); };
 
 // ---- plot tool strip -----------------------------------------------------
 function syncPlotTools() {

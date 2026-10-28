@@ -101,7 +101,6 @@ struct Config {
 const PI: f32 = 3.1415926535;
 const DEG: f32 = 180.0 / PI;
 const WORKGROUP_SIZE_Y: u32 = 8u;
-const MAX_Y_WORKGROUPS: u32 = 16383u; 
 const MAX_FOM_PEAKS: u32 = 32u; 
 
 // Monoclinic Constants (K=4)
@@ -223,7 +222,7 @@ fn extractCell(params: Vec4) -> RawMonoSolution {
 
     var beta_calc = acos(cosBeta_calc) * DEG;
     if (beta_calc < 90.0) { beta_calc = 180.0 - beta_calc; }
-    if (beta_calc < 89.0 || beta_calc > 150.0) { return RawMonoSolution(0.0, 0.0, 0.0, 0.0); }
+    if (beta_calc > 150.0) { return RawMonoSolution(0.0, 0.0, 0.0, 0.0); }
 
     let sinBetaSq = 1.0 - cosBeta_calc * cosBeta_calc; 
     if (sinBetaSq <= 1e-6) { return RawMonoSolution(0.0, 0.0, 0.0, 0.0); }

@@ -169,8 +169,9 @@ try {
         const out = applyFinalSieve(cells);
         return out.length <= 53 && out.filter(x => x.system === 'monoclinic').length === 3 && out.filter(x => x.system === 'orthorhombic').length >= 47;
     })()`));
-    // One version for everything: version.json is what the page, its workers and the footer report.
-    assert.equal(await evaluate('APP_VERSION'), JSON.parse(readFileSync('version.json', 'utf8')).version);
+    // One version for everything: js/core/version.js is what the page, its workers and the footer report.
+    const expectedVersion = /APP_VERSION\s*=\s*'([^']+)'/.exec(readFileSync('js/core/version.js', 'utf8'))[1];
+    assert.equal(await evaluate('APP_VERSION'), expectedVersion);
     assert.ok(await evaluate(`document.getElementById('app-footer').textContent.includes(APP_VERSION)`));
     assert.equal(await evaluate(`document.getElementById('solutions-sort').options.length`), 6);
     // A solution holds several space groups; one of them is simulated.

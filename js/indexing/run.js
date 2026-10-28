@@ -236,20 +236,15 @@ if (workerSystems.length === 0 && webgpuSystems.length === 0) {
     return;
 }
 
-setUIState(true); // Disable UI
-
 // modif le 16 janvier 2025, garder les mailles trouvées avant
 ui.tabButtons.forEach(btn => btn.classList.remove('active'));
 ui.tabPanels.forEach(panel => panel.classList.remove('active'));
 document.querySelector('.tab-btn[data-tab="solutions"]').classList.add('active');
 document.getElementById('solutions-tab-content').classList.add('active');
 
-   // solutions = [];
-   // displayedSolutions = [];
 selectedSolution = null;
 currentHklList = [];
 activeWorkers = [];
-//foundSolutionMap.clear();
 updateSolutionsTable();
 updateAllMarkers();
 showStatus(`Indexing started...`, 'info');
@@ -651,18 +646,20 @@ const runGpuSystem = async (system, absoluteTaskIndex) => {
         console.error(`WebGPU Error (${sys.label}):`, err);
         showStatus(`${sys.shortLabel} GPU Error: ${err.message}`, 'error');
     } finally {
-        const tGpuEnd = performance.now();
-        stat.candidates = cellsDispatchedToRefine;
-        stat.timeMs = tGpuEnd - tGpuStart;
-        {
-            const searched = taskTotals[absoluteTaskIndex] ? taskTotals[absoluteTaskIndex] * ((taskProgress[absoluteTaskIndex] || 0) / 100) : 0;
-            runLog(`${sys.label}: ${stat.note === 'failed' ? 'FAILED' : runStopSignal.stop ? 'stopped' : 'finished'} after ${fmtDuration(stat.timeMs)}. ` +
-                   `${fmtCount(searched)} of ${fmtCount(taskTotals[absoluteTaskIndex] || 0)} trials searched` +
-                   `${stat.truncated !== null && stat.truncated !== undefined ? ` (candidate buffer full at ${fmtSearchedPercent(stat.truncated)})` : ''}; ` +
-                   `${fmtCount(cellsDispatchedToRefine)} candidate cells sent to refinement.`);
+        if (mySessionToken === indexingRunToken) {
+            const tGpuEnd = performance.now();
+            stat.candidates = cellsDispatchedToRefine;
+            stat.timeMs = tGpuEnd - tGpuStart;
+            {
+                const searched = taskTotals[absoluteTaskIndex] ? taskTotals[absoluteTaskIndex] * ((taskProgress[absoluteTaskIndex] || 0) / 100) : 0;
+                runLog(`${sys.label}: ${stat.note === 'failed' ? 'FAILED' : runStopSignal.stop ? 'stopped' : 'finished'} after ${fmtDuration(stat.timeMs)}. ` +
+                       `${fmtCount(searched)} of ${fmtCount(taskTotals[absoluteTaskIndex] || 0)} trials searched` +
+                       `${stat.truncated !== null && stat.truncated !== undefined ? ` (candidate buffer full at ${fmtSearchedPercent(stat.truncated)})` : ''}; ` +
+                       `${fmtCount(cellsDispatchedToRefine)} candidate cells sent to refinement.`);
+            }
+            console.log(`[perf] GPU task '${sys.label}': ${(tGpuEnd - tGpuStart).toFixed(0)} ms (${cellsDispatchedToRefine} candidate cells sent to refinement)`);
+            updateProgressBar();
         }
-        console.log(`[perf] GPU task '${sys.label}': ${(tGpuEnd - tGpuStart).toFixed(0)} ms (${cellsDispatchedToRefine} candidate cells sent to refinement)`);
-        updateProgressBar();
     }
 };
 
@@ -978,7 +975,7 @@ setUIState(false);
 sortState = { column: 'm20', direction: 'desc' };
 sortSolutions(); 
 
-displayedSolutions = [...solutions]; 
+displayedSolutions = solutions.slice(0, MAX_DISPLAYED_SOLUTIONS); 
 updateSolutionsTable(); 
 
 // Final Toast Message / LED

@@ -1,8 +1,7 @@
 // js/dialogs/convert.js
 // Solution -> Convert: carry the selected cell to a subgroup or supergroup of its
-// space group, as Powder6 does for a phase. The work is done by the two Powder6
-// modules in js/convert/: Subgroups lists the maximal subgroups (translationengleiche
-// and klassengleiche) from the operators, SGConvert relates two groups by a change of
+// space group. Subgroups lists the maximal subgroups (translationengleiche
+// and klassengleiche) from the operators; SGConvert relates two groups by a change of
 // basis (P, p).
 //
 // A subgroup of index > 1 in the lattice has a larger cell; its lines are denser than
@@ -18,12 +17,6 @@ const CONVERT_SYSTEMS = { cubic: ['cubic'], tetragonal: ['tetragonal'], hexagona
     orthorhombic: ['orthorhombic'], monoclinic: ['monoclinic'], triclinic: ['triclinic'] };
 const CENTRING_MULTIPLICITY = { P: 1, A: 2, B: 2, C: 2, I: 2, F: 4, R: 3 };
 
-const convertMul3 = (a, b) => {
-    const o = new Array(9);
-    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) o[i * 3 + j] = a[i * 3] * b[j] + a[i * 3 + 1] * b[3 + j] + a[i * 3 + 2] * b[6 + j];
-    return o;
-};
-const convertMulV = (m, v) => [m[0] * v[0] + m[1] * v[1] + m[2] * v[2], m[3] * v[0] + m[4] * v[1] + m[5] * v[2], m[6] * v[0] + m[7] * v[1] + m[8] * v[2]];
 const convertFlat = m => [m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2], m[2][0], m[2][1], m[2][2]];
 
 // The operators of a database setting as {r: [9], t: [3]}; the list already holds the centring translations.
@@ -61,7 +54,7 @@ const convertMatrixList = (extra) => {
     const key = JSON.stringify(extra);
     if (convertMatrixCache.has(key)) return convertMatrixCache.get(key);
     const U = SGConvert.candidates(), list = U.slice();
-    for (const K of extra) for (const u of U.slice(0, 600)) list.push(convertMul3(u, K));
+    for (const K of extra) for (const u of U.slice(0, 600)) list.push(SGConvert.mul3(u, K));
     convertMatrixCache.set(key, list);
     return list;
 };
@@ -85,13 +78,7 @@ function openConvertDialog() {
     if (!sol) { showStatus('Select a solution first.'); return; }
     if (!spaceGroupData || !manualSG.entries.length) { showStatus('The space-group database is not loaded.', 'error'); return; }
     Object.assign(convertState, { sol, mode: 'sub', rows: [], picked: -1, token: convertState.token + 1 });
-    // The group to start from: the one chosen for this solution, else the first group the space-group scan named.
-    let keep = sol.spaceGroup && sol.spaceGroup.setting_id;
-    if (!keep && sol.sgMembers && sol.sgMembers.length) {
-        const name = String(sol.sgMembers[0]).split(' (')[0].replace(/\s/g, '');
-        const hit = convertCompatible().find(e => String(e.setting.hm || e.setting.symbol).replace(/\s/g, '') === name);
-        if (hit) keep = hit.setting.setting_id;
-    }
+    const keep = defaultSimSetting(sol);
     convertEl('convert-from-filter').value = ''; convertEl('convert-to-filter').value = '';
     convertFillPicker(convertEl('convert-from'), convertCompatible(), '', keep);
     convertFillPicker(convertEl('convert-to'), manualSG.entries, '', null);
@@ -131,7 +118,7 @@ async function convertRun() {
 }
 const convertYield = () => new Promise(r => setTimeout(r, 0));
 
-// Conjugate subgroups with one name, one index and one cell are listed once, with their number (as Powder6 does).
+// Conjugate subgroups with one name, one index and one cell are listed once, with their count.
 function convertMerge() {
     const seen = new Map(), out = [];
     for (const r of convertState.rows) {
@@ -149,7 +136,6 @@ async function convertSubgroups(token, from, fromOps, cell) {
     const base = [];
     for (const c of cands) {
         const nc = SGConvert.transformCell(cell, c.B), key = `${c.kind}|${c.index}|${[nc.a, nc.b, nc.c, nc.alpha, nc.beta, nc.gamma].map(v => v.toFixed(3)).join(',')}|` +
-            // Subgroups of one index can share a cell and differ in their operators (P21/c > P21, Pc, P-1).
             c.ops.map(o => o.r.map(Math.round).join('') + o.t.map(v => v.toFixed(3)).join(',')).sort().join(';');
         if (seen.has(key)) continue; seen.add(key);
         base.push({ cand: c, kind: c.kind, index: c.index, relation: `${c.kind === 't' ? 'translationengleiche' : 'klassengleiche'}, index ${c.index}`,
@@ -157,8 +143,6 @@ async function convertSubgroups(token, from, fromOps, cell) {
     }
     base.sort((x, y) => (x.kind === 't' ? 0 : 1) - (y.kind === 't' ? 0 : 1) || x.index - y.index);
     convertState.rows = base; convertRender();
-    // Name them: look for a database setting that is this subgroup in some choice of axes. Slow, so it runs in
-    // turn, shows each name as it is found and gives up after a time.
     const t0 = performance.now();
     const centring = convertCentringMatrices();
     const rotCount = (ops) => new Set(ops.map(o => o.r.join(','))).size;
@@ -179,7 +163,7 @@ async function convertSubgroups(token, from, fromOps, cell) {
             const hit = found.find(f => f.relation === 'same' || f.relation === 'subgroup');
             if (hit) {
                 row.entry = T; row.name = `${T.group.number} ${T.setting.hm || T.setting.symbol}`;
-                row.P = convertMul3(c.B, hit.P); row.p = convertMulV(c.B, hit.p);
+                row.P = SGConvert.mul3(c.B, hit.P); row.p = SGConvert.mulv(c.B, hit.p);
                 row.basis = SGConvert.formatBasis(row.P); row.cell = SGConvert.transformCell(cell, row.P);
                 break;
             }
@@ -216,13 +200,26 @@ function convertApply() {
     const row = convertState.rows[convertState.picked], parent = convertState.sol, from = convertState.from;
     if (!row || !parent) return;
     const cell = row.cell, system = convertClassify(cell), child = { ...parent };
-    for (const key of ['sgClass', 'sgMembers', 'sgConditions', 'sgEvidence', 'sgMargin', 'analysis', 'mcPolished', 'mcFrom', 'lattice',
-        '_niggli', '_symAlt', '_symAltOf', 'manualSwaps', 'spaceGroup', 'spaceGroups', 'simSG']) delete child[key];
-    Object.assign(child, { system, a: cell.a, b: cell.b, c: cell.c, alpha: cell.alpha, beta: cell.beta, gamma: cell.gamma, volume: getVolumeTriclinic(cell),
+    for (const key of ['sgClass', 'sgMembers', 'sgHall', 'sgSettingId', 'sgConditions', 'sgEvidence', 'sgMargin', 'analysis', 'mcPolished', 'mcFrom', 'lattice',
+        '_niggli', '_symAlt', '_symAltOf', 'spaceGroup', 'spaceGroups', 'simSG', 'errors']) delete child[key];
+    Object.assign(child, { system, a: cell.a, b: cell.b, c: cell.c, alpha: cell.alpha, beta: cell.beta, gamma: cell.gamma,
         _fitContext: `convert:${Date.now()}`,
         convertedFrom: { system: parent.system, a: parent.a, b: parent.b, c: parent.c, alpha: parent.alpha, beta: parent.beta, gamma: parent.gamma,
             group: from.label, relation: row.relation, basis: row.basis } });
-    if (system === 'cubic') { delete child.b; delete child.c; delete child.alpha; delete child.beta; delete child.gamma; }
+    if (system === 'cubic') {
+        delete child.b; delete child.c; delete child.alpha; delete child.beta; delete child.gamma;
+    } else if (system === 'tetragonal') {
+        child.a = 0.5 * (cell.a + cell.b);
+        delete child.b; delete child.alpha; delete child.beta; delete child.gamma;
+    } else if (system === 'hexagonal') {
+        child.a = 0.5 * (cell.a + cell.b);
+        delete child.b; delete child.alpha; delete child.beta; child.gamma = 120;
+    } else if (system === 'orthorhombic') {
+        delete child.alpha; delete child.beta; delete child.gamma;
+    } else if (system === 'monoclinic') {
+        delete child.alpha; delete child.gamma;
+    }
+    child.volume = getVolume(child);
     if (row.entry) {
         addSolutionSG(child, { label: row.entry.label, symbol: row.entry.setting.hm || row.entry.setting.symbol, number: Number(row.entry.group.number),
             hall: row.entry.setting.hall, setting_id: row.entry.setting.setting_id, system: row.entry.group.crystal_system,
@@ -233,10 +230,9 @@ function convertApply() {
     }
     const at = solutions.indexOf(parent);
     if (at >= 0) solutions.splice(at, 0, child); else solutions.push(child);
-    displayedSolutions = [...solutions];
+    displayedSolutions = solutions.slice(0, MAX_DISPLAYED_SOLUTIONS);
     applySolutionSelection(child);
     updateSolutionsTable();
-    // Show the new solution: the Solutions tab, with its accordion open and in view.
     document.querySelector('.tab-btn[data-tab="solutions"]').click();
     const opened = ui.solutionsTableBody.querySelector('details.sol-acc[open]');
     if (opened) opened.scrollIntoView({ block: 'nearest' });

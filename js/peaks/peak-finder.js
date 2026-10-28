@@ -187,7 +187,7 @@ function findPeaks() {
     // minR = 0 so the slider's zero position genuinely disables smoothing.
     const smoothRadii = (smoothQ > 0) ? qRadiusToPoints(tth, smoothQ, lambdaForBg, 0) : null;
     const background = rollingBallBackground(intensity, ballRadii, smoothRadii);
-    calculatedBackground = Array.from(background);
+    calculatedBackground = Array.from(background, v => Number(v.toFixed(6)));
     const backgroundCorrected = intensity.map((y, i) => Math.max(0, y - background[i]));
     const windowSize = Math.max(5, Math.min(11, Math.floor(n / 100)));
     const smoothed = savitzkyGolay(backgroundCorrected, windowSize, 2);
@@ -406,8 +406,8 @@ if (denominator < -1e-10) {
     // recalculatePeakValues() below will flag Ka2-suspects AND re-derive
     // d/q for parents of tagged ghosts using λ_Ka1 (since we know those
     // peaks are physically Ka1 lines).
-   // Include height so the space group analyzer can filter noise
-pickedPeaks = finalPeaks.map(p => ({ tth: p.tth, d: 0, q: 0, height: p.height }));
+// Include height so the space group analyzer can filter noise
+pickedPeaks = finalPeaks.map(p => ({ tth: Number(p.tth.toFixed(6)), d: 0, q: 0, height: Number(p.height.toFixed(6)) }));
     // The list is now purely auto-detected again.
     peaksManuallyEdited = false;
 
@@ -428,9 +428,10 @@ const recalculatePeakValues = () => {
         // d-spacing should be derived from λ_Ka1, not the user's main
         // (Ka-avg) wavelength. All other peaks use the main λ.
         const lam = (peak.hasKa2Child && lambdaKa1) ? lambdaKa1 : lambda;
-        peak.d = lam / (2 * Math.sin(peak.tth * Math.PI / 360));
-        peak.q = 1 / (peak.d * peak.d);
-        peak.lambdaUsed = lam; // for debugging / display traceability
+        const dVal = lam / (2 * Math.sin(peak.tth * Math.PI / 360));
+        peak.d = Number(dVal.toFixed(6));
+        peak.q = Number((1 / (dVal * dVal)).toFixed(6));
+        peak.lambdaUsed = Number(lam.toFixed(6)); // for debugging / display traceability
         // The same λ for everything that FITS a cell: indexing, refinement,
         // the dialogs, the absence analysis and the report read p.lambda
         // (peaksAtWavelength, js/crystallography/fit.js). Only a peak with a

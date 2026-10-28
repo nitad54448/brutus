@@ -46,14 +46,16 @@ const getVolume = (cell) => {
     switch(system){
         case 'cubic': return a**3;
         case 'tetragonal': return a**2 * c;
-        case 'hexagonal': return a**2 * c * Math.sqrt(3)/2;
+        case 'hexagonal':
+        case 'trigonal': return a**2 * c * Math.sqrt(3)/2;
         case 'orthorhombic': return a * b * c;
         case 'monoclinic': return a * b * c * Math.sin(beta * RAD);
-        case 'triclinic': return getVolumeTriclinic(cell);
+        case 'triclinic':
+        default: return getVolumeTriclinic(cell);
     }
 };
 const getCellGeometryKey = (cell) => {
-    const P = 4; // Increased from 2 to 4 digits to prevent aggressive deduplication
+    const P = 4;
     const std = standardizeCell(cell);
     switch(std.system) {
         case 'cubic': 
@@ -62,33 +64,17 @@ const getCellGeometryKey = (cell) => {
         case 'hexagonal': 
             return `${std.system}_${std.a.toFixed(P)}_${std.c.toFixed(P)}`;
         case 'orthorhombic': 
-            // Numeric comparator: a bare .sort() orders numbers as STRINGS
-            // ("10.5" < "3.1"). Same rule as the monoclinic branch below.
             return `${std.system}_${[std.a,std.b,std.c].sort((x, y) => x - y).map(p => p.toFixed(P)).join('_')}`;
         case 'monoclinic': 
             const ac = [std.a, std.c].sort((x, y) => x - y).map(p => p.toFixed(P)).join('_');
-            // Updated beta to use P instead of hardcoded 2
             return `${std.system}_${ac}_${std.b.toFixed(P)}_${std.beta.toFixed(P)}`; 
         case 'triclinic': 
-            // Keep lengths paired with their angles. Volume and angles alone
-            // do not identify a triclinic lattice. The final sieve handles
-            // equivalent bases; this hot-path key must not merge distinct cells.
             return `${std.system}_${[std.a, std.b, std.c, std.alpha, std.beta, std.gamma]
                 .map(v => v.toFixed(P)).join('_')}`;
         default:
-            // The switch fell through and the function returned UNDEFINED for
-            // any cell whose system it did not recognise (or that had no system
-            // at all). Callers then did foundSolutionMap.get(undefined), which
-            // collapses every such cell onto a single shared slot -- so the
-            // second one and all after it were discarded as "duplicates" of a
-            // completely unrelated cell. The indexer only emits the six systems
-            // above, so this is a malformed-input path, but it must be explicit
-            // and falsy so the `if (!key)` guards downstream can see it.
             return null;
     }
 };
-    
-
 
 // Fixed-zero and fitted-zero cells are different models even when their
 // rounded dimensions happen to coincide.
@@ -97,10 +83,7 @@ const getSolutionKey = cell => {
     const geometry = getCellGeometryKey(cell);
     return geometry ? `${geometry}_${hasRefinedZero(cell) ? 'zero-fit' : 'zero-fixed'}` : null;
 };
-// Conservative lattice-equivalence check for the final sieve. Reduce each
-// cell once, then explicitly seek a unimodular basis change. No centering is
-// inferred from an absence analysis. Near-equal volumes are only a prefilter.
-// Tolerances: 0.2% in each edge, 0.15 degrees in each inter-edge angle.
+// Conservative lattice-equivalence check for the final sieve.
 const makeLatticeComparison = cell => {
     try {
         const normalized = { ...cell, b: cell.b ?? cell.a, c: cell.c ?? cell.a,
@@ -113,8 +96,6 @@ const makeLatticeComparison = cell => {
         const dot = (u, v) => u.reduce((s, x, i) =>
             s + x * v.reduce((t, y, j) => t + G[i][j] * y, 0), 0);
         const vectors = [];
-        // Includes signed axis permutations and adjacent reduced-cell boundary
-        // settings (a+b, a-b, etc.). Every accepted mapping has determinant +/-1.
         for (let h = -1; h <= 1; h++) for (let k = -1; k <= 1; k++)
             for (let l = -1; l <= 1; l++) {
                 if (!h && !k && !l) continue;
@@ -122,7 +103,7 @@ const makeLatticeComparison = cell => {
                 vectors.push({ v, length: Math.sqrt(dot(v, v)) });
             }
         return { G, dot, vectors, volume: Math.sqrt(determinant3x3(G)) };
-    } catch (_) { return null; } // Uncertain equivalence retains the candidate.
+    } catch (_) { return null; }
 };
 const equivalentLattices = (a, b) => {
     if (!a || !b || Math.abs(a.volume - b.volume) > 0.01 * Math.min(a.volume, b.volume)) return false;
@@ -145,22 +126,4 @@ const equivalentLattices = (a, b) => {
         return false;
     };
     return match(a, b) || match(b, a);
-};
-const choleskySolve = (L, b) => {
-    const n = L.length;
-    const y = new Array(n);
-    // Forward substitution
-    for (let i = 0; i < n; i++) {
-        let sum = 0;
-        for (let j = 0; j < i; j++) sum += L[i][j] * y[j];
-        y[i] = (b[i] - sum) / L[i][i];
-    }
-    // Backward substitution
-    const x = new Array(n);
-    for (let i = n - 1; i >= 0; i--) {
-        let sum = 0;
-        for (let j = i + 1; j < n; j++) sum += L[j][i] * x[j];
-        x[i] = (y[i] - sum) / L[i][i];
-    }
-    return x;
 };

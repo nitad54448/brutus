@@ -124,7 +124,7 @@ const stripZhang = (tth, intensity, ka1, ka2, ratio) => {
             coef *= -ratio;
             u *= s;
         }
-        corrected[i] = Math.max(acc, 0);
+        corrected[i] = Number(Math.max(acc, 0).toFixed(6));
     }
 
     return corrected;

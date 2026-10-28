@@ -15,33 +15,14 @@ const get_q_tolerance = (original_peak_index, tth_obs_rad, wavelength, tth_error
 };
 /**
  * Statistically correct least-squares weights for q-space cell refinement.
- *
- * The least-squares system fits q_obs = (4/λ²) sin²(θ_obs) to a linear
- * combination of cell-parameter columns plus optionally a zero-error column.
- * For a constant 2θ measurement uncertainty σ_2θ:
- *
- *     σ_q = |∂q/∂(2θ)| · σ_2θ = (2 sin(2θ)/λ²) · σ_2θ
- *
- * So σ_q² ∝ sin²(2θ), and the optimal weight per row is:
- *
- *     w_i = 1/σ_q,i² ∝ 1/sin²(2θ_i)
- *
- * With this weighting, low-angle peaks (which have the smallest σ_q) carry
- * the most weight, and high-angle peaks (with the largest σ_q) carry less.
- * This is the OPPOSITE of using w_i = q_obs,i, which is what the code did
- * historically — that scheme heavily over-weights high-angle peaks and
- * biases both the cell parameters and (especially) the zero correction.
- *
- * A small floor of 1.0 / sin²(178°) is built in so weights don't blow up
- * for peaks very close to 0° or 180° (which shouldn't normally exist anyway).
  */
 const ls_weights_for_2theta = (tth_rad_array) => {
     const n = tth_rad_array.length;
     const w = new Array(n);
-    const minSin2 = Math.sin(178 * Math.PI / 180); // floor at 2θ = 178° → sin = 0.0349
+    const minSin2 = Math.sin(178 * Math.PI / 180);
     const minSin2Sq = minSin2 * minSin2;
     for (let i = 0; i < n; i++) {
-        const s = Math.sin(tth_rad_array[i]); // sin(2θ)
+        const s = Math.sin(tth_rad_array[i]);
         const s2 = s * s;
         w[i] = 1.0 / Math.max(s2, minSin2Sq);
     }
@@ -49,7 +30,6 @@ const ls_weights_for_2theta = (tth_rad_array) => {
 };
 const binarySearchClosest = (arr, target) => {
     const n = arr.length;
-    // Guard against empty arrays or non-finite targets to prevent out-of-bounds lookups
     if (n === 0 || !isFinite(target)) return 0; 
     if (target <= arr[0]) return 0;
     if (target >= arr[n - 1]) return n - 1;
@@ -62,11 +42,8 @@ const binarySearchClosest = (arr, target) => {
     }
     return (low >= n) ? high : ((arr[low] - target) < (target - arr[high]) ? low : high);
 };
-// Count of entries <= target in an ascending-sorted array. Exactly equal to
-// arr.filter(q => q <= target).length, but O(log n) instead of a full scan.
-// (Inputs here are finite q values from generateHKL, so no NaN handling needed.)
 const countLE = (arr, target) => {
-    let lo = 0, hi = arr.length; // hi is exclusive
+    let lo = 0, hi = arr.length;
     while (lo < hi) {
         const mid = (lo + hi) >> 1;
         if (arr[mid] <= target) lo = mid + 1;
@@ -74,10 +51,6 @@ const countLE = (arr, target) => {
     }
     return lo;
 };
-// How many of `peaks` lie within their tolerance of some calculated line --
-// exactly the indexing test calculateFiguresOfMerit applies. Used by the R
-// lattice probe in refineAndTestSolution to check that the R line list loses
-// no peak the full hexagonal list indexes.
 const countIndexedPeaks = (q_calc_sorted, peaks, get_q_tolerance_func) => {
     if (!q_calc_sorted || q_calc_sorted.length === 0) return 0;
     let n = 0;
@@ -124,7 +97,6 @@ const solveLeastSquares = (M, q_vec, weights) => {
     
     const w = weights || Array(num_eq).fill(1);
     
-    // Build normal equations matrix: M^T * W * M
     const MTWM = Array(num_params).fill(0).map(() => Array(num_params).fill(0));
     for (let i = 0; i < num_params; i++) {
         for (let j = 0; j < num_params; j++) {
@@ -136,7 +108,6 @@ const solveLeastSquares = (M, q_vec, weights) => {
         }
     }
     
-    // Build normal equations vector: M^T * W * q
     const MTWq = Array(num_params).fill(0);
     for (let i = 0; i < num_params; i++) {
         let sum = 0; 
@@ -146,17 +117,12 @@ const solveLeastSquares = (M, q_vec, weights) => {
         MTWq[i] = sum;
     }
     
-    // Solve using Cholesky Decomposition (much safer for symmetric positive-definite matrices)
     const L = choleskyDecomposition(MTWM); 
     if (!L) return null;
     
     const x = choleskySolve(L, MTWq); 
     if (!x) return null;
     
-    // Weighted sum of squared residuals. Computed unconditionally now (it used
-    // to be skipped on the df <= 0 early return) and returned to the caller:
-    // the combinatorial swap search ranks candidate labellings by it, and
-    // recomputing it outside would duplicate this exact loop on every trial.
     const q_calc = M.map(row => row.reduce((s, v, j) => s + v * x[j], 0));
     const SSR = q_vec.reduce((sum, q_o, i) => sum + w[i] * (q_o - q_calc[i]) ** 2, 0);
     let sumW = 0; for (let k = 0; k < num_eq; k++) sumW += w[k];
@@ -165,21 +131,13 @@ const solveLeastSquares = (M, q_vec, weights) => {
     const df = num_eq - num_params;
     if (df <= 0) return { solution: x, covarianceMatrix: null, ssr: SSR, df, wrms };
 
-    // Invert the matrix to get covariance
     const MTWM_inv = choleskyInvert(L);
     if (!MTWM_inv) return { solution: x, covarianceMatrix: null, ssr: SSR, df, wrms };
 
-    // Scale inverted matrix by standard error of the estimate
     const V = MTWM_inv.map(row => row.map(el => el * (SSR / df)));
 
     return { solution: x, covarianceMatrix: V, ssr: SSR, df, wrms };
 };
-// First-order error propagation through a numerical Jacobian.
-//   params : fitted parameters that define the cell (zero-shift excluded)
-//   V      : covariance matrix of the fit; its leading params.length block is used
-//   toVec  : params -> [cell quantities] (or null if the params give no cell)
-//   names  : output keys, one per cell quantity
-// Central differences with a relative step; returns {} if any evaluation fails.
 const propagateCellErrorsNumerically = (params, V, toVec, names) => {
     const n = params.length;
     const vals = params.slice();
@@ -209,7 +167,7 @@ const propagateErrors = (system, fitResult, cell) => {
     if (!fitResult || !fitResult.covarianceMatrix) return {};
     const V = fitResult.covarianceMatrix;
     const errors = {};
-    const num_params = V.length; // 6 or 7 (if zero shift included)
+    const num_params = V.length;
 
     try {
         switch (system) {
@@ -227,15 +185,6 @@ const propagateErrors = (system, fitResult, cell) => {
                 errors.s_c = 0.5 * cell.c**3 * Math.sqrt(Math.abs(V[2][2]));
                 break;
             case 'monoclinic': {
-                // Numerical Jacobian of (a, b, c, beta) with respect to the fit
-                // parameters (A, B, C, D), propagated through the FULL 4x4
-                // covariance block. The former closed form used a/(2A)*sigma_A,
-                // which is (1/2)a^3 sin^2(beta) sigma_A -- low by a factor
-                // sin^2(beta), 25% at beta = 120 deg -- and dropped the C and D
-                // terms that a and c also depend on through sin(beta).
-                // extractCellFromFit is the same mapping that produced `cell`,
-                // including the beta > 90 convention, so the derivatives are
-                // taken on exactly the function being reported.
                 const toVec = (p) => {
                     const c = extractCellFromFit(p, 'monoclinic');
                     return c ? [c.a, c.b, c.c, c.beta] : null;
@@ -244,67 +193,18 @@ const propagateErrors = (system, fitResult, cell) => {
                     fitResult.solution.slice(0, 4), V, toVec, ['s_a', 's_b', 's_c', 's_beta']));
                 break;
             }
-            case 'triclinic': 
-                // --- Numerical Differentiation for Triclinic
-                //maybe need some changes here... à voir, si 0 on nan, ça devrait marcher
-                
-                // 1. Define helper to go from Params -> [a, b, c, alpha, beta, gamma]
-                const calcTriclinic = (p) => {
-                    // Reconstruct Reciprocal Metric Tensor (G_star) from 6 LS params
-                    const Gs = [[p[0], p[5]/2, p[4]/2], [p[5]/2, p[1], p[3]/2], [p[4]/2, p[3]/2, p[2]]];
-                    const G = metricFromReciprocalMetric(Gs); // Invert to Real Metric Tensor
-                    if (!G) return null;
-                    const c = cellFromMetric_worker(G); // Extract cell constants
-                    if (!c) return null;
-                    return [c.a, c.b, c.c, c.alpha, c.beta, c.gamma];
+            case 'triclinic': {
+                const toVec = (p) => {
+                    const c = extractCellFromFit(p, 'triclinic');
+                    return c ? [c.a, c.b, c.c, c.alpha, c.beta, c.gamma] : null;
                 };
-
-                const vals = [...fitResult.solution]; // Copy params
-                const base = calcTriclinic(vals);
-
-                if (base) {
-                    const J = Array(6).fill(0).map(() => Array(6).fill(0)); // 6 cell params x 6 fit params
-                    const delta = 1e-7;
-
-                    // 2. Compute Jacobian Column by Column
-                    for (let j = 0; j < 6; j++) { // Loop over fit params p1...p6
-                        const original = vals[j];
-                        const step = (Math.abs(original) * 1e-5) || delta; // Adaptive step
-
-                        vals[j] = original + step;
-                        const forward = calcTriclinic(vals);
-                        
-                        vals[j] = original - step;
-                        const backward = calcTriclinic(vals);
-                        
-                        vals[j] = original; // Restore
-
-                       if (forward && backward) {
-                            for (let i = 0; i < 6; i++) { // Loop over cell params a...gamma
-                                // Central difference derivative
-                                J[i][j] = (forward[i] - backward[i]) / (2 * step);
-                            }
-                        } else {
-                            return {};
-                        }
-                    }
-
-                    // 3. Matrix Multiplication: Error[i] = sqrt( sum( J[i][j] * V[j][k] * J[i][k] ) )
-                    const indices = ['s_a', 's_b', 's_c', 's_alpha', 's_beta', 's_gamma'];
-                    for (let i = 0; i < 6; i++) {
-                        let variance = 0;
-                        for (let j = 0; j < 6; j++) {
-                            for (let k = 0; k < 6; k++) {
-                                variance += J[i][j] * V[j][k] * J[i][k];
-                            }
-                        }
-                        errors[indices[i]] = Math.sqrt(Math.max(0, variance));
-                    }
-                }
+                Object.assign(errors, propagateCellErrorsNumerically(
+                    fitResult.solution.slice(0, 6), V, toVec,
+                    ['s_a', 's_b', 's_c', 's_alpha', 's_beta', 's_gamma']));
                 break;
+            }
         }
         
-        // Zero error calculation (common to all systems if refined)
         const cell_param_count = { cubic: 1, tetragonal: 2, hexagonal: 2, orthorhombic: 3, monoclinic: 4, triclinic: 6 };
         if (num_params > cell_param_count[system]) { 
             errors.s_zero = Math.sqrt(Math.abs(V[num_params - 1][num_params - 1])) * DEG; 
@@ -321,29 +221,16 @@ const get_hkl_search_list = (system) => {
     const max_mono = 6, max_tri = 5;
 
     if (system === 'monoclinic') {
-        const max_h = max_mono; // Use max_mono for clarity
-        for (let h = 0; h <= max_h; h++) { // Rule 2: h >= 0
-            for (let k = 0; k <= max_h; k++) { // Rule 1: k >= 0
+        const max_h = max_mono;
+        for (let h = 0; h <= max_h; h++) {
+            for (let k = 0; k <= max_h; k++) {
                 for (let l = -max_h; l <= max_h; l++) {
                     if (h === 0 && k === 0 && l === 0) continue;
-                    if (h === 0 && l < 0) continue; // Apply special h=0 rule
+                    if (h === 0 && l < 0) continue;
                     hkls.push([h, k, l]);
                 }
             }
         }
-        // Deep axial reflections (h00)/(0k0)/(00l) beyond the general grid depth.
-        // buildHklBasis (splitSpecial=true for monoclinic) front-loads all axial
-        // HKLs, so these survive truncation to N_hkl and let the search index a
-        // low-angle peak coming from a single long/"strange" axis whose diagnostic
-        // axial order exceeds max_mono (=6). Depth 12 matches the orthorhombic grid
-        // and triples the previous reach; cost is ~3 reflections per extra order and
-        // the combinatorial count C(N_hkl,4) is unchanged (N_hkl is fixed), so these
-        // only displace the highest-magnitude tail regulars, never the low-magnitude
-        // mixed reflections that carry beta (the D=hl term). (Note: a trial made of
-        // four pure axials is rank-deficient in D and is cheaply rejected by the
-        // shader's near-zero-determinant filter; this stays a small fraction, ~1.5%
-        // of combinations at N_hkl=100.) l>0 only, matching the (h===0 && l<0)
-        // exclusion above; no overlap with the grid since n starts at max_h+1.
         const max_axial_mono = 12;
         for (let n = max_h + 1; n <= max_axial_mono; n++) {
             hkls.push([n, 0, 0]);
@@ -355,31 +242,13 @@ const get_hkl_search_list = (system) => {
             if (h === 0 && k === 0 && l === 0) continue; if (l === 0 && k < 0) continue; if (l === 0 && k === 0 && h <= 0) continue; hkls.push([h, k, l]);
         }
     } else if (system === 'orthorhombic') {
-        
-        const max_h = 12; // Generates up to 12x12x12 = 1728 potential HKLs before sort/filter
+        const max_h = 12;
         for (let h = 0; h <= max_h; h++)
             for (let k = 0; k <= max_h; k++)
                 for (let l = 0; l <= max_h; l++)
                     if (!(h===0 && k===0 && l===0))
                         hkls.push([h,k,l]);
     } else if (system === 'tetragonal' || system === 'hexagonal') {
-        // GPU basis for the 2-parameter uniaxial systems (9 Oct 2026).
-        //
-        // q depends on (h,k,l) only through S and l, with S = h^2+k^2
-        // (tetragonal) or S = h^2+hk+k^2 (hexagonal). Two hkl sharing (S, l)
-        // give the SAME row of the 2x2 system and the same FoM line, so
-        // every duplicate only multiplies identical trials. The old list
-        // (h,k,l <= 8, no dedup) was unused; the CPU search it shadowed tried
-        // ~1180 hkl with duplicates. This keeps one representative per
-        // (S, l).
-        //
-        // S <= 144 is COMPLETE: h >= k >= 0 gives S >= h^2, so h <= 12 reaches
-        // every representable S up to 144 and nothing is missing below the
-        // cut. l runs deeper (24) because a long c axis is the usual way a
-        // uniaxial cell runs out of basis: the solve only uses the low-index
-        // front of the list, but the FoM on the GPU scores against the WHOLE
-        // list (see GPU_SEARCH_SYSTEMS.fomFullList), so deep 00l / hkl lines
-        // must be there for a c ~ 40 A cell to pass the FoM at all.
         const hex = system === 'hexagonal';
         const max_h = 12, max_l = 24, max_S = 144;
         const seen = new Set();
@@ -394,18 +263,11 @@ const get_hkl_search_list = (system) => {
                 hkls.push([h, k, l]);
             }
         }
-        // Sort on the metric form for a = c (hexagonal carries the 4/3), so
-        // truncating to the first N keeps the lines a near-isometric cell
-        // would show first.
         const sKey = (t) => (hex ? (4 / 3) * (t[0] * t[0] + t[0] * t[1] + t[1] * t[1])
                                  : t[0] * t[0] + t[1] * t[1]) + t[2] * t[2];
         hkls.sort((a, b) => sKey(a) - sKey(b));
         return hkl_search_list_cache[system] = hkls;
     } else if (system === 'cubic') {
-        // One representative per N = h^2+k^2+l^2: cubic q = N/a^2, so hkl
-        // sharing N are the same trial and the same line. Complete up to
-        // N = 900 (h <= 30 reaches every representable N <= 900). Values of
-        // the form 4^a(8b+7) cannot occur and are absent by construction.
         const max_h = 30, max_N = 900;
         const seen = new Set();
         for (let h = 0; h <= max_h; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= k; l++) {
@@ -416,42 +278,16 @@ const get_hkl_search_list = (system) => {
         }
     }
 
-    // Q-sort (h^2+k^2+l^2) is applied to the remaining systems
     hkls.sort((a,b) => (a[0]*a[0]+a[1]*a[1]+a[2]*a[2])-(b[0]*b[0]+b[1]*b[1]+b[2]*b[2]));
 
     return hkl_search_list_cache[system] = hkls;
 };
-// ---- Peaks with a wavelength of their own ---------------------------------
-// With a K-alpha AVERAGE preset and no stripping, a peak whose K-alpha2
-// companion has been identified (flagKa2SuspectPeaks, js/data/wavelength.js)
-// is a pure K-alpha1 line, and recalculatePeakValues gives it p.lambda =
-// lambda(Ka1). Every other peak is at the run's wavelength (the value in the
-// Wavelength box) and carries no p.lambda.
-//
-// The cell fit works at ONE wavelength, so such a peak enters it at the 2-theta
-// where the same d-spacing appears at that wavelength:
-//     sin(theta') = sin(theta) * wavelength / p.lambda
-// which makes q = 4 sin^2(theta') / wavelength^2 = 4 sin^2(theta) / p.lambda^2
-// exactly -- the Ka1 line indexed with lambda(Ka1). Mapping at the entry
-// leaves the search, the refinement, the zero column, the tolerances and the
-// figures of merit untouched downstream. The zero error is then subtracted in
-// the mapped frame; the difference from subtracting it first is
-// Z * (wavelength/p.lambda - 1) / cos^2(theta): 0.0005 deg for Z = 0.1 deg at
-// 2-theta = 130 deg with Cu, far below any 2-theta error.
-//
-// Before this, these peaks were DISPLAYED with lambda(Ka1) (peak table, PDF
-// report) but indexed with the average, so resolved doublets gave a cell
-// 0.08 % too large for Cu (0.2 % for Mo) with a normal-looking M(20).
 function peakTthAtWavelength(p, wavelength) {
     const lam = p && p.lambda;
     if (!(lam > 0) || !(wavelength > 0) || lam === wavelength || !Number.isFinite(p.tth)) return p ? p.tth : NaN;
     const s = Math.sin(p.tth * RAD / 2) * wavelength / lam;
     return (s > 0 && s < 1) ? 2 * Math.asin(s) * DEG : p.tth;
 }
-// Copies of `peaks` in which every peak with its own wavelength sits at its
-// 2-theta for `wavelength`. The measured value is kept as tthObs (for display
-// and for matching user edits by position) and lambda moves to lambdaObs, so
-// a second pass over the result changes nothing.
 function peaksAtWavelength(peaks, wavelength) {
     return (peaks || []).map(p => {
         const t = peakTthAtWavelength(p, wavelength);
@@ -469,9 +305,6 @@ function getSortedPeaks(peaks, wavelength) {
     const q_obs = new Float64Array(peaks_sorted_by_q.map(p => p.q));
     const original_indices = peaks_sorted_by_q.map(p => p.original_index);
     const tth_obs_rad = new Float64Array(atWl.map(p => p.tth * RAD));
-    // Highest 2-theta on the same footing, for d_min / q_max: a Ka1 line at the
-    // top of the range sits above its measured 2-theta once mapped, and a line
-    // list cut at the measured value would leave it unindexed.
     let tth_max_deg = -Infinity;
     for (const p of atWl) if (p.tth > tth_max_deg) tth_max_deg = p.tth;
     return { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q, tth_max_deg };

@@ -34,11 +34,6 @@
 //
 //  Relationship:  Qscat = 2*pi*dstar = 2*pi*sqrt(qsq)
 //
-//  The names were NOT mass-renamed to qsq_obs etc. because q_obs, q_max,
-//  peaks_sorted_by_q and q_calc_sorted cross the postMessage boundary
-//  between the UI code, these scripts and the two workers as plain
-//  object keys. A rename missed in one of the three fails silently at
-//  runtime rather than at parse time, so the risk outweighs the tidiness.
 const RAD = Math.PI / 180.0;
 const DEG = 180.0 / Math.PI;
 const metricFromCell = (cell) => {
@@ -66,32 +61,19 @@ const metricFromCell = (cell) => {
 const cellFromMetric = (G) => {
     if (!G) return null;
     try {
-        const a = Math.sqrt(Math.max(0, G[0][0])), b = Math.sqrt(Math.max(0, G[1][1])), c = Math.sqrt(Math.max(0, G[2][2]));
-        if (a < 1e-6 || b < 1e-6 || c < 1e-6) return null;
-        const clamp = v => Math.max(-1, Math.min(1, v));
-        const alpha = Math.acos(clamp(G[1][2]/(b*c)))*DEG, beta=Math.acos(clamp(G[0][2]/(a*c)))*DEG, gamma=Math.acos(clamp(G[0][1]/(a*b)))*DEG;
-        if (isNaN(alpha) || isNaN(beta) || isNaN(gamma)) return null;
+        const a = Math.sqrt(Math.max(0, G[0][0]));
+        const b = Math.sqrt(Math.max(0, G[1][1]));
+        const c = Math.sqrt(Math.max(0, G[2][2]));
+        if (!(a >= 1e-6) || !(b >= 1e-6) || !(c >= 1e-6) || !isFinite(a) || !isFinite(b) || !isFinite(c)) return null;
+        const clamp = v => isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
+        const alpha = Math.acos(clamp(G[1][2] / (b * c))) * DEG;
+        const beta = Math.acos(clamp(G[0][2] / (a * c))) * DEG;
+        const gamma = Math.acos(clamp(G[0][1] / (a * b))) * DEG;
+        if (!isFinite(alpha) || !isFinite(beta) || !isFinite(gamma)) return null;
         return { a, b, c, alpha, beta, gamma };
     } catch { return null; }
 };
-/*
-version avant le 12 juillet 2026
-const metricFromCell = (cell) => {
-    const a = cell.a; const b = cell.b ?? cell.a; const c = cell.c ?? cell.a;
-    const alpha = (cell.alpha ?? 90) * RAD; const beta  = (cell.beta  ?? 90) * RAD; const gamma = (cell.gamma ?? 90) * RAD;
-    const ca = Math.cos(alpha), cb = Math.cos(beta), cg = Math.cos(gamma);
-    return [ [a*a, a*b*cg, a*c*cb], [a*b*cg, b*b, b*c*ca], [a*c*cb, b*c*ca, c*c] ];
-};
-
-
-const cellFromMetric = (G) => {
-    const a = Math.sqrt(G[0][0]), b = Math.sqrt(G[1][1]), c = Math.sqrt(G[2][2]);
-    const clamp = v => Math.max(-1, Math.min(1, v));
-    const alpha = Math.acos(clamp(G[1][2]/(b*c)))*DEG, beta=Math.acos(clamp(G[0][2]/(a*c)))*DEG, gamma=Math.acos(clamp(G[0][1]/(a*b)))*DEG;
-    return { a, b, c, alpha, beta, gamma };
-};
-
-*/
+const cellFromMetric_worker = cellFromMetric;
 const transpose = (M) => M[0].map((_,i) => M.map(r => r[i]));
 const matMul = (A,B) => { const r=A.length, c=B[0].length, k=A[0].length; const C = Array.from({length:r}, () => Array(c).fill(0)); for(let i=0; i<r; i++) for(let j=0; j<c; j++) for(let t=0; t<k; t++) C[i][j] += A[i][t] * B[t][j]; return C; };
 const getSymmetry = (a, b, c, alpha, beta, gamma, tol = 0.25) => {
@@ -103,13 +85,6 @@ const getSymmetry = (a, b, c, alpha, beta, gamma, tol = 0.25) => {
         if (eq(a, b) || eq(b, c) || eq(a, c)) return 'tetragonal';
         return 'orthorhombic';
     }
-    // Hexagonal needs BOTH the angle pattern (two 90s + one 120) AND the two
-    // edges spanning the 120 to be equal. Checking angles alone misclassifies a
-    // monoclinic cell that merely happens to have a 120 angle. Note the 120 can
-    // land on alpha, beta or gamma: the Niggli reduction of a hexagonal lattice
-    // orders axes by length (A <= B <= C), so whenever c < a in the conventional
-    // hexagonal setting the reduced cell comes out as (c, a, a, 120, 90, 90) and
-    // the 120 appears as alpha, not gamma.
     if (is90(alpha) && is90(gamma) && is120(beta)  && eq(a, c)) return 'hexagonal';
     if (is90(beta)  && is90(gamma) && is120(alpha) && eq(b, c)) return 'hexagonal';
     if (is90(alpha) && is90(beta)  && is120(gamma) && eq(a, b)) return 'hexagonal';
@@ -132,7 +107,6 @@ const gcdOfList = (arr) => arr.length > 0 ? arr.reduce((acc, val) => gcd(acc, va
 const determinant3x3 = (M) => M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0]) + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
 const invert3x3 = (M) => {
     const det = determinant3x3(M); 
-    // Check for finite det and prevent division by zero/NaN
     if (!(Math.abs(det) >= 1e-14) || !isFinite(det)) return null;
     const invDet = 1.0 / det;
     return [
@@ -143,7 +117,6 @@ const invert3x3 = (M) => {
 };
 const choleskyDecomposition = (matrix) => {
     const n = matrix.length;
-    // Fast procedural 2D array initialization (avoids .map/.fill closure overhead)
     const L = new Array(n);
     for (let i = 0; i < n; i++) {
         L[i] = new Float64Array(n);
@@ -164,6 +137,22 @@ const choleskyDecomposition = (matrix) => {
     }
     return L;
 };
+const choleskySolve = (L, b) => {
+    const n = L.length;
+    const y = new Array(n);
+    for (let i = 0; i < n; i++) {
+        let sum = 0;
+        for (let j = 0; j < i; j++) sum += L[i][j] * y[j];
+        y[i] = (b[i] - sum) / L[i][i];
+    }
+    const x = new Array(n);
+    for (let i = n - 1; i >= 0; i--) {
+        let sum = 0;
+        for (let j = i + 1; j < n; j++) sum += L[j][i] * x[j];
+        x[i] = (y[i] - sum) / L[i][i];
+    }
+    return x;
+};
 const choleskyInvert = (L) => {
     const n = L.length;
     const inverse = new Array(n);
@@ -180,37 +169,11 @@ const choleskyInvert = (L) => {
     return inverse;
 };
 const metricFromReciprocalMetric = (G_star) => invert3x3(G_star);
-const cellFromMetric_worker = (G) => {
-    if (!G) return null;
-    try {
-        const a = Math.sqrt(Math.max(0, G[0][0])); 
-        const b = Math.sqrt(Math.max(0, G[1][1])); 
-        const c = Math.sqrt(Math.max(0, G[2][2]));
-
-        if (!(a >= 1e-6) || !(b >= 1e-6) || !(c >= 1e-6) || !isFinite(a) || !isFinite(b) || !isFinite(c)) return null;
-        
-        // Safe clamp that catches NaN or Infinity before passing to acos
-        const clamp = v => isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
-        
-        const alpha = Math.acos(clamp(G[1][2] / (b * c))) * DEG;
-        const beta = Math.acos(clamp(G[0][2] / (a * c))) * DEG;
-        const gamma = Math.acos(clamp(G[0][1] / (a * b))) * DEG;
-        
-        if (!isFinite(alpha) || !isFinite(beta) || !isFinite(gamma)) return null;
-        return { a, b, c, alpha, beta, gamma };
-    } catch { return null; }
-};
 const getVolumeTriclinic = (cell) => {
     const { a, b, c, alpha, beta, gamma } = cell;
     const ca = Math.cos(alpha * RAD), cb = Math.cos(beta * RAD), cg = Math.cos(gamma * RAD);
-    
-    // Formula for volume squared
     const term = 1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg;
-    
-    // FIX: Clamp to 0 to prevent NaN cascades from floating point inaccuracies
     const safeTerm = Math.max(0, term);
-    
     if (safeTerm === 0) return 0;
-    
     return a * b * c * Math.sqrt(safeTerm);
 };

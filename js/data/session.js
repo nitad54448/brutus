@@ -42,6 +42,14 @@ lastTruncatedSystems = [];
 lastSystemSearchStats = [];
 lastRunTotals = null;
 
+if (ui.peakProminenceSlider) { ui.peakProminenceSlider.value = '25'; if (ui.peakProminenceValue) ui.peakProminenceValue.textContent = '25'; }
+if (ui.ballRadiusSlider) { ui.ballRadiusSlider.value = '0.100'; if (ui.ballRadiusValue) ui.ballRadiusValue.textContent = '0.100'; }
+if (ui.smoothingWidthSlider) { ui.smoothingWidthSlider.value = '0.010'; if (ui.smoothingWidthValue) ui.smoothingWidthValue.textContent = '0.010'; }
+if (ui.peakThresholdSlider && typeof valueToLogSlider === 'function' && typeof initialPeakThreshold === 'number') {
+    ui.peakThresholdSlider.value = valueToLogSlider(initialPeakThreshold);
+    if (ui.peakThresholdValue) ui.peakThresholdValue.textContent = initialPeakThreshold.toFixed(1);
+}
+
 updatePeakTable();
 updateSolutionsTable();
 updateStartIndexingButtonState();
@@ -121,6 +129,7 @@ if (ui.resultsContainer) ui.resultsContainer.style.display = 'none';
 if (ui.placeholder) ui.placeholder.style.display = '';
 
 renderFileChip(null);
+if (typeof renderFileMeta === 'function') renderFileMeta();
 if (typeof refreshWorkspaceStatus === 'function') refreshWorkspaceStatus();
 if (typeof showWorkspaceView === 'function') showWorkspaceView('plot');
 showStatus('File unloaded.', 'info', 2000);
@@ -132,7 +141,7 @@ showStatus('File unloaded.', 'info', 2000);
 // This used window.confirm(), which draws the browser's own panel: wrong
 // font, wrong colours, wrong button order, and it announces the origin
 // ("127.0.0.1:5500 indique") above the question. Every other destructive or
-// modal step in Brutus -- Save as, Refine MC, Swap hkl, Space Group MC --
+// modal step in Brutus -- Save as, Refine MC, Space Group MC --
 // uses the same in-page dialog, so this one does too.
 const openUnloadDialog = () => {
     if (!ui.unloadOverlay) { clearLoadedFile(); return; }   // markup missing: do not trap the user

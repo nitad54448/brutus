@@ -9,7 +9,7 @@ const contextMenu = document.getElementById('context-menu');
 let ctxMenuTargetIndex = -1;
 // Row indices index into displayedSolutions (what is rendered). Resolving
 // the object here and then looking it up by identity in `solutions` keeps
-// erase / swap / MC / report acting on the row the user actually clicked.
+// erase / MC / report acting on the row the user actually clicked.
 const ctxTargetSolution = () =>
     (ctxMenuTargetIndex > -1 ? (displayedSolutions[ctxMenuTargetIndex] || null) : null);
 // 1. The actions are reached from the Solution menu in the header (js/core/shell.js),
@@ -44,17 +44,23 @@ document.getElementById('ctx-erase').addEventListener('click', () => {
         }
 
         // Re-sync displayed list
-        displayedSolutions = [...solutions]; 
-        
-        foundSolutionMap.clear(); //= vérifier.. une fois une solution effacée...?
+        displayedSolutions = solutions.slice(0, MAX_DISPLAYED_SOLUTIONS);
+        foundSolutionMap.clear();
 
         if (selectedSolution === target) {
-            selectedSolution = null;
-            currentHklList = [];
+            applySolutionSelection(null);
+        }
+
+        ui.reportButton.disabled = (solutions.length === 0);
+        const hbReport = document.getElementById('hb-report');
+        if (hbReport) hbReport.disabled = (solutions.length === 0);
+        if (solutions.length === 0) {
+            ui.solutionsLed.className = 'led-indicator gray';
         }
 
         updateSolutionsTable();
         updateAllMarkers(); // Clear blue lines if we deleted the selected one
+        if (typeof refreshWorkspaceStatus === 'function') refreshWorkspaceStatus();
         ctxMenuTargetIndex = -1;
     }
 });

@@ -1,5 +1,4 @@
-/* Copied unchanged from Powder6 (js/sg_subgroups.js). */
-/* The maximal subgroups of a space group, from its operators (International Tables A1, as used by Bilbao's SUBGROUPGRAPH):
+/* Maximal subgroups of a space group, from its operators (International Tables A1, as used by Bilbao's SUBGROUPGRAPH):
  *
  *   t  translationengleiche  the lattice is kept, the point group shrinks (Fm-3m > I4/mmm, index 3)
  *   k  klassengleiche        the point group is kept, the lattice shrinks to a sublattice of index 2, 3 or 4
@@ -9,14 +8,7 @@
  *     ops   every operator of the setting [{r: [9], t: [3]}] (the centring translations included)
  *     B     the basis of the lattice of the subgroup, in the old axes (row-major, its COLUMNS are the basis vectors)
  *     reps  the operators of the subgroup modulo its lattice, in the old axes
- *     ops   the same in the axes of B, with t in [0, 1): what a symmetry engine needs, with two atoms, to name the group
- *   Subgroups.probe(cand, cell) -> {cell, atoms, ops}: the cell of B and two atoms at general positions
- *   Subgroups.compose(cand, P, p) -> {P, p}: the engine's standardising transformation of that cell, in the old axes
- *
- * The conversion of a phase to a subgroup is SGConvert's (sg_convert.js); this file only finds the subgroups.
- *
- *    page    :  <script defer src="js/sg_subgroups.js">
- *    node    :  require('./sg_subgroups.js')
+ *     ops   the same in the axes of B, with t in [0, 1)
  */
 (function (root) {
   'use strict';
@@ -156,25 +148,7 @@
     return cands;
   }
 
-  function metric(c) {
-    var r = Math.PI / 180, ca = Math.cos(c.alpha * r), cb = Math.cos(c.beta * r), cg = Math.cos(c.gamma * r);
-    return [c.a * c.a, c.a * c.b * cg, c.a * c.c * cb, c.a * c.b * cg, c.b * c.b, c.b * c.c * ca, c.a * c.c * cb, c.b * c.c * ca, c.c * c.c];
-  }
-  function cellFromMetric(G) {
-    var a = Math.sqrt(G[0]), b = Math.sqrt(G[4]), c = Math.sqrt(G[8]), d = 180 / Math.PI, acos = function (x) { return Math.acos(Math.max(-1, Math.min(1, x))) * d; };
-    return { a: a, b: b, c: c, alpha: acos(G[5] / (b * c)), beta: acos(G[2] / (a * c)), gamma: acos(G[1] / (a * b)) };
-  }
-  // the cell of the subgroup lattice, and two atoms of different kinds at general positions under the subgroup operators (one alone has the hidden inversion of a polar group): the engine names the group
-  function probe(cand, cell) {
-    var Bt = [cand.B[0], cand.B[3], cand.B[6], cand.B[1], cand.B[4], cand.B[7], cand.B[2], cand.B[5], cand.B[8]];
-    return { cell: cellFromMetric(mul3(mul3(Bt, metric(cell)), cand.B)), atoms: [{ label: 'X', type: 'X', x: 0.1157, y: 0.2761, z: 0.3913, occ: 1 }, { label: 'Y', type: 'Y', x: 0.6372, y: 0.0846, z: 0.7219, occ: 1 }], ops: cand.ops };
-  }
-  // the engine's P, p (relative to the cell of probe) in the axes of the group the candidate is a subgroup of
-  // the engine works to a tolerance: its P and p are rationals with small denominators, written with a little noise
-  function snap(v) { var r = Math.round(v * D) / D; return Math.abs(v - r) < 0.02 ? r + 0 : v; }
-  function composeTransform(cand, P, p) { return { P: mul3(cand.B, P.map(snap)).map(snap), p: mulv(cand.B, p.map(snap)).map(snap) }; }
-
-  var api = { enumerate: enumerate, probe: probe, compose: composeTransform, TOLERANCES: [0.001, 0.005, 0.01, 0.02, 0.05] };
+  var api = { enumerate: enumerate };
   root.Subgroups = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

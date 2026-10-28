@@ -12,10 +12,10 @@
 // if the user asks for more than one) and keeps only cells that beat their
 // parent's M20. Zero is a search dimension whenever "Refine Zero" is on.
 let mcRunning = false;
-// The solution the dialog was opened on. Captured at open, as Swap hkl and
-// Space Group MC do: re-resolving the clicked ROW at Apply time picked up a
-// different cell whenever the table had been re-rendered in between (a run
-// still filling it, a re-sort), so the title and the refined cell disagreed.
+// The solution the dialog was opened on. Captured at open, as Space Group MC
+// does: re-resolving the clicked ROW at Apply time picked up a different cell
+// whenever the table had been re-rendered in between (a run still filling it,
+// a re-sort), so the title and the refined cell disagreed.
 let mcParent = null;
 const mcOverlay = document.getElementById('mc-overlay');
 const mcMsg = document.getElementById('mc-msg');
@@ -215,7 +215,7 @@ mcApplyBtn.addEventListener('click', () => {
         const parentIdx = solutions.indexOf(parent);
         if (parentIdx >= 0) solutions.splice(parentIdx, 0, res);
         else solutions.push(res);
-        displayedSolutions = [...solutions];
+        displayedSolutions = solutions.slice(0, MAX_DISPLAYED_SOLUTIONS);
         updateSolutionsTable();
         updateAllMarkers();
         closeMcModal();

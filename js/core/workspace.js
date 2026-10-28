@@ -43,7 +43,10 @@ function workspaceControls() {
         .filter(el => !['file', 'search'].includes(el.type) && !el.id.startsWith('manual-sg') && el.id !== 'solutions-sort');
 }
 function captureWorkspace() {
-    return JSON.parse(JSON.stringify({ filename: loadedFileName, fileMeta: loadedFileMeta, full: fullExperimentalData,
+    const r6 = v => typeof v === 'number' && Number.isFinite(v) ? Number(v.toFixed(6)) : v;
+    const roundObj = x => Array.isArray(x) ? x.map(roundObj) :
+        (x && typeof x === 'object') ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, roundObj(v)])) : r6(x);
+    return JSON.parse(JSON.stringify(roundObj({ filename: loadedFileName, fileMeta: loadedFileMeta, full: fullExperimentalData,
         working: workingExperimentalData, peaks: pickedPeaks, edited: peaksManuallyEdited,
         solutions, selected: solutions.indexOf(selectedSolution), background: calculatedBackground,
         controls: Object.fromEntries(workspaceControls().map(el => [el.id, { value: el.value, checked: el.checked }])),
@@ -51,7 +54,7 @@ function captureWorkspace() {
         manualSetting: manualSGSelect.value, xAxisMode, yAxisMode,
         stats: { lastDurationStr, lastIndexingStats, lastGpuRunSettings, lastTruncatedSystems, lastSystemSearchStats, lastRunTotals },
         view: xrdChart ? { xMin: xrdChart.scales.x.min, xMax: xrdChart.scales.x.max,
-            yMin: xrdChart.scales.y.min, yMax: xrdChart.scales.y.max } : null }));
+            yMin: xrdChart.scales.y.min, yMax: xrdChart.scales.y.max } : null })));
 }
 function validateWorkspace(data) {
     const patternValid = pattern => pattern && Array.isArray(pattern.tth) && Array.isArray(pattern.intensity) &&
@@ -103,7 +106,7 @@ function restoreWorkspace(data) {
         lastRunTotals = data.stats.lastRunTotals || null;
     }
     solutions = data.solutions;
-    displayedSolutions = [...solutions];
+    displayedSolutions = solutions.slice(0, MAX_DISPLAYED_SOLUTIONS);
     foundSolutionMap.clear();
     solutions.forEach(sol => foundSolutionMap.set(getSolutionKey(sol), sol));
     ui.peakControls.classList.toggle('hidden', !data.full.tth.length);
@@ -112,8 +115,8 @@ function restoreWorkspace(data) {
     ui.reportButton.disabled = !solutions.length;
     ui.stripKa2Checkbox.disabled = !ka2StripAllowed();
     ui.wavelength.readOnly = ui.wavelengthPreset.value !== 'custom';
-    for (const [slider, label, digits] of [[ui.peakProminenceSlider, ui.peakProminenceValue, 1],
-        [ui.ballRadiusSlider, ui.ballRadiusValue, 2], [ui.smoothingWidthSlider, ui.smoothingWidthValue, 2]]) {
+    for (const [slider, label, digits] of [[ui.peakProminenceSlider, ui.peakProminenceValue, 0],
+        [ui.ballRadiusSlider, ui.ballRadiusValue, 3], [ui.smoothingWidthSlider, ui.smoothingWidthValue, 3]]) {
         label.textContent = Number(slider.value).toFixed(digits);
     }
     ui.peakThresholdValue.textContent = logSliderToValue(Number(ui.peakThresholdSlider.value)).toFixed(1);
@@ -136,6 +139,8 @@ function restoreWorkspace(data) {
         xrdChart.update('none');
     }
     updateAllMarkers(); updateStartIndexingButtonState();
+    if (typeof toggleGpuParamsVisibility === 'function') toggleGpuParamsVisibility();
+    if (typeof renderFileMeta === 'function') renderFileMeta();
     refreshWorkspaceStatus(); showWorkspaceView('plot');
     if (typeof syncPlotTools === 'function') syncPlotTools();
     if (typeof syncSolutionAccordion === 'function') syncSolutionAccordion();
@@ -270,9 +275,6 @@ workspaceNode('workspace-views').addEventListener('keydown', e => {
 });
 ['show-background', 'show-data', 'show-exp', 'show-sol', 'show-sim'].forEach(id => workspaceNode(id).addEventListener('change', updateAllMarkers));
 workspaceNode('menu-unload').addEventListener('click', openUnloadDialog);
-workspaceNode('file-menu-items').addEventListener('click', e => { if (e.target.closest('button')) workspaceNode('file-menu').open = false; });
-document.addEventListener('click', e => { if (!e.target.closest('#file-menu')) workspaceNode('file-menu').open = false; });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') workspaceNode('file-menu').open = false; });
 workspaceNode('save-project').addEventListener('click', async () => {
     if (isIndexing) { showStatus('Wait for indexing to finish before saving a project.'); return; }
     const project = { format: 'brutus-project', version: 1, state: captureWorkspace(), history: workspaceHistory, log: workspaceLog };
@@ -305,7 +307,7 @@ workspaceNode('project-input').addEventListener('change', async e => {
     finally { e.target.value = ''; }
 });
 
-// Powder6-style group browser: filters, a list of settings, and explanation.
+// Space group browser: filters, a list of settings, and explanation.
 let browserSetting = null;
 function renderSGBrowser() {
     browserSetting = null;
@@ -369,4 +371,3 @@ workspaceNode('sg-browser-clear').addEventListener('click', () => {
     rebuildManualSG(); updateAllMarkers(); workspaceNode('sg-browser').close();
 });
 refreshWorkspaceStatus(); renderWorkspaceHistory();
-

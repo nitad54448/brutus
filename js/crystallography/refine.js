@@ -11,13 +11,7 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q, N_FOR_M20, min_m20, q_max, d_min, foundSolutions, foundSolutionMap } = state;
 
     // --- Single exit function ---
-    // Only a real solution is ever posted. This function is called synchronously
-    // by every caller (indexCubic/indexTetragonal.../findTransformedSolutions and
-    // the refinement worker's runOneCell), none of which await a reply, so the
-    // former `postMessage_func({})` "resolve" on rejection did nothing but
-    // structure-clone an empty object to the main thread on EVERY rejected trial
-    // (~10^5-10^6 per run in the CPU indexing path, where postMessage_func IS
-    // self.postMessage). The main thread matched no branch for it. Dropped.
+    // Only a real solution is ever posted.
     const exitFunction = (payload = null) => {
         if (payload) {
             postMessage_func({ type: 'solution', payload: payload });
@@ -25,22 +19,11 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     };
 
     // --- Rejection accounting -------------------------------------------
-    // Optional: present only on the CPU indexing worker's state (see the
-    // self.onmessage handler at the bottom of this file). A run that ends with
-    // zero solutions previously had nothing to say about WHY -- every trial
-    // returned through the same silent exitFunction(). These counters are the
-    // difference between "no solutions" and "every cell was bigger than your
-    // Max Volume". Cost is one property read plus an increment on paths that
-    // are already returning, which is not measurable against the least-squares
-    // fit that dominates this function.
     const diag = state.diag;
     const bump = (k) => { if (diag) diag[k] = (diag[k] || 0) + 1; };
     if (diag) diag.trials = (diag.trials || 0) + 1;
 
-    // console.log("REFINE: Starting refinement for", initialParams);
-
     if (!initialParams || !initialParams.system) {
-        // console.log("REFINE: Rejected - no params");
         bump('badParams');
         return exitFunction();
     }
@@ -61,9 +44,6 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     const initial_cell_volume = getVolume(initialParams);
     // !(vol >= 20) safely catches NaN, 0, and negative volumes
     if (!(initial_cell_volume >= 20) || !(initial_cell_volume <= max_volume) || !isFinite(initial_cell_volume)) {
-        // Split the two directions: "every cell was too big" points at Max
-        // Volume, "every cell was too small" points at the peak list. Lumping
-        // them together names neither.
         if (isFinite(initial_cell_volume)) {
             if (initial_cell_volume > max_volume) {
                 bump('volumeTooLarge');
@@ -82,7 +62,6 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
         diag.volMax = Math.max(diag.volMax ?? -Infinity, initial_cell_volume);
     }
 
-
     const local_get_q_tolerance = (idx) => get_q_tolerance(idx, tth_obs_rad, wavelength, tth_error);
     const min_indexed = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7, triclinic: 7 };
     let final_solution_to_post = null;
@@ -91,38 +70,18 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     const all_possible_reflections = generateHKL_for_worker(initialParams, q_max, d_min, wavelength);
     
     if (all_possible_reflections.length === 0) {
-        // console.log("REFINE: Rejected - could not generate HKLs");
         bump('noReflections');
         return exitFunction();
     }
 
     // --- REFINEMENT LOGIC ---
-
     {
-        // --- REFINEMENT ---
-        // refineZero=true  (PATH A): add a zero-shift column to the LS design
-        //   matrix and do TWO rounds of pairing+fit with proper LS weighting:
-        //     Round 1: pair with z=0 assumption → fit cell+z → get z_estimate
-        //     Round 2: pair using q values corrected by z_estimate → re-fit
-        // refineZero=false (PATH B): fit the cell with a FIXED zero (no extra
-        //   column, single pairing round, no zero correction applied). This
-        //   restores the non-zero-refined path that used to live here — without
-        //   it, unchecking "Refine Zero" made this function post nothing at all.
-
         const pair_and_fit = (zero_corr_deg) => {
-            const indexed_pairs = [];
-            const peak_indices = [];
-            const used = new Set();
+            const cands = [];
             for (let i = 0; i < n_all; i++) {
                 const original_idx = original_indices[i];
                 let q_to_match;
                 if (Math.abs(zero_corr_deg) > 1e-9) {
-                    // zero_corr_deg is a shift in 2-theta DEGREES, so it converts to
-                    // radians directly. The stray factor of 2 that used to sit here made
-                    // round 2 re-pair against positions overshot by a full extra zero
-                    // offset, so the second fit was pulled away from the first instead of
-                    // converging on it. Every other consumer of zero_correction in this
-                    // file subtracts it exactly once; this line now agrees with them.
                     const corrected_tth_rad = tth_obs_rad[original_idx] - zero_corr_deg * RAD;
                     q_to_match = (4 * Math.sin(corrected_tth_rad / 2) ** 2) / (wavelength ** 2);
                 } else {
@@ -136,26 +95,34 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
                     const diff = Math.abs(all_possible_reflections[j].q - q_to_match);
                     if (diff < min_diff) { min_diff = diff; best_match_idx = j; }
                 }
-                if (best_match_idx !== -1 && min_diff < tolerance && !used.has(best_match_idx)) {
-                    const { h, k, l } = all_possible_reflections[best_match_idx];
-                    indexed_pairs.push({ q_obs: q_obs[i], hkl: [h, k, l] });
-                    peak_indices.push(original_idx);
-                    used.add(best_match_idx);
+                if (best_match_idx !== -1 && min_diff < tolerance) {
+                    cands.push({ i, original_idx, best_match_idx, min_diff });
                 }
             }
+            // Closest peak wins a contested reflection.
+            cands.sort((a, b) => a.min_diff - b.min_diff);
+            const used = new Set();
+            const claimed = [];
+            for (const c of cands) {
+                if (used.has(c.best_match_idx)) continue;
+                used.add(c.best_match_idx);
+                claimed.push(c);
+            }
+            claimed.sort((a, b) => a.i - b.i);
+            const indexed_pairs = [];
+            const peak_indices = [];
+            for (const c of claimed) {
+                const { h, k, l } = all_possible_reflections[c.best_match_idx];
+                indexed_pairs.push({ q_obs: q_obs[c.i], hkl: [h, k, l] });
+                peak_indices.push(c.original_idx);
+            }
 
-            // How many observed peaks this trial cell could actually account
-            // for. The single most useful number when nothing is found: if the
-            // best cell in a whole run matched 4 of 25 peaks, the peak list or
-            // the 2-theta error is wrong, not the search settings.
             if (diag) diag.bestIndexed = Math.max(diag.bestIndexed || 0, indexed_pairs.length);
             if (indexed_pairs.length < min_indexed[system]) { bump('tooFewIndexed'); return null; }
 
             const M = indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
             const q_vec = indexed_pairs.map(p => p.q_obs);
             if (refineZero) {
-                // Extra design column for the zero-shift parameter. Omitted when
-                // refineZero is false so the fit has exactly the cell params.
                 M.forEach((row, i) => {
                     const tth_rad = tth_obs_rad[peak_indices[i]];
                     row.push((2 / (wavelength ** 2)) * Math.sin(tth_rad));
@@ -172,12 +139,11 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
         // Round 1
         let result = pair_and_fit(0);
         // Round 2 (only when refining zero): re-pair using the round-1 estimate.
-        // With refineZero=false there is no zero-shift param to iterate on.
         if (result && refineZero) {
             const z1_deg = result.fit.solution[result.fit.solution.length - 1] * DEG;
             if (Math.abs(z1_deg) > 1e-4) {
                 const result2 = pair_and_fit(z1_deg);
-                if (result2) result = result2; // accept refined pairing
+                if (result2) result = result2;
             }
         }
 
@@ -187,24 +153,12 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
 
             if (!refined_cell) bump('extractFailed');
             if (refined_cell) {
-                // Only attach a zero_correction when we actually refined one.
-                // Leaving it undefined lets applyFinalSieve treat this as a
-                // 0-DoF (fixed-zero) model, distinct from a zero-refined one.
                 if (refineZero) {
                     refined_cell.zero_correction = fitResult_with_zero_final.solution[fitResult_with_zero_final.solution.length - 1] * DEG;
                 }
-                // An R cell stays R: its pairing above already used the R
-                // lines (generateHKL_for_worker honours the flag), and its
-                // M(20) below must count only R lines too.
                 if (system === 'hexagonal' && initialParams.lattice === 'R') refined_cell.lattice = 'R';
                 refined_cell.volume = getVolume(refined_cell);
                 
-                // q_only fast path: a sorted, deduped Float64Array straight out of
-                // the generator. The old line built a full reflection object
-                // (tth, d, h, k, l) for every line, then a Set, then sorted again,
-                // purely to obtain the q list -- on the hot path of every accepted
-                // refinement. The two dedup rules are now provably identical (see
-                // generateHKL_for_analysis), so the result is unchanged.
                 const q_calc_sorted_refined = generateQArray_for_worker(refined_cell, q_max, wavelength);
                 
                 const peaks_for_merit_20_refined = [];
@@ -218,9 +172,6 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
                 
                 const { m20: final_m20, fN: final_fN_20 } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_20_refined, impurity_peaks, local_get_q_tolerance, wavelength);
                 
-                // Best M(20) any refined cell reached, kept even when it fails
-                // the threshold. A run whose best was 1.9 against a 2.0 floor is
-                // a completely different problem from one whose best was 0.2.
                 if (diag && isFinite(final_m20)) {
                     diag.bestM20 = Math.max(diag.bestM20 ?? -Infinity, final_m20);
                     diag.refined = (diag.refined || 0) + 1;
@@ -235,18 +186,6 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
                 }
 
                 // --- R-lattice probe (hexagonal cells only) -------------------
-                // Is this hexagonal cell really an R lattice? It is if the R line
-                // list (about half of the lines) indexes every peak the full
-                // hexagonal list indexes -- in the first n_20 AND in all peaks, so
-                // the impurity allowance can never be spent on a genuine non-R
-                // line. Then refine it again as R: same peaks, about half the
-                // calculated lines, so a ~2x higher M(20), which now ranks the R
-                // cell where it belongs. Both versions share a solution key, so
-                // the dedupe keeps the R one (higher M20) and, being refined
-                // first, the P one is not posted at all. Runs before the M20
-                // threshold on purpose: an R lattice can fail 2.0 on the P list
-                // and pass comfortably on its own. P M20 = 0 means too many peaks
-                // are unindexed already; R lines (a subset) cannot do better.
                 if (system === 'hexagonal' && refined_cell.lattice !== 'R' && final_m20 > 0) {
                     const q_R = generateQArray_for_worker({ ...refined_cell, lattice: 'R' }, q_max, wavelength);
                     if (q_R.length > 0 &&
@@ -275,17 +214,12 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     // 4. --- POST THE SOLUTION ---
     if (final_solution_to_post) {
         const key = getSolutionKey(final_solution_to_post);
-        // An unkeyable cell (unrecognised system) cannot be deduped, and must
-        // not be filed under the shared `undefined` slot -- that made unrelated
-        // cells shadow each other. Post it and skip the ledger: no dedup is
-        // better than wrong dedup.
         if (!key) {
             return exitFunction(final_solution_to_post);
         }
         const existing = foundSolutionMap.get(key);
         
         if (!existing || final_solution_to_post.m20 > existing.m20) {
-            
             if (existing) { 
                 foundSolutions[existing.index] = final_solution_to_post; 
             } else { 
@@ -301,7 +235,6 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     }
 
     // 5. --- FINAL EXIT ---
-    // If we get here, no solution was posted.
     return exitFunction();
 }
 // --- cpu index, with status, hmax changed to 40 for cubic
@@ -311,27 +244,24 @@ function indexCubic(data, state, postMessage_func) {
     const peak_depth = Math.min(peaks.length, 12);
     const hkls = []; for (let h = 1; h <= h_max; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= k; l++) { if (!h && !k && !l) continue; hkls.push([h,k,l]); }
     
-    
     const totalTrialsToRun = peak_depth * hkls.length;
     let totalTrialsCompleted = 0;
         
-let trialsBatch = 0; let lastReportTime = performance.now();
+    let trialsBatch = 0; let lastReportTime = performance.now();
     for (let i = 0; i < peak_depth; i++) {
         for (const hkl of hkls) {
             refineAndTestSolution({ a: Math.sqrt((hkl[0]*hkl[0] + hkl[1]*hkl[1] + hkl[2]*hkl[2]) / q_obs[i]), system: 'cubic' });
             trialsBatch++; 
 
-if (trialsBatch % 5000 === 0 && performance.now() - lastReportTime >= 50) { // Report at most every 50ms
+            if (trialsBatch % 5000 === 0 && performance.now() - lastReportTime >= 50) {
                 postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
                 totalTrialsCompleted += trialsBatch;
-                const progress = (totalTrialsCompleted / totalTrialsToRun) * 80; // 80% reserved
+                const progress = (totalTrialsCompleted / totalTrialsToRun) * 80;
                 postMessage_func({ type: 'progress', payload: progress });
                 trialsBatch = 0; 
                 lastReportTime = performance.now();
             }
-
         }
-        
     }
     if (trialsBatch > 0) postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch });
 }
@@ -340,7 +270,6 @@ function indexTetragonalOrHexagonal(data, state, postMessage_func, system) {
     const max_hkl = 12, i_depth = Math.min(12, peaks.length), j_depth = Math.min(12, peaks.length);
     const hkls = []; for (let h = 0; h <= max_hkl; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= max_hkl; l++) { if (!h && !k && !l) continue; hkls.push([h,k,l]); }
 
-    
     let totalPeakCombos = 0;
     for (let i = 0; i < i_depth; i++) {
         for (let j = i + 1; j < j_depth; j++) {
@@ -349,7 +278,6 @@ function indexTetragonalOrHexagonal(data, state, postMessage_func, system) {
     }
     const totalTrialsToRun = totalPeakCombos * hkls.length * hkls.length;
     let totalTrialsCompleted = 0;
-    
 
     let trialsBatch = 0; let lastReportTime = performance.now();
 
@@ -362,14 +290,14 @@ function indexTetragonalOrHexagonal(data, state, postMessage_func, system) {
                     
                     trialsBatch++; 
 
-                    if (trialsBatch % 5000 === 0 && performance.now() - lastReportTime >= 50) { // Report at most every 50ms
-                postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
-                totalTrialsCompleted += trialsBatch;
-                const progress = (totalTrialsCompleted / totalTrialsToRun) * 80; // 80% reserved
-                postMessage_func({ type: 'progress', payload: progress });
-                trialsBatch = 0; 
-                lastReportTime = performance.now();
-            }
+                    if (trialsBatch % 5000 === 0 && performance.now() - lastReportTime >= 50) {
+                        postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
+                        totalTrialsCompleted += trialsBatch;
+                        const progress = (totalTrialsCompleted / totalTrialsToRun) * 80;
+                        postMessage_func({ type: 'progress', payload: progress });
+                        trialsBatch = 0; 
+                        lastReportTime = performance.now();
+                    }
 
                     const det = S1 * l2 * l2 - S2 * l1 * l1;
                     if (Math.abs(det) < 1e-6) continue;
@@ -387,7 +315,6 @@ function indexTetragonalOrHexagonal(data, state, postMessage_func, system) {
                 }
             }
         }
-        
     }
     if (trialsBatch > 0) postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch });
 }

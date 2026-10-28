@@ -12,7 +12,7 @@ if (solutionsSortSelect) solutionsSortSelect.addEventListener('change', () => {
     sortSolutions();
     // A COPY, not an alias: handleNewSolution rebinds `solutions` when pruning,
     // which would leave an aliased displayedSolutions pointing at a stale array.
-    displayedSolutions = [...solutions];
+    displayedSolutions = solutions.slice(0, MAX_DISPLAYED_SOLUTIONS);
     updateSolutionsTable();
 });
 // New function to centralize updates (Throttled with requestAnimationFrame)
@@ -335,12 +335,22 @@ const defaultSimSetting = (sol) => {
         const hit = list.find(x => x.setting_id && x.setting_id === sol.simSG) || list[list.length - 1];
         return hit.setting_id || '';
     }
-    if (sol.sgMembers && sol.sgMembers.length && typeof manualSG !== 'undefined') {
-        const m = /^(.*?)(?: \((\d+)\))?$/.exec(String(sol.sgMembers[0]));
-        const name = m[1].replace(/\s/g, ''), num = m[2];
-        const pool = manualSG.entries.filter(e => !num || String(e.group.number) === num);
-        const hit = pool.find(e => String(e.setting.hm || e.setting.symbol).replace(/\s/g, '') === name) || pool[0];
-        return hit ? hit.setting.setting_id : '';
+    if (typeof manualSG !== 'undefined' && manualSG.entries.length) {
+        if (sol.sgSettingId) {
+            const byId = manualSG.entries.find(e => e.setting.setting_id === sol.sgSettingId);
+            if (byId) return byId.setting.setting_id;
+        }
+        if (sol.sgHall) {
+            const byHall = manualSG.entries.find(e => e.setting.hall === sol.sgHall);
+            if (byHall) return byHall.setting.setting_id;
+        }
+        if (sol.sgMembers && sol.sgMembers.length) {
+            const m = /^(.*?)(?: \((\d+)\))?$/.exec(String(sol.sgMembers[0]));
+            const name = m[1].replace(/\s/g, ''), num = m[2];
+            const pool = manualSG.entries.filter(e => !num || String(e.group.number) === num);
+            const hit = pool.find(e => String(e.setting.hm || e.setting.symbol).replace(/\s/g, '') === name) || pool[0];
+            return hit ? hit.setting.setting_id : '';
+        }
     }
     return '';
 };
@@ -348,8 +358,6 @@ const solutionBadges = (sol) => {
     let sysBadges = '';
     if (sol.lattice === 'R') sysBadges += ` <span class="sol-badge" title="Rhombohedral (R) lattice in hexagonal axes: lines with -h+k+l and h-k+l both non-multiples of 3 are absent, and M20 counts only the R lines">R</span>`;
     sysBadges += symPairBadges(sol).replace(/<br>/g, ' ');
-    const nSwaps = (sol.manualSwaps || []).length;
-    if (nSwaps > 0) sysBadges += ` <span class="sol-badge swap" title="${(sol.manualSwaps||[]).map(x=>x.from+'->'+x.to+' @ '+x.tth.toFixed(3)).join('; ')}">swap&times;${nSwaps}</span>`;
     if (sol.mcPolished && !sol.sgClass) {
         const from = (sol.mcFrom && isFinite(sol.mcFrom.m20)) ? sol.mcFrom.m20.toFixed(2) : '?';
         sysBadges += ` <span class="sol-badge mc" title="Monte-Carlo polished: M20 ${from} -> ${sol.m20.toFixed(2)}">MC</span>`;

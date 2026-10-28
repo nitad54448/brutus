@@ -108,13 +108,13 @@ while (true) {
     }
 }
 }
-let lastThrottleTime = 0;
 /**
  * Throttles a function call to only execute once every `delay` milliseconds.
  * @param {function} func The function to throttle.
  * @param {number} delay The delay in milliseconds.
  */
 const throttle = (func, delay) => {
+    let lastThrottleTime = 0;
     return (...args) => {
         const now = new Date().getTime();
         if (now - lastThrottleTime < delay) {

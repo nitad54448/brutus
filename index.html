@@ -4,13 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Brutus-Powder Indexing</title>
-    <!--
-     27 july 2026, removed the  CDN dependencies.
-    -->
-    <script type="application/x-brutus" src="scripts/chart.umd.js"></script>
-    <script type="application/x-brutus" src="scripts/hammer.min.js"></script>
-    <script type="application/x-brutus" src="scripts/chartjs-plugin-zoom.min.js"></script>
-    <script type="application/x-brutus" src="scripts/jspdf.umd.min.js"></script>
+    <!-- Single-source application version -->
+    <script src="js/core/version.js"></script>
+    <!-- Vendor libraries (bundled locally; no CDN dependencies) -->
+    <script type="application/x-brutus" src="vendor/chart.umd.js"></script>
+    <script type="application/x-brutus" src="vendor/hammer.min.js"></script>
+    <script type="application/x-brutus" src="vendor/chartjs-plugin-zoom.min.js"></script>
+    <script type="application/x-brutus" src="vendor/jspdf.umd.min.js"></script>
     <!-- Crystallography: the same files run in both workers, which load them
          through js/crystallography/manifest.js. Keep the two lists in step
          (check_load_order.mjs compares them). -->
@@ -29,22 +29,19 @@
     <script type="application/x-brutus" src="js/crystallography/sg-ops.js"></script>
     <script type="application/x-brutus" src="js/crystallography/sg-context.js"></script>
     <script type="application/x-brutus" src="js/crystallography/sg-score.js"></script>
+    <!-- GPU engine and setup -->
     <script type="application/x-brutus" src="js/gpu/webgpu-engine.js"></script>
-    <!-- Application. Classic scripts, run in this order once the document is
-         parsed (defer); they share one global scope, so a name defined in one
-         is visible to the ones after it. js/main.js runs last. -->
-    <script type="application/x-brutus" src="js/core/version.js"></script>
+    <!-- Core utilities, UI bindings, and application state -->
     <script type="application/x-brutus" src="js/core/utils.js"></script>
     <script type="application/x-brutus" src="js/core/ui.js"></script>
     <script type="application/x-brutus" src="js/core/state.js"></script>
     <script type="application/x-brutus" src="js/core/inputs.js"></script>
-    <script type="application/x-brutus" src="js/data/wavelength.js"></script>
     <script type="application/x-brutus" src="js/core/sg-database.js"></script>
     <script type="application/x-brutus" src="js/gpu/gpu-setup.js"></script>
-    <script type="application/x-brutus" src="js/indexing/solutions.js"></script>
-    <script type="application/x-brutus" src="js/peaks/peak-controls.js"></script>
+    <script type="application/x-brutus" src="js/gpu/gpu-limits.js"></script>
+    <!-- Data, wavelength, and diffraction pattern parsers -->
+    <script type="application/x-brutus" src="js/data/wavelength.js"></script>
     <script type="application/x-brutus" src="js/data/session.js"></script>
-    <script type="application/x-brutus" src="js/indexing/worker-pool.js"></script>
     <script type="application/x-brutus" src="js/data/kalpha2-strip.js"></script>
     <script type="application/x-brutus" src="js/data/export.js"></script>
     <script type="application/x-brutus" src="js/parsers/fullprof.js"></script>
@@ -59,51 +56,51 @@
     <script type="application/x-brutus" src="js/parsers/pdcif.js"></script>
     <script type="application/x-brutus" src="js/parsers/detect.js"></script>
     <script type="application/x-brutus" src="js/data/file-load.js"></script>
+    <!-- Peak detection and controls -->
+    <script type="application/x-brutus" src="js/peaks/peak-controls.js"></script>
     <script type="application/x-brutus" src="js/peaks/peak-finder.js"></script>
     <script type="application/x-brutus" src="js/peaks/peak-table.js"></script>
-    <script type="application/x-brutus" src="js/gpu/gpu-limits.js"></script>
+    <!-- Indexing pipeline and solution management -->
+    <script type="application/x-brutus" src="js/indexing/solutions.js"></script>
+    <script type="application/x-brutus" src="js/indexing/worker-pool.js"></script>
     <script type="application/x-brutus" src="js/indexing/diagnostics.js"></script>
     <script type="application/x-brutus" src="js/indexing/run.js"></script>
-    <script type="application/x-brutus" src="js/dialogs/context-menu.js"></script>
-    <script type="application/x-brutus" src="js/dialogs/swap-hkl.js"></script>
-    <script type="application/x-brutus" src="js/dialogs/refine-mc.js"></script>
-    <script type="application/x-brutus" src="js/dialogs/space-group-mc.js"></script>
-    <script type="application/x-brutus" src="js/report/pdcif-export.js"></script>
-    <script type="application/x-brutus" src="js/report/pdf-report.js"></script>
+    <!-- Charting and interactive overlays -->
     <script type="application/x-brutus" src="js/chart/axes.js"></script>
     <script type="application/x-brutus" src="js/chart/chart.js"></script>
     <script type="application/x-brutus" src="js/chart/interaction.js"></script>
     <script type="application/x-brutus" src="js/chart/manual-space-group.js"></script>
+    <!-- Subgroup conversion, dialogs, and reporting -->
     <script type="application/x-brutus" src="js/convert/sg_subgroups.js"></script>
     <script type="application/x-brutus" src="js/convert/sg_convert.js"></script>
+    <script type="application/x-brutus" src="js/dialogs/context-menu.js"></script>
+    <script type="application/x-brutus" src="js/dialogs/refine-mc.js"></script>
+    <script type="application/x-brutus" src="js/dialogs/space-group-mc.js"></script>
     <script type="application/x-brutus" src="js/dialogs/convert.js"></script>
+    <script type="application/x-brutus" src="js/report/pdcif-export.js"></script>
+    <script type="application/x-brutus" src="js/report/pdf-report.js"></script>
+    <!-- Workspace persistence, shell, and startup -->
     <script type="application/x-brutus" src="js/core/workspace.js"></script>
     <script type="application/x-brutus" src="js/core/shell.js"></script>
     <script type="application/x-brutus" src="js/main.js"></script>
-    <!-- The one version of the program is version.json. Every script above is listed here in load order
-         (type="application/x-brutus" keeps the browser from running it); this loader reads the version and
-         runs them in that order with ?v=<version>, so page, workers, shaders and the space-group file are
-         cache-busted by the same number. -->
+    <!-- Sequential versioned script loader: appends ?v=<APP_VERSION> from js/core/version.js
+         to every script above so the page, workers, shaders, and space-group file share
+         one cache-busting version string. -->
     <script>
-    (async () => {
-        let version = '';
-        try { version = String((await (await fetch('version.json', { cache: 'no-store' })).json()).version || ''); }
-        catch (error) { console.warn('version.json could not be read; scripts load unversioned.', error); }
-        window.BRUTUS_VERSION = version;
-        if (document.readyState === 'loading') await new Promise(r => document.addEventListener('DOMContentLoaded', r, { once: true }));
-        const query = version ? '?v=' + encodeURIComponent(version) : '';
+    document.addEventListener('DOMContentLoaded', () => {
+        const query = typeof APP_VERSION_QS === 'string' ? APP_VERSION_QS : '';
         for (const tag of document.querySelectorAll('script[type="application/x-brutus"]')) {
             const script = document.createElement('script');
             script.src = tag.getAttribute('src') + query;
             script.async = false;
             document.body.appendChild(script);
         }
-    })();
+    }, { once: true });
     </script>
-    <link href="inter-font.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
-    <link rel="stylesheet" href="workspace.css">
-    <link rel="stylesheet" href="dialogs.css">
+    <link href="css/inter-font.css" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/workspace.css">
+    <link rel="stylesheet" href="css/dialogs.css">
 </head>
 <body class="app-shell">
     <header class="workspace-header">
@@ -142,7 +139,7 @@
     <div id="app-container">
         <div id="controls-panel">
 
-            <!-- Save-as format menu (mirrors the Refine MC / Swap dialogs) -->
+            <!-- Save-as format menu -->
             <div id="save-menu-overlay">
                 <div id="save-menu-modal" role="dialog" aria-modal="true" aria-labelledby="save-menu-title" aria-describedby="save-menu-description" tabindex="-1">
                     <h3 id="save-menu-title">Save data as</h3>
@@ -167,8 +164,7 @@
                 </div>
             </div>
 
-            <!-- Unload confirmation (mirrors the Save-as dialog above) -->
-            <!-- General notice / confirmation (large report, large history): same panel as the dialogs around it -->
+            <!-- General notice / confirmation (large report, large history) -->
             <div id="notice-overlay">
                 <div id="notice-modal" role="alertdialog" aria-modal="true" aria-labelledby="notice-title" aria-describedby="notice-text">
                     <h3 id="notice-title"></h3>
@@ -307,26 +303,26 @@
                             </div>
 
                             <div class="slider-group">
-                                <label for="peak-prominence-slider" class="control-label" title="Rejects a maximum unless the valley beside it drops by at least this fraction of its own height. A fully resolved peak scores near 100%, an unresolved shoulder about 50%, a noise spike on a flank about 25%. Unlike a minimum-separation rule this keeps genuinely resolved close reflections. 0 disables the test (default).">Prom. (%)</label>
+                                <label for="peak-prominence-slider" class="control-label" title="Rejects a maximum unless the valley beside it drops by at least this fraction of its own height. A fully resolved peak scores near 100%, an unresolved shoulder about 50%, a noise spike on a flank about 25%. Unlike a minimum-separation rule this keeps genuinely resolved close reflections. 0 disables the test.">Prom. (%)</label>
                                 <div class="slider-value-track">
-                                    <input type="range" id="peak-prominence-slider" class="custom-slider" min="0" max="90" value="0" step="5">
-                                    <span id="peak-prominence-value" class="slider-value-display">0</span>
+                                    <input type="range" id="peak-prominence-slider" class="custom-slider" min="0" max="90" value="25" step="5">
+                                    <span id="peak-prominence-value" class="slider-value-display">25</span>
                                 </div>
                             </div>
                             
                             <div class="slider-group">
                                 <label for="ball-radius-slider" class="control-label" title="Rolling-ball background window, expressed in reciprocal space (Q = 4&#960;sin&#952;/&#955;). Independent of the scan step, so the same value gives the same background on data measured at any resolution.">Radius (&#197;&#8315;&#185;)</label>
                                 <div class="slider-value-track">
-                                    <input type="range" id="ball-radius-slider" class="custom-slider" min="0.005" max="0.300" value="0.050" step="0.005">
-                                    <span id="ball-radius-value" class="slider-value-display">0.050</span>
+                                    <input type="range" id="ball-radius-slider" class="custom-slider" min="0.005" max="0.300" value="0.100" step="0.005">
+                                    <span id="ball-radius-value" class="slider-value-display">0.100</span>
                                 </div>
                             </div>
                             
                             <div class="slider-group">
                                 <label for="smoothing-width-slider" class="control-label" title="Moving-average half-width applied before the rolling-ball erosion, in reciprocal space (Q = 4&#960;sin&#952;/&#955;). Same units as Radius, so the two are directly comparable: keep this well below Radius or the smoothing erodes the peaks. 0 disables smoothing.">Smooth. (&#197;&#8315;&#185;)</label>
                                 <div class="slider-value-track">
-                                    <input type="range" id="smoothing-width-slider" class="custom-slider" min="0" max="0.060" value="0.012" step="0.002">
-                                    <span id="smoothing-width-value" class="slider-value-display">0.012</span>
+                                    <input type="range" id="smoothing-width-slider" class="custom-slider" min="0" max="0.060" value="0.010" step="0.002">
+                                    <span id="smoothing-width-value" class="slider-value-display">0.010</span>
                                 </div>
                             </div>
 
@@ -343,22 +339,8 @@
 
 
                 <div id="parameters-tab-content" class="tab-content-panel">
-
-
-
-
-
-
-
                     <div class="control-group" style="width: 100%; border-top: none; padding-top: 0;">
                         <h3 class="section-title">Crystal systems</h3>
-                 
-                 
-
-
-
-
-
                         <div id="indexing-controls" class="hidden">
 <label class="control-label" style="margin-bottom: 0.5rem;" title="Every checked system is searched on the GPU, one after the other, highest symmetry first: cubic, hexagonal, tetragonal, orthorhombic, monoclinic, triclinic. Rhombohedral (R) lattices are found by the hexagonal search, in hexagonal axes. Without WebGPU, cubic, tetragonal and hexagonal fall back to the CPU.">Systems to search</label>
     <!-- Left column: one or two unknowns; right column: three or more.
@@ -405,14 +387,8 @@
         <div id="gpu-plan"></div>
     </div>
 </div>
-
-
                     </div>
                 </div>
-
-
-
-
 
                 <div id="solutions-tab-content" class="tab-content-panel">
                     <div class="control-group full-width">
@@ -445,8 +421,8 @@
                 </div>
                 <p id="status-text"></p>
                 <div hidden style="display: flex; gap: 0.5rem;">
-                    <button id="start-indexing-button" class="btn btn-primary btn-like flex-1" disabled>Find Peaks to Start</button>
-                    <button id="report-button" class="btn btn-secondary btn-like flex-1" disabled>Generate PDF Report</button>
+                    <button id="start-indexing-button" class="btn btn-primary flex-1" disabled>Find Peaks to Start</button>
+                    <button id="report-button" class="btn btn-secondary flex-1" disabled>Generate PDF Report</button>
                 </div>
             </div>
         </div>
@@ -536,7 +512,6 @@
 
 <div id="context-menu">
     <div id="ctx-erase">Erase Solution</div>
-    <div id="ctx-swap">Swap hkl</div>
     <div id="ctx-mc">Refine MC</div>
     <div id="ctx-sg">Space Group MC</div>
     <div id="ctx-pdcif">Export pdCIF</div>
@@ -622,23 +597,6 @@
   </div>
 </div>
 
-<div id="swap-overlay">
-  <div id="swap-modal">
-    <h3 id="swap-title">Swap hkl</h3>
-    <p id="swap-sub">Edit any assignment, then Apply to create a new refined solution. Blank rows are left unchanged.</p>
-    <div id="swap-table-wrap">
-      <table id="swap-table">
-        <thead><tr><th>2&theta; obs</th><th>d obs</th><th>h</th><th>k</th><th>l</th><th>2&theta; calc</th><th>diff</th></tr></thead>
-        <tbody id="swap-tbody"></tbody>
-      </table>
-    </div>
-    <div id="swap-msg"></div>
-    <div id="swap-buttons">
-      <button id="swap-cancel" class="btn btn-secondary">Cancel</button>
-      <button id="swap-apply" class="btn btn-primary">Apply</button>
-    </div>
-  </div>
-</div>
 <footer id="workspace-status" role="status" aria-live="polite"><span id="workspace-state">Ready</span><span id="snap-readout" title="Position under the pointer on the plot: 2θ, d and Q (and hkl when snapping to a calculated line)"></span><span id="workspace-solution">No solution selected</span><span id="app-footer">Brutus</span></footer>
 <dialog id="sg-browser" aria-labelledby="sg-browser-title">
     <h2 id="sg-browser-title">Explore space group</h2>

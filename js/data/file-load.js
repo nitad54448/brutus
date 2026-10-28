@@ -85,9 +85,9 @@ ui.fileInput.addEventListener('change', async (e) => {
             break; // Stop at the very first bad point
         }
         
-        // Only add if it's a valid, finite point
-        tth_out.push(tth);
-        int_out.push(Math.max(0, intensity)); // Clamp negative intensities to 0
+        // Only add if it's a valid, finite point (round to 6 decimal places)
+        tth_out.push(Number(tth.toFixed(6)));
+        int_out.push(Number(Math.max(0, intensity).toFixed(6))); // Clamp negative intensities to 0
     }
     
     const originalCount = tth_in.length;

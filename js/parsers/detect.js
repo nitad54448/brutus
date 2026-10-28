@@ -54,9 +54,8 @@
         for (const rule of PARSER_REGISTRY) {
             try {
                 if (rule.test(name, fileContent, firstLine, upperContent, lines)) {
-                    // Pass 'content' to parser, but 'lines' to the special GSAS one
                     if (rule.parser.length > 1) {
-                         return rule.parser(fileContent, lines); // For GSAS parser
+                         return rule.parser(fileContent, fileName);
                     }
                     return rule.parser(fileContent);
                 }
@@ -65,7 +64,6 @@
             }
         }
 
-        // Fallback for all other 2-column-like formats
-        // This will attempt to parse: .xy, .csv, .txt, .dat, .asc, etc.... à revoir les fichiers type dans Convert 2 ?
+        // Fallback for all other 2-column-like formats (.xy, .csv, .txt, .dat, .asc, etc.)
         return parseDataFile(fileContent, fileName);
     };

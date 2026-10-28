@@ -128,7 +128,7 @@ ui.chartCanvas.addEventListener('click', (e) => {
         if (di >= 0) height = Math.max(0, workingExperimentalData.intensity[di]);
     }
 
-    pickedPeaks.push({ tth, d: 0, q: 0, height });
+    pickedPeaks.push({ tth: Number(tth.toFixed(6)), d: 0, q: 0, height: Number(height.toFixed(6)) });
     peaksManuallyEdited = true;
     pickedPeaks.sort((a, b) => a.tth - b.tth);
     recalculatePeakValues(); // tag + d/q in one shot

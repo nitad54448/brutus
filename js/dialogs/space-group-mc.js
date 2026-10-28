@@ -545,7 +545,6 @@ sgAddBtn.addEventListener('click', () => {
     // not to a cell derived from it.
     delete child._symAlt; delete child._symAltOf;
     child.system = parent.system;
-    child.manualSwaps = parent.manualSwaps || [];
     child._fitContext = `sg-mc:${row.sig}:${Date.now()}`;
     // Provenance: which hypothesis produced this cell. The cell was refined
     // against the restricted line list, so it is only meaningful alongside
@@ -561,6 +560,7 @@ sgAddBtn.addEventListener('click', () => {
     // reader does not have to guess which of an IT number's settings was
     // meant. Pnma and Pbnm are both No. 62 and forbid different reflections.
     child.sgHall = selectedMember.hall || null;
+    child.sgSettingId = selectedMember.setting_id || null;
     
     child.sgConditions = row.conditions;
     child.sgScore = row.score;
@@ -580,9 +580,9 @@ sgAddBtn.addEventListener('click', () => {
     const parentIdx = solutions.indexOf(sgParentSource || parent);
     if (parentIdx >= 0) solutions.splice(parentIdx, 0, child);
     else solutions.push(child);
-    displayedSolutions = [...solutions];
+    displayedSolutions = solutions.slice(0, MAX_DISPLAYED_SOLUTIONS);
+    applySolutionSelection(child);
     updateSolutionsTable();
-    updateAllMarkers();
     sgOverlay.classList.remove('open');
     const marg = child.sgMargin;
     const margTxt = isFinite(marg)

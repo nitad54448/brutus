@@ -6,41 +6,12 @@
 // Classic script, loaded in order by index.html (see the list there); its
 // top-level names are shared with the other app scripts.
 
-/**
- * Enforces min/max constraints on a number input element when the user clicks away.
- * @param {HTMLInputElement} inputEl - The input element to validate.
- * @param {number} defaultVal - A default value to use if parsing fails.
- */
-function validateNumberInput(inputEl, defaultVal = 0) {
-    const minVal = parseFloat(inputEl.min);
-    const maxVal = parseFloat(inputEl.max);
-    const min = isNaN(minVal) ? -Infinity : minVal;
-    const max = isNaN(maxVal) ? Infinity : maxVal;
-    let value = parseFloat(inputEl.value);
-
-    if (isNaN(value)) {
-        value = defaultVal;
-    }
-    
-    if (value < min) {
-        value = min;
-    } else if (value > max) {
-        value = max;
-    }
-    
-    // Update the element's value to the constrained value
-    inputEl.value = value;
-}
 // Single source of truth for the "Impurity Peaks" value used at RUN TIME.
-// The input has min/max attributes, but those are only enforced on 'blur'
-// (via validateNumberInput). Every place that actually starts a computation
-// used to read the raw field with parseInt, so a value typed but not blurred
-// — or any value outside [min,max] — reached the GPU shaders and the CPU
-// refinement UNCLAMPED, and the two stages then disagreed about how many
-// unindexed peaks a cell is allowed (the shader clamps to n-1 internally,
-// the CPU FoM does not). Reading through this helper makes all consumers
-// see the same clamped integer. Bounds come from the input's own min/max
-// attributes so the runtime clamp can never drift from the markup.
+// The input has min/max attributes, which are enforced on 'blur' and by
+// readNumberInput. Every place that actually starts a computation reads
+// through this helper so all consumers see the same clamped integer.
+// Bounds come from the input's own min/max attributes so the runtime clamp
+// can never drift from the markup.
 function getImpurityPeaks() {
     return readNumberInput(ui.impurityPeaksInput, { integer: true, fallback: 1 });
 }
@@ -106,7 +77,10 @@ if (ui.tthError) {
     });
 }
 if (ui.wavelength) {
-    // Recalculate d-spacings if the user manually changes the wavelength (Custom mode)
+    // Recalculate d-spacings if the user manually changes the wavelength (Custom mode).
+    // The Q radius is converted to channels using lambda, so the background
+    // window is also wavelength-dependent: re-detect peaks only when the list
+    // has not been manually edited, otherwise keep hand edits and warn the user.
     ui.wavelength.addEventListener('change', () => {
         if (isIndexing) return;
         if (typeof handleWavelengthValueChange === 'function') handleWavelengthValueChange();
@@ -120,6 +94,15 @@ if (ui.wavelength) {
             } else {
                 rebuildHklList();
                 updateAllMarkers();
+            }
+        }
+        if (workingExperimentalData && workingExperimentalData.intensity.length) {
+            if (!peaksManuallyEdited) {
+                debouncedFindPeaks();
+            } else {
+                showStatus('Wavelength changed. The background window is set in Q, so it is now stale — ' +
+                           'move a peak-finding slider to re-detect (this will discard manual peak edits).',
+                           'info', 9000);
             }
         }
     });

@@ -5,25 +5,11 @@
 // run on the main thread (index.html) and in both workers, which load them
 // through manifest.js, so nothing here may touch the DOM.
 
-//20 nov, worker
-// Check if we are running in a Worker environment to avoid conflicts with the main thread
 // ============================================================================
 // COMBINATORIAL SWAP SEARCH
 // ----------------------------------------------------------------------------
-// Replaces the old "swap fishing" block in findTransformedSolutions().
-//
-// What changed and why
-// --------------------
-// The old pass was NOT combinatorial. It did two things:
-//   (a) for each of the first 12 peaks, try up to 2 alternative labels, ONE
-//       peak at a time (single-peak overrides only);
-//   (b) transpose the labels of the 3 closest-lying peak pairs.
-// So the reachable set was {single relabel} U {one pairwise transposition}.
-// A real crossing usually drags a third line with it, and two independent
-// mislabels are completely unreachable. Total budget: 12 refits.
-//
-// This version enumerates, for every peak, EVERY calculated line inside the
-// user's q tolerance window, and searches the full CARTESIAN PRODUCT of those
+// Enumerates, for every peak, EVERY calculated line inside the user's q
+// tolerance window, and searches the full CARTESIAN PRODUCT of those
 // per-peak candidate sets -- i.e. arbitrarily many peaks relabelled at once.
 // The product is walked best-first (cheapest total mislabel penalty first) so
 // it can be truncated at any budget and still have covered the most plausible
@@ -31,9 +17,6 @@
 //
 // Three things make that affordable:
 //   1. The parent's line list is generated ONCE, not once per trial.
-//      (refineWithManualHkl regenerates it TWICE per call and does an O(P*L)
-//      linear nearest-line scan per peak -- that is what made the old pass
-//      unaffordable above ~12 trials.)
 //   2. Candidate labels that produce the same least-squares design row are
 //      collapsed: they are indistinguishable to the fit, so trying both is
 //      pure waste. This is a large pruning factor in high-symmetry systems.
@@ -42,19 +25,12 @@
 //      residual. Only the best MAX_EVALS distinct cells reach stage 2, which
 //      regenerates lines and computes M20/F(N).
 //
-// Residual is used for RANKING only, never for acceptance -- as the original
-// comment correctly noted, a swapped labelling always has a larger residual at
-// FIXED cell. After refitting that is no longer true, which is exactly why the
-// refit is the discriminator. Acceptance is still M20.
+// Residual is used for RANKING only, never for acceptance -- a swapped
+// labelling always has a larger residual at FIXED cell. After refitting that
+// is no longer true, which is why the refit is the discriminator.
 // ============================================================================
 
 const SWAP_CFG = {
-    // Candidate GENERATION is deliberately unrestricted: every peak, every line
-    // inside the window. Cost is bounded by MAX_FITS (the best-first walk visits
-    // the cheapest assignments first), so capping generation only removes
-    // reachable answers without saving time. An earlier build capped this at the
-    // 16 lowest-angle peaks and lost relabellings at peaks 23 and 27 on a real
-    // orthorhombic pattern.
     MAX_PEAKS:  1e9,   // how many low-angle peaks may be relabelled (no cap)
     ALT_WINDOW: 2.5,   // candidate window, in units of the user's q tolerance
     MAX_ALT:    4,     // distinct labels kept per peak (after row dedup)
@@ -102,11 +78,11 @@ class _SwapHeap {
 function _swapCheapFit(labels, ctx) {
     const { lines, system, refineZero, rhs, wts, zcol, nAll, need, maxVolume, qc, qL } = ctx;
 
-    // One calculated line per observed peak, same rule as pair_and_fit() and
-    // assignNearestLines(): a transposition (two peaks exchanging DIFFERENT
-    // labels) is the whole point of this search, but two peaks landing on the
-    // SAME line would be fitted as duplicate equations and averaged. Closest
-    // peak keeps the line, the other is dropped from this trial.
+    // One calculated line per observed peak, same rule as pair_and_fit():
+    // a transposition (two peaks exchanging DIFFERENT labels) is the whole
+    // point of this search, but two peaks landing on the SAME line would be
+    // fitted as duplicate equations and averaged. Closest peak keeps the line,
+    // the other is dropped from this trial.
     const order = [];
     for (let i = 0; i < nAll; i++) {
         const j = labels[i];
@@ -132,8 +108,6 @@ function _swapCheapFit(labels, ctx) {
     const cell = extractCellFromFit(fit.solution, system);
     if (!cell) return null;
     cell.system = system;
-    // Relabelled children of an R cell are R cells: their FoM must be counted
-    // on the same R line list as the parent's, or no swap could ever beat it.
     if (ctx.lattice === 'R' && system === 'hexagonal') cell.lattice = 'R';
     if (refineZero) cell.zero_correction = fit.solution[fit.solution.length - 1] * DEG;
     else if (ctx.z) cell.zero_correction = ctx.z;
@@ -143,15 +117,12 @@ function _swapCheapFit(labels, ctx) {
     cell.volume = V;
     cell.nPaired = M.length;
 
-    // solveLeastSquares now returns the weighted RMS residual it already
-    // computed internally, so there is nothing to recompute here.
     cell._resid = isFinite(fit.wrms) ? fit.wrms : Infinity;
     cell._fit = fit;
     return cell;
 }
-// Stage 2: figures of merit, computed exactly the way refineAndTestSolution
-// computes them so the numbers are directly comparable with every other
-// solution in the table. Uses the q_only fast path (no reflection objects).
+// Stage 2: figures of merit, computed the way refineAndTestSolution computes
+// them so the numbers are directly comparable with every other solution.
 function _swapEvalFoM(cell, ctx) {
     const { wavelength, qMax, peaks, N20, impurityPeaks, tolFn } = ctx;
     const qCalc = generateQArray_for_worker(cell, qMax, wavelength);
@@ -175,13 +146,6 @@ function _swapEvalFoM(cell, ctx) {
     const allPeaks = mk(nAll);
     const fAll = calculateFiguresOfMerit(qCalc, allPeaks, impurityPeaks, tolFn, wavelength);
 
-    // How many of ALL N observed peaks fall within tolerance of a calculated
-    // line. M(N) cannot serve this purpose: calculateFiguresOfMerit returns a
-    // hard 0 as soon as more than `impurity_peaks` lines go unindexed, so with
-    // the usual setting of 1 impurity on a 47-peak pattern essentially every
-    // candidate scores 0 and the figure carries no information. The raw count
-    // is smooth and is the thing that actually distinguishes a cell that
-    // explains the pattern from one that has been tuned to fit 20 lines.
     let nIdxAll = 0;
     for (let i = 0; i < nAll; i++) {
         const p = allPeaks[i];
@@ -231,9 +195,7 @@ function _swapRound(sol, data, state, cfg) {
         tthRad[i] = tr;
         qc[i] = (4 * Math.sin((t - z) * RAD / 2) ** 2) / (wavelength ** 2);
         // Mirrors refineAndTestSolution: raw q when the zero is a fitted column,
-        // zero-corrected q when the zero is held fixed. (refineWithManualHkl
-        // uses raw q unconditionally, which silently drops the parent's zero
-        // whenever refineZero is off.)
+        // zero-corrected q when the zero is held fixed.
         rhs[i] = refineZero ? (4 * Math.sin(tr / 2) ** 2) / (wavelength ** 2) : qc[i];
         tol[i] = get_q_tolerance(original_indices[i], tth_obs_rad, wavelength, tth_error);
         zcol[i] = (2 / (wavelength ** 2)) * Math.sin(tr);
@@ -285,9 +247,6 @@ function _swapRound(sol, data, state, cfg) {
     const D = dims.length;
 
     // ---- 5. best-first walk of the full product space ----------------------
-    // Node = vector of per-peak candidate ranks. Start = all-nearest. Expanding
-    // by incrementing one coordinate generates every assignment exactly once,
-    // in non-decreasing total-penalty order.
     const heap = new _SwapHeap();
     const visited = new Set();
     const start = new Uint8Array(D);
@@ -333,7 +292,6 @@ function _swapRound(sol, data, state, cfg) {
         cellSeen.add(key);
         cell._swaps = dims
             .map((d, k) => (r[k] === 0 ? null : {
-                // measured 2-theta, the key manual swaps use (a Ka1 line's tth is mapped)
                 tth: peaks_sorted_by_q[d.i].tthObs ?? peaks_sorted_by_q[d.i].tth,
                 from: `(${lines[base[d.i]].h},${lines[base[d.i]].k},${lines[base[d.i]].l})`,
                 to: `(${lines[d.cands[r[k]]].h},${lines[d.cands[r[k]]].k},${lines[d.cands[r[k]]].l})`,
@@ -361,32 +319,16 @@ function _swapRound(sol, data, state, cfg) {
         if (!fom) continue;
         Object.assign(cell, fom);
         if (!(cell.m20 > min_m20) || !(cell.m20 >= parentM20 * cfg.KEEP_RATIO)) continue;
-        // M20 is computed on 20 peaks and is BLIND to peaks 21..N. A relabelling
-        // can inflate M20 while wrecking the rest of the pattern -- measured on a
-        // real orthorhombic pattern: M20 49 -> 95 while the number of indexed
-        // lines fell. Never accept a child that explains materially LESS of the
-        // observed pattern than its parent did.
         if (cell.n_idx_all < parentNIdx - cfg.LOSE_SLACK) continue;
         keepers.push(cell);
     }
 
-    // Rank by how much of the pattern is explained FIRST, M20 second. Ranking on
-    // M20 alone is what let a 20-line-tuned cell outrank the cell that indexes
-    // the whole pattern.
     keepers.sort((A, B) => (B.n_idx_all - A.n_idx_all) || (B.m20 - A.m20));
     keepers._diag = { D, fits, distinct: results.length, parentNIdx, parentM20 };
     return keepers;
 }
 /**
  * Combinatorial relabelling search around one refined solution.
- *
- * Runs in ROUNDS. This matters more than any single-round budget: fixing one
- * crossing MOVES the cell, which changes which calculated lines sit near which
- * observed peaks -- so the second round enumerates a genuinely different
- * candidate set that the first round could not see at any budget. Measured on a
- * real PbSO4 pattern: round 1 lifts the best cell from M20 43.7 to 49.4, and a
- * second round from there reaches 92.4. A single round stops at 49.4, which is
- * exactly the plateau the one-shot version produced.
  *
  * @returns {number} how many new/improved solutions were posted
  */
@@ -409,10 +351,6 @@ function combinatorialSwapSearch(sol, data, state, postMessage_func, cfgIn) {
         chain.push(...cands.slice(0, cfg.MAX_POST));
         best = top;
 
-        // Re-centre only on a real gain, otherwise every parent pays for four
-        // rounds of nothing. The parent of round 1 carries no n_idx_all of its
-        // own (only the children are evaluated), so its count comes from the
-        // round's diagnostics -- compared against 0 it was always a "gain".
         const curNIdx = Number.isFinite(current.n_idx_all) ? current.n_idx_all
                       : (cands._diag ? cands._diag.parentNIdx : 0);
         const gained = (top.n_idx_all > curNIdx) ||
@@ -428,17 +366,11 @@ function combinatorialSwapSearch(sol, data, state, postMessage_func, cfgIn) {
     for (const cell of chain) {
         if (posted >= cfg.MAX_POST) break;
         const key = getSolutionKey(cell);
-        // Same rule as refineAndTestSolution: an unkeyable cell is posted but
-        // never filed, rather than sharing the `undefined` slot with every
-        // other unkeyable cell.
         const existing = key ? foundSolutionMap.get(key) : undefined;
         if (existing && !(cell.m20 > existing.m20)) continue;
 
         try { cell.errors = propagateErrors(system, cell._fit, cell); } catch (e) { cell.errors = null; }
         cell.autoSwaps = cell._swaps;
-        cell.manualSwaps = sol.manualSwaps || [];
-        // _fit holds the covariance matrix; it must not survive the structured
-        // clone to the main thread.
         delete cell._fit; delete cell._resid; delete cell._swaps;
 
         if (key) {
