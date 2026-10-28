@@ -194,10 +194,14 @@ mcApplyBtn.addEventListener('click', () => {
             mcMsg.textContent = 'Refinement failed: ' + failure;
             return;
         }
-        if (!res || !isFinite(res.m20) || res.m20 <= (parent.m20 || 0)) {
+        // The baseline is the parent's M20 recomputed on the CURRENT peaks
+        // (res.mcFrom.m20): parent.m20 dates from indexing, and peak edits
+        // since then would make the comparison and the report meaningless.
+        const baseM20 = res && res.mcFrom && isFinite(res.mcFrom.m20) ? res.mcFrom.m20 : (parent.m20 || 0);
+        if (!res || !isFinite(res.m20) || res.m20 <= baseM20) {
             mcMsg.classList.remove('info');
             mcMsg.textContent =
-                `No improvement on M20 ${(parent.m20 || 0).toFixed(2)}. ` +
+                `No improvement on this cell's M20 for the current peak list. ` +
                 `Try more iterations or restarts.`;
             return;
         }
@@ -221,7 +225,7 @@ mcApplyBtn.addEventListener('click', () => {
         updateAllMarkers();
         closeMcModal();
         showStatus(
-            `MC refined: M20 ${(parent.m20 || 0).toFixed(2)} -> ${res.m20.toFixed(2)}`,
+            `MC refined: M20 ${baseM20.toFixed(2)} -> ${res.m20.toFixed(2)}`,
             'success', 8000);
     }, 0);
 });

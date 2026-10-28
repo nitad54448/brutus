@@ -15,4 +15,8 @@ handleWavelengthPresetChange({ onLoad: true });
 // TDZ, threw a ReferenceError, and never disabled the GPU checkboxes.
 loadSpaceGroupData();
 checkWebGPUCapabilities();
-window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectURL(workerURL); });
+// Closing or reloading the tab would discard a run in progress, its
+// solutions, or hand-edited peaks: ask the browser to confirm first.
+window.addEventListener('beforeunload', (e) => {
+    if (isIndexing || solutions.length || peaksManuallyEdited) e.preventDefault();
+});

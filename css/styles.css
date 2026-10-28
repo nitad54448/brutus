@@ -120,6 +120,9 @@ input[type="checkbox"] {
 .peak-table input:focus { background-color: var(--light-bg); outline: 1px solid var(--primary-accent); }
 .delete-peak-btn { background: none; border: none; color: var(--text-dark); cursor: pointer; font-weight: bold; }
 .delete-peak-btn:hover { color: var(--error-red); }
+.ka2-real-btn { background: none; border: 1px solid currentColor; border-radius: 3px; color: var(--text-dark);
+    cursor: pointer; font-size: 0.75em; padding: 0 3px; line-height: 1.4; }
+.ka2-real-btn:hover, .ka2-real-btn:focus-visible { color: var(--accent, #2563eb); }
 
 /* Ka2-suspect peak rows: yellow tint + warning marker */
 .peak-table tbody tr.ka2-suspect { background-color: rgba(234, 179, 8, 0.18); }

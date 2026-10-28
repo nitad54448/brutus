@@ -5,12 +5,7 @@
 // top-level names are shared with the other app scripts.
 
 const setupWorker = () => {
-try {
     workerURL = 'js/workers/index-worker.js' + APP_VERSION_QS;
-} catch (error) {
-    console.error("Failed to set up worker URL:", error);
-    showStatus("Critical error: Could not initialize indexing engine.", "error", 10000);
-}
 };
 // ========================================================================
 // Refinement Worker Pool (batched)

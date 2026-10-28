@@ -799,10 +799,11 @@ class WebGPUEngine {
                 // candidate count can lag by up to that many chunks, which is
                 // harmless: the shader itself early-outs once the counter reaches
                 // max_solutions, so the extra chunks do almost no work.
-                if (!isSyncChunk) {
-                    if (progressCallback) progressCallback((i + 1) / totalChunks, lastKnownSolutions);
-                    continue;
-                }
+                // Progress is reported only at sync points, once the GPU has
+                // confirmed the work done: a chunk merely submitted may never
+                // run (Stop breaks before it), and the host counts reported
+                // progress as trials searched.
+                if (!isSyncChunk) continue;
 
                 await this.device.queue.onSubmittedWorkDone();
                 if (this.uncapturedError) {
@@ -892,7 +893,14 @@ class WebGPUEngine {
                 if (progressCallback) progressCallback((i + 1) / totalChunks, numSolutions);
                 // Report progress for this chunk BEFORE breaking, otherwise the
                 // bar freezes short of 100% on exactly the runs that hit the cap.
-                if (numSolutions >= maxSolutions) { stoppedEarly = true; break; }
+                // A buffer that fills on the very last chunk without turning a
+                // candidate away (firstIncomplete untouched) searched everything:
+                // that is a complete run, not one "truncated at 100%".
+                if (numSolutions >= maxSolutions) {
+                    const complete = i === totalChunks - 1 && firstIncomplete === 0xFFFFFFFF;
+                    if (!complete) stoppedEarly = true;
+                    break;
+                }
             }
         } finally {
             // Keep the device's error-scope stack balanced even when a throw

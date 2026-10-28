@@ -77,7 +77,9 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
 
     // --- REFINEMENT LOGIC ---
     {
-        const pair_and_fit = (zero_corr_deg) => {
+        // `quiet`: a trial of the zero scan below; its failures are expected
+        // and must not inflate the diagnostics that explain an empty run.
+        const pair_and_fit = (zero_corr_deg, quiet = false) => {
             const cands = [];
             for (let i = 0; i < n_all; i++) {
                 const original_idx = original_indices[i];
@@ -119,7 +121,7 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
             }
 
             if (diag) diag.bestIndexed = Math.max(diag.bestIndexed || 0, indexed_pairs.length);
-            if (indexed_pairs.length < min_indexed[system]) { bump('tooFewIndexed'); return null; }
+            if (indexed_pairs.length < min_indexed[system]) { if (!quiet) bump('tooFewIndexed'); return null; }
 
             const M = indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
             const q_vec = indexed_pairs.map(p => p.q_obs);
@@ -133,12 +135,27 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
             const ls_weights = ls_weights_for_2theta(tth_rads_for_rows);
 
             const fit = solveLeastSquares(M, q_vec, ls_weights);
-            if (!fit || !fit.solution) { bump('fitFailed'); return null; }
+            if (!fit || !fit.solution) { if (!quiet) bump('fitFailed'); return null; }
             return { fit, indexed_pairs, peak_indices };
         };
 
-        // Round 1
-        let result = pair_and_fit(0);
+        // Round 1. With the zero refined, matching at zero = 0 can index
+        // nothing when the true offset exceeds the 2θ error, and the cell was
+        // dropped before its zero was ever fitted. Then try trial offsets
+        // (steps of the 2θ error, up to zeroScanMaxDeg) and keep the one
+        // indexing the most peaks; round 2 re-pairs at its fitted zero.
+        let result = pair_and_fit(0, refineZero);
+        if (!result && refineZero) {
+            const { zeroScanMaxDeg, zeroScanMinStepDeg } = BRUTUS_LIMITS.search;
+            const step = Math.max(tth_error, zeroScanMinStepDeg);
+            for (let z = step; z <= zeroScanMaxDeg + 1e-9; z += step) {
+                for (const trial of [z, -z]) {
+                    const r = pair_and_fit(trial, true);
+                    if (r && (!result || r.indexed_pairs.length > result.indexed_pairs.length)) result = r;
+                }
+            }
+            if (!result) pair_and_fit(0);   // record the zero-offset failure reason once
+        }
         // Round 2 (only when refining zero): re-pair using the round-1 estimate.
         if (result && refineZero) {
             const z1_deg = result.fit.solution[result.fit.solution.length - 1] * DEG;

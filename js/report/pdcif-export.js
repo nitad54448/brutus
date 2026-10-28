@@ -67,7 +67,10 @@ const generatePdCIF = (sol) => {
     const toAsciiSg = (t) => String(t == null ? '' : t)
         .replace(/[\u2080-\u2089]/g, d => String(d.charCodeAt(0) - 0x2080))
         .replace(/[\u2212\u2013\u2014]/g, '-')
-        .replace(/'/g, '');
+        .replace(/'/g, '')
+        // Labels can come from a project file; a line break would end the
+        // '#' comment and let the rest be read as CIF data.
+        .replace(/[\r\n]+/g, ' ');
 
     // The group simulated on the plot (the one the user last chose) is the one written; the others go in the notes.
     const chosenAll = solutionSGs(sol);

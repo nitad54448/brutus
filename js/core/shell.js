@@ -123,7 +123,7 @@ shellNode('save-png').addEventListener('click', () => {
 
 // ---- pattern metadata (Data tab) ----------------------------------------
 const FORMAT_BY_EXT = { xy: 'XY, two columns', csv: 'CSV, two columns', dat: 'Generic / FullProf .dat', txt: 'Text, two columns',
-    asc: 'ASCII', prn: 'ASCII', xrdml: 'Panalytical XRDML', xml: 'Bruker RawDataFile XML', ras: 'Rigaku RAS', esd: 'GSAS ESD',
+    asc: 'ASCII', prn: 'ASCII', xrdml: 'Panalytical XRDML', xml: 'Bruker RawData XML', brml: 'Bruker BRML', ras: 'Rigaku RAS', esd: 'GSAS ESD',
     std: 'GSAS STD', gsa: 'GSAS', xra: 'GSAS', udf: 'Philips UDF', uxd: 'Bruker UXD', cif: 'pdCIF' };
 function renderFileMeta() {
     const dl = shellNode('file-meta');
@@ -137,9 +137,11 @@ function renderFileMeta() {
     let imin = Infinity, imax = -Infinity, isum = 0;
     for (const v of y) { if (v < imin) imin = v; if (v > imax) imax = v; isum += v; }
     const rad = loadedFileMeta && loadedFileMeta.radiation;
-    const radText = !rad ? 'none in the file (default used)' : rad.single ? `${Number(rad.single).toFixed(5)} Å`
-        : [rad.ka1 && `Kα1 ${Number(rad.ka1).toFixed(5)}`, rad.ka2 && `Kα2 ${Number(rad.ka2).toFixed(5)}`,
-           rad.ratio != null && `ratio ${rad.ratio}`].filter(Boolean).join(', ') + ' Å';
+    // A file can record both a single λ and the doublet (RAS does): show all of it.
+    const radText = !rad ? 'none in the file (current setting kept)'
+        : [rad.single && `${Number(rad.single).toFixed(5)} Å`,
+           rad.ka1 && `Kα1 ${Number(rad.ka1).toFixed(5)} Å`, rad.ka2 && `Kα2 ${Number(rad.ka2).toFixed(5)} Å`,
+           rad.ratio != null && `ratio ${rad.ratio}`].filter(Boolean).join(', ');
     const preset = ui.wavelengthPreset.options[ui.wavelengthPreset.selectedIndex];
     const rows = [
         ['File', loadedFileName],

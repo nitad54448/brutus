@@ -16,8 +16,11 @@
                 test: (name, content) => name.endsWith('.xrdml') || (content.includes('<?xml') && content.includes('<xrdMeasurement')),
                 parser: parseXrdmlFile
             },
-            { // Bruker XML (uncompressed RawDataFile; e.g. RawData0.xml from an unzipped .brml)
-                test: (name, content) => (name.endsWith('.xml') && content.includes('<RawDataFile')) || (content.includes('<?xml') && content.includes('<RawDataFile')),
+            { // Bruker DIFFRAC XML: <RawData> (RawData0.xml from a .brml, or a .brml
+              // already extracted by file-load.js), or the <RawDataFile> layout that
+              // earlier Brutus versions exported. '<RawData ' / '<RawData>' does not
+              // match the <RawDataView> elements of other formats.
+                test: (name, content) => /<RawData(File)?[\s>]/.test(content.substring(0, 4000)),
                 parser: parseBrukerXmlFile
             },
             { // UXD
@@ -33,7 +36,9 @@
                 parser: parsePhilipsUdfFile
             },
             { // GSAS raw data: STD / ESD / FXY / FXYE (the BANK line says which)
-                test: (name, content, firstLine, upper, allLines) => allLines.some(line => line.trim().toUpperCase().startsWith('BANK')),
+                // A real BANK line carries numbers ("BANK 1 4000 800 CONST ...");
+                // a ".xy" header such as "Bank: sample 3" must not claim the file.
+                test: (name, content, firstLine, upper, allLines) => allLines.some(line => /^BANK\s+\d+\s+\d+/i.test(line.trim())),
                 parser: (content) => parseGsasFile(content)
             },
             { // FullProf free format (start/step/end + N values per line)

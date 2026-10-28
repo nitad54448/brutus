@@ -10,6 +10,7 @@
         const lines = text.trim().split(/\r?\n/);
         const tth = [], intensity = [];
         const radiation = {};
+        let hasAttenuation = false;
         let inDataSection = false;
         const headerValue = (line) => {
             const m = /^\*\S+\s+(.*)$/.exec(line.trim());
@@ -34,10 +35,17 @@
                 if (parts.length >= 2) {
                     const x = parseFloat(parts[0]);
                     const y = parseFloat(parts[1]);
-                    if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); }
+                    // GSAS-II preserves column 2 and does not apply column 3.
+                    // Without a documented correction state, multiplying an
+                    // attenuator coefficient can correct the same data twice.
+                    const att = parts.length >= 3 ? parseFloat(parts[2]) : 1;
+                    if (Number.isFinite(att) && att !== 1) hasAttenuation = true;
+                    if (Number.isFinite(x) && Number.isFinite(y)) { tth.push(x); intensity.push(y); }
                 }
             }
         }
         if (tth.length === 0) throw new Error("No data found in RAS file data section.");
-        return { tth, intensity, radiation };
+        const result = { tth, intensity, radiation };
+        if (hasAttenuation) result.notes = ['RAS: non-unit attenuator factors are present; stored intensities were preserved, following GSAS-II.'];
+        return result;
     };

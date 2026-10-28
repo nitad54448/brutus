@@ -61,8 +61,6 @@ const buildExportContent = (fmt, pattern) => {
     const lambda = getWavelength();
     const step = n > 1 ? (tth[n - 1] - tth[0]) / (n - 1) : 0;
     const irregular = patternStepIsIrregular(pattern);
-    if (fmt === 'brukerxml' && irregular)
-        throw new Error('Bruker XML export requires evenly spaced angles. Choose XY, CSV, UXD, XRDML or GSAS to preserve this scan.');
     let out = [];
 
     switch (fmt) {
@@ -108,8 +106,17 @@ const buildExportContent = (fmt, pattern) => {
             //
             // CONST start/step are centidegrees. Retain full precision:
             // rounding a step accumulates an angle error across the scan.
+            // As many decimals as fit, so normalised (0-1) or stripped data keep
+            // their values: a fixed 2 decimals wrote 0.001-scale data as 0.00.
+            // At most 7 characters, so a blank always separates the fields.
             const f8 = (v) => {                   // right-justified 8-char field
                 if (!Number.isFinite(v)) v = 0;
+                for (let dp = 6; dp >= 1; dp--) {
+                    const s = v.toFixed(dp);
+                    if (s.length <= 7) return s.padStart(8);
+                }
+                // Large counts: the full 8 characters, as before, sooner than
+                // dropping the decimal altogether.
                 for (const dp of [2, 1]) {
                     const s = v.toFixed(dp);
                     if (s.length <= 8) return s.padStart(8);
@@ -139,7 +146,9 @@ const buildExportContent = (fmt, pattern) => {
             const positions = `        <positions axis="2Theta" unit="deg">\n` +
                 `          <listPositions>${tth.join(' ')}</listPositions>\n` +
                 `        </positions>`;
-            const counts = intensity.map(v => Math.round(v)).join(' ');
+            // Not rounded to integers: normalised or Kα2-stripped data would
+            // collapse to 0/1. 6 decimals is the precision held since loading.
+            const counts = intensity.map(v => Number(v.toFixed(6))).join(' ');
             const rad = getExportRadiation();
             const usedWavelengthXml = rad.doublet
                 ? `    <usedWavelength intended="K-Alpha">\n` +
@@ -167,34 +176,67 @@ ${positions}
             return { text: xml, ext: 'xrdml', mime: 'application/xml' };
         }
         case 'brukerxml': {
-            const counts = intensity.map(v => Math.round(v)).join(' ');
+            // DIFFRAC RawData layout (the RawData0.xml inside a .brml), the
+            // subset its readers use: one <Datum> per step (time, absorber
+            // factor, 2θ, θ, counts) with the columns declared in <DataViews>,
+            // and the tube lines. Each row carries its own 2θ, so an uneven
+            // scan is written as it is.
             const rad = getExportRadiation();
-            const wavelengthAttributes = rad.doublet
-                ? `kAlpha1="${num(rad.ka1, 6)}" kAlpha2="${num(rad.ka2, 6)}" ratioKAlpha2KAlpha1="${num(rad.ratio, 4)}"`
-                : `kAlpha1="${num(lambda, 6)}"`;
+            const tubeLines = rad.doublet
+                ? `<WaveLengthAlpha1 Unit="Å" Value="${num(rad.ka1, 6)}" />\n` +
+                  `                <WaveLengthAlpha2 Unit="Å" Value="${num(rad.ka2, 6)}" />\n` +
+                  `                <WaveLengthAverage Unit="Å" Value="${num(rad.lambda, 6)}" />\n` +
+                  `                <WaveLengthRatio Unit="" Value="${num(rad.ratio, 4)}" />`
+                : `<WaveLengthAlpha1 Unit="Å" Value="${num(lambda, 6)}" />`;
+            const rows = tth.map((t, i) => `      <Datum>1,1,${t},${Number((t / 2).toFixed(8))},${Number(intensity[i].toFixed(6))}</Datum>`).join('\n');
             const xml =
 `<?xml version="1.0" encoding="utf-8"?>
-<RawDataFile>
+<RawData xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <MeasurementStatus>Measured</MeasurementStatus>
   <DataRoutes>
-    <DataRoute>
-      <ScanInformation>
+    <DataRoute RouteFlag="Measured" Description="Exported by Brutus.">
+      <ScanInformation ScanName="LockedCoupled" VisibleName="Coupled TwoTheta/Theta">
+        <MeasurementPoints>${n}</MeasurementPoints>
+        <TimePerStep>1</TimePerStep>
+        <TimePerStepEffective>1</TimePerStepEffective>
         <ScanAxes>
-          <ScanAxisInfo AxisName="TwoTheta">
-            <Start axis="TwoTheta">${tth[0]}</Start>
-            <startPosition axis="TwoTheta">${tth[0]}</startPosition>
-            <increment axis="TwoTheta">${step}</increment>
+          <ScanAxisInfo AxisId="TwoTheta" AxisName="TwoTheta" VisibleName="2Theta" Unit="°">
+            <Start>${tth[0]}</Start>
+            <Stop>${tth[n - 1]}</Stop>
+            <Increment>${step}</Increment>
           </ScanAxisInfo>
         </ScanAxes>
-        <usedWavelength ${wavelengthAttributes} />
       </ScanInformation>
-      <Datum>
-        <dataPoints>
-          <counts>${counts}</counts>
-        </dataPoints>
-      </Datum>
+${rows}
+      <DataViews>
+        <RawDataView xsi:type="FixedRawDataView" Start="0" Length="1" LogicName="MeasuredTime" Unit="s" />
+        <RawDataView xsi:type="FixedRawDataView" Start="1" Length="1" LogicName="AbsorptionFactor" Unit="" />
+        <RawDataView xsi:type="VaryingRawDataView" Start="2" Length="2">
+          <Varying xsi:type="VaryingStepData2D" LogicName="ScanAxes" VectorLength="2">
+            <FieldDefinitions FieldName="TwoTheta" AxisId="TwoTheta" />
+            <FieldDefinitions FieldName="Theta" AxisId="Theta" />
+          </Varying>
+        </RawDataView>
+        <RawDataView xsi:type="RecordedRawDataView" Start="4" Length="1" MeasuredDataIndex="0" />
+      </DataViews>
     </DataRoute>
   </DataRoutes>
-</RawDataFile>
+  <FixedInformation>
+    <Instrument>
+      <PrimaryTracks>
+        <TrackInfoData>
+          <MountedOptics>
+            <InfoData xsi:type="TubeMountInfoData" LogicName="TubeMount">
+              <Tube LogicName="Tube">
+                ${tubeLines}
+              </Tube>
+            </InfoData>
+          </MountedOptics>
+        </TrackInfoData>
+      </PrimaryTracks>
+    </Instrument>
+  </FixedInformation>
+</RawData>
 `;
             return { text: xml, ext: 'xml', mime: 'application/xml' };
         }
@@ -218,11 +260,11 @@ const triggerDownload = (text, filename, mime) => {
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
-// Export capabilities shown in the save dialog. Bruker XML currently uses
-// start/step metadata; the other formats retain explicit irregular positions.
+// Export capabilities shown in the save dialog. Every format keeps the
+// explicit angle of each point, so none needs an evenly spaced scan.
 const SAVE_FORMAT_META = {
     xrdml:     { wavelength: true,  constStep: false, label: 'XRDML' },
-    brukerxml: { wavelength: true,  constStep: true,  label: 'Bruker XML' },
+    brukerxml: { wavelength: true,  constStep: false, label: 'Bruker RawData XML' },
     uxd:       { wavelength: true,  constStep: false, label: 'UXD' },
     gsas:      { wavelength: false, constStep: false, label: 'GSAS' },
     xy:        { wavelength: false, constStep: false, label: 'XY' },

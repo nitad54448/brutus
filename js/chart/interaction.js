@@ -128,9 +128,12 @@ ui.chartCanvas.addEventListener('click', (e) => {
         if (di >= 0) height = Math.max(0, workingExperimentalData.intensity[di]);
     }
 
+    // The sort below shifts indices: keep the highlight on the same peak.
+    const selectedPeak = selectedPeakIndex !== null ? pickedPeaks[selectedPeakIndex] : null;
     pickedPeaks.push({ tth: Number(tth.toFixed(6)), d: 0, q: 0, height: Number(height.toFixed(6)) });
     peaksManuallyEdited = true;
     pickedPeaks.sort((a, b) => a.tth - b.tth);
+    if (selectedPeak) selectedPeakIndex = pickedPeaks.indexOf(selectedPeak);
     recalculatePeakValues(); // tag + d/q in one shot
     updatePeakTable(); updateStartIndexingButtonState();
     const how = hit

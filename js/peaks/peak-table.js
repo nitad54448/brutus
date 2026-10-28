@@ -40,7 +40,14 @@ const updatePeakTable = () => {
             row.classList.add('peak-row-selected');
         }
         const indexLabel = `${index + 1}${isParent ? '*' : ''}`;
-        row.innerHTML = `<td>${indexLabel}</td><td><input type="number" class="peak-tth-input" value="${peak.tth.toFixed(4)}" data-index="${index}" step="0.0001"></td><td><input type="number" class="peak-d-input" value="${peak.d.toFixed(5)}" data-index="${index}" disabled></td><td><button class="delete-peak-btn" data-index="${index}">X</button></td>`;
+        // Keyboard equivalent of the right-click: confirm a Kα2 suspect as a
+        // real peak, or send a confirmed one back to the automatic flagging.
+        const ka2Btn = isSuspect
+            ? `<button type="button" class="ka2-real-btn" data-index="${index}" title="Mark as a real (independent) peak" aria-label="Mark peak ${index + 1} as real">real</button> `
+            : peak.userConfirmedReal
+                ? `<button type="button" class="ka2-real-btn" data-index="${index}" title="Undo: let Kα2 detection flag this peak again" aria-label="Undo real mark on peak ${index + 1}">Kα₂?</button> `
+                : '';
+        row.innerHTML = `<td>${indexLabel}</td><td><input type="number" class="peak-tth-input" value="${peak.tth.toFixed(4)}" data-index="${index}" step="0.0001" aria-label="2θ of peak ${index + 1}"></td><td><input type="number" class="peak-d-input" value="${peak.d.toFixed(5)}" data-index="${index}" disabled aria-label="d of peak ${index + 1}"></td><td>${ka2Btn}<button class="delete-peak-btn" data-index="${index}" aria-label="Delete peak ${index + 1}">X</button></td>`;
         fragment.appendChild(row);
     });
     ui.peakListBody.appendChild(fragment);
@@ -49,6 +56,19 @@ const updatePeakTable = () => {
     updateKa2Banner();
     updateAllMarkers();
 };
+// The table is rebuilt after every edit, which destroys the focused control
+// and drops keyboard focus to <body>. If that happened, put it back on the
+// 2θ input of the given row (clamped to the table), after the browser has
+// finished moving focus.
+const restorePeakTableFocus = (rowIndex) => setTimeout(() => {
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    const rows = ui.peakListBody.children;
+    if (!rows.length) return;
+    const row = rows[Math.max(0, Math.min(rowIndex, rows.length - 1))];
+    const target = row && row.querySelector('.peak-tth-input');
+    if (target && !target.disabled) target.focus();
+}, 0);
 ui.peakListBody.addEventListener('change', (e) => {
     if (isIndexing) return;
     if (e.target.classList.contains('peak-tth-input')) {
@@ -56,7 +76,9 @@ ui.peakListBody.addEventListener('change', (e) => {
         let tth = parseFloat(e.target.value); 
         
         // Explicitly check for NaN or non-finite numbers before clamping
-        if (!isFinite(tth) || tth <= 1e-4) {
+        // 2θ must lie in (0, 180): beyond that d is non-physical, and a saved
+        // project holding such a peak is refused by validateWorkspace.
+        if (!isFinite(tth) || tth <= 1e-4 || tth >= 180) {
             // Fallback to the existing value if invalid, or a safe default
             tth = pickedPeaks[index]?.tth || 1.0; 
         }
@@ -75,10 +97,23 @@ ui.peakListBody.addEventListener('change', (e) => {
         recalculatePeakValues();
         updatePeakTable();
         updateStartIndexingButtonState();
+        restorePeakTableFocus(pickedPeaks.indexOf(editedPeak));
     }
 });
  ui.peakListBody.addEventListener('click', (e) => {
     if (isIndexing) return;
+    if (e.target.classList.contains('ka2-real-btn')) {
+        const index = parseInt(e.target.dataset.index, 10);
+        const peak = pickedPeaks[index];
+        if (!peak) return;
+        peak.userConfirmedReal = !peak.userConfirmedReal;
+        peaksManuallyEdited = true;
+        recalculatePeakValues();
+        updatePeakTable();
+        updateStartIndexingButtonState();
+        restorePeakTableFocus(index);
+        return;
+    }
     if (e.target.classList.contains('delete-peak-btn')) {
         const index = parseInt(e.target.dataset.index);
         pickedPeaks.splice(index, 1);
@@ -95,6 +130,7 @@ ui.peakListBody.addEventListener('change', (e) => {
         recalculatePeakValues(); // re-flag + recompute after deletion
         updatePeakTable();
         updateStartIndexingButtonState();
+        restorePeakTableFocus(index);   // the row that took the deleted one's place
     }
 });
 // Right-click on a Ka2-suspect row → toggle "this is actually a real peak"

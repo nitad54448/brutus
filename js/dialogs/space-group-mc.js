@@ -47,9 +47,18 @@ const sgMsg = document.getElementById('sg-msg');
 const sgRunBtn = document.getElementById('sg-run');
 const sgAddBtn = document.getElementById('sg-add');
 const sgTbody = document.getElementById('sg-tbody');
+let sgReturnFocus = null;
+// Hide the dialog and give focus back to whatever opened it (the Solution
+// menu when that is gone), like the Refine MC dialog.
+const hideSgOverlay = () => {
+    sgOverlay.classList.remove('open');
+    if (sgReturnFocus?.isConnected && sgReturnFocus.getClientRects().length) sgReturnFocus.focus();
+    if (document.activeElement !== sgReturnFocus || sgOverlay.contains(document.activeElement))
+        document.querySelector('#solution-menu > summary').focus();
+};
 const closeSgModal = () => {
     if (sgRunning) { sgAbort = true; return; }   // first Esc cancels the run
-    sgOverlay.classList.remove('open');
+    hideSgOverlay();
 };
 // Everything the MC needs, built exactly as the Refine MC dialog builds it so
 // the figures of merit are directly comparable with the rest of the table.
@@ -264,6 +273,9 @@ document.querySelector('#sg-table thead').addEventListener('click', (e) => {
     sgRenderRows(getImpurityPeaks());
 });
 document.getElementById('ctx-sg').addEventListener('click', () => {
+    // A scan in flight keeps writing rows for ITS cell: re-opening on another
+    // solution would mix them, and Add would attach them to the wrong parent.
+    if (sgRunning || isIndexing) return;
     const parent = ctxTargetSolution();
     if (!parent) return;
     if (typeof sgExtinctionClasses !== 'function' || typeof monteCarloRefineCell !== 'function') {
@@ -296,13 +308,30 @@ document.getElementById('ctx-sg').addEventListener('click', () => {
         `Space Group MC - ${parent.system}, a=${parent.a.toFixed(4)}` +
         (parent.b ? `, b=${parent.b.toFixed(4)}` : '') +
         (parent.c ? `, c=${parent.c.toFixed(4)}` : '');
+    sgReturnFocus = document.activeElement;
     sgOverlay.classList.add('open');
     contextMenu.style.display = 'none';
+    sgRunBtn.focus();
 });
 document.getElementById('sg-cancel').addEventListener('click', closeSgModal);
 sgOverlay.addEventListener('click', (e) => { if (e.target === sgOverlay) closeSgModal(); });
+// Modal for the keyboard as well as the mouse: Tab cycles inside the dialog,
+// and focus that lands outside it (a click-through, a programmatic focus) is
+// pulled back. Otherwise Tab reached Start or another solution mid-scan.
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && sgOverlay.classList.contains('open')) closeSgModal();
+    if (!sgOverlay.classList.contains('open')) return;
+    if (e.key === 'Escape') closeSgModal();
+    if (e.key === 'Tab') {
+        const controls = [...sgOverlay.querySelectorAll('input, button, select, th[tabindex], [tabindex="0"]')]
+            .filter(el => !el.disabled && el.getClientRects().length);
+        if (!controls.length) return;
+        const first = controls[0], last = controls[controls.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+});
+document.addEventListener('focusin', e => {
+    if (sgOverlay.classList.contains('open') && !sgOverlay.contains(e.target)) sgRunBtn.focus();
 });
 sgRunBtn.addEventListener('click', () => {
     if (sgRunning) { sgAbort = true; return; }
@@ -578,7 +607,7 @@ sgAddBtn.addEventListener('click', () => {
     displayedSolutions = solutions.slice(0, MAX_DISPLAYED_SOLUTIONS);
     applySolutionSelection(child);
     updateSolutionsTable();
-    sgOverlay.classList.remove('open');
+    hideSgOverlay();
     const marg = child.sgMargin;
     const margTxt = isFinite(marg)
         ? (marg < SG_DECISIVE_NATS ? ` - NOT decisive (${marg.toFixed(1)} nats over the runner-up)` : ` - ${marg.toFixed(1)} nats ahead`)

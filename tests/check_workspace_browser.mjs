@@ -118,6 +118,18 @@ try {
         ui.fileInput.dispatchEvent(new Event('change')); await new Promise(r => setTimeout(r, 500));
     })()`);
     assert.ok(await evaluate('workingExperimentalData.tth.length > 0'));
+    // GSAS-II uses stored y * measuredTime / effectiveTime, without multiplying
+    // the separate AbsorptionFactor column.
+    assert.deepEqual(await evaluate(`(() => {
+        let xml = buildExportContent('brukerxml', {tth:[10,11],intensity:[100,609419.2]}).text;
+        xml = xml.replace('<TimePerStepEffective>1</TimePerStepEffective>', '<TimePerStepEffective>2</TimePerStepEffective>')
+            .replace('<Datum>1,1,10,5,100</Datum>', '<Datum>2,1,10,5,100</Datum>')
+            .replace('<Datum>1,1,11,5.5,609419.2</Datum>', '<Datum>4,8.3,11,5.5,609419.2</Datum>');
+        const scaled = parseBrukerXmlFile(xml);
+        const noTime = parseBrukerXmlFile(xml.replace('<TimePerStepEffective>2</TimePerStepEffective>', ''));
+        const irregular = parseBrukerXmlFile(buildExportContent('brukerxml', {tth:[10,11,30],intensity:[0.1,2.5,300]}).text);
+        return {scaled:scaled.intensity, preserved:noTime.intensity, angles:irregular.tth, values:irregular.intensity};
+    })()`), {scaled:[100,1218838.4],preserved:[100,609419.2],angles:[10,11,30],values:[0.1,2.5,300]});
     // Projects retain file metadata; older projects must not inherit another file's metadata.
     assert.ok(await evaluate(`(() => {
         const data = captureWorkspace();

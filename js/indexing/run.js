@@ -149,6 +149,12 @@ const buildHklBasis = (system, n_hkl_for_basis, splitSpecial, fomFullList = fals
 
 const startIndexing = async () => {
 if (isIndexing) return;
+// A Space Group MC scan runs in timer chunks against the current peaks and
+// solutions; a run started under it would replace both mid-scan.
+if (typeof sgRunning !== 'undefined' && sgRunning) {
+    showStatus('Wait for the space-group scan to finish (or stop it) before indexing.', 'info');
+    return;
+}
 // Canonical order (SEARCH_ORDER, highest symmetry first), whatever the order
 // of the checkboxes in the markup: it is the order the GPU searches run in.
 const checkedValues = new Set(Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value));
@@ -164,6 +170,16 @@ const mySessionToken = ++indexingRunToken;
 const runStopSignal = { stop: false };
 gpuStopSignal = runStopSignal;
 indexingFailures = [];
+// Kept so a Start that ends before searching anything (too few peaks, no
+// runnable system) can hand back the stats of the solutions still listed;
+// clearing them lost those stats from the report and the saved project.
+const previousProvenance = { lastDurationStr, lastIndexingStats, lastRunTotals, lastGpuRunSettings,
+    lastTruncatedSystems, lastSystemSearchStats, gpuDiagnostics, cpuDiagnostics };
+const restoreProvenance = () => {
+    if (mySessionToken !== indexingRunToken) return;
+    ({ lastDurationStr, lastIndexingStats, lastRunTotals, lastGpuRunSettings,
+       lastTruncatedSystems, lastSystemSearchStats, gpuDiagnostics, cpuDiagnostics } = previousProvenance);
+};
 // Clear provenance before the first await: device initialization itself can
 // be interrupted, and must never reuse the previous run's report totals.
 lastDurationStr = '';
@@ -222,6 +238,7 @@ const filteredPeaks = pickedPeaks.filter(
 
 if (filteredPeaks.length < BRUTUS_LIMITS.search.minPeaks) {
     showStatus(`Please find at least ${BRUTUS_LIMITS.search.minPeaks} peaks in the selected range.`, 'error');
+    restoreProvenance();
     return;
 }
 
@@ -244,6 +261,7 @@ if (skippedSystems.length) {
 
 if (workerSystems.length === 0 && webgpuSystems.length === 0) {
     showStatus("No tasks to run. Check selections and GPU support.", "info");
+    restoreProvenance();
     return;
 }
 

@@ -13,11 +13,16 @@ const BRUTUS_LIMITS = (() => {
         tetragonalAxisTolerance: 0.02,
         derivativeRelativeStep: 1e-5,
         derivativeAbsoluteStep: 1e-7,
-        exportUniformGridToleranceDeg: 1e-8,
+        // Loaded angles are rounded to 6 decimals (file-load.js), up to 5e-7 deg
+        // off an exact grid: a tolerance below that marks every real scan irregular.
+        exportUniformGridToleranceDeg: 1e-6,
         search: { meritPeaks: 20, minM20: 2, minMixedHkl: 40, minBasis: 10, minPeaks: 3,
             minIndexed: { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7, triclinic: 7 },
             cpuPeakDepth: 12, progressTrials: 5000, progressIntervalMs: 50,
-            defaultGpuFomPeaks: 7, minGpuFomPeaks: 10 },
+            defaultGpuFomPeaks: 7, minGpuFomPeaks: 10,
+            // Refinement with a refined zero: trial zero offsets tried when
+            // matching at zero = 0 indexes too few peaks (refine.js).
+            zeroScanMaxDeg: 0.2, zeroScanMinStepDeg: 0.01 },
         hkl: { monoclinic: 6, monoclinicAxial: 12, triclinic: 5, orthorhombic: 12, highSymH: 12, cpuCubicH: 40,
             highSymL: 24, highSymS: 144, cubicH: 30, cubicN: 900, lineMergeToleranceDeg: 1e-4 },
         niggli: { maxIterations: 1000, initialEpsilon: 1e-5, relaxAfter: 50, relaxAgainAfter: 200,
@@ -67,10 +72,10 @@ const BRUTUS_LIMITS = (() => {
             matrixCandidates: 600, namingTimeMs: 30000, maxMisfit: 0.03, resultLimit: 8 },
         dialogs: { sgMinPeaks: 6, sgStageChunk: 4, sgShortlistExtra: 4 },
         inputs: {
-            wavelength: { value: 1.54184, min: 0.1, step: 0.00001 },
+            wavelength: { value: 1.54184, min: 0.1, max: 10, step: 0.00001 },
             'max-volume': { value: 2000, min: 25, max: 12500, step: 100 },
             'impurity-peaks': { value: 1, min: 0, max: 3, step: 1 },
-            'tth-error': { value: 0.04, min: 0.0001, step: 0.002 },
+            'tth-error': { value: 0.04, min: 0.0001, max: 1, step: 0.002 },
             'peak-threshold-slider': { value: 56, min: 0, max: 100 },
             'peak-prominence-slider': { value: 25, min: 0, max: 90, step: 5 },
             'ball-radius-slider': { value: 0.100, min: 0.005, max: 0.300, step: 0.005 },

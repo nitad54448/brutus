@@ -28,7 +28,7 @@
             if (upper.startsWith('_')) {
                 const dataKey = upper.slice(1).replace(/\s+/g, '');
                 if (DATA_KEYS[dataKey]) {
-                    current = { mode: DATA_KEYS[dataKey], header, tth: [], intensity: [] };
+                    current = { mode: DATA_KEYS[dataKey], cps: dataKey.endsWith('CPS'), header, tth: [], intensity: [] };
                     ranges.push(current);
                     header = {};
                     continue;
@@ -73,11 +73,28 @@
         // Several ranges are joined when they follow each other in 2θ;
         // overlapping ranges (re-measurements) cannot be merged blindly, so
         // only the first is kept.
+        //
+        // Raw counts of ranges measured with different step times are put on
+        // the first range's time scale; joined as they are, a longer count
+        // time at high angle shows as a step in intensity at the join. A
+        // range without _STEPTIME inherits the previous one's.
+        const notes = [];
+        let stepTime = parseFloat(built[0].header.STEPTIME);
+        const baseTime = stepTime;
         let tth = [...built[0].tth], intensity = [...built[0].intensity];
         for (let i = 1; i < built.length; i++) {
             const r = built[i];
-            if (r.tth[0] > tth[tth.length - 1]) { tth = tth.concat(r.tth); intensity = intensity.concat(r.intensity); }
-            else { console.warn(`UXD: range ${i + 1} overlaps the previous one and was not loaded.`); break; }
+            const t = parseFloat(r.header.STEPTIME);
+            if (Number.isFinite(t)) stepTime = t;
+            if (!(r.tth[0] > tth[tth.length - 1])) {
+                notes.push(`UXD: range ${i + 1} of ${built.length} overlaps the previous one; it and any later ranges were not loaded.`);
+                console.warn(notes[notes.length - 1]);
+                break;
+            }
+            const scale = (!r.cps && !built[0].cps && baseTime > 0 && stepTime > 0 && stepTime !== baseTime) ? baseTime / stepTime : 1;
+            if (scale !== 1) notes.push(`UXD: range ${i + 1} counted ${stepTime} s per step (range 1: ${baseTime} s); its counts were scaled to match.`);
+            tth = tth.concat(r.tth);
+            intensity = intensity.concat(scale === 1 ? r.intensity : r.intensity.map(y => y * scale));
         }
-        return { tth, intensity, radiation };
+        return notes.length ? { tth, intensity, radiation, notes } : { tth, intensity, radiation };
     };

@@ -152,7 +152,7 @@
                             <option value="csv">CSV — 2&theta;,intensity (.csv)</option>
                             <option value="dat">DAT — whitespace 2 columns (.dat)</option>
                             <option value="xrdml">Panalytical XRDML (.xrdml)</option>
-                            <option value="brukerxml">Bruker RawDataFile XML (.xml)</option>
+                            <option value="brukerxml">Bruker RawData XML (.xml)</option>
                             <option value="uxd">Bruker UXD (.uxd)</option>
                             <option value="gsas">GSAS ESD (.esd)</option>
                         </select>
@@ -204,7 +204,7 @@
                 <div id="data-tab-content" class="tab-content-panel active">
                     <div class="control-group full-width">
                         <h3 class="section-title">Pattern</h3>
-                        <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.dat,.asc,.prn,.xrdml,.xml,.ras,.esd,.std,.udf,.uxd,.xra,.gsa,.cif">
+                        <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.dat,.asc,.prn,.xrdml,.xml,.brml,.ras,.esd,.std,.udf,.uxd,.xra,.gsa,.cif">
                         <details id="file-meta-acc" class="meta-acc is-empty"><summary id="file-meta-name" title="">No file loaded</summary><div class="sol-body"><dl id="file-meta" class="meta-dl"></dl></div></details>
                     </div>
                     <div class="control-group full-width">
@@ -445,7 +445,7 @@
                     <p>This program uses a system-specific, exhaustive GPU search to find potential unit cells based on the first 20 peaks. The checked crystal systems are searched one after the other, highest symmetry first; rhombohedral (R) lattices are found by the hexagonal search and reported in hexagonal axes. WebGPU must be available and active in the browser; without it only cubic, tetragonal and hexagonal can be searched (on the CPU).</p>
                     <p>All trial cells are refined, scored (M(20)), and analyzed for space groups. For a full breakdown, <a href="brutus_help.html" target="_blank" rel="noopener">read the technical guide</a>.</p>
                     <h2>Supported file formats</h2>
-                    <p>Generic 2-column (2&theta;, intensity; a &ldquo;Wavelength&rdquo; header line is read), .xrdml, Bruker RawData .xml, .ras, .uxd, .udf, GSAS (.gsa, .esd, .std, .xra), FullProf .dat and pdCIF. Data, raw or K&alpha;<sub>2</sub>-stripped, can be saved in several formats.</p>
+                    <p>Generic 2-column (2&theta;, intensity; a &ldquo;Wavelength&rdquo; header line is read), .xrdml, Bruker .brml and RawData .xml, .ras, .uxd, .udf, GSAS (.gsa, .esd, .std, .xra), FullProf .dat and pdCIF. Data, raw or K&alpha;<sub>2</sub>-stripped, can be saved in several formats.</p>
                     <h2>Working with it</h2>
                     <ol>
                         <li><b>Data</b>: load a pattern, check the radiation and the 2&theta; range.</li>
@@ -544,7 +544,7 @@
 </div>
 
 <div id="sg-overlay">
-  <div id="sg-modal">
+  <div id="sg-modal" role="dialog" aria-modal="true" aria-labelledby="sg-title" aria-describedby="sg-sub" tabindex="-1">
     <h3 id="sg-title">Space Group MC</h3>
     <p id="sg-sub">Every space group of this crystal system is tried as a hypothesis: its forbidden
        reflections are removed from the calculated line list, the cell is re-refined against what is

@@ -38,6 +38,10 @@
         for (let j = 0; j < lines.length && j < limits.fullprofHeaderSearchLines; j++) {
             const t = lines[j].trim();
             if (t === '') continue;
+            // A comma with no dot is a decimal comma ("10,02 1234"), not a
+            // separator: split on it, that row reads as the triple 10 2 1234
+            // and a decimal-comma two-column file loads as garbage.
+            if (t.includes(',') && !t.includes('.')) continue;
             const nums = t.split(/[\s,]+/).map(Number);
             if (nums.length !== 3 || !nums.every(Number.isFinite)) continue;
             if (!(nums[1] > 0) || !(nums[2] > nums[0])) continue;
@@ -105,6 +109,6 @@
                          `${(scan.start + (n - 1) * scan.step).toFixed(4)} deg.`);
         }
         // No wavelength is recorded in this format, so none is returned and
-        // the caller falls back to the Cu preset as it does for .xy.
+        // the caller keeps the current radiation as it does for .xy.
         return { tth, intensity };
     };

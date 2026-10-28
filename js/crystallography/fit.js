@@ -90,7 +90,9 @@ const calculateFiguresOfMerit = (q_calc_sorted, peaks_for_merit, impurity_peaks,
     const avg_delta_tth = sum_delta_tth / N_indexed;
     const q_limit_fN = (4 * Math.sin(tth_n_deg * RAD / 2)**2) / (wavelength**2);
     const N_calc_FN = countLE(q_calc_sorted, q_limit_fN * 1.0001);
-    const fN = N_calc_FN > 0 ? N_indexed / (Math.max(avg_delta_tth, BRUTUS_LIMITS.meritResidualFloor) * N_calc_FN) : 0;
+    // Smith & Snyder: F_N = (1/<|Δ2θ|>) · N / N_poss, N = ALL observed lines
+    // considered (not just the indexed ones), as other programs report it.
+    const fN = N_calc_FN > 0 ? N / (Math.max(avg_delta_tth, BRUTUS_LIMITS.meritResidualFloor) * N_calc_FN) : 0;
     return { m20: mN, fN: fN };
 };
 const solveLeastSquares = (M, q_vec, weights) => {

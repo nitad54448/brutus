@@ -31,6 +31,14 @@ const h = harness();
 const parseCif = h.call('parsePdCifFile');
 const cifHeader = 'data_test\nloop_\n_pd_meas_2theta_scan\n_pd_meas_intensity_total\n';
 
+test('RAS preserves stored intensities and reports non-unit attenuation factors like GSAS-II', () => {
+    const parse = h.call('parseRigakuRasFile');
+    const result = plain(parse('*RAS_INT_START\n10 100 1\n11 200 8.3\n12 50 0\n*RAS_INT_END'));
+    assert.deepEqual(result.intensity, [100, 200, 50]);
+    assert.match(result.notes.join(' '), /stored intensities were preserved/);
+    assert.equal(parse('*RAS_INT_START\n10 100 1\n11 200 1\n*RAS_INT_END').notes, undefined);
+});
+
 test('pdCIF inline comments preserve loop columns and quoted hashes remain values', () => {
     const result = parseCif(cifHeader + '10 100 # first point\n11 200\n12 300\n13 400\n');
     assert.deepEqual(plain(result.tth), [10, 11, 12, 13]);
@@ -89,8 +97,8 @@ test('irregular UXD and GSAS exports round-trip explicit angles without moving i
     }
     const xml = build('xrdml', pattern).text;
     assert.match(xml, /<listPositions>10 11 30<\/listPositions>/);
-    assert.throws(() => build('brukerxml', pattern), /requires evenly spaced angles/i);
-    assert.doesNotThrow(() => build('brukerxml', { tth: [10, 10.02, 10.04], intensity: [1, 2, 3] }));
+    // Bruker RawData XML carries a 2θ per row: an uneven scan is written as it is.
+    assert.match(build('brukerxml', pattern).text, /<Datum>1,1,30,15,300<\/Datum>/);
     const preciseGrid = { tth: Array.from({ length: 1001 }, (_, i) => 10 + i * 0.013130312345), intensity: Array(1001).fill(100) };
     const preciseResult = h.call('parseGsasFile')(build('gsas', preciseGrid).text);
     assert.ok(preciseResult.tth.every((angle, i) => Math.abs(angle - preciseGrid.tth[i]) < 1e-12));

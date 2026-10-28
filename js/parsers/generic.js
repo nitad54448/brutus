@@ -30,6 +30,13 @@
             if (v > limits.minHeaderWavelength && v < limits.maxHeaderWavelength) headerWavelength = v;
         };
 
+        // Per-line decimal-comma test (see below). A row whose angle happens
+        // to be whole ("11\t1234,5") cannot be told from CSV on its own, so
+        // the verdict of the unambiguous rows is applied to the whole file.
+        const lineHasDecimalComma = (rawLine) => !rawLine.includes('.') && /,/.test(rawLine) &&
+            (rawLine.includes(';') || /\d,\d+\s+[+-]?\d/.test(rawLine));
+        const fileUsesDecimalComma = lines.some(line => lineHasDecimalComma(line.trim()));
+
         lines.forEach(line => {
             // Skip commented or empty lines
             if (line.startsWith('#') || line.startsWith('//') || line.startsWith('!') || line.startsWith(';') || line.trim() === '') {
@@ -60,7 +67,7 @@
             const commaCount = (rawLine.match(/,/g) || []).length;
             const hasDot = rawLine.includes('.');
             const commaIsDecimal = commaCount > 0 && !hasDot &&
-                (rawLine.includes(';') || /\d,\d+\s+[+-]?\d/.test(rawLine));
+                (fileUsesDecimalComma || lineHasDecimalComma(rawLine));
             const sanitizedLine = commaIsDecimal
                 ? rawLine.replace(/,(\d)/g, '.$1')
                 : rawLine.replace(/,/g, ' ');

@@ -119,15 +119,25 @@ async function convertRun() {
 const convertYield = () => new Promise(r => setTimeout(r, 0));
 
 // Conjugate subgroups with one name, one index and one cell are listed once, with their count.
+// Rows can be picked while naming runs, so the pick is carried over by
+// identity: an index into the unmerged list points at another row afterwards.
 function convertMerge() {
     const seen = new Map(), out = [];
+    const pickedRow = convertState.rows[convertState.picked] || null;
+    let pickedAfter = null;
     for (const r of convertState.rows) {
         const key = `${r.kind}|${r.index}|${r.entry ? r.entry.setting.hall : '?' + r.cand.nrep}|${[r.cell.a, r.cell.b, r.cell.c, r.cell.alpha, r.cell.beta, r.cell.gamma].map(v => v.toFixed(3)).join(',')}`;
         const first = seen.get(key);
-        if (first) { first.copies = (first.copies || 1) + 1; continue; }
+        if (first) {
+            first.copies = (first.copies || 1) + 1;
+            if (r === pickedRow) pickedAfter = first;   // its representative stands for it
+            continue;
+        }
         seen.set(key, r); out.push(r);
+        if (r === pickedRow) pickedAfter = r;
     }
     convertState.rows = out;
+    convertState.picked = pickedAfter ? out.indexOf(pickedAfter) : -1;
 }
 async function convertSubgroups(token, from, fromOps, cell) {
     const status = convertEl('convert-status');

@@ -67,8 +67,9 @@ const setupTthSliders = () => {
     const initialMax = Math.ceil(max);
     ui.tthMinSlider.value = initialMin;
     ui.tthMaxSlider.value = initialMax;
-    ui.tthMinValue.textContent = initialMin.toFixed(2);
-    ui.tthMaxValue.textContent = initialMax.toFixed(2);
+    // Label what the slider holds: it clamps the rounded value into [min, max].
+    ui.tthMinValue.textContent = Number(ui.tthMinSlider.value).toFixed(2);
+    ui.tthMaxValue.textContent = Number(ui.tthMaxSlider.value).toFixed(2);
     updatePlotRange(true);
 };
 const updatePlotRange = (updateYScale = false) => {

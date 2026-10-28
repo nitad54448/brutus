@@ -407,7 +407,18 @@ if (denominator < -1e-10) {
     // d/q for parents of tagged ghosts using λ_Ka1 (since we know those
     // peaks are physically Ka1 lines).
 // Include height so the space group analyzer can filter noise
+// The list is replaced, so a selection held as an index would land on some
+// other peak: follow the selected peak to its re-detected position instead.
+const selectedTth = selectedPeakIndex !== null && pickedPeaks[selectedPeakIndex] ? pickedPeaks[selectedPeakIndex].tth : null;
 pickedPeaks = finalPeaks.map(p => ({ tth: Number(p.tth.toFixed(6)), d: 0, q: 0, height: Number(p.height.toFixed(6)) }));
+if (selectedTth !== null) {
+    let best = null;
+    pickedPeaks.forEach((p, i) => {
+        const dist = Math.abs(p.tth - selectedTth);
+        if (dist <= BRUTUS_LIMITS.peak.positionToleranceCeiling && (best === null || dist < best.dist)) best = { i, dist };
+    });
+    selectedPeakIndex = best ? best.i : null;
+}
     // The list is now purely auto-detected again.
     peaksManuallyEdited = false;
 

@@ -32,8 +32,19 @@ ui.fileInput.addEventListener('change', async (e) => {
     // the previous pattern stayed plotted -- Save as then wrote the old data
     // under the new name. A failed load now leaves the current session alone.
     let text;
+    // A .brml is a zip: the scan is read out of it (RawData0.xml) and parsed
+    // as the XML it holds.
+    let parseName = file.name;
+    const containerNotes = [];
     try {
-        text = await file.text();
+        if (/\.brml$/i.test(file.name)) {
+            const brml = await extractBrmlRawData(await file.arrayBuffer());
+            text = brml.text;
+            parseName = brml.entryName;
+            if (brml.scanCount > 1) containerNotes.push(`This .brml holds ${brml.scanCount} scans; the first (${brml.entryName}) was loaded.`);
+        } else {
+            text = await file.text();
+        }
     } catch (error) {
         if (loadToken !== fileLoadToken) return;
         showStatus(`Error reading file: ${error.message}`, "error");
@@ -45,7 +56,7 @@ ui.fileInput.addEventListener('change', async (e) => {
     let parsed;
     const _perfParseEnd = perfStart('parseFile');
     try {
-        parsed = detectAndParseFile(file.name, text);
+        parsed = detectAndParseFile(parseName, text);
     } catch (error) {
         showStatus(`Error parsing file: ${error.message}`, "error");
         console.error(error);
@@ -60,6 +71,10 @@ ui.fileInput.addEventListener('change', async (e) => {
         showStatus("Could not read data from file.", "error");
         return;
     }
+    // A reader that loaded the file but had to leave part of it out (or
+    // rescale it) says so; a console warning alone went unseen.
+    const notes = [...containerNotes, ...(Array.isArray(parsed.notes) ? parsed.notes : [])];
+    if (notes.length) showStatus(notes.join(' '), 'info', 10000);
 
 
     // Clean some bad points
@@ -74,6 +89,7 @@ ui.fileInput.addEventListener('change', async (e) => {
     let tth_out = [];
     let int_out = [];
     let stoppedAtIndex = -1;
+    let outOfRangeCount = 0;
 
     for (let i = 0; i < tth_in.length; i++) {
         const tth = tth_in[i];
@@ -85,18 +101,27 @@ ui.fileInput.addEventListener('change', async (e) => {
             break; // Stop at the very first bad point
         }
         
+        // Points outside (0, 180) 2θ are not diffraction angles: a peak found
+        // there has no physical d and makes a saved project unopenable.
+        if (tth <= 0 || tth >= 180) { outOfRangeCount++; continue; }
+
         // Only add if it's a valid, finite point (round to 6 decimal places)
         tth_out.push(Number(tth.toFixed(6)));
         int_out.push(Number(Math.max(0, intensity).toFixed(6))); // Clamp negative intensities to 0
     }
     
     const originalCount = tth_in.length;
-    const removedCount = originalCount - tth_out.length;
+    const removedCount = originalCount - tth_out.length - outOfRangeCount;
 
     // Write a warning if we trimmed any points
     if (removedCount > 0) {
         const message = `Info: Data read stopped at first invalid (NaN/Inf) point. ${removedCount} points trimmed.`;
         console.warn(message, `Stopped at index ${stoppedAtIndex}`);
+        showStatus(message, 'info', 4000);
+    }
+    if (outOfRangeCount > 0) {
+        const message = `Info: ${outOfRangeCount} points outside 0–180° 2θ were skipped.`;
+        console.warn(message);
         showStatus(message, 'info', 4000);
     }
 
@@ -167,9 +192,10 @@ ui.fileInput.addEventListener('change', async (e) => {
         ui.stripKa2Checkbox.disabled = true;
         showStatus(`Loaded custom wavelength from file: ${fileWl.wavelength.toFixed(5)} Å`, 'info');
     } else {
-        // File has no wavelength: default to the Cu Kα-average preset.
-        ui.wavelengthPreset.value = 'Cu_avg'; 
-        handleWavelengthPresetChange({ onLoad: true });
+        // File has no wavelength: keep the radiation already set. Resetting
+        // to Cu Kα here silently replaced a synchrotron λ between two files
+        // of the same experiment and mis-scaled every d-spacing.
+        showStatus(`No wavelength in file: keeping ${getWavelength().toFixed(5)} Å.`, 'info', 5000);
     }
 
     // Store full dataset

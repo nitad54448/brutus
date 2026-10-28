@@ -440,7 +440,7 @@
             <ol>
                 <li>
                     <strong>Load the data file.</strong>
-                    Choose <code>File &rarr; Load pattern&hellip;</code> (there is no drag-and-drop). Supported formats include <code>.xy</code>, <code>.xrdml</code>, <code>.xml</code> (Panalytical XRDML or Bruker <code>RawDataFile</code>), <code>.ras</code>, <code>.xra</code>, <code>.uxd</code>, <code>.udf</code>, GSAS <code>.esd</code>, FullProf free-format <code>.dat</code>, Powder CIF <code>.cif</code>, and plain text two-column data (scientific notation such as <code>1.000e+01</code>, the <code>numpy.savetxt</code> default, is read as data, not as a header).
+                    Choose <code>File &rarr; Load pattern&hellip;</code> (there is no drag-and-drop). Supported formats include <code>.xy</code>, <code>.xrdml</code>, <code>.brml</code> and <code>.xml</code> (Bruker DIFFRAC RawData; for a <code>.brml</code> with several scans the first is loaded), <code>.ras</code>, <code>.xra</code>, <code>.uxd</code>, <code>.udf</code>, GSAS <code>.esd</code>, FullProf free-format <code>.dat</code>, Powder CIF <code>.cif</code>, and plain text two-column data (scientific notation such as <code>1.000e+01</code>, the <code>numpy.savetxt</code> default, is read as data, not as a header).
                     A file that cannot be read or parsed replaces nothing: the current pattern, peaks and solutions stay as they were.
                 </li>
                 <li>
@@ -1051,7 +1051,7 @@
                 <tr><td>CSV (2θ,intensity)</td><td><code>.csv</code></td><td>no</td><td>per-point 2θ</td></tr>
                 <tr><td>Two-column whitespace</td><td><code>.dat</code></td><td>no</td><td>per-point 2θ</td></tr>
                 <tr><td>Panalytical XRDML</td><td><code>.xrdml</code></td><td>yes</td><td>constant step</td></tr>
-                <tr><td>Bruker <code>RawDataFile</code> XML</td><td><code>.xml</code></td><td>yes</td><td>constant step</td></tr>
+                <tr><td>Bruker RawData XML</td><td><code>.xml</code></td><td>yes</td><td>per-point 2θ</td></tr>
                 <tr><td>Bruker UXD</td><td><code>.uxd</code></td><td>yes</td><td>constant step</td></tr>
                 <tr><td>GSAS ESD</td><td><code>.esd</code></td><td>no</td><td>constant step</td></tr>
                 <tr><td>Powder CIF (pdCIF)</td><td><code>.cif</code></td><td>yes</td><td>per-point 2θ</td></tr>

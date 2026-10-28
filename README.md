@@ -84,8 +84,8 @@ something behaves the way it does.
 
 1. **Load a data file** (`File → Load pattern…`). Two-column text (`.xy`, `.csv`, `.txt`; a header line
    such as `Wavelength 0.79764` is picked up, and numbers may be written in
-   scientific notation, as `numpy.savetxt` does), `.xrdml`, Bruker RawData `.xml`
-   (the XML inside a `.brml`, unzipped), `.ras`, `.uxd`, `.udf`, GSAS (`.gsa`,
+   scientific notation, as `numpy.savetxt` does), `.xrdml`, Bruker `.brml`
+   (the first scan) and RawData `.xml` (the XML inside a `.brml`), `.ras`, `.uxd`, `.udf`, GSAS (`.gsa`,
    `.esd`, `.std`, `.xra`), FullProf `.dat` and pdCIF. When the file records its
    radiation, the matching preset is selected: a Kα doublet gives the Kα-average
    preset (Kα₂ stripping becomes available, but stays off), a monochromated Kα1
@@ -360,8 +360,11 @@ mathematical/protocol constants remain beside their algorithms.
 
 Project saving retains the measured and fitted numerical precision. Invalid
 projects are validated before replacement, with rollback if restoration fails.
-UXD, XRDML and GSAS exports preserve irregular angle coordinates; Bruker XML
-export requires a regular grid. Recognized invalid or unsupported data files
+UXD, XRDML, GSAS and Bruker RawData XML exports preserve irregular angle
+coordinates. Bruker import follows GSAS-II's measured-time/effective-time
+scaling and leaves the absorption-factor column unapplied. Rigaku RAS preserves
+stored intensities and reports non-unit attenuator factors without applying them.
+Recognized invalid or unsupported data files
 report their parser error instead of being retried as generic two-column data.
 
 ### A note on the browser cache

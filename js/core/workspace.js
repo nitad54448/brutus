@@ -219,6 +219,11 @@ function applyWorkspace(data) {
         const saved = data.controls?.[el.id];
         if (!saved) continue;
         el.value = saved.value;
+        // A saved option this build does not have leaves selectedIndex at -1,
+        // and later readers of options[selectedIndex] (the report) throw.
+        if (el.tagName === 'SELECT' && el.selectedIndex < 0) {
+            el.value = ([...el.options].find(o => o.defaultSelected) || el.options[0] || {}).value ?? '';
+        }
         if (el.type === 'checkbox') el.checked = !!saved.checked;
     }
     for (const el of ui.systemCheckboxes) {
@@ -237,6 +242,10 @@ function applyWorkspace(data) {
         lastRunTotals = data.stats.lastRunTotals || null;
     }
     solutions = data.solutions;
+    // Run tokens restart at 0 with each page load, so a token saved in a
+    // project can equal a later run's and get its cells re-analysed against
+    // that run's peaks. Restored cells belong to no run of this session.
+    for (const sol of solutions) delete sol._runToken;
     for (const sol of solutions) if (sol.analysis) {
         const ambiguous = sol.analysis.ambiguousHkls;
         sol.analysis.ambiguousHkls = ambiguous instanceof Set ? ambiguous : new Set(Array.isArray(ambiguous) ? ambiguous : []);
@@ -254,7 +263,6 @@ function applyWorkspace(data) {
     ui.saveAsButton.disabled = !data.full.tth.length;
     ui.reportButton.disabled = !solutions.length;
     ui.stripKa2Checkbox.disabled = !ka2StripAllowed();
-    ui.wavelength.readOnly = ui.wavelengthPreset.value !== 'custom';
     for (const [slider, label, digits] of [[ui.peakProminenceSlider, ui.peakProminenceValue, 0],
         [ui.ballRadiusSlider, ui.ballRadiusValue, 3], [ui.smoothingWidthSlider, ui.smoothingWidthValue, 3]]) {
         label.textContent = Number(slider.value).toFixed(digits);
@@ -331,7 +339,8 @@ function renderWorkspaceHistory() {
         button.disabled = isIndexing;
         button.addEventListener('click', () => {
             if (isIndexing) return;
-            restoreWorkspace(workspaceHistory[index].state);
+            try { restoreWorkspace(workspaceHistory[index].state); }
+            catch (error) { showStatus(`Could not restore run: ${error.message}`, 'error'); return; }
             appendWorkspaceLog(`Restored run from ${entry.started}.`);
         });
         row.append(text, button); area.append(row);
