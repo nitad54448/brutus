@@ -282,3 +282,12 @@ test('Save dialog traps focus, skips disabled buttons and returns focus on Escap
     await h.ui.saveMenuCancel.emit('click');
     assert.equal(h.document.activeElement, h.ui.saveAsButton);
 });
+
+test('what a reader left out is the last thing the status box says after a load', async () => {
+    const h = fileHarness();
+    h.context.detectAndParseFile = () => ({ tth: [10, 20, 30], intensity: [1, 2, 3], notes: ['range 2 was not loaded'] });
+    h.context.classifyFileWavelength = () => ({ wavelength: 0.7, presetMatch: null });
+    await h.select('notes.xy', 'ignored');
+    assert.match(h.statuses.at(-1), /range 2 was not loaded/);
+    assert.ok(h.statuses.some(message => /wavelength/.test(message)));
+});

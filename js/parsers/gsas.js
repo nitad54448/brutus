@@ -115,12 +115,15 @@
             tth = intensity.map((_, i) => start + i * step);
         }
 
-        // NCHAN is the declared point count: drop padding past it, warn if short.
+        const notes = [];
+        const nBanks = lines.filter(l => /^\s*BANK\b/i.test(l)).length;
+        if (nBanks > 1) notes.push(`GSAS: this file holds ${nBanks} banks; only the first was loaded.`);
+        // NCHAN is the declared point count: drop padding past it, note if short.
         const nChan = parseInt(bank[2], 10);
         if (Number.isInteger(nChan) && nChan > 0) {
             if (intensity.length > nChan) { intensity = intensity.slice(0, nChan); tth = tth.slice(0, nChan); }
-            else if (intensity.length < nChan) console.warn(`GSAS: BANK declares ${nChan} points, file carries ${intensity.length}.`);
+            else if (intensity.length < nChan) notes.push(`GSAS: the BANK line declares ${nChan} points, the file carries ${intensity.length}.`);
         }
         if (intensity.length === 0) throw new Error("GSAS Parse Error: no intensity data could be parsed.");
-        return { tth, intensity, wavelength };
+        return notes.length ? { tth, intensity, wavelength, notes } : { tth, intensity, wavelength };
     };

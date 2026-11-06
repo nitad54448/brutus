@@ -332,6 +332,11 @@ function sgScoreFromStats(stats, pHat, opts) {
 // re-estimates from the class pass 1 favoured and rescores everything against
 // that single shared value, so the rows stay directly comparable. One iteration
 // suffices in practice and the estimate is clamped either way.
+// How many resolvable positions a row's rule set leaves open: the measure of
+// permissiveness (see WHICH CLASS IS "THE MOST PERMISSIVE"? below).
+function sgOpenness(r) {
+    return isFinite(r.nAllowedGroups) ? r.nAllowedGroups : ((r.stats && r.stats.nAllowedInRange) || 0);
+}
 function sgRescoreAll(rows, opts) {
     const o = opts || {};
     const scored = rows.filter(r => !r.error && r.stats);
@@ -395,9 +400,7 @@ function sgRescoreAll(rows, opts) {
     // this quantity: how many resolvable positions the rule set leaves open in
     // this window. stats.nAllowedInRange is the same count measured on the row's
     // own refined cell, and serves as the fallback.
-    const openness = (r) => (isFinite(r.nAllowedGroups) ? r.nAllowedGroups
-                                                        : (r.stats.nAllowedInRange || 0));
-    const permissive = scored.slice().sort((a, b) => openness(b) - openness(a))[0];
+    const permissive = scored.slice().sort((a, b) => sgOpenness(b) - sgOpenness(a))[0];
     let pHat = estimate(permissive);
     let lambda = lamFor(permissive, pHat);
     applyAll(pHat, lambda);
@@ -737,6 +740,30 @@ function sgMarginInfo(ranked) {
 }
 function sgMargin(ranked) {
     return sgMarginInfo(ranked).margin;
+}
+// The margin of ONE row, which is what a cell added from the table has to carry.
+// sgMargin() is the leader's lead over the runner-up: stamped on any other row
+// it reported a class that had lost as decisively ahead.
+//   leader             its lead over the next comparable row
+//   any other row      negative: how far it trails the best of the others
+//   only row in tier   Infinity, as sgMargin()
+//   outside the tier   -Infinity: falsified, or refined less deeply than the
+//                      leader, so no margin can be stated for it
+function sgRowMargin(ranked, row) {
+    const { tier } = sgComparableTier(ranked);
+    if (!tier.includes(row)) return -Infinity;
+    const others = tier.filter(r => r !== row);
+    if (!others.length) return Infinity;
+    return row.score - others.reduce((m, r) => Math.max(m, r.score), -Infinity);
+}
+// A stored margin in words, shared by the status line, the pdCIF and the report.
+function sgMarginSummary(margin) {
+    const decisive = typeof margin === 'number' && margin >= SG_DECISIVE_NATS;
+    if (margin === Infinity) return { decisive, text: 'the only class the data do not contradict' };
+    if (margin === -Infinity) return { decisive, text: 'ruled out by the data, or not refined as far as the leading class, so it has no margin' };
+    if (!Number.isFinite(margin)) return { decisive, text: 'no margin recorded' };
+    if (margin < 0) return { decisive, text: `${(-margin).toFixed(1)} nats behind the leading class` };
+    return { decisive, text: `${decisive ? '' : 'only '}${margin.toFixed(1)} nats ahead of the runner-up` };
 }
 // Did anything survive at all? When every class carries hard violations the
 // answer is not "the least bad one wins" but "none of these fits", and the caller

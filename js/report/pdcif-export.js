@@ -110,10 +110,10 @@ const generatePdCIF = (sol) => {
                              sol.sgMembers.map(toAsciiSg).join(', ')
                            : ''));
         }
-        if (Number.isFinite(sol.sgMargin)) {
+        if (typeof sol.sgMargin === 'number' && sol.sgMargin !== Infinity) {
             notes.push(sol.sgMargin >= decisiveNats
                 ? `Margin over the runner-up: ${sol.sgMargin.toFixed(1)} nats (decisive).`
-                : `NOT DECISIVE: only ${sol.sgMargin.toFixed(1)} nats over the runner-up ` +
+                : `NOT DECISIVE: ${sgMarginSummary(sol.sgMargin).text} ` +
                   `(${decisiveNats.toFixed(1)} needed). Treat the symbol as one of several.`);
         }
         if (!sgName) {
@@ -192,9 +192,9 @@ const generatePdCIF = (sol) => {
                    `${toAsciiSg(sol.sgClass)} was resolved, which is not a single space group. ` +
                    `The cell is complete; the candidate groups are listed in a comment.`,
                    'info', 9000);
-    } else if (Number.isFinite(sol.sgMargin) && sol.sgMargin < decisiveNats) {
+    } else if (typeof sol.sgMargin === 'number' && sol.sgMargin < decisiveNats) {
         showStatus(`pdCIF exported with space group ${sgName}, but the Space Group MC was ` +
-                   `NOT decisive (${sol.sgMargin.toFixed(1)} nats over the runner-up). The file ` +
+                   `NOT decisive (${sgMarginSummary(sol.sgMargin).text}). The file ` +
                    `records that; treat the symbol as one of several.`, 'info', 9000);
     }
 };

@@ -102,13 +102,13 @@
         const intensity = scan.values.slice(0, n);
         const tth = Array.from({ length: n }, (_, k) => scan.start + k * scan.step);
 
-        if (n < scan.nExpected) {
-            console.warn(`FullProf .dat: header declares ${scan.nExpected} points ` +
-                         `(${scan.start} to ${scan.end} step ${scan.step}), file carries ` +
-                         `${scan.values.length}. Reading ${n}; the pattern ends at ` +
-                         `${(scan.start + (n - 1) * scan.step).toFixed(4)} deg.`);
-        }
         // No wavelength is recorded in this format, so none is returned and
         // the caller keeps the current radiation as it does for .xy.
+        if (n < scan.nExpected) {
+            return { tth, intensity, notes: [`FullProf .dat: header declares ${scan.nExpected} points ` +
+                     `(${scan.start} to ${scan.end} step ${scan.step}), file carries ` +
+                     `${scan.values.length}. Reading ${n}; the pattern ends at ` +
+                     `${(scan.start + (n - 1) * scan.step).toFixed(4)} deg.`] };
+        }
         return { tth, intensity };
     };

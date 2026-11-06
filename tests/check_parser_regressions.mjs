@@ -119,3 +119,43 @@ test('pdCIF Hall, name and number all belong to the chosen group', async () => {
     assert.doesNotMatch(text, /_space_group_name_Hall/);
     assert.doesNotMatch(text, /-P 2ybc/);
 });
+
+test('a header cannot turn a comma-separated file into decimal commas', () => {
+    const parse = h.call('parseDataFile');
+    for (const header of ['# Sample: quartz, run 3; operator AB', 'Sample quartz, batch 2; rerun', '# 10,5 200 note']) {
+        assert.deepEqual(plain(parse(header + '\n11,120\n12,340\n13,560\n', 't.csv')).tth, [11, 12, 13]);
+        assert.deepEqual(plain(parse(header + '\n10.5,100\n11,120\n11.5,150\n12,180\n', 't.csv')).tth, [10.5, 11, 11.5, 12]);
+    }
+    // Real decimal commas, in data rows, are still recognised file-wide.
+    const eu = plain(parse('# Sample: quartz\n10,02 1234,5\n11 1250,5\n12,04 1300\n', 't.csv'));
+    assert.deepEqual(eu.tth, [10.02, 11, 12.04]);
+    assert.deepEqual(eu.intensity, [1234.5, 1250.5, 1300]);
+});
+
+test('header wavelengths honour their unit', () => {
+    const parse = h.call('parseDataFile');
+    const wl = header => plain(parse(header + '\n10 1\n11 2\n', 'a.xy')).radiation?.single;
+    assert.equal(wl('# wavelength = 0.15406 nm'), 1.5406);
+    assert.equal(wl('# wavelength (nm): 0.15406'), 1.5406);
+    assert.equal(wl('# Lambda(A) 1.5406'), 1.5406);
+    assert.equal(wl('# wavelength 0.79764'), 0.79764);
+});
+
+test('a reader that leaves data out says so in notes', () => {
+    const ras = plain(h.call('parseRigakuRasFile')('*HW_XG_WAVE_LENGTH_ALPHA1 "1.5406"\n*RAS_INT_START\n10 1 1\n11 2 1\n*RAS_INT_END\n' +
+        '*HW_XG_WAVE_LENGTH_ALPHA1 "0.7093"\n*RAS_INT_START\n20 3 1\n21 4 1\n*RAS_INT_END\n'));
+    assert.deepEqual(ras.tth, [10, 11]);
+    assert.equal(ras.radiation.ka1, 1.5406);
+    assert.match(ras.notes.join(' '), /2 scans; only the first/);
+
+    const uxd = plain(h.call('parseUxdFile')('_START=10\n_STEPSIZE=0.5\n_COUNTS\n1 2 3\n_START=20\n_COUNTS\n4 5 6\n'));
+    assert.deepEqual(uxd.intensity, [1, 2, 3]);
+    assert.match(uxd.notes.join(' '), /range 2 of 2 has no _START or _STEPSIZE/);
+
+    const gsas = plain(h.call('parseGsasFile')('t\nBANK 1 2 1 CONST 1000 10 0 0 FXY\n1000 5\n1010 6\nBANK 2 1 1 CONST 1000 10 0 0 FXY\n1000 7\n'));
+    assert.deepEqual(gsas.intensity, [5, 6]);
+    assert.match(gsas.notes.join(' '), /2 banks; only the first/);
+
+    const fullprof = plain(h.call('parseFullProfDatFile')('10 1 20\n1 2 3 4\n5 6 7 8\n'));
+    assert.match(fullprof.notes.join(' '), /declares 11 points/);
+});

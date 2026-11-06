@@ -57,12 +57,16 @@
             }
         }
 
+        const notes = [];
         const built = [];
-        for (const r of ranges) {
+        for (const [rangeIndex, r] of ranges.entries()) {
             if (r.mode === 'y') {
                 const start = parseFloat(r.header.START ?? r.header['2THETA']);
                 const step = parseFloat(r.header.STEPSIZE);
-                if (!Number.isFinite(start) || !Number.isFinite(step)) continue;
+                if (!Number.isFinite(start) || !Number.isFinite(step)) {
+                    notes.push(`UXD: range ${rangeIndex + 1} of ${ranges.length} has no _START or _STEPSIZE; it was not loaded.`);
+                    continue;
+                }
                 r.tth = r.intensity.map((_, i) => start + i * step);
             }
             if (r.intensity.length) built.push(r);
@@ -78,7 +82,6 @@
         // the first range's time scale; joined as they are, a longer count
         // time at high angle shows as a step in intensity at the join. A
         // range without _STEPTIME inherits the previous one's.
-        const notes = [];
         let stepTime = parseFloat(built[0].header.STEPTIME);
         const baseTime = stepTime;
         let tth = [...built[0].tth], intensity = [...built[0].intensity];

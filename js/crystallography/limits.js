@@ -19,7 +19,7 @@ const BRUTUS_LIMITS = (() => {
         search: { meritPeaks: 20, minM20: 2, minMixedHkl: 40, minBasis: 10, minPeaks: 3,
             minIndexed: { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7, triclinic: 7 },
             cpuPeakDepth: 12, progressTrials: 5000, progressIntervalMs: 50,
-            defaultGpuFomPeaks: 7, minGpuFomPeaks: 10,
+            minGpuFomPeaks: 10,
             // Refinement with a refined zero: trial zero offsets tried when
             // matching at zero = 0 indexes too few peaks (refine.js).
             zeroScanMaxDeg: 0.2, zeroScanMinStepDeg: 0.01 },

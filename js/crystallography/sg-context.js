@@ -19,7 +19,7 @@ function qToleranceAtQ(q, wavelength, tth_error) {
     const lam2 = wavelength * wavelength;
     const arg = Math.max(0, 1 - lam2 * q / 4);
     const sin2th = wavelength * Math.sqrt(q) * Math.sqrt(arg);
-    const dtth = tth_error * Math.PI / 360;   // half of tth_error, in radians
+    const dtth = tth_error * Math.PI / 180;   // the whole of tth_error, in radians
     return (2 * sin2th / lam2) * dtth + 1e-9;
 }
 // COMPLETE-linkage clustering of a sorted q list at the matching tolerance. Two

@@ -501,7 +501,7 @@ sgRunBtn.addEventListener('click', () => {
             seen.add(r.sig); out.push(r); return true;
         };
         for (const r of ok.slice(0, n)) push(r, false);
-        push(ok.slice().sort((a, b) => (a.nRules || 0) - (b.nRules || 0))[0], true);
+        push(ok.slice().sort((a, b) => sgOpenness(b) - sgOpenness(a))[0], true);
         push(ok.slice().sort((a, b) => (b.nClean || 0) - (a.nClean || 0))[0], true);
         const byCent = new Map();
         for (const r of ok) if (!byCent.has(r.centering)) byCent.set(r.centering, r);
@@ -588,7 +588,7 @@ sgAddBtn.addEventListener('click', () => {
     
     child.sgConditions = row.conditions;
     child.sgScore = row.score;
-    child.sgMargin = sgMargin(sgRows);
+    child.sgMargin = sgRowMargin(sgRows, row);
     child.sgEvidence = {
         wilson: !!(row.stats && row.stats.cleanP && row.stats.cleanP.length),
         clean: row.nClean, informative: row.nInformative,
@@ -609,9 +609,9 @@ sgAddBtn.addEventListener('click', () => {
     updateSolutionsTable();
     hideSgOverlay();
     const marg = child.sgMargin;
-    const margTxt = isFinite(marg)
-        ? (marg < SG_DECISIVE_NATS ? ` - NOT decisive (${marg.toFixed(1)} nats over the runner-up)` : ` - ${marg.toFixed(1)} nats ahead`)
-        : '';
+    const margSummary = sgMarginSummary(marg);
+    const margTxt = marg === Infinity ? ''
+        : ` - ${margSummary.decisive ? '' : 'NOT decisive: '}${margSummary.text}`;
     showStatus(`Added cell refined under ${row.label} (${selectedMember.symbol}): ` +
                `M20 ${sgFmt(row.m20, 2)}, ${row.hardViolations} hard violation(s)${margTxt}.`, 'success', 8000);
 });

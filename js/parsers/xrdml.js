@@ -33,7 +33,8 @@
         if (!intensityNode) throw new Error("Could not find <intensities> or <counts> in XRDML file.");
         const intensity = numberList(intensityNode.textContent);
         if (intensity.length === 0) throw new Error("XRDML file contains no intensity points.");
-        if (blocks.length > 1) console.warn(`XRDML: ${blocks.length} scans in file; reading the first 2θ scan only.`);
+        const notes = blocks.length > 1 ? [`XRDML: this file holds ${blocks.length} scans; only the first 2θ scan was loaded.`] : [];
+        const finish = (tth) => notes.length ? { tth, intensity, radiation, notes } : { tth, intensity, radiation };
 
         const positionsNode = scope.querySelector('positions[axis="2Theta"]');
         if (!positionsNode) throw new Error("Could not find <positions> in XRDML file.");
@@ -45,7 +46,7 @@
             if (tth.length !== intensity.length || !tth.every(Number.isFinite)) {
                 throw new Error(`XRDML listPositions has ${tth.length} values for ${intensity.length} intensities.`);
             }
-            return { tth, intensity, radiation };
+            return finish(tth);
         }
 
         const startPosNode = positionsNode.querySelector("startPosition");
@@ -57,5 +58,5 @@
         // With a single point the step is undefined; emit the start position.
         const step = intensity.length > 1 ? (endPos - startPos) / (intensity.length - 1) : 0;
         const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * step);
-        return { tth, intensity, radiation };
+        return finish(tth);
     };

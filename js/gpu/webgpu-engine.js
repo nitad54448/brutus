@@ -629,8 +629,7 @@ class WebGPUEngine {
         const configViewU32 = new Uint32Array(configData);
         const configViewF32 = new Float32Array(configData);
 
-        const userPeaksSetting = baseParams.gpu_peaks_count || BRUTUS_LIMITS.search.defaultGpuFomPeaks;
-        const targetFomCount = Math.max(BRUTUS_LIMITS.search.minGpuFomPeaks, userPeaksSetting);
+        const targetFomCount = Math.max(BRUTUS_LIMITS.search.minGpuFomPeaks, baseParams.gpu_peaks_count || 0);
         const finalFomCount = Math.min(qObsArray.length, targetFomCount);
 
         configViewU32[0] = 0;                                   // z_offset (overwritten per chunk)

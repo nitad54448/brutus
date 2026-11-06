@@ -22,11 +22,14 @@
         // ("Wavelength 0.79764", "# lambda = 1.5406"). Without it the file
         // silently loaded as Cu Kα, which mis-scales every d-spacing.
         let headerWavelength = null;
-        const WAVELENGTH_RX = /(?:wave\s*-?\s*length|lambda|\u03bb)\s*[:=]?\s*([0-9]*\.[0-9]+)/i;
+        // The unit may sit before the value, "Lambda(A) 1.5406", or after it,
+        // "wavelength = 0.15406 nm"; nm is converted, anything else is angstroms.
+        const WAVELENGTH_RX = /(?:wave\s*-?\s*length|lambda|\u03bb)\s*(?:\(\s*(nm|a|\u00e5|ang\w*)\s*\))?\s*[:=]?\s*([0-9]*\.[0-9]+)\s*(nm\b)?/i;
         const noteWavelength = (line) => {
             if (headerWavelength !== null) return;
             const m = WAVELENGTH_RX.exec(line);
-            const v = m ? parseFloat(m[1]) : NaN;
+            const inNm = !!m && /^nm$/i.test(m[1] || m[3] || '');
+            const v = m ? parseFloat(m[2]) * (inNm ? 10 : 1) : NaN;
             if (v > limits.minHeaderWavelength && v < limits.maxHeaderWavelength) headerWavelength = v;
         };
 
@@ -35,7 +38,14 @@
         // the verdict of the unambiguous rows is applied to the whole file.
         const lineHasDecimalComma = (rawLine) => !rawLine.includes('.') && /,/.test(rawLine) &&
             (rawLine.includes(';') || /\d,\d+\s+[+-]?\d/.test(rawLine));
-        const fileUsesDecimalComma = lines.some(line => lineHasDecimalComma(line.trim()));
+        // Data rows only: a header such as "Sample: quartz, run 3; operator AB"
+        // passes the test above, and its verdict turned every dot-free CSV row
+        // into a single number, so those rows were dropped without a word.
+        const hasLetters = (line) => /[a-zA-Z]/.test(line.replace(/([0-9.])[eE][+-]?(?=\d)/g, '$1'));
+        const fileUsesDecimalComma = lines.some(line => {
+            const t = line.trim();
+            return !/^(?:#|\/\/|!|;)/.test(t) && !hasLetters(t) && lineHasDecimalComma(t);
+        });
 
         lines.forEach(line => {
             // Skip commented or empty lines
@@ -49,7 +59,7 @@
             // "1.000e+01 2.345e+03" (numpy.savetxt's default format) is all
             // data, and testing the raw line rejected every row of it.
             if (!dataStarted) {
-                if (/[a-zA-Z]/.test(line.replace(/([0-9.])[eE][+-]?(?=\d)/g, '$1'))) {
+                if (hasLetters(line)) {
                     headerLines++;
                     noteWavelength(line);
                     return;

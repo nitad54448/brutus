@@ -91,3 +91,56 @@ test('least-squares refinement rejects final cells that cross axis or volume lim
     assert.equal(result.axis.length, 0, 'fitted axis must respect the per-run maximum');
     assert.equal(result.volume.length, 0, 'fitted volume must respect the per-run maximum');
 });
+
+test('a cell that omits b, as Convert leaves a tetragonal one, still has a solution key', () => {
+    const context = science();
+    const keys = vm.runInContext(`[getSolutionKey({system:'tetragonal', a:4, c:6}),
+        getSolutionKey({system:'tetragonal', a:4, b:4, c:6})]`, context);
+    assert.equal(keys[0], keys[1]);
+});
+
+test('the q tolerance at a calculated line is the tolerance at an observed peak', () => {
+    const context = science();
+    const ratios = vm.runInContext(`[10, 30, 60, 90, 120].map(tth => {
+        const wl = 1.54056, t = tth * RAD, q = 4 * Math.sin(t / 2) ** 2 / wl ** 2;
+        return qToleranceAtQ(q, wl, 0.04) / get_q_tolerance(0, [t], wl, 0.04);
+    })`, context);
+    for (const ratio of ratios) assert.ok(Math.abs(ratio - 1) < 1e-4, String(ratio));
+});
+
+test('a row added from the Space Group MC table carries its own margin', () => {
+    const context = science();
+    const r = vm.runInContext(`(() => {
+        const lead = {score:40, nHardEff:0, mode:'mc'}, second = {score:30, nHardEff:0, mode:'mc'},
+              third = {score:29, nHardEff:0, mode:'mc'}, dead = {score:90, nHardEff:3, mode:'mc'},
+              shallow = {score:35, nHardEff:0, mode:'ls'};
+        const rows = [lead, second, third, shallow, dead];
+        const m = row => sgRowMargin(rows, row);
+        return { lead: m(lead), second: m(second), third: m(third),
+            deadOut: m(dead) === -Infinity, shallowOut: m(shallow) === -Infinity,
+            alone: sgRowMargin([lead, dead], lead) === Infinity,
+            decisive: [m(lead), m(second), m(dead), Infinity].map(v => sgMarginSummary(v).decisive),
+            behind: sgMarginSummary(m(third)).text };
+    })()`, context);
+    assert.equal(r.lead, 10);
+    assert.equal(r.second, -10);
+    assert.equal(r.third, -11);
+    assert.ok(r.deadOut && r.shallowOut && r.alone);
+    assert.deepEqual(Array.from(r.decisive), [true, false, false, true]);
+    assert.match(r.behind, /11\.0 nats behind/);
+});
+
+test('permissiveness is positions left open, not rules stated', () => {
+    const context = science();
+    assert.equal(vm.runInContext('sgOpenness({nAllowedGroups:5, stats:{nAllowedInRange:9}})', context), 5);
+    assert.equal(vm.runInContext('sgOpenness({stats:{nAllowedInRange:9}})', context), 9);
+    assert.equal(vm.runInContext('sgOpenness({})', context), 0);
+});
+
+test('durations carry a rounded minute instead of printing 60 seconds', () => {
+    const line = read('js/indexing/run.js').match(/const minutesAndSeconds = [\s\S]*?\n};/)[0];
+    const context = vm.createContext({});
+    vm.runInContext(line.replace('const minutesAndSeconds', 'globalThis.split'), context);
+    assert.deepEqual({ ...vm.runInContext('split(119600)', context) }, { min: 2, sec: 0 });
+    assert.deepEqual({ ...vm.runInContext('split(61000)', context) }, { min: 1, sec: 1 });
+});

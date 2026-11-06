@@ -24,6 +24,12 @@ let lastSystemSearchStats = [];
 let lastRunTotals = null;
 // "12%", "3.4%", "0.0089%": enough digits that a search cut off near its start
 // does not read as 0.
+// Whole minutes and seconds, rounded ONCE: rounding the seconds on their own
+// turned 119.6 s into "1 min 60 s".
+const minutesAndSeconds = (ms) => {
+    const total = Math.round(ms / 1000);
+    return { min: Math.floor(total / 60), sec: total % 60 };
+};
 // Fixed-width text rows (for the Courier font of the PDF report and the
 // console): header first, then one line per system.
 const formatSystemSearchStats = (rows) => {
@@ -35,7 +41,7 @@ const formatSystemSearchStats = (rows) => {
             ? `${n(r.done)} (CPU)`
             : `${n(r.done)} / ${n(r.total)}${pct}`;
         const time = (r.timeMs === null) ? '-' : (r.timeMs >= 60000
-            ? `${Math.floor(r.timeMs / 60000)}m${String(Math.round(r.timeMs % 60000 / 1000)).padStart(2, '0')}s`
+            ? (({ min, sec }) => `${min}m${String(sec).padStart(2, '0')}s`)(minutesAndSeconds(r.timeMs))
             : `${(r.timeMs / 1000).toFixed(1)}s`);
         out.push(r.label.padEnd(13) + n(r.nHkl).padStart(5) + n(r.nPeaks).padStart(7) + '  ' +
                  trials.padStart(37) + n(r.candidates).padStart(10) + time.padStart(8) +
@@ -45,7 +51,7 @@ const formatSystemSearchStats = (rows) => {
 };
 // The run is narrated in the Log tab: parameters first, then each system's plan and its time, then the totals.
 const runLog = (message) => { if (typeof appendWorkspaceLog === 'function') appendWorkspaceLog(message); };
-const fmtDuration = (ms) => ms >= 60000 ? `${Math.floor(ms / 60000)} min ${Math.round(ms % 60000 / 1000)} s` : `${(ms / 1000).toFixed(1)} s`;
+const fmtDuration = (ms) => ms >= 60000 ? (({ min, sec }) => `${min} min ${sec} s`)(minutesAndSeconds(ms)) : `${(ms / 1000).toFixed(1)} s`;
 const fmtCount = (v) => Math.round(v).toLocaleString('en-US');
 const fmtSearchedPercent = (fraction) => {
     const pct = fraction * 100;
@@ -843,7 +849,7 @@ const durationMs = performance.now() - indexingStartTime;
 console.log(`[perf] === Total indexing time: ${durationMs.toFixed(0)} ms ===`);
 const durationSec = (durationMs / 1000).toFixed(1);
 const durationStr = durationMs > 60000 
-    ? `${Math.floor(durationMs/60000)}m ${(durationMs % 60000 / 1000).toFixed(0)}s` 
+    ? (({ min, sec }) => `${min}m ${sec}s`)(minutesAndSeconds(durationMs))
     : `${durationSec}s`;
 lastDurationStr = durationStr; 
 

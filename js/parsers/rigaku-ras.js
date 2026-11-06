@@ -12,6 +12,7 @@
         const radiation = {};
         let hasAttenuation = false;
         let inDataSection = false;
+        let scans = 0;              // *RAS_INT_START sections in the file
         const headerValue = (line) => {
             const m = /^\*\S+\s+(.*)$/.exec(line.trim());
             if (!m) return null;
@@ -20,7 +21,7 @@
         };
         for (const line of lines) {
             const upperLine = line.trim().toUpperCase();
-            if (!inDataSection) {
+            if (!inDataSection && scans === 0) {
                 if (upperLine.startsWith('*HW_XG_WAVE_LENGTH_ALPHA1')) radiation.ka1 = headerValue(line);
                 else if (upperLine.startsWith('*HW_XG_WAVE_LENGTH_ALPHA2')) radiation.ka2 = headerValue(line);
                 else if (upperLine.startsWith('*WAVE_LENGTH') || upperLine.startsWith('*MEAS_COND_XG_WAVE_LENGTH')) {
@@ -28,8 +29,10 @@
                     if (v !== null) radiation.single = v;
                 }
             }
-            if (upperLine.startsWith('*RAS_INT_START')) { inDataSection = true; continue; }
-            if (upperLine.startsWith('*RAS_INT_END')) break;
+            // Only the first scan is read, but the rest are counted so the
+            // user can be told; stopping here hid that they existed.
+            if (upperLine.startsWith('*RAS_INT_START')) { inDataSection = ++scans === 1; continue; }
+            if (upperLine.startsWith('*RAS_INT_END')) { inDataSection = false; continue; }
             if (inDataSection) {
                 const parts = line.trim().split(/[\s,]+/);
                 if (parts.length >= 2) {
@@ -46,6 +49,9 @@
         }
         if (tth.length === 0) throw new Error("No data found in RAS file data section.");
         const result = { tth, intensity, radiation };
-        if (hasAttenuation) result.notes = ['RAS: non-unit attenuator factors are present; stored intensities were preserved, following GSAS-II.'];
+        const notes = [];
+        if (scans > 1) notes.push(`RAS: this file holds ${scans} scans; only the first was loaded.`);
+        if (hasAttenuation) notes.push('RAS: non-unit attenuator factors are present; stored intensities were preserved, following GSAS-II.');
+        if (notes.length) result.notes = notes;
         return result;
     };

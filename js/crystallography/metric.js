@@ -96,7 +96,7 @@ const getSymmetry = (a, b, c, alpha, beta, gamma, tol = BRUTUS_LIMITS.symmetryTo
 const standardizeCell = (cell) => {
     const newCell = { ...cell };
     switch (cell.system) {
-        case 'tetragonal': { const axes = [cell.a, cell.b, cell.c]; const tol = BRUTUS_LIMITS.tetragonalAxisTolerance; let uniqueAxis, repeatedAxis; if (Math.abs(axes[0] - axes[1]) < tol) { uniqueAxis = axes[2]; repeatedAxis = axes[0]; } else if (Math.abs(axes[0] - axes[2]) < tol) { uniqueAxis = axes[1]; repeatedAxis = axes[0]; } else { uniqueAxis = axes[0]; repeatedAxis = axes[1]; } newCell.a = repeatedAxis; newCell.b = repeatedAxis; newCell.c = uniqueAxis; break; }
+        case 'tetragonal': { const axes = [cell.a, cell.b ?? cell.a, cell.c ?? cell.a]; const tol = BRUTUS_LIMITS.tetragonalAxisTolerance; let uniqueAxis, repeatedAxis; if (Math.abs(axes[0] - axes[1]) < tol) { uniqueAxis = axes[2]; repeatedAxis = axes[0]; } else if (Math.abs(axes[0] - axes[2]) < tol) { uniqueAxis = axes[1]; repeatedAxis = axes[0]; } else { uniqueAxis = axes[0]; repeatedAxis = axes[1]; } newCell.a = repeatedAxis; newCell.b = repeatedAxis; newCell.c = uniqueAxis; break; }
         case 'orthorhombic': { const sorted = [cell.a, cell.b, cell.c].sort((x,y)=>x-y); newCell.a=sorted[0]; newCell.b=sorted[1]; newCell.c=sorted[2]; break; }
         case 'cubic': { newCell.b = newCell.a; newCell.c = newCell.a; break; }
     }

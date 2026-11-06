@@ -437,8 +437,8 @@ try {
                      `(about ${odds.toPrecision(2)}:1).`, margin + 5, SIZE.BODY);
             } else {
                 doc.setTextColor(150, 60, 0);
-                wrap(`NOT DECISIVE: only ${marg.toFixed(1)} nats ahead of the runner-up ` +
-                     `(about ${odds.toPrecision(2)}:1), below the ${decisiveNats.toFixed(1)}-nat ` +
+                wrap(`NOT DECISIVE: ${sgMarginSummary(marg).text}` +
+                     `${marg >= 0 ? ` (about ${odds.toPrecision(2)}:1)` : ''}, below the ${decisiveNats.toFixed(1)}-nat ` +
                      `threshold. The absences in this pattern do not separate this class from the ` +
                      `next one; the cell below is refined under this hypothesis, not proof of it.`,
                      margin + 5, SIZE.BODY);
@@ -446,6 +446,10 @@ try {
             }
         } else if (marg === Infinity) {
             wrap('Margin: the only class the data do not contradict.', margin + 5, SIZE.BODY);
+        } else if (marg === -Infinity) {
+            doc.setTextColor(150, 60, 0);
+            wrap(`NOT DECISIVE: ${sgMarginSummary(marg).text}.`, margin + 5, SIZE.BODY);
+            doc.setTextColor(0, 0, 0);
         }
 
         const ev = sol.sgEvidence;

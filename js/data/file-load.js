@@ -71,10 +71,7 @@ ui.fileInput.addEventListener('change', async (e) => {
         showStatus("Could not read data from file.", "error");
         return;
     }
-    // A reader that loaded the file but had to leave part of it out (or
-    // rescale it) says so; a console warning alone went unseen.
     const notes = [...containerNotes, ...(Array.isArray(parsed.notes) ? parsed.notes : [])];
-    if (notes.length) showStatus(notes.join(' '), 'info', 10000);
 
 
     // Clean some bad points
@@ -227,5 +224,10 @@ ui.fileInput.addEventListener('change', async (e) => {
     findPeaks();
     if (typeof showWorkspaceView === 'function') showWorkspaceView('plot');
     if (typeof renderFileMeta === 'function') renderFileMeta();
+
+    // A reader that loaded the file but had to leave part of it out (or
+    // rescale it) says so. Last, because the status box holds one message and
+    // the wavelength line above used to replace this one at once.
+    if (notes.length) showStatus(notes.join(' '), 'info', 10000);
     
 });

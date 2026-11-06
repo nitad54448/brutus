@@ -294,6 +294,8 @@ try {
                 getWavelength(), getTthError(), Number(ui.tthMaxSlider.value), getImpurityPeaks(), Number(ui.tthMinSlider.value));
             sol.sgClass = 'test class'; sol.sgMargin = Infinity; sol.sgMembers = ['P 1 (1)'];
             sol.errors = {s_a:1.2345e-7};
+            // Convert leaves tetragonal cells without b; they must survive a reopen.
+            solutions.push({system:'tetragonal', a:4, c:6, volume:96, m20:10});
             const data = JSON.parse(JSON.stringify(captureWorkspace(), workspaceJsonReplacer), workspaceJsonReviver);
             restoreWorkspace(data);
             if (solutions[0].errors.s_a !== 1.2345e-7 || solutions[0].sgMargin !== Infinity ||
