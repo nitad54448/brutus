@@ -920,8 +920,12 @@ if (statusTextElement) statusTextElement.textContent = 'Applying final sieve...'
 // Apply Sieve
 const _perfSieveEnd = perfStart('applyFinalSieve');
 const _nBeforeSieve = solutions.length;
-solutions = applyFinalSieve(solutions); 
+solutions = applyFinalSieve(solutions);
 _perfSieveEnd(`(${_nBeforeSieve} -> ${solutions.length})`);
+// A solution opened during the run may have been sieved away. Left selected,
+// its ticks stayed on the plot and the Solution menu stayed enabled while
+// every action on it silently did nothing (it is no longer in any list).
+if (selectedSolution && !solutions.includes(selectedSolution)) applySolutionSelection(null);
 {
     const perSystem = {};
     for (const x of solutions) perSystem[x.system] = (perSystem[x.system] || 0) + 1;

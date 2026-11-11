@@ -11,9 +11,7 @@
 //      on each cell in the batch, posts back { type: 'solutions', payloads, batchId }
 //      (one message per SOLUTION_FLUSH_SIZE accepted cells, plus a final flush),
 //      then posts exactly one { type: 'done', batchId } at the end of the batch.
-//   3. (Legacy) { type: 'refine', cell, taskId } is still supported as a
-//      single-cell batch, for any code that hasn't been migrated.
-//   4. Main thread may call { type: 'reset' } between runs to clear per-worker
+//   3. Main thread may call { type: 'reset' } between runs to clear per-worker
 //      state (mainly the worker's own foundSolutionMap).
 //
 // The crystallography scripts (js/crystallography/, listed in manifest.js)
@@ -149,11 +147,10 @@ function trimLedgerIfNeeded() {
 const SOLUTION_FLUSH_SIZE = BRUTUS_LIMITS.workers.flushSize;
 let solutionBuffer = [];
 
-function flushSolutions(idField, idValue) {
+function flushSolutions(batchId) {
     if (solutionBuffer.length === 0) return;
-    const out = { type: 'solutions', payloads: solutionBuffer };
+    const out = { type: 'solutions', payloads: solutionBuffer, batchId };
     solutionBuffer = [];              // new array: the old one is now owned by the clone
-    if (idField) out[idField] = idValue;
     self.postMessage(out);
 }
 
@@ -183,7 +180,7 @@ let batchErrors = 0;
 let batchErrorsPosted = 0;
 
 // Which batch (if any) this worker is inside right now. Only non-null while a
-// 'refineBatch'/'refine' handler is on the stack, so the last-resort handlers
+// 'refineBatch' handler is on the stack, so the last-resort handlers
 // at the bottom of this file know what to ack. See the self.onerror block.
 let currentBatch = null;
 
@@ -193,30 +190,24 @@ function resetBatchStats() {
     batchErrorsPosted = 0;
 }
 
-function doneMessage(idField, idValue) {
-    const out = { type: 'done', processed: batchProcessed, errors: batchErrors };
-    out[idField] = idValue;
-    return out;
+function doneMessage(batchId) {
+    return { type: 'done', processed: batchProcessed, errors: batchErrors, batchId };
 }
 
-// 13 jul 2026: restored the legacy 'refine' case below (see point 3 in the
-// header) — it had been dropped from the switch statement so it fell
-// through to default and was silently ignored, contradicting this file's
-// own docs and leaving any legacy caller waiting forever on a reply.
-function runOneCell(cell, idField, idValue, cellIndex) {
+function runOneCell(cell, batchId, cellIndex) {
     batchProcessed++;
     try {
         refineAndTestSolution(cell, baseParams, state, (innerMsg) => {
             if (innerMsg && innerMsg.type === 'solution') {
                 solutionBuffer.push(innerMsg.payload);
-                if (solutionBuffer.length >= SOLUTION_FLUSH_SIZE) flushSolutions(idField, idValue);
+                if (solutionBuffer.length >= SOLUTION_FLUSH_SIZE) flushSolutions(batchId);
             }
         });
     } catch (err) {
         batchErrors++;
         if (batchErrorsPosted >= MAX_CELL_ERRORS_PER_BATCH) return;
         batchErrorsPosted++;
-        // Attach the batchId/taskId so the main thread knows which batch errored,
+        // Attach the batchId so the main thread knows which batch errored,
         // plus enough about the cell to actually reproduce it -- a bare message
         // with no cell identity is an unreproducible bug report.
         const out = {
@@ -224,12 +215,12 @@ function runOneCell(cell, idField, idValue, cellIndex) {
             message: String(err && err.message || err),
             cellIndex: cellIndex,
             system: (cell && cell.system) || null,
-            cell: describeCell(cell)
+            cell: describeCell(cell),
+            batchId
         };
         if (batchErrorsPosted === MAX_CELL_ERRORS_PER_BATCH) {
             out.suppressing = true;   // further errors in this batch are counted only
         }
-        out[idField] = idValue;
         self.postMessage(out);
     }
 }
@@ -243,12 +234,6 @@ function describeCell(cell) {
         alpha: fmt(cell.alpha), beta: fmt(cell.beta), gamma: fmt(cell.gamma)
     };
 }
-
-// Which id field a given inbound message type acks with. Sniffing
-// `msg.batchId !== undefined ? 'batchId' : 'taskId'` silently mislabelled the
-// ack when a refineBatch arrived with an undefined batchId, so the main thread
-// resolved nothing and the run stalled until the 30 s drain watchdog.
-const ID_FIELD_BY_TYPE = { refineBatch: 'batchId', refine: 'taskId' };
 
 function makeLedger() {
     foundSolutions = createGhostLedger();
@@ -314,19 +299,19 @@ self.onmessage = (e) => {
                 if (!state || !baseParams) {
                     self.postMessage({ type: 'cellError', message: 'Worker not initialized (missing state/baseParams)', batchId });
                     batchErrors++;
-                    self.postMessage(doneMessage('batchId', batchId));
+                    self.postMessage(doneMessage(batchId));
                     return;
                 }
                 if (!Array.isArray(cells)) {
                     self.postMessage({ type: 'cellError', message: 'cells payload is not an array', batchId });
                     batchErrors++;
-                    self.postMessage(doneMessage('batchId', batchId));
+                    self.postMessage(doneMessage(batchId));
                     return;
                 }
-                currentBatch = { idField: 'batchId', idValue: batchId };
+                currentBatch = batchId;
                 let lastBeat = performance.now();
                 for (let i = 0; i < cells.length; i++) {
-                    runOneCell(cells[i], 'batchId', batchId, i);
+                    runOneCell(cells[i], batchId, i);
                     const now = performance.now();
                     if (now - lastBeat >= HEARTBEAT_MS) {
                         lastBeat = now;
@@ -335,31 +320,11 @@ self.onmessage = (e) => {
                 }
                 // Solutions must reach the main thread BEFORE the ack that
                 // resolves this batch's promise.
-                flushSolutions('batchId', batchId);
+                flushSolutions(batchId);
                 // Once per batch, not per cell: the check is O(1) but the
                 // occasional trim is O(k).
                 trimLedgerIfNeeded();
-                self.postMessage(doneMessage('batchId', batchId));
-                currentBatch = null;
-                break;
-            }
-
-            case 'refine': {
-                const { cell, taskId } = msg;
-                resetBatchStats();
-                if (!state || !baseParams) {
-                    self.postMessage({ type: 'cellError', message: 'Worker not initialized (missing state/baseParams)', taskId });
-                    batchErrors++;
-                    self.postMessage(doneMessage('taskId', taskId));
-                    return;
-                }
-                currentBatch = { idField: 'taskId', idValue: taskId };
-                runOneCell(cell, 'taskId', taskId, 0);
-                flushSolutions('taskId', taskId);
-                // The legacy path grew the ledger without ever trimming it,
-                // which defeated the bound entirely for any caller still on it.
-                trimLedgerIfNeeded();
-                self.postMessage(doneMessage('taskId', taskId));
+                self.postMessage(doneMessage(batchId));
                 currentBatch = null;
                 break;
             }
@@ -369,16 +334,14 @@ self.onmessage = (e) => {
         }
     } catch (err) {
         // Catch-all to guarantee the main thread is NEVER left hanging
-        const idField = ID_FIELD_BY_TYPE[msg.type] ||
-                        ((msg.batchId !== undefined) ? 'batchId' : 'taskId');
-        const idValue = msg[idField];
+        const batchId = msg.batchId;
         currentBatch = null;
-        if (idValue !== undefined) {
+        if (batchId !== undefined) {
             // Don't discard solutions already accepted in this batch.
-            try { flushSolutions(idField, idValue); } catch (_) { solutionBuffer = []; }
+            try { flushSolutions(batchId); } catch (_) { solutionBuffer = []; }
             batchErrors++;
-            self.postMessage({ type: 'cellError', message: `Fatal batch error: ${err.message || err}`, [idField]: idValue });
-            self.postMessage(doneMessage(idField, idValue));
+            self.postMessage({ type: 'cellError', message: `Fatal batch error: ${err.message || err}`, batchId });
+            self.postMessage(doneMessage(batchId));
         } else {
             solutionBuffer = [];
             console.error("Fatal worker error without batch ID:", err);
@@ -400,17 +363,17 @@ self.onmessage = (e) => {
 // solutions, then post 'done'. Nothing accepted before the crash is lost.
 function bailOut(what, err) {
     const message = `${what}: ${(err && (err.message || err.reason || err)) || 'unknown'}`;
-    if (!currentBatch) {
+    if (currentBatch === null) {
         console.error('[refinement-worker]', message, err);
         return false;
     }
-    const { idField, idValue } = currentBatch;
+    const batchId = currentBatch;
     currentBatch = null;
-    try { flushSolutions(idField, idValue); } catch (_) { solutionBuffer = []; }
+    try { flushSolutions(batchId); } catch (_) { solutionBuffer = []; }
     batchErrors++;
     try {
-        self.postMessage({ type: 'cellError', message, [idField]: idValue });
-        self.postMessage(doneMessage(idField, idValue));
+        self.postMessage({ type: 'cellError', message, batchId });
+        self.postMessage(doneMessage(batchId));
     } catch (_) { /* the port is gone; nothing left to do */ }
     return true;
 }

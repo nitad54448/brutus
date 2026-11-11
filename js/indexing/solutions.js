@@ -48,7 +48,13 @@ if (solKey) {
     if (dupIdx !== -1) {
         isDuplicate = true;
         if (newSolution.m20 > solutions[dupIdx].m20) {
+            const replaced = solutions[dupIdx];
             solutions[dupIdx] = newSolution;   // keep the better copy
+            // The open solution follows its better copy; otherwise the
+            // selection would point at a cell that is no longer listed.
+            if (replaced === selectedSolution && typeof applySolutionSelection === 'function') {
+                applySolutionSelection(newSolution);
+            }
         } else {
             return;                            // weaker duplicate: drop, no re-render
         }
@@ -68,6 +74,9 @@ if (!isDuplicate) {
         const rank = (x) => (x && isFinite(x.m20)) ? x.m20 : -Infinity;
         solutions.sort((a, b) => rank(b) - rank(a));
         solutions = selectWithSystemReserve(solutions, PRUNE_TO_COUNT);
+        // The open solution may just have been pruned: deselect it.
+        if (selectedSolution && !solutions.includes(selectedSolution) &&
+            typeof applySolutionSelection === 'function') applySolutionSelection(null);
     }
 }
 
@@ -315,10 +324,8 @@ const sortSolutions = () => {
 // One accordion per solution, one open at a time. The open one is the selected
 // solution: its calculated lines are drawn on the plot, and the Solution menu acts on it.
 // A solution can hold several space groups (chosen in Explore, or reached by Convert); one of them
-// is the one simulated on the plot (sol.simSG, a setting_id). Older projects held a single sol.spaceGroup.
+// is the one simulated on the plot (sol.simSG, a setting_id).
 const solutionSGs = (sol) => {
-    if (sol.spaceGroup && !sol.spaceGroups) { sol.spaceGroups = [sol.spaceGroup]; }
-    delete sol.spaceGroup;
     return sol.spaceGroups || (sol.spaceGroups = []);
 };
 const sgKey = (sg) => sg.setting_id || sg.label;

@@ -299,7 +299,8 @@ return mad * 1.4826;
             : (idx > 0 ? tth[idx] - tth[idx-1] : (idx < n-1 ? tth[idx+1] - tth[idx] : 0.01));
 
         // Try 5-point parabola first (more accurate)
-        if (idx > 1 && idx < n - 2) { 
+        let refinedBy5 = false;
+        if (idx > 1 && idx < n - 2) {
             const y1 = smoothed[idx - 2];
             const y2 = smoothed[idx - 1];
             const y3 = smoothed[idx];
@@ -321,14 +322,18 @@ return mad * 1.4826;
                 const delta = -b / (2 * a); // Vertex x = -b / (2a)
                 
                 // delta should be within the 5-point window
-                if (Math.abs(delta) < 2.0) { 
+                if (Math.abs(delta) < 2.0) {
                     refinedTth = tth[idx] + delta * avgStep;
+                    refinedBy5 = true;
                 }
             }
+        }
 
-            
-        //  Use 3-point fit if 5-point fails or is near edge
-        } else if (idx > 0 && idx < n - 1) { 
+        //  Use 3-point fit if 5-point fails or is near edge. This was an
+        //  `else if` of the test above, so it only ever ran next to the scan
+        //  edges: an interior peak whose 5-point fit was rejected stayed on
+        //  its grid point, up to half a step off.
+        if (!refinedBy5 && idx > 0 && idx < n - 1) {
             const y1 = smoothed[idx - 1], y2 = smoothed[idx], y3 = smoothed[idx + 1]; 
             const denominator = (y1 - 2 * y2 + y3); 
             

@@ -164,8 +164,12 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
         if (sol.system === 'orthorhombic' && allowedSystems.includes('hexagonal')) {
             const axes = { a: sol.a, b: sol.b, c: sol.c }; const pairs = [['a','b','c'], ['a','c','b'], ['b','c','a']];
             pairs.forEach(([ax1, ax2, unique_ax]) => {
-                if (Math.abs(axes[ax2] / axes[ax1] / Math.sqrt(3) - 1) < 0.03) {
-                    refineAndTestSolution({ system: 'hexagonal', a: axes[ax1], c: axes[unique_ax], beta: 90, gamma: 120 });
+                // Either axis of the pair may be the long (sqrt(3) a) one:
+                // orthorhombic axes are not sorted by length.
+                for (const [short, long] of [[ax1, ax2], [ax2, ax1]]) {
+                    if (Math.abs(axes[long] / axes[short] / Math.sqrt(3) - 1) < 0.03) {
+                        refineAndTestSolution({ system: 'hexagonal', a: axes[short], c: axes[unique_ax], beta: 90, gamma: 120 });
+                    }
                 }
             });
         }

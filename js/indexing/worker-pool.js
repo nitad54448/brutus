@@ -18,7 +18,6 @@ const setupWorker = () => {
 //     slices. Each slice is sent as a single 'refineBatch' postMessage, amortising
 //     structured-clone overhead across many cells. Returns a Promise that resolves
 //     once every worker has acked its slice.
-//   - refine(cell): convenience wrapper around refineBatch([cell]).
 //   - drain(): resolves once all outstanding batches have completed
 //   - reset(): clears each worker's dedup map between runs
 //   - terminate(): kills workers (used on global stop)
@@ -84,7 +83,7 @@ class RefinementWorkerPool {
     _onMessage(e, w) {
         const msg = e.data;
         if (!this._initialised || !this.workers.includes(w) || !msg || !msg.type) return;
-        const id = msg.batchId !== undefined ? msg.batchId : msg.taskId;
+        const id = msg.batchId;
         if (id === undefined && (msg.type === 'cellError' || msg.type === 'batchError')) {
             this._crashCount++;
             this.onFailure(msg.message || 'Refinement worker initialization failed.');
@@ -179,7 +178,6 @@ class RefinementWorkerPool {
         return Promise.all(promises);
     }
     mark() { return this.nextBatchId; }
-    refine(cell) { return this.refineBatch([cell]); }
     async drain(stallMs = BRUTUS_LIMITS.workers.stallMs, sinceId = 0) {
         const outstanding = () => [...this.pendingResolvers.keys()].some(id => id >= sinceId);
         while (outstanding()) {

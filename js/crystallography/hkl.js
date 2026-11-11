@@ -123,7 +123,13 @@ function generateHKL_for_analysis(params, lambda, maxTth, mode = 'full') {
             const sinBeta = Math.sin(beta * RAD), cosBeta = Math.cos(beta * RAD), sinBetaSq = sinBeta * sinBeta;
            if (!(sinBetaSq >= 1e-6) || !isFinite(sinBetaSq)) return [];
             const a_star_sq = 1 / (a * a * sinBetaSq), b_star_sq = 1 / (b * b), c_star_sq = 1 / (c * c * sinBetaSq), ac_star_term = 2 * cosBeta / (a * c * sinBetaSq);
-            for (let h = -h_max; h <= h_max; h++) {
+            // One half of reciprocal space only. In 2/m (b unique) (h,k,l) and
+            // (-h,k,-l) are the same line, so h >= 0 covers everything, with
+            // l >= 0 on the h = 0 row. This used to sweep h from -h_max for
+            // k > 0 and emit every such line twice, to be merged again by the
+            // dedupe below: twice the work in the refinement hot path, and a
+            // negative-h representative for the line.
+            for (let h = 0; h <= h_max; h++) {
                 const h_term = h * h * a_star_sq, h_l_coeff = h * ac_star_term;
                 const l_vertex_h_only = (c_star_sq !== 0) ? h_l_coeff / (2 * c_star_sq) : 0;
                 const q_min_for_h = (c_star_sq * l_vertex_h_only * l_vertex_h_only) - (h_l_coeff * l_vertex_h_only) + h_term;
@@ -147,7 +153,7 @@ function generateHKL_for_analysis(params, lambda, maxTth, mode = 'full') {
                     const l_hi = Math.min(l_max, Math.floor((h_l_coeff + sq_m) / (2 * c_star_sq)) + 1);
                     for (let l = l_lo; l <= l_hi; l++) {
                         if (h === 0 && k === 0 && l === 0) continue;
-                        if (k === 0) { if (h < 0) continue; if (h === 0 && l <= 0) continue; }
+                        if (h === 0 && l < 0) continue;
                         const inv_d_sq = (c_star_sq * l * l) - (h_l_coeff * l) + hk_term;
                         processReflection(h, k, l, inv_d_sq);
                     }

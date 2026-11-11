@@ -98,11 +98,8 @@
                     return NUM.test(y) && (e.trim() === '' || NUM.test(e)) ? y : null;
                 });
                 if (!intensity) {
-                    // Free format. Files saved by Brutus before this fix hold
-                    // (sigma, Y) in 12-character columns, which the column test
-                    // rejects; read those the old way round so they still load.
-                    const parity = /^\s*Exported by Brutus/i.test(lines[0] || '') ? 1 : 0;
-                    intensity = recs.flatMap(r => tokens(r).filter((_, j) => j % 2 === parity));
+                    // Free format: whitespace-separated (Y, sigma) pairs.
+                    intensity = recs.flatMap(r => tokens(r).filter((_, j) => j % 2 === 0));
                 }
             } else {
                 // STD: NCTR in the first 2 characters of each 8, Y in the other 6.

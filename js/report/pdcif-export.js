@@ -41,9 +41,11 @@ const generatePdCIF = (sol) => {
     cif += `_cell_length_a       ${sol.a.toFixed(5)}\n`;
     cif += `_cell_length_b       ${(sol.b || sol.a).toFixed(5)}\n`;
     cif += `_cell_length_c       ${(sol.c || sol.a).toFixed(5)}\n`;
-    cif += `_cell_angle_alpha    ${(sol.alpha || 90).toFixed(3)}\n`;
-    cif += `_cell_angle_beta     ${(sol.beta || 90).toFixed(3)}\n`;
-    cif += `_cell_angle_gamma    ${(sol.gamma || 90).toFixed(3)}\n`;
+    // Same defaults as everywhere else: a hexagonal cell that carries no
+    // gamma is 120, not 90.
+    cif += `_cell_angle_alpha    ${(sol.alpha ?? 90).toFixed(3)}\n`;
+    cif += `_cell_angle_beta     ${(sol.beta ?? 90).toFixed(3)}\n`;
+    cif += `_cell_angle_gamma    ${(sol.gamma ?? (sol.system === 'hexagonal' ? 120 : 90)).toFixed(3)}\n`;
     cif += `_cell_volume         ${sol.volume.toFixed(3)}\n\n`;
     
     // --- Space group -------------------------------------------------

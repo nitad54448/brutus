@@ -17,10 +17,9 @@
                 parser: parseXrdmlFile
             },
             { // Bruker DIFFRAC XML: <RawData> (RawData0.xml from a .brml, or a .brml
-              // already extracted by file-load.js), or the <RawDataFile> layout that
-              // earlier Brutus versions exported. '<RawData ' / '<RawData>' does not
+              // already extracted by file-load.js). '<RawData ' / '<RawData>' does not
               // match the <RawDataView> elements of other formats.
-                test: (name, content) => /<RawData(File)?[\s>]/.test(content.substring(0, 4000)),
+                test: (name, content) => /<RawData[\s>]/.test(content.substring(0, 4000)),
                 parser: parseBrukerXmlFile
             },
             { // UXD

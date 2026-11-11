@@ -67,6 +67,82 @@ function captureWorkspace() {
             yMin: xrdChart.scales.y.min, yMax: xrdChart.scales.y.max } : null },
         workspaceJsonReplacer), workspaceJsonReviver);
 }
+// --- Shared pattern arrays ------------------------------------------------
+// captureWorkspace() deep-copies the session, so every history entry used to
+// hold its own copy of the raw pattern, the working pattern and the background
+// -- for a file indexed ten times, ten identical copies in memory and ten more
+// in the saved project. The arrays of a loaded pattern are never modified in
+// place (a new file, a strip or a peak search replaces them), so states can
+// share one array wherever the numbers are the same.
+const WORKSPACE_ARRAY_SLOTS = [['full', 'tth'], ['full', 'intensity'], ['working', 'tth'], ['working', 'intensity'], [null, 'background']];
+const workspaceArraySlot = (state, [owner, key]) => owner ? state && state[owner] : state;
+const sameNumberArrays = (a, b) => {
+    if (a === b) return true;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+};
+// Point the pattern arrays of `state` at equal arrays already in `pool`
+// (an array of arrays, extended with the ones that are new). Returns `state`.
+function shareWorkspaceArrays(state, pool) {
+    for (const slot of WORKSPACE_ARRAY_SLOTS) {
+        const holder = workspaceArraySlot(state, slot), array = holder && holder[slot[1]];
+        if (!Array.isArray(array)) continue;
+        const hit = pool.find(held => sameNumberArrays(held, array));
+        if (hit) holder[slot[1]] = hit; else pool.push(array);
+    }
+    return state;
+}
+// The distinct pattern arrays the given states hold.
+function workspaceArrayPool(states) {
+    const pool = new Set();
+    for (const state of states) for (const slot of WORKSPACE_ARRAY_SLOTS) {
+        const holder = workspaceArraySlot(state, slot), array = holder && holder[slot[1]];
+        if (Array.isArray(array)) pool.add(array);
+    }
+    return [...pool];
+}
+// Size of the history as held in memory (and as saved): a shared array counts once.
+function workspaceHistoryBytes(history) {
+    const pool = workspaceArrayPool(history.map(entry => entry.state)), shared = new Set(pool);
+    const rest = JSON.stringify(history, function (key, value) {
+        return shared.has(value) ? 0 : workspaceJsonReplacer(key, value);
+    }).length;
+    return pool.reduce((bytes, array) => bytes + JSON.stringify(array).length, rest);
+}
+// Project file (version 2, the only one read): the pattern arrays are written once, in `arrays`,
+// and each state refers to them as { $array: index }.
+function packWorkspaceProject(state, history, log) {
+    const pool = workspaceArrayPool(history.map(entry => entry.state));
+    shareWorkspaceArrays(state, pool);
+    const index = new Map(pool.map((array, i) => [array, i]));
+    const json = JSON.stringify({ format: 'brutus-project', version: 2, arrays: pool, state, history, log },
+        function (key, value) {
+            // `arrays` itself is written in full; everywhere else a pooled array becomes a reference.
+            if (index.has(value) && this !== pool) return { $array: index.get(value) };
+            return workspaceJsonReplacer(key, value);
+        });
+    return json;
+}
+// Resolve the array references of a project in place. Throws on a file of any
+// other format or version, and on a reference that is not valid.
+function unpackWorkspaceProject(project) {
+    if (!project || project.format !== 'brutus-project' || project.version !== 2) throw Error('Unsupported project format or version.');
+    const arrays = project.arrays;
+    if (!Array.isArray(arrays) || !arrays.every(a => Array.isArray(a) && a.every(Number.isFinite))) throw Error('Invalid project arrays.');
+    if (!Array.isArray(project.history)) throw Error('Invalid project history.');
+    const resolve = state => {
+        for (const slot of WORKSPACE_ARRAY_SLOTS) {
+            const holder = workspaceArraySlot(state, slot), ref = holder && holder[slot[1]];
+            if (!holder || !(slot[1] in holder)) continue;   // absent: validateWorkspace reports it
+            if (!ref || typeof ref !== 'object' || Array.isArray(ref) || !Number.isInteger(ref.$array) || ref.$array < 0 || ref.$array >= arrays.length) throw Error('Invalid project array reference.');
+            holder[slot[1]] = arrays[ref.$array];
+        }
+    };
+    resolve(project.state);
+    for (const entry of project.history) if (entry) resolve(entry.state);
+    return project;
+}
 function validateWorkspace(data) {
     const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
     const invalid = field => { throw Error(`Invalid project ${field}.`); };
@@ -123,7 +199,6 @@ function validateWorkspace(data) {
             if (!Array.isArray(sol.spaceGroups)) invalid('space groups');
             sol.spaceGroups.forEach(checkGroup);
         }
-        if (sol.spaceGroup != null) checkGroup(sol.spaceGroup);
         for (const key of ['errors','mcFrom','convertedFrom','sgEvidence','analysis','_niggli']) {
             if (sol[key] != null && !record(sol[key])) invalid(key);
         }
@@ -149,11 +224,9 @@ function validateWorkspace(data) {
                 }
             }
             const ambiguous = sol.analysis.ambiguousHkls;
-            // Earlier version-1 projects serialized Sets as {}. Recover those
-            // as empty sets; new projects retain their reflection keys.
+            // A Set in memory (run history), an array of reflection keys in a file.
             if (ambiguous != null && !(ambiguous instanceof Set) &&
-                !(Array.isArray(ambiguous) && ambiguous.every(value => typeof value === 'string')) &&
-                !(record(ambiguous) && Object.keys(ambiguous).length === 0)) invalid('ambiguous reflections');
+                !(Array.isArray(ambiguous) && ambiguous.every(value => typeof value === 'string'))) invalid('ambiguous reflections');
         }
     });
     if (data.controls != null) {
@@ -250,8 +323,8 @@ function applyWorkspace(data) {
         const ambiguous = sol.analysis.ambiguousHkls;
         sol.analysis.ambiguousHkls = ambiguous instanceof Set ? ambiguous : new Set(Array.isArray(ambiguous) ? ambiguous : []);
     }
-    // Old version-1 saves converted Infinity to null. Leave those margins
-    // unavailable rather than letting legacy coercive formatters read zero.
+    // JSON writes a non-finite number as null. Leave such a value unavailable
+    // rather than letting a formatter read it as zero.
     for (const sol of solutions) for (const key of ['sgMargin','sgScore','zero_correction']) {
         if (sol[key] === null) delete sol[key];
     }
@@ -301,14 +374,16 @@ let historyWarned = false;
 const formatMB = bytes => (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 async function checkHistorySize() {
     if (historyWarned) return;
-    let bytes = JSON.stringify(workspaceHistory).length;
+    let bytes = workspaceHistoryBytes(workspaceHistory);
     if (bytes <= HISTORY_WARN_BYTES) return;
     historyWarned = true;
     const prune = await showNotice('Large history', `The run history now takes about ${formatMB(bytes)}. A history this large can exhaust the browser's memory. Remove the oldest runs now (the most recent ones are kept)?`, { confirmLabel: 'Remove oldest', cancelLabel: 'Keep all' });
     if (!prune) return;
     // Drop the oldest runs until half the limit is left, always keeping the latest.
+    // Re-measured after each removal: a pattern shared with a later run stays.
     while (workspaceHistory.length > 1 && bytes > HISTORY_WARN_BYTES / 2) {
-        bytes -= JSON.stringify(workspaceHistory.shift()).length;
+        workspaceHistory.shift();
+        bytes = workspaceHistoryBytes(workspaceHistory);
     }
     renderWorkspaceHistory();
     appendWorkspaceLog(`History pruned to ${workspaceHistory.length} run(s), about ${formatMB(bytes)}.`);
@@ -321,7 +396,9 @@ function recordWorkspaceRun(indexing) {
         const started = workspaceRunStarted; workspaceRunStarted = null;
         // Capture after finalization and the last solutions-table update.
         queueMicrotask(() => {
-            workspaceHistory.push({ started, state: captureWorkspace() });
+            // The pattern arrays are shared with the runs already recorded (same file, same numbers).
+            const pool = workspaceArrayPool(workspaceHistory.map(entry => entry.state));
+            workspaceHistory.push({ started, state: shareWorkspaceArrays(captureWorkspace(), pool) });
             renderWorkspaceHistory();
             checkHistorySize();
             appendWorkspaceLog(`Indexing finished: ${solutions.length} solutions.`);
@@ -426,8 +503,7 @@ workspaceNode('workspace-views').addEventListener('keydown', e => {
 workspaceNode('menu-unload').addEventListener('click', openUnloadDialog);
 workspaceNode('save-project').addEventListener('click', async () => {
     if (isIndexing) { showStatus('Wait for indexing to finish before saving a project.'); return; }
-    const project = { format: 'brutus-project', version: 1, state: captureWorkspace(), history: workspaceHistory, log: workspaceLog };
-    const blob = new Blob([JSON.stringify(project, workspaceJsonReplacer)], { type: 'application/json' });
+    const blob = new Blob([packWorkspaceProject(captureWorkspace(), workspaceHistory, workspaceLog)], { type: 'application/json' });
     if (blob.size > PROJECT_WARN_BYTES && !await showNotice('Large project', `This project file will be ${formatMB(blob.size)} (more than ${formatMB(PROJECT_WARN_BYTES)}), mostly run history. Save it anyway?`, { confirmLabel: 'Save', cancelLabel: 'Cancel' })) return;
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a'); link.href = url;
@@ -442,13 +518,14 @@ workspaceNode('project-input').addEventListener('change', async e => {
     try {
         const project = JSON.parse(await file.text(), workspaceJsonReviver);
         if (token !== fileLoadToken || isIndexing) return;
-        if (project.format !== 'brutus-project' || project.version !== 1) throw Error('Unsupported project format or version.');
+        unpackWorkspaceProject(project);
         validateWorkspace(project.state);
         if (!Array.isArray(project.history) || !Array.isArray(project.log)) throw Error('Invalid project history.');
         project.history.forEach(entry => { if (!entry || !Number.isFinite(Date.parse(entry.started))) throw Error('Invalid history entry.'); validateWorkspace(entry.state); });
         if (!project.log.every(entry => entry && typeof entry.message === 'string' && Number.isFinite(Date.parse(entry.time)))) throw Error('Invalid project log.');
         restoreWorkspace(project.state);
-        workspaceHistory = project.history;
+        workspaceHistory = project.history;   // its runs already share the file's arrays
+        historyWarned = false;
         workspaceLog.splice(0, workspaceLog.length, ...project.log.slice(-BRUTUS_LIMITS.workspace.logEntries));
         renderWorkspaceHistory(); renderWorkspaceLog();
         appendWorkspaceLog(`Opened project ${file.name}.`);

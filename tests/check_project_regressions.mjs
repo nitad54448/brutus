@@ -112,3 +112,44 @@ test('infinite margins remain decisive and missing MC source merit stays printab
     assert.ok(!output.verdict.includes('SG?'));
     assert.ok(output.mc.includes('M20 ?'));
 });
+
+test('a version-2 project stores each pattern once and restores every run', () => {
+    const { run } = harness();
+    const result = run(`(() => {
+        fullExperimentalData = { tth: Array.from({ length: 500 }, (_, i) => 10 + i * 0.02), intensity: Array.from({ length: 500 }, (_, i) => 100 + (i * 37) % 91) };
+        workingExperimentalData = fullExperimentalData;
+        calculatedBackground = fullExperimentalData.intensity.map(v => v / 2);
+        const history = [];
+        for (let i = 0; i < 4; i++) {
+            const pool = workspaceArrayPool(history.map(e => e.state));
+            history.push({ started: new Date(2026, 0, i + 1).toISOString(), state: shareWorkspaceArrays(captureWorkspace(), pool) });
+        }
+        const shared = history.every(e => e.state.full.tth === history[0].state.full.tth &&
+            e.state.working.intensity === history[0].state.full.intensity && e.state.background === history[0].state.background);
+        const inline = JSON.stringify({ state: captureWorkspace(), history }).length;
+        const json = packWorkspaceProject(captureWorkspace(), history, []);
+        const project = unpackWorkspaceProject(JSON.parse(json, workspaceJsonReviver));
+        validateWorkspace(project.state);
+        project.history.forEach(e => validateWorkspace(e.state));
+        let oldVersion = '';
+        try { unpackWorkspaceProject({ format: 'brutus-project', version: 1, state: captureWorkspace(), history: [], log: [] }); }
+        catch (error) { oldVersion = error.message; }
+        let badReference = '';
+        try { const broken = JSON.parse(json); broken.state.full.tth = { $array: 99 }; unpackWorkspaceProject(broken); }
+        catch (error) { badReference = error.message; }
+        return JSON.stringify({ shared, inline, packed: json.length, measured: workspaceHistoryBytes(history),
+            arrays: project.arrays.length, version: project.version, badReference, oldVersion,
+            same: JSON.stringify(project.state.full) === JSON.stringify(fullExperimentalData) &&
+                JSON.stringify(project.history[3].state.background) === JSON.stringify(calculatedBackground) &&
+                project.history[0].state.full.tth === project.state.working.tth });
+    })()`);
+    const out = JSON.parse(result);
+    assert.equal(out.shared, true);
+    assert.equal(out.version, 2);
+    assert.equal(out.arrays, 3);
+    assert.equal(out.same, true);
+    assert.match(out.badReference, /array reference/);
+    assert.match(out.oldVersion, /Unsupported project/);
+    assert.ok(out.packed < out.inline / 3, `${out.packed} vs ${out.inline}`);
+    assert.ok(out.measured < out.inline / 3, `${out.measured} vs ${out.inline}`);
+});

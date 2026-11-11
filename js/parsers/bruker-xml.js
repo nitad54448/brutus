@@ -21,33 +21,7 @@
     // The column of each quantity is read from the RawDataView declarations:
     // it moves with the scan type (a 2-circle scan has 5 columns, an HRXRD
     // scan with reciprocal-space columns has 8, counts last).
-    //
-    // Brutus versions before 28 Oct 2026 exported their own <RawDataFile>
-    // layout (start/increment + a <counts> list); that is still read so those
-    // files keep loading.
     const BRUKER_BLANKING_VALUE = -9999;
-
-    const parseBrukerLegacyXml = (xmlDoc) => {
-        const radiation = {};
-        const wlNode = xmlDoc.querySelector('usedWavelength');
-        if (wlNode) {
-            const attr = (name) => { const v = parseFloat(wlNode.getAttribute(name)); return Number.isFinite(v) ? v : null; };
-            radiation.ka1 = attr('kAlpha1');
-            radiation.ka2 = attr('kAlpha2');
-            radiation.ratio = attr('ratioKAlpha2KAlpha1') ?? attr('ratio');
-            radiation.intended = wlNode.getAttribute('intended') || '';
-        }
-        const intensityNode = xmlDoc.querySelector("dataPoints > counts");
-        if (!intensityNode) throw new Error("No <counts> data found in Bruker XML file.");
-        const intensity = numberList(intensityNode.textContent);
-        const startPosNode = xmlDoc.querySelector('startPosition[axis="TwoTheta"]');
-        const stepSizeNode = xmlDoc.querySelector('increment[axis="TwoTheta"]');
-        if (!startPosNode || !stepSizeNode) throw new Error("Could not find scan parameters in Bruker XML file.");
-        const startPos = parseFloat(startPosNode.textContent);
-        const stepSize = parseFloat(stepSizeNode.textContent);
-        const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * stepSize);
-        return { tth, intensity, radiation };
-    };
 
     // Children of `parent` with the given tag name (direct children only, so a
     // nested element of the same name elsewhere is never picked up).
@@ -141,8 +115,6 @@
 
     const parseBrukerXmlFile = (xmlString) => {
         const xmlDoc = parseXmlDocument(xmlString, 'Bruker XML');
-        const root = xmlDoc.documentElement && xmlDoc.documentElement.localName;
-        if (root === 'RawDataFile') return parseBrukerLegacyXml(xmlDoc);
         return parseBrukerRawDataXml(xmlDoc);
     };
 
