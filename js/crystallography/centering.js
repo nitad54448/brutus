@@ -351,10 +351,27 @@ function detectExtinctions(indexed_hkls, system, spaceGroupData, allowedCenterin
     const peakOnLine = rangeLines
         ? Uint8Array.from(rangeLines, L => obsTth.some(o => Math.abs(o - L.tth) <= indexWindow) ? 1 : 0)
         : null;
+    const eqCache = new Map();
+    const getEquivs = (h, k, l) => {
+        const key = `${h},${k},${l}`;
+        let eqs = eqCache.get(key);
+        if (!eqs) {
+            eqs = sgEquivalents(h, k, l, system);
+            eqCache.set(key, eqs);
+        }
+        return eqs;
+    };
+    const orbitInZone = (zone, h, k, l) =>
+        getEquivs(h, k, l).filter(([eh, ek, el]) => zoneApplies(zone, eh, ek, el));
+    const zoneSatisfies = (zone, cond, h, k, l) => {
+        const eqs = orbitInZone(zone, h, k, l);
+        return eqs.length > 0 && eqs.some(([eh, ek, el]) => satisfiesCondition(eh, ek, el, cond));
+    };
+
     const zoneMaskCache = {};
     const zoneMask = (zone) => {
         if (zoneMaskCache[zone]) return zoneMaskCache[zone];
-        const mask = Uint8Array.from(rangeLines, L => zoneApplies(zone, L.h, L.k, L.l) ? 1 : 0);
+        const mask = Uint8Array.from(rangeLines, L => orbitInZone(zone, L.h, L.k, L.l).length > 0 ? 1 : 0);
         zoneMaskCache[zone] = mask;
         return mask;
     };
@@ -369,7 +386,7 @@ function detectExtinctions(indexed_hkls, system, spaceGroupData, allowedCenterin
         let anyForbidden = false;
         for (let i = 0; i < nLines; i++) {
             const L = rangeLines[i];
-            permits[i] = (!inZone[i] || satisfiesCondition(L.h, L.k, L.l, cond)) ? 1 : 0;
+            permits[i] = (!inZone[i] || zoneSatisfies(zone, cond, L.h, L.k, L.l)) ? 1 : 0;
             if (!permits[i]) anyForbidden = true;
         }
         if (!anyForbidden) return { verified: 0, broken: 0, tested: true };
@@ -399,7 +416,7 @@ function detectExtinctions(indexed_hkls, system, spaceGroupData, allowedCenterin
     potentialRules.forEach(ruleStr => {
         const parsedRule = parseRuleString(ruleStr); if (!parsedRule) return;
         const { zone, condition } = parsedRule;
-            const zoneReflections = indexed_hkls.filter(refl => zoneApplies(zone, refl.h, refl.k, refl.l));
+            const zoneReflections = indexed_hkls.filter(refl => orbitInZone(zone, refl.h, refl.k, refl.l).length > 0);
         if (zoneReflections.length === 0) { return; }
         // A rule is "confirmed" if every reliable reflection in the
         // zone satisfies it. Two classes of unreliable reflections are
@@ -422,11 +439,11 @@ function detectExtinctions(indexed_hkls, system, spaceGroupData, allowedCenterin
         // as satisfied never appears in the detected list. The rule does not
         // constrain an alternative outside its own zone, so such an alternative
         // counts as allowed.
-        const ruleAllows = (a) => !zoneApplies(zone, a.h, a.k, a.l) ||
-                                  satisfiesCondition(a.h, a.k, a.l, condition);
+        const ruleAllows = (a) => orbitInZone(zone, a.h, a.k, a.l).length === 0 ||
+                                  zoneSatisfies(zone, condition, a.h, a.k, a.l);
         let hardFails = 0, forgiven = 0;
         for (const refl of refSetForRule) {
-            if (satisfiesCondition(refl.h, refl.k, refl.l, condition)) continue;
+            if (zoneSatisfies(zone, condition, refl.h, refl.k, refl.l)) continue;
             if (hasCompetingAllowedAlt(refl, ruleAllows)) forgiven++;
             else hardFails++;
         }

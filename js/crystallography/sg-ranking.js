@@ -15,6 +15,16 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
     const centeringWeights = { 'P': 1.0, 'A': 1.5, 'B': 1.5, 'C': 1.5, 'I': 2.0, 'F': 2.0, 'R': 2.0 };
     // Cache of condition selectivity weights, shared across all candidate settings.
     const selectivityCache = {};
+    const eqCache = new Map();
+    const getEquivs = (h, k, l) => {
+        const key = `${h},${k},${l}`;
+        let eqs = eqCache.get(key);
+        if (!eqs) {
+            eqs = sgEquivalents(h, k, l, system);
+            eqCache.set(key, eqs);
+        }
+        return eqs;
+    };
 
     // --- DETECTED-EXTINCTION AGREEMENT ---
     // countViolations() only ever looks at reflections that ARE present: it can
@@ -38,7 +48,7 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
         .filter(Boolean);
     // Reflections observed in each detected zone = how much data backs the rule.
     detectedList.forEach(dc => {
-        dc.nObs = indexed_hkls.filter(r => zoneApplies(dc.zone, r.h, r.k, r.l)).length;
+        dc.nObs = indexed_hkls.filter(r => getEquivs(r.h, r.k, r.l).some(([eh, ek, el]) => zoneApplies(dc.zone, eh, ek, el))).length;
     });
 
     // Does this rule set entail `cond` over `zone`? i.e. is every reflection the
@@ -120,10 +130,11 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
                     conditions.forEach(cond => {
                         const w = selectivity(zone, cond);
                         indexed_hkls.forEach(refl => {
-                            // General 'hkl' rules apply to all reflections; specific zones apply only to their zone
-                            const applies = zoneApplies(zone, refl.h, refl.k, refl.l);
+                            // General 'hkl' rules apply to all reflections; specific zones apply only to their zone,
+                            // evaluated across the full holohedral orbit because powder peaks hold one canonical HKL.
+                            const eqs = getEquivs(refl.h, refl.k, refl.l).filter(([eh, ek, el]) => zoneApplies(zone, eh, ek, el));
 
-                            if (applies && satisfiesCondition(refl.h, refl.k, refl.l, cond)) {
+                            if (eqs.length > 0 && eqs.some(([eh, ek, el]) => satisfiesCondition(eh, ek, el, cond))) {
                                 // Full point for strong/reliable reflections; 0.25 for Ka2-suspect or weak tails,
                                 // each scaled by how selective the confirmed condition is.
                                 if (!refl.ka2Suspect && !refl.lowIntensity) {
